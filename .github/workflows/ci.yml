@@ -350,7 +350,7 @@ jobs:
           set +e
           sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.3 --yes
           rc=$?
-          set -e
+          set -ex
           test "$rc" != 0
           test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
           sudo grep -q 'status=rolled_back' "$DATA/state/update.state"
@@ -363,7 +363,7 @@ jobs:
           set +e
           sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.4 --yes
           rc=$?
-          set -e
+          set -ex
           test "$rc" != 0
           test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
           sudo grep -q 'status=failed_build' "$DATA/state/update.state"
