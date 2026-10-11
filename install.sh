@@ -237,8 +237,7 @@ okk "Конфигурация: $ENV_FILE (права 600)"
 
 KEY_FILE="$CONFIG_DIR/backup.key"
 if [ ! -f "$KEY_FILE" ]; then
-  umask 077
-  rand_secret 48 > "$KEY_FILE"
+  ( umask 077; rand_secret 48 > "$KEY_FILE" )
   chmod 600 "$KEY_FILE"
   okk "Создан ключ шифрования резервных копий: $KEY_FILE"
   warn_key=1

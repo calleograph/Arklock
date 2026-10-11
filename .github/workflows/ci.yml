@@ -458,6 +458,8 @@ jobs:
           sudo journalctl -u "arklock-updater-$PROJ" --no-pager -n 80 || true
           sudo cat "$DATA/updater/update.log" || true
           sudo cat "$DATA/updater/status.json" || true
+          sudo ls -l "$DATA/updater" || true
+          sudo cat "$DATA/updater/history.jsonl" || true
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

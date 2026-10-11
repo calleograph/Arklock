@@ -67,7 +67,7 @@ write_status() {
 
 history_add() {
   printf '{"at":"%s","action":"%s","result":"%s","version_from":"%s","version_to":"%s","message":"%s"}\n' \
-    "$(date -u +%FT%TZ)" "$ST_ACTION" "$ST_RESULT" "$(jstr "$ST_FROM")" "$(jstr "$ST_TO")" "$(jstr "$ST_MSG")" >> "$CH/history.jsonl"
+    "$(date -u +%FT%TZ)" "$ST_ACTION" "$ST_RESULT" "$(jstr "$ST_FROM")" "$(jstr "$ST_TO")" "$(jstr "$ST_MSG")" >> "$CH/history.jsonl"; chmod 644 "$CH/history.jsonl"
   # журнал истории ограничен по размеру
   if [ "$(wc -l < "$CH/history.jsonl")" -gt 500 ]; then tail -n 300 "$CH/history.jsonl" > "$CH/.history.tmp" && mv -f "$CH/.history.tmp" "$CH/history.jsonl"; fi
 }
@@ -253,6 +253,8 @@ cmd_install() {
   need_root; need_cmd systemctl
   ensure_channel
   [ -f "$CH/history.jsonl" ] || : > "$CH/history.jsonl"
+  # файлы обмена должны быть читаемы приложением независимо от umask вызывающего
+  chmod 644 "$CH/history.jsonl"
   unit_text > "$UNIT_FILE.new"
   if [ ! -f "$UNIT_FILE" ] || ! cmp -s "$UNIT_FILE" "$UNIT_FILE.new"; then mv -f "$UNIT_FILE.new" "$UNIT_FILE"; systemctl daemon-reload; else rm -f "$UNIT_FILE.new"; fi
   systemctl enable "$UNIT" >/dev/null 2>&1
