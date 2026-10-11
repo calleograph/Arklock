@@ -28,7 +28,7 @@ export interface ImportResult {
 
 /** Разбор CSV (RFC 4180): кавычки, экранирование "", переводы строк внутри полей, BOM, разделители , ; и табуляция. */
 export function parseCsv(text: string): string[][] {
-  const src = text.replace(/^﻿/, '');
+  const src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   const first = src.split(/\r?\n/, 1)[0] ?? '';
   const delim = [',', ';', '\t']
     .map((d) => ({ d, n: first.split(d).length }))
