@@ -150,7 +150,7 @@ jobs:
             bash -n "$f" || rc=1
           done
           exit $rc
-      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh
+      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh
 
   installer:
     name: installer, backup and restore on a clean Ubuntu 24.04 runner
@@ -391,3 +391,77 @@ jobs:
       - name: Cleanup
         if: always()
         run: sudo docker compose --project-name "$PROJ" down -v || true
+
+  update-from-web:
+    name: helper service and update from the browser
+    runs-on: ubuntu-24.04
+    env:
+      CFG: /etc/arklock-web
+      DATA: /var/lib/arklock-web
+      APPDIR: /opt/arklock-web
+      PROJ: arklock-web
+      ARKLOCK_UPDATE_WAIT: '120'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: bash tests/updater/test-parse.sh
+      - name: Release fixture (v0.0.1 and v0.0.2)
+        run: tests/update/web-fixture.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
+      - name: Install v0.0.1; the helper service starts
+        run: |
+          cp install.sh "$RUNNER_TEMP/install-standalone.sh"
+          sudo "$RUNNER_TEMP/install-standalone.sh" --yes --profile standalone --repo "file://$RUNNER_TEMP/origin.git" --ref v0.0.1 \
+            --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" | tee install.log
+          grep -q "Помощник обновлений: работает" install.log
+          systemctl is-active "arklock-updater-$PROJ"
+          sudo "$APPDIR/scripts/updater.sh" status --env "$CFG/arklock.env"
+          echo "PORT=$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
+          echo "LIVE_SETUP_TOKEN=$(sudo sed -n 's/^BOOTSTRAP_TOKEN=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
+      - name: Helper rejects forged requests
+        run: |
+          set -x
+          before="$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")"
+          sudo sh -c "printf 'request_id=123e4567-e89b-42d3-a456-426614174000\naction=update\nversion=v0.0.2;touch /tmp/pwned\n' > '$DATA/updater/request.txt'"
+          for i in $(seq 1 20); do sudo grep -q '"result":"rejected"' "$DATA/updater/status.json" 2>/dev/null && break; sleep 1; done
+          sudo grep -q '"result":"rejected"' "$DATA/updater/status.json"
+          test ! -e /tmp/pwned
+          sudo sh -c "ln -sf /etc/passwd '$DATA/updater/request.txt'"
+          sleep 5
+          test ! -e "$DATA/updater/request.txt" || sudo test ! -L "$DATA/updater/request.txt"
+          test "$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")" = "$before"
+      - name: Helper survives a restart
+        run: |
+          sudo systemctl restart "arklock-updater-$PROJ"
+          sleep 6
+          sudo "$APPDIR/scripts/updater.sh" status --env "$CFG/arklock.env"
+      - name: Browser - check, update with re-authentication, failed release recovery
+        env:
+          LIVE_BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          LIVE_ORIGIN: ${{ runner.temp }}/origin.git
+        run: |
+          npx playwright install --with-deps chromium
+          npm run build -w @arklock/crypto -w @arklock/contracts
+          npx playwright test --project=live
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          sudo journalctl -u "arklock-updater-$PROJ" --no-pager -n 80 || true
+          sudo cat "$DATA/updater/update.log" || true
+          sudo cat "$DATA/updater/status.json" || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-live-traces
+          path: test-results
+          retention-days: 7
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo "$APPDIR/scripts/updater.sh" uninstall --env "$CFG/arklock.env" || true
+          sudo docker compose --project-name "$PROJ" down -v || true

@@ -205,6 +205,8 @@ say "Каталоги: $CONFIG_DIR, $DATA_ROOT"
 run install -d -m 0750 "$CONFIG_DIR"
 run install -d -m 0750 "$DATA_ROOT"
 for d in backups state updater logs tmp blobs; do run install -d -m 0750 "$DATA_ROOT/$d"; done
+# Каталог обмена с помощником обновлений: контейнер приложения (непривилегированный) должен писать в него запросы.
+run chmod 1777 "$DATA_ROOT/updater"
 
 if [ "$DRY" -eq 1 ]; then
   say "[dry-run] создание $ENV_FILE, ключа резервного шифрования, запуск контейнеров и проверок"
@@ -260,6 +262,13 @@ okk "Arklock запущен"
 # ------------------------------------------------------------------ 8. Проверка
 if "$REPO_ROOT/scripts/verify.sh" --env "$ENV_FILE"; then okk "Проверка установки пройдена"; else fail "Проверка установки нашла проблемы (см. выше)"; exit 1; fi
 
+# ------------------------------------------------------------------ 8а. Помощник обновлений
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  if "$REPO_ROOT/scripts/updater.sh" install --env "$ENV_FILE"; then HELPER_STATE="работает (служба arklock-updater-$COMPOSE_PROJECT_NAME)"; else HELPER_STATE="НЕ ЗАПУЩЕН — выполните scripts/updater.sh repair"; fi
+else
+  HELPER_STATE="не установлен: systemd не обнаружен (обновление из веб-интерфейса недоступно)"
+fi
+
 # ------------------------------------------------------------------ 9. Итог
 URL="${APP_PUBLIC_URL:-$(app_url_local)}"
 TOKEN="$(env_get "$ENV_FILE" BOOTSTRAP_TOKEN)"
@@ -270,6 +279,7 @@ cat <<EOF
  Версия:           $(app_version) ($(git_commit | cut -c1-12))
  Адрес (локально): $(app_url_local)
  Адрес (публичный): ${APP_PUBLIC_URL:-не задан — настройте reverse proxy с HTTPS на 127.0.0.1:$PORT}
+ Помощник обновлений: $HELPER_STATE
  Конфигурация:     $ENV_FILE
  Данные:           $DATA_ROOT
 

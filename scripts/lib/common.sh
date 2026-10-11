@@ -6,7 +6,7 @@
 # shellcheck shell=bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="${ARKLOCK_REPO_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 DEFAULT_CONFIG_DIR="/etc/arklock"
 DEFAULT_ENV_FILE="$DEFAULT_CONFIG_DIR/arklock.env"

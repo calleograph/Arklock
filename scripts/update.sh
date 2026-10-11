@@ -36,6 +36,7 @@ git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "Каталог �
 acquire_lock
 "$REPO_ROOT/scripts/preflight.sh" --env "$ENV_FILE" || die "Требования для обновления не выполнены (ничего не изменено)."
 
+upd_step 1 7 "Проверка требований и получение версий"
 upd_log "Проверка обновлений: получение тегов"
 upd_fetch || die "Не удалось связаться с репозиторием. Приложение продолжает работать без изменений."
 
@@ -61,6 +62,7 @@ if [ "$DRY" -eq 1 ]; then ok "[dry-run] будет выполнено обнов
 if [ "$YES" -ne 1 ]; then read -r -p "Обновить Arklock до $TARGET_TAG? [y/N] " a; [ "$a" = y ] || die "Отменено."; fi
 
 # --- резервная копия перед обновлением
+upd_step 2 7 "Резервная копия перед обновлением"
 state_set update status running
 state_set update started_at "$(date -u +%FT%TZ)"
 upd_log "Резервная копия перед обновлением"
@@ -115,6 +117,7 @@ recover() { # recover ПРИЧИНА — автоматическое восст
 
 # --- получение новой версии и сборка (прежняя версия продолжает работать)
 git -C "$REPO_ROOT" checkout --quiet --detach "$TARGET_COMMIT" || { state_set update status failed; die "Не удалось переключить код на $TARGET_TAG"; }
+upd_step 3 7 "Получение и сборка новой версии"
 upd_log "Сборка образа версии $TARGET_VERSION"
 export_build_info
 if ! dc build app >"$DATA_ROOT/logs/update-build.log" 2>&1; then
@@ -125,11 +128,14 @@ if ! dc build app >"$DATA_ROOT/logs/update-build.log" 2>&1; then
 fi
 
 # --- запуск (миграции применяются приложением при старте) и проверки
+upd_step 4 7 "Запуск новой версии и миграции БД"
 upd_log "Запуск новой версии и применение миграций"
 upd_wait_app "${ARKLOCK_UPDATE_WAIT:-240}" || recover "приложение не стало готовым после запуска"
+upd_step 5 7 "Проверка работоспособности"
 "$REPO_ROOT/scripts/verify.sh" --env "$ENV_FILE" >"$DATA_ROOT/logs/update-verify.log" 2>&1 || { tail -n 20 "$DATA_ROOT/logs/update-verify.log" >&2; recover "проверка verify не пройдена"; }
 "$REPO_ROOT/scripts/smoke-test.sh" --env "$ENV_FILE" >"$DATA_ROOT/logs/update-smoke.log" 2>&1 || { tail -n 20 "$DATA_ROOT/logs/update-smoke.log" >&2; recover "smoke-тест не пройден"; }
 
+upd_step 6 7 "Фиксация результата"
 NEW_MIGR="$(upd_migrations_applied)"
 state_set update status success
 state_set update last_success_at "$(date -u +%FT%TZ)"
@@ -138,4 +144,5 @@ state_set update migrations_after "${NEW_MIGR:-0}"
 state_set install version "$TARGET_VERSION"
 state_set install commit "$TARGET_COMMIT"
 upd_log "Обновление завершено: $CUR_VERSION → $TARGET_VERSION (миграции: ${CUR_MIGR:-?} → ${NEW_MIGR:-?})"
+upd_step 7 7 "Готово"
 ok "Arklock обновлён до $TARGET_VERSION. Откат: scripts/rollback.sh (безопасен, только если схема БД не менялась)."

@@ -12,6 +12,13 @@ upd_log() { # журнал обновлений (отдельный файл) + 
   info "$msg"
 }
 
+# Машиночитаемая отметка этапа для помощника обновлений (выводится только при ARKLOCK_PROGRESS=1).
+upd_step() { # upd_step НОМЕР ВСЕГО НАЗВАНИЕ
+  [ "${ARKLOCK_PROGRESS:-}" = 1 ] && printf 'ARKLOCK_STEP %s %s %s
+' "$1" "$2" "$3"
+  return 0
+}
+
 upd_init() {
   mkdir -p "$DATA_ROOT/logs" "$STATE_DIR"
   UPDATE_LOG_FILE="$DATA_ROOT/logs/updates.log"

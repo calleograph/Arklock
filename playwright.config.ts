@@ -35,6 +35,11 @@ export default defineConfig({
       use: { baseURL: `http://127.0.0.1:${PORT_ACCOUNTS}` },
     },
     {
+      name: 'live',
+      testMatch: 'live-update.spec.ts',
+      use: { baseURL: process.env.LIVE_BASE_URL },
+    },
+    {
       name: 'updates',
       testMatch: 'updates.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_UPDATES}` },
