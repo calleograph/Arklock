@@ -5,9 +5,13 @@ import { defineConfig } from '@playwright/test';
 const PORT_ACCOUNTS = 18181;
 const PORT_UPDATES = 18182;
 const PORT_WORKSPACE = 18183;
+const PORT_ADMIN = 18184;
 const BLOB_WORKSPACE = path.resolve('test-results', 'blobs-workspace');
+const ADMIN_UPDATER_DIR = path.resolve('test-results', 'admin-updater');
 const UPDATER_DIR = path.resolve('test-results', 'updater-dir');
 mkdirSync(UPDATER_DIR, { recursive: true });
+mkdirSync(ADMIN_UPDATER_DIR, { recursive: true });
+mkdirSync(path.resolve('test-results', 'blobs-admin'), { recursive: true });
 rmSync(BLOB_WORKSPACE, { recursive: true, force: true });
 mkdirSync(BLOB_WORKSPACE, { recursive: true });
 
@@ -49,12 +53,29 @@ export default defineConfig({
       use: { baseURL: `http://127.0.0.1:${PORT_WORKSPACE}` },
     },
     {
+      name: 'admin',
+      testMatch: /admin-panel.*.spec.ts/,
+      use: { baseURL: `http://127.0.0.1:${PORT_ADMIN}` },
+    },
+    {
       name: 'updates',
       testMatch: 'updates.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_UPDATES}` },
     },
   ],
   webServer: [
+    {
+      command: 'node apps/api/dist/main.js',
+      url: `http://127.0.0.1:${PORT_ADMIN}/api/v1/ready`,
+      timeout: 60_000,
+      env: {
+        ...common,
+        PORT: String(PORT_ADMIN),
+        BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-4',
+        UPDATER_DIR: ADMIN_UPDATER_DIR,
+        BLOB_DIR: path.resolve('test-results', 'blobs-admin'),
+      },
+    },
     {
       command: 'node apps/api/dist/main.js',
       url: `http://127.0.0.1:${PORT_WORKSPACE}/api/v1/ready`,

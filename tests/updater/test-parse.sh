@@ -19,6 +19,84 @@ case_bad() {
 case_ok "check" "request_id=$ID\naction=check\nby=$ID\nat=2026-10-11T10:00:00Z\n"
 case_ok "update с версией" "request_id=$ID\naction=update\nversion=v1.2.3\nby=$ID\n"
 case_ok "rollback с восстановлением" "request_id=$ID\naction=rollback\nwith_restore=1\n"
+case_ok "backup с меткой" "request_id=$ID
+action=backup
+label=manual
+by=$ID
+"
+case_ok "backup_verify" "request_id=$ID
+action=backup_verify
+file=arklock-20261012T010203Z-v0.1.0.bak.gpg
+"
+case_ok "backup_delete" "request_id=$ID
+action=backup_delete
+file=arklock-20261012T010203Z-v0.1.0-auto.bak.gpg
+"
+case_ok "restore" "request_id=$ID
+action=restore
+file=arklock-20261012T010203Z-v0.1.0.bak.gpg
+"
+case_ok "logs" "request_id=$ID
+action=logs
+service=app
+lines=200
+"
+case_ok "schedule" "request_id=$ID
+action=schedule
+schedule_enabled=1
+schedule_hour=3
+schedule_keep=14
+"
+case_bad "копия: выход из каталога" "request_id=$ID
+action=backup_delete
+file=../../etc/passwd.bak.gpg
+"
+case_bad "копия: подкаталог" "request_id=$ID
+action=backup_delete
+file=sub/a.bak.gpg
+"
+case_bad "копия: двойная точка" "request_id=$ID
+action=backup_verify
+file=a..b.bak.gpg
+"
+case_bad "копия: чужое расширение" "request_id=$ID
+action=backup_verify
+file=a.tar
+"
+case_bad "копия: внедрение команды" "request_id=$ID
+action=backup_delete
+file=a;id.bak.gpg
+"
+case_bad "delete без файла" "request_id=$ID
+action=backup_delete
+"
+case_bad "метка с разделителем" "request_id=$ID
+action=backup
+label=a;b
+"
+case_bad "logs: чужая служба" "request_id=$ID
+action=logs
+service=other
+lines=100
+"
+case_bad "logs: слишком много строк" "request_id=$ID
+action=logs
+service=app
+lines=99999
+"
+case_bad "logs без параметров" "request_id=$ID
+action=logs
+"
+case_bad "schedule: час 25" "request_id=$ID
+action=schedule
+schedule_enabled=1
+schedule_hour=25
+schedule_keep=14
+"
+case_bad "schedule: неполный" "request_id=$ID
+action=schedule
+schedule_enabled=1
+"
 case_bad "неизвестное действие" "request_id=$ID\naction=shell\n"
 case_bad "внедрение команды в версию" "request_id=$ID\naction=update\nversion=v1.2.3;id\n"
 case_bad "версия без v" "request_id=$ID\naction=update\nversion=1.2.3\n"

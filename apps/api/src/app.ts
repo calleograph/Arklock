@@ -8,6 +8,8 @@ import { createContext } from './context.js';
 import type { Database } from './db/connect.js';
 import { AppError } from './errors.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAdminOpsRoutes } from './routes/admin-ops.js';
+import { registerAdminSystemRoutes } from './routes/admin-system.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerTokenRoutes } from './routes/tokens.js';
@@ -44,6 +46,12 @@ function notFound(requestId: string): ErrorResponse {
   return { error: { code: 'not_found', message: 'Not found', requestId } };
 }
 
+declare module 'fastify' {
+  interface FastifyInstance {
+    routeTable: { method: string; url: string }[];
+  }
+}
+
 export async function buildApp({ config, database }: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger:
@@ -66,6 +74,12 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     bodyLimit: 2 * 1024 * 1024,
     genReqId: () => crypto.randomUUID(),
   });
+  // Таблица маршрутов нужна тестам, проверяющим права на все маршруты по списку, а не по памяти
+  const routeTable: { method: string; url: string }[] = [];
+  app.addHook('onRoute', (r) => {
+    for (const m of [r.method].flat()) routeTable.push({ method: String(m), url: r.url });
+  });
+  app.decorate('routeTable', routeTable);
   const ctx = createContext(config, database);
 
   app.addHook('onSend', async (_req, reply, payload) => {
@@ -113,6 +127,8 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerSharingRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSecurityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminOpsRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
 
   const webDist = config.WEB_DIST ? path.resolve(config.WEB_DIST) : '';

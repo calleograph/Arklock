@@ -38,6 +38,7 @@ services:
       BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
       UPDATER_DIR: /updater
       BLOB_DIR: /blobs
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       UPDATE_CHANNEL: ${UPDATE_CHANNEL:-stable}

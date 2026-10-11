@@ -91,8 +91,9 @@ export async function apiBinary(
   method: 'GET' | 'PUT',
   path: string,
   body?: Uint8Array,
+  extraHeaders: Record<string, string> = {},
 ): Promise<Uint8Array> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...extraHeaders };
   if (body) headers['Content-Type'] = 'application/octet-stream';
   if (token) headers.Authorization = `Bearer ${token}`;
   let res: Response;

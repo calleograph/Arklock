@@ -442,6 +442,8 @@ jobs:
           sleep 5
           test ! -e "$DATA/updater/request.txt" || sudo test ! -L "$DATA/updater/request.txt"
           test "$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")" = "$before"
+      - name: Helper backup, verify, export, delete, schedule and logs
+        run: bash tests/updater/test-ops.sh "$DATA" "$CFG/arklock.env"
       - name: Helper survives a restart
         run: |
           sudo systemctl restart "arklock-updater-$PROJ"

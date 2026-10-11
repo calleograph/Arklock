@@ -5,13 +5,35 @@ import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
+import AdminSystem from '../components/AdminSystem.vue';
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
-type Tab = 'users' | 'circles' | 'settings' | 'ledger';
+type SysTab =
+  | 'overview'
+  | 'resources'
+  | 'containers'
+  | 'backups'
+  | 'logs'
+  | 'storage'
+  | 'diagnostics'
+  | 'certificates'
+  | 'smtp';
+type Tab = 'users' | 'circles' | 'settings' | 'ledger' | SysTab;
+const SYS_TABS: SysTab[] = [
+  'overview',
+  'resources',
+  'containers',
+  'backups',
+  'logs',
+  'storage',
+  'diagnostics',
+  'certificates',
+  'smtp',
+];
 const tab = ref<Tab>((route.params.tab as Tab) || 'users');
 watch(tab, (v) => router.replace(`/admin/${v}`));
 const error = ref('');
@@ -166,7 +188,7 @@ async function loadTab(): Promise<void> {
       await loadCircles();
       if (!users.value.length) await loadUsers();
     } else if (tab.value === 'settings') await loadSettings();
-    else await loadLedger();
+    else if (tab.value === 'ledger') await loadLedger();
   } catch (e) {
     error.value = errorMessage(e, t);
   }
@@ -181,7 +203,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
     <h1 class="text-xl font-semibold">{{ t('admin.title') }}</h1>
     <nav class="flex flex-wrap gap-1 border-b border-slate-200 text-sm dark:border-slate-800">
       <button
-        v-for="x in ['users', 'circles', 'settings', 'ledger'] as Tab[]"
+        v-for="x in ['users', 'circles', 'settings', 'ledger', ...SYS_TABS] as Tab[]"
         :key="x"
         type="button"
         class="px-3 py-1.5"
@@ -209,7 +231,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
       {{ notice }}
     </p>
 
-    <div v-if="tab === 'users'" class="card overflow-x-auto">
+    <AdminSystem v-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
+
+    <div v-else-if="tab === 'users'" class="card overflow-x-auto">
       <table class="min-w-full text-sm" data-testid="users-table">
         <thead class="text-left text-xs text-slate-500">
           <tr>

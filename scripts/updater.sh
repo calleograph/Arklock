@@ -9,7 +9,11 @@
 #
 # Зачем: контейнер приложения не имеет доступа к Docker и хосту (и не должен). Веб-интерфейс кладёт запрос в каталог
 # обмена $DATA_ROOT/updater, а помощник — служба root на хосте — выполняет ТОЛЬКО фиксированный набор действий:
-#   check (проверка версий), update vX.Y.Z, rollback [с восстановлением БД].
+#   check (проверка версий), update vX.Y.Z, rollback [с восстановлением БД];
+#   backup, backup_verify, backup_delete, backup_export, restore (резервные копии этого проекта), logs (журналы
+#   контейнеров проекта с маскированием), schedule (расписание автоматических копий).
+# Кроме того, помощник периодически публикует снимки состояния (containers.json, backups.json, schedule.json):
+# только контейнеры ЭТОГО проекта compose, только копии этого проекта.
 # Запрос — несколько строк key=value; каждое значение проверяется по строгому шаблону. Произвольные команды, пути и
 # образы из запроса выполнить невозможно. Операции запускаются теми же сценариями, что и в командной строке
 # (update.sh, rollback.sh, check-updates.sh), в стерильном окружении (env -i).
@@ -77,6 +81,7 @@ history_add() {
 parse_request() { # parse_request ФАЙЛ
   local file="$1" line key val
   REQ_ID=""; REQ_ACTION=""; REQ_VERSION=""; REQ_RESTORE=0; REQ_ERR=""
+  REQ_FILE=""; REQ_LABEL=""; REQ_SERVICE=""; REQ_LINES=""; REQ_SCHED_ENABLED=""; REQ_SCHED_HOUR=""; REQ_SCHED_KEEP=""
   [ -f "$file" ] && [ ! -L "$file" ] || { REQ_ERR="запрос не является обычным файлом"; return 1; }
   [ "$(stat -c '%s' "$file")" -le 1024 ] || { REQ_ERR="запрос слишком большой"; return 1; }
   while IFS= read -r line || [ -n "$line" ]; do
@@ -85,7 +90,14 @@ parse_request() { # parse_request ФАЙЛ
     key="${line%%=*}"; val="${line#*=}"
     case "$key" in
       request_id) [[ "$val" =~ $UUID_RE ]] || { REQ_ERR="неверный request_id"; return 1; }; REQ_ID="$val" ;;
-      action) case "$val" in check|update|rollback) REQ_ACTION="$val" ;; *) REQ_ERR="недопустимое действие"; return 1 ;; esac ;;
+      action) case "$val" in check|update|rollback|backup|backup_verify|backup_delete|backup_export|restore|logs|schedule) REQ_ACTION="$val" ;; *) REQ_ERR="недопустимое действие"; return 1 ;; esac ;;
+      file) [[ "$val" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] && [[ "$val" != *..* ]] || { REQ_ERR="недопустимое имя копии"; return 1; }; REQ_FILE="$val" ;;
+      label) [[ "$val" =~ ^[a-z0-9]{1,20}$ ]] || { REQ_ERR="недопустимая метка"; return 1; }; REQ_LABEL="$val" ;;
+      service) case "$val" in app|db) REQ_SERVICE="$val" ;; *) REQ_ERR="недопустимая служба"; return 1 ;; esac ;;
+      lines) [[ "$val" =~ ^[0-9]{2,4}$ ]] && [ "$val" -ge 10 ] && [ "$val" -le 2000 ] || { REQ_ERR="недопустимое число строк"; return 1; }; REQ_LINES="$val" ;;
+      schedule_enabled) case "$val" in 0|1) REQ_SCHED_ENABLED="$val" ;; *) REQ_ERR="неверный schedule_enabled"; return 1 ;; esac ;;
+      schedule_hour) [[ "$val" =~ ^[0-9]{1,2}$ ]] && [ "$val" -le 23 ] || { REQ_ERR="неверный час"; return 1; }; REQ_SCHED_HOUR="$val" ;;
+      schedule_keep) [[ "$val" =~ ^[0-9]{1,2}$ ]] && [ "$val" -ge 1 ] && [ "$val" -le 90 ] || { REQ_ERR="неверное число копий"; return 1; }; REQ_SCHED_KEEP="$val" ;;
       version) [[ "$val" =~ $TAG_RE ]] || { REQ_ERR="недопустимая версия"; return 1; }; REQ_VERSION="$val" ;;
       with_restore) case "$val" in 0|1) REQ_RESTORE="$val" ;; *) REQ_ERR="неверное with_restore"; return 1 ;; esac ;;
       by) [[ "$val" =~ $UUID_RE ]] || { REQ_ERR="неверный by"; return 1; } ;;
@@ -95,6 +107,11 @@ parse_request() { # parse_request ФАЙЛ
   done < "$file"
   [ -n "$REQ_ID" ] && [ -n "$REQ_ACTION" ] || { REQ_ERR="не хватает обязательных параметров"; return 1; }
   if [ "$REQ_ACTION" = update ] && [ -z "$REQ_VERSION" ]; then REQ_ERR="для update нужна версия"; return 1; fi
+  case "$REQ_ACTION" in
+    backup_verify|backup_delete|backup_export|restore) [ -n "$REQ_FILE" ] || { REQ_ERR="не указана копия"; return 1; } ;;
+    logs) [ -n "$REQ_SERVICE" ] && [ -n "$REQ_LINES" ] || { REQ_ERR="для logs нужны service и lines"; return 1; } ;;
+    schedule) [ -n "$REQ_SCHED_ENABLED" ] && [ -n "$REQ_SCHED_HOUR" ] && [ -n "$REQ_SCHED_KEEP" ] || { REQ_ERR="для schedule нужны все параметры"; return 1; } ;;
+  esac
   return 0
 }
 
@@ -166,6 +183,9 @@ process_request() { # process_request ФАЙЛ_ЗАПРОСА
   : > "$CH/update.log"; chmod 644 "$CH/update.log"
 
   case "$REQ_ACTION" in
+    backup|backup_verify|backup_delete|backup_export|restore|logs|schedule)
+      run_ops_action || rc=$?
+      ;;
     check)
       ST_NAME="Проверка версий"; ST_NO=1; ST_TOTAL=1; write_status
       do_check || rc=1
@@ -188,6 +208,134 @@ process_request() { # process_request ФАЙЛ_ЗАПРОСА
   write_status
 }
 
+# ------------------------------------------------------------------ резервные копии, журналы, расписание, снимки состояния
+backup_path() { printf '%s/%s' "$BACKUP_DIR" "$1"; }
+own_backup() { # принадлежит ли копия этому проекту (имя начинается с имени проекта) и существует ли
+  [[ "$1" == "${COMPOSE_PROJECT_NAME}"-* ]] && [ -f "$(backup_path "$1")" ] && [ ! -L "$(backup_path "$1")" ]
+}
+
+run_ops_action() {
+  local rc=0 f
+  ST_TOTAL=1; ST_NO=1
+  case "$REQ_ACTION" in
+    backup)
+      ST_NAME="Резервная копия"; write_status
+      run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" ${REQ_LABEL:+--label "$REQ_LABEL"} || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo 'Резервная копия создана и проверена' || echo 'Не удалось создать резервную копию, см. журнал')" ;;
+    backup_verify)
+      ST_NAME="Проверка копии"; write_status
+      own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
+      run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --verify "$(backup_path "$REQ_FILE")" || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE корректна" || echo "Копия $REQ_FILE НЕ прошла проверку")" ;;
+    backup_delete)
+      ST_NAME="Удаление копии"; write_status
+      own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
+      f="$(backup_path "$REQ_FILE")"; rm -f -- "$f" "$f.json" "$CH/export/$REQ_FILE"
+      ST_MSG="Копия $REQ_FILE удалена" ;;
+    backup_export)
+      ST_NAME="Подготовка копии к скачиванию"; write_status
+      own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
+      install -d -m 0755 "$CH/export"
+      f="$(backup_path "$REQ_FILE")"
+      # жёсткая ссылка не занимает места; права на исходник возвращаются при очистке
+      ln -f -- "$f" "$CH/export/$REQ_FILE" 2>/dev/null || cp -f -- "$f" "$CH/export/$REQ_FILE" || rc=1
+      chmod 644 "$CH/export/$REQ_FILE" 2>/dev/null || true
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия готова к скачиванию на 10 минут" || echo "Не удалось подготовить копию")" ;;
+    restore)
+      ST_NAME="Восстановление из копии"; write_status
+      own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
+      run_logged "$REPO_ROOT/scripts/restore.sh" "$(backup_path "$REQ_FILE")" --env "$ENV_FILE" --yes || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "База данных восстановлена из $REQ_FILE" || echo "Восстановление не удалось, см. журнал (аварийная копия создана до начала)")" ;;
+    logs)
+      ST_NAME="Журналы контейнера"; write_status
+      clean_run "$REPO_ROOT/scripts/logs.sh" --env "$ENV_FILE" "$REQ_SERVICE" -n "$REQ_LINES" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | mask_text_stream | tail -c 300000 | atomic_write "$CH/logs.txt" || rc=1
+      printf '%s\n' "$REQ_SERVICE" | atomic_write "$CH/logs.service"
+      ST_MSG="Журнал получен" ;;
+    schedule)
+      ST_NAME="Расписание копий"; write_status
+      state_set backup sched_enabled "$REQ_SCHED_ENABLED"; state_set backup sched_hour "$REQ_SCHED_HOUR"; state_set backup sched_keep "$REQ_SCHED_KEEP"
+      publish_schedule
+      ST_MSG="Расписание сохранено" ;;
+  esac
+  return "$rc"
+}
+
+publish_schedule() {
+  local en hour keep last
+  en="$(state_get backup sched_enabled)"; hour="$(state_get backup sched_hour)"; keep="$(state_get backup sched_keep)"; last="$(state_get backup sched_last_at)"
+  printf '{"enabled":%s,"hour":%s,"keep":%s,"last_at":"%s","last_result":"%s"}\n' \
+    "$([ "${en:-0}" = 1 ] && echo true || echo false)" "${hour:-3}" "${keep:-14}" "$(jstr "$last")" "$(jstr "$(state_get backup sched_last_result)")" | atomic_write "$CH/schedule.json"
+}
+
+publish_backups() {
+  local first=1 f name size mtime sha ver mig
+  {
+    printf '{"dir":"%s","free_gib":%s,"items":[' "$(jstr "$BACKUP_DIR")" "$(free_gib "$BACKUP_DIR" 2>/dev/null || echo 0)"
+    # shellcheck disable=SC2012
+    for f in $(ls -1t "$BACKUP_DIR/${COMPOSE_PROJECT_NAME}"-*.bak.gpg 2>/dev/null | head -n 200); do
+      name="$(basename "$f")"; size="$(stat -c '%s' "$f" 2>/dev/null || echo 0)"; mtime="$(date -u -d "@$(stat -c '%Y' "$f" 2>/dev/null || echo 0)" +%FT%TZ)"
+      sha="$(sed -n 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/p' "$f.json" 2>/dev/null | head -n1)"
+      ver="$(sed -n 's/.*"appVersion": *"\([^"]*\)".*/\1/p' "$f.json" 2>/dev/null | head -n1)"
+      mig="$(sed -n 's/.*"migrations": *\([0-9]*\).*/\1/p' "$f.json" 2>/dev/null | head -n1)"
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '{"name":"%s","size":%s,"created_at":"%s","sha256":"%s","version":"%s","migrations":%s}' "$(jstr "$name")" "$size" "$mtime" "$(jstr "$sha")" "$(jstr "$ver")" "${mig:-0}"
+    done
+    printf ']}\n'
+  } | atomic_write "$CH/backups.json"
+}
+
+publish_containers() {
+  local first=1 id line stats
+  stats="$(docker stats --no-stream --format '{{.ID}}|{{.CPUPerc}}|{{.MemUsage}}' 2>/dev/null || true)"
+  {
+    printf '{"items":['
+    for id in $(dc ps -aq 2>/dev/null); do
+      line="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}|{{.Config.Image}}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.StartedAt}}|{{.RestartCount}}' "$id" 2>/dev/null)" || continue
+      IFS='|' read -r svc img st health started restarts <<< "$line"
+      cpu="$(printf '%s\n' "$stats" | awk -F'|' -v i="${id:0:12}" '$1==i {print $2}')"; mem="$(printf '%s\n' "$stats" | awk -F'|' -v i="${id:0:12}" '$1==i {print $3}')"
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '{"service":"%s","image":"%s","state":"%s","health":"%s","started_at":"%s","restarts":%s,"cpu":"%s","memory":"%s"}' \
+        "$(jstr "$svc")" "$(jstr "$img")" "$(jstr "$st")" "$(jstr "$health")" "$(jstr "$started")" "${restarts:-0}" "$(jstr "$cpu")" "$(jstr "$mem")"
+    done
+    printf '],"at":"%s"}\n' "$(date -u +%FT%TZ)"
+  } | atomic_write "$CH/containers.json"
+}
+
+cleanup_exports() { # копии, подготовленные к скачиванию, живут 10 минут
+  local f
+  [ -d "$CH/export" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ -f "$BACKUP_DIR/$(basename "$f")" ] && chmod 600 "$BACKUP_DIR/$(basename "$f")" 2>/dev/null
+    rm -f -- "$f"
+  done < <(find "$CH/export" -maxdepth 1 -type f -mmin +10 2>/dev/null)
+}
+
+scheduled_backup_due() {
+  local en hour today
+  en="$(state_get backup sched_enabled)"; [ "$en" = 1 ] || return 1
+  hour="$(state_get backup sched_hour)"; hour="${hour:-3}"; today="$(date +%F)"
+  [ "$(state_get backup sched_last_date)" != "$today" ] || return 1
+  [ "$((10#$(date +%H)))" -ge "$((10#$hour))" ]
+}
+
+run_scheduled_backup() {
+  local rc=0 keep
+  keep="$(state_get backup sched_keep)"; keep="${keep:-14}"
+  # отметка до запуска: сбой не приводит к бесконечным повторам в течение дня
+  state_set backup sched_last_date "$(date +%F)"
+  ST_STATE=running; ST_ACTION=backup; ST_REQ=""; ST_NO=1; ST_TOTAL=1; ST_NAME="Резервная копия по расписанию"; ST_MSG=""; ST_RESULT=""
+  ST_FROM="$(app_version)"; ST_TO=""; ST_STARTED="$(date -u +%FT%TZ)"; ST_FINISHED=""; write_status
+  : > "$CH/update.log"; chmod 644 "$CH/update.log"
+  run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --label auto --keep "$keep" || rc=$?
+  ST_FINISHED="$(date -u +%FT%TZ)"
+  if [ "$rc" -eq 0 ]; then ST_STATE=success; ST_RESULT=success; ST_MSG="Резервная копия по расписанию создана"; else ST_STATE=failed; ST_RESULT=failed; ST_MSG="Копия по расписанию не создана, см. журнал"; fi
+  state_set backup sched_last_at "$ST_FINISHED"; state_set backup sched_last_result "$ST_RESULT"
+  history_add; write_status; publish_schedule; publish_backups
+}
+
 # ------------------------------------------------------------------ рабочий цикл
 cmd_run() {
   ensure_channel
@@ -202,12 +350,17 @@ cmd_run() {
   fi
   rm -f "$CH/request.processing"
   info "Помощник обновлений запущен (проект $COMPOSE_PROJECT_NAME)"
+  local tick=0
   while true; do
     heartbeat
+    # снимки состояния: раз в ~10 секунд; копии — также сразу после операций
+    if [ $((tick % 5)) -eq 0 ]; then publish_containers; publish_backups; publish_schedule; cleanup_exports; fi
+    tick=$((tick + 1))
     if [ -e "$CH/request.txt" ] || [ -L "$CH/request.txt" ]; then
       if [ -L "$CH/request.txt" ]; then rm -f "$CH/request.txt"
       else
         mv -f "$CH/request.txt" "$CH/request.processing" 2>/dev/null && process_request "$CH/request.processing"
+        publish_backups; publish_schedule; publish_containers
         # Помощник сам мог быть обновлён операцией: перезапуск из свежей копии
         cur_sum="$(sha256sum "$REPO_ROOT/scripts/updater.sh" 2>/dev/null | cut -d' ' -f1)"
         if [ -n "$cur_sum" ] && [ "$cur_sum" != "$last_sum" ]; then
@@ -216,6 +369,8 @@ cmd_run() {
           exec env -u ARKLOCK_UPDATER_COPY -u ARKLOCK_REPO_ROOT "$REPO_ROOT/scripts/updater.sh" run --env "$ENV_FILE"
         fi
       fi
+    elif scheduled_backup_due; then
+      run_scheduled_backup
     fi
     sleep 2
   done
