@@ -183,8 +183,9 @@ process_request() { # process_request ФАЙЛ_ЗАПРОСА
   ST_FINISHED="$(date -u +%FT%TZ)"
   if [ "$rc" -eq 0 ]; then ST_STATE=success; ST_RESULT=success; ST_NO="$ST_TOTAL"; else ST_STATE=failed; ST_RESULT=failed; fi
   [ -n "$ST_MSG" ] || ST_MSG="$([ "$rc" -eq 0 ] && echo 'Выполнено' || echo 'Ошибка, см. журнал')"
-  write_status
+  # история записывается ДО итогового статуса: интерфейс, увидев завершение, сразу находит запись
   [ "$REQ_ACTION" = check ] || history_add
+  write_status
 }
 
 # ------------------------------------------------------------------ рабочий цикл
