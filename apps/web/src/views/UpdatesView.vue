@@ -23,6 +23,30 @@ const withRestore = ref(false);
 let timer: ReturnType<typeof setTimeout> | null = null;
 let alive = true;
 
+/** Идентификатор запроса, поставленного из этого окна (обновление или откат): по нему отличаем свою операцию от старого статуса. */
+const activeRequest = ref<string | null>(null);
+const shown = computed(() => {
+  const s = data.value!.status;
+  if (activeRequest.value && s.requestId !== activeRequest.value) {
+    return {
+      ...s,
+      state: 'running' as const,
+      action: s.action,
+      stepNo: 0,
+      stepTotal: 0,
+      stepName: t('updates.queued'),
+      message: null,
+    };
+  }
+  return s;
+});
+const showProgress = computed(
+  () =>
+    !!activeRequest.value ||
+    running.value ||
+    (data.value!.status.state !== 'idle' && data.value!.status.action !== 'check'),
+);
+
 const running = computed(
   () => data.value?.status.state === 'running' || data.value?.pending === true,
 );
@@ -68,7 +92,8 @@ async function send(payload: object, needsReauth: boolean): Promise<void> {
   try {
     const headers: Record<string, string> = {};
     if (needsReauth && reauthToken) headers['X-Reauth-Token'] = reauthToken.token;
-    await api('POST', '/admin/updates', payload, { headers });
+    const res = await api<{ requestId: string }>('POST', '/admin/updates', payload, { headers });
+    if ((payload as { action: string }).action !== 'check') activeRequest.value = res.requestId;
     await load();
   } catch (e) {
     error.value = message(e);
@@ -170,33 +195,33 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
       </dl>
 
       <div
-        v-if="running || data.status.state !== 'idle'"
+        v-if="showProgress"
         class="rounded-lg border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900"
         data-testid="updates-progress"
       >
         <div class="mb-2 flex justify-between">
           <span class="font-medium">
-            {{ data.status.action }} · {{ data.status.versionFrom ?? '' }} →
-            {{ data.status.versionTo ?? '' }}
+            {{ shown.action }} · {{ shown.versionFrom ?? '' }} →
+            {{ shown.versionTo ?? '' }}
           </span>
-          <span data-testid="progress-state">{{ data.status.state }}</span>
+          <span data-testid="progress-state">{{ shown.state }}</span>
         </div>
         <div class="h-2 overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
           <div
             class="h-full bg-brand-500 transition-all"
-            :style="{ width: `${data.status.state === 'success' ? 100 : progress}%` }"
+            :style="{ width: `${shown.state === 'success' ? 100 : progress}%` }"
           />
         </div>
         <p class="mt-2 text-slate-500">
-          {{ data.status.stepNo }}/{{ data.status.stepTotal }} · {{ data.status.stepName }}
+          {{ shown.stepNo }}/{{ shown.stepTotal }} · {{ shown.stepName }}
         </p>
         <p
-          v-if="data.status.message"
+          v-if="shown.message"
           class="mt-1"
-          :class="data.status.state === 'failed' ? 'text-red-600' : ''"
+          :class="shown.state === 'failed' ? 'text-red-600' : ''"
           data-testid="progress-message"
         >
-          {{ data.status.message }}
+          {{ shown.message }}
         </p>
       </div>
 

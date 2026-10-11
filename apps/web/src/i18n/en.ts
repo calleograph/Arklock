@@ -122,6 +122,7 @@ export default {
     confirmTitle: 'Confirm your master password',
     confirmHint: 'This operation changes the system. Confirmation is valid for 5 minutes.',
     confirm: 'Confirm',
+    queued: 'Waiting for the helper',
     errBusy: 'Another operation is already running',
     errHelper: 'The update helper is not running',
     errPassword: 'Wrong master password',
