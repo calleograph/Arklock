@@ -62,7 +62,10 @@ export async function api<T = unknown>(
     throw new ApiError(0, 'network_error', 'Network error');
   }
   if (res.status === 204) return undefined as T;
-  const data: unknown = await res.json().catch(() => null);
+  const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  const data: unknown = isJson
+    ? await res.json().catch(() => null)
+    : await res.text().catch(() => null);
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)
       ?.error;

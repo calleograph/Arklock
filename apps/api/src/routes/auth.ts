@@ -115,6 +115,35 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     };
   });
 
+  /** Публичные для вошедших пользователей политики (нужны интерфейсу для показа доступных действий). */
+  app.get('/auth/policy', { preHandler: auth }, async () => {
+    const rows = await db.select().from(settings);
+    const get = (k: string, d: unknown) => rows.find((r) => r.key === k)?.value ?? d;
+    return {
+      'vaults.creators': get('vaults.creators', 'admins'),
+      'trash.retentionDays': get('trash.retentionDays', 30),
+      'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
+    };
+  });
+
+  /** События, которые происходят только на клиенте (экспорт открытых данных), фиксируются в журнале. */
+  app.post('/audit/event', { preHandler: auth }, async (req, reply) => {
+    const { user } = authOf(req);
+    const body = parse(
+      z.object({
+        action: z.literal('export'),
+        format: z.enum(['csv', 'json', 'encrypted']),
+        count: z.number().int().min(0).max(1_000_000),
+      }),
+      req.body,
+    );
+    await audit(db, `user:${user.id}`, `client.${body.action}`, null, {
+      format: body.format,
+      count: body.count,
+    });
+    return reply.status(204).send();
+  });
+
   app.get('/auth/registration', async (): Promise<RegistrationStatus> => {
     const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(users);
     if (n === 0) return { open: true, firstUser: true, setupTokenRequired: setupRequired() };

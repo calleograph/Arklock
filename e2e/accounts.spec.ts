@@ -44,9 +44,7 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
   await page.getByTestId('recovery-continue').click();
 
   // Автоматический вход после регистрации.
-  await expect(page.getByRole('heading', { name: /Личный сейф|Personal locker/ })).toBeVisible({
-    timeout: 60_000,
-  });
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 60_000 });
 
   await page.getByTestId('add-entry').click();
   await page.getByTestId('f-title').fill('Почта');
@@ -54,6 +52,7 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
   await page.getByTestId('f-password').fill(ENTRY_PASSWORD);
   await page.getByTestId('f-url').fill('https://mail.example.com');
   await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Почта');
   await expect(page.getByTestId('entry-row')).toHaveCount(1);
   await expect(page.getByTestId('entry-row')).toContainText('Почта');
 
@@ -68,9 +67,10 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
 
   // Пароль записи раскрывается только по действию пользователя.
-  await expect(page.getByTestId('revealed-password')).toHaveCount(0);
-  await page.getByTestId('entry-row').getByRole('button').first().click();
-  await expect(page.getByTestId('revealed-password')).toHaveText(ENTRY_PASSWORD);
+  await page.getByTestId('entry-row').click();
+  await expect(page.getByTestId('view-password')).not.toContainText(ENTRY_PASSWORD);
+  await page.getByTestId('btn-reveal').click();
+  await expect(page.getByTestId('view-password')).toHaveText(ENTRY_PASSWORD);
 
   // Ручная блокировка.
   await page.getByTestId('lock').click();

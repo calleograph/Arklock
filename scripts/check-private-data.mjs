@@ -24,6 +24,7 @@ const SELF = new Set([
   'scripts/check-private-data.mjs',
   'scripts/private-data.allow',
   'LICENSE', // стандартный текст лицензии без изменений
+  'apps/api/test/security.test.ts', // тестовые адреса для проверки защиты от SSRF
   'tests/scripts/private-data.test.ts', // содержит заведомо «плохие» примеры для проверки самого сканера
 ]);
 const SKIP_EXT = new Set([
@@ -51,7 +52,7 @@ const DOMAIN = new RegExp(
 const EMAIL = /[A-Za-z0-9._%+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})/g;
 const IPV4 = /(?<![\d.])((?:\d{1,3}\.){3}\d{1,3})(?![\d.])/g;
 const CODE_LIKE =
-  /^(?:ws|self|this|app|window|document|os|sys|req|res|reply|settings|config|cfg|state|ctx|request|response|result|data|obj|item|row|process|crypto|globalThis|navigator|localStorage|boot|created|import|node|vue|module|exports)\./i;
+  /^(?:[a-z]|ws|self|this|app|window|document|os|sys|req|res|reply|settings|config|cfg|state|ctx|request|response|result|data|obj|item|row|process|crypto|globalThis|navigator|localStorage|boot|created|import|node|vue|module|exports)\./i;
 const SECRET_PATTERNS = [
   [/-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----/, 'приватный ключ'],
   [/\bgh[pousr]_[A-Za-z0-9]{30,}\b/, 'токен GitHub'],

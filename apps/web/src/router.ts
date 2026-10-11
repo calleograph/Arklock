@@ -3,13 +3,36 @@ import AuthView from './views/AuthView.vue';
 import SecurityView from './views/SecurityView.vue';
 import StatusView from './views/StatusView.vue';
 import UpdatesView from './views/UpdatesView.vue';
-import VaultView from './views/VaultView.vue';
+import AdminView from './views/AdminView.vue';
+import HandoffOpenView from './views/HandoffOpenView.vue';
+import InspectorView from './views/InspectorView.vue';
+import VaultSettingsView from './views/VaultSettingsView.vue';
+import WorkspaceView from './views/WorkspaceView.vue';
 import { useAuthStore } from './stores/auth';
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'vault', component: VaultView, meta: { requiresUnlock: true } },
+    { path: '/', name: 'vault', component: WorkspaceView, meta: { requiresUnlock: true } },
+    {
+      path: '/vault/:id/settings',
+      name: 'vault-settings',
+      component: VaultSettingsView,
+      meta: { requiresUnlock: true },
+    },
+    {
+      path: '/inspector',
+      name: 'inspector',
+      component: InspectorView,
+      meta: { requiresUnlock: true },
+    },
+    { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
+    {
+      path: '/admin/:tab(users|circles|settings|ledger)?',
+      name: 'admin',
+      component: AdminView,
+      meta: { requiresUnlock: true, requiresAdmin: true },
+    },
     {
       path: '/security',
       name: 'security',

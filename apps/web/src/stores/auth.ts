@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import type { UserBundle } from '@arklock/contracts';
 import { api, loadToken, setToken, setUnauthorizedHandler } from '../services/api';
 import * as account from '../services/account';
-import { useVaultStore } from './vault';
+import { useWorkspaceStore } from './workspace';
 
 /**
  * Закрытый ключ аккаунта живёт ТОЛЬКО в памяти модуля (не в состоянии Pinia, не в хранилищах браузера):
@@ -11,6 +11,8 @@ import { useVaultStore } from './vault';
  */
 let privateKey: Uint8Array | null = null;
 let publicKey: Uint8Array | null = null;
+let signPrivateKey: Uint8Array | null = null;
+let signPublicKey: Uint8Array | null = null;
 
 export const AUTO_LOCK_MS = 5 * 60_000;
 
@@ -24,8 +26,8 @@ export const useAuthStore = defineStore('auth', () => {
   const isSignedIn = computed(() => hasToken.value && user.value !== null);
 
   function keys() {
-    if (!privateKey || !publicKey) throw new Error('locked');
-    return { privateKey, publicKey };
+    if (!privateKey || !publicKey || !signPrivateKey || !signPublicKey) throw new Error('locked');
+    return { privateKey, publicKey, signPrivateKey, signPublicKey };
   }
 
   function touch(): void {
@@ -36,11 +38,14 @@ export const useAuthStore = defineStore('auth', () => {
 
   function wipe(): void {
     privateKey?.fill(0);
+    signPrivateKey?.fill(0);
     privateKey = null;
     publicKey = null;
+    signPrivateKey = null;
+    signPublicKey = null;
     if (lockTimer) clearTimeout(lockTimer);
     lockTimer = null;
-    useVaultStore().clear();
+    useWorkspaceStore().clear();
   }
 
   function lock(): void {
@@ -48,10 +53,17 @@ export const useAuthStore = defineStore('auth', () => {
     unlocked.value = false;
   }
 
-  function setUnlocked(acc: { privateKey: Uint8Array; publicKey: Uint8Array }): void {
+  function setUnlocked(acc: {
+    privateKey: Uint8Array;
+    publicKey: Uint8Array;
+    signPrivateKey: Uint8Array;
+    signPublicKey: Uint8Array;
+  }): void {
     wipe();
     privateKey = acc.privateKey;
     publicKey = acc.publicKey;
+    signPrivateKey = acc.signPrivateKey;
+    signPublicKey = acc.signPublicKey;
     unlocked.value = true;
     touch();
   }

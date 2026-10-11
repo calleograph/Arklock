@@ -17,6 +17,10 @@ import {
   generateAccountKeyPair,
   generateRecoveryKey,
   generateSalt,
+  generateSigningKeyPair,
+  signKeyGrant,
+  wrapSignPrivateKey,
+  unwrapSignPrivateKey,
   openVaultKey,
   sealVaultKeyFor,
   toBase64Url,
@@ -63,6 +67,7 @@ async function login(email, password) {
   must(session.status === 200, `login (${session.status})`);
   const user = session.json.user;
   const privateKey = await unwrapAccountPrivateKey(keys.wrapKey, user.wrappedPrivateKey, user.id);
+  void unwrapSignPrivateKey;
   return { token: session.json.token, user, privateKey, publicKey: fromBase64Url(user.publicKey) };
 }
 
@@ -72,12 +77,12 @@ async function lockerKey(s) {
   const locker = vaults.json.find((v) => v.kind === 'locker');
   must(locker, 'locker exists');
   const key = await openVaultKey(
-    locker.sealedKey,
+    locker.key.sealedKey,
     s.privateKey,
     s.publicKey,
     locker.id,
     s.user.id,
-    locker.sealedKeyVersion,
+    locker.key.keyVersion,
   );
   return { locker, key };
 }
@@ -91,8 +96,10 @@ async function write() {
   const salt = generateSalt();
   const keys = await deriveMasterKeys(password, salt, userId, KDF);
   const kp = await generateAccountKeyPair();
+  const sk = await generateSigningKeyPair();
   const recovery = await generateRecoveryKey();
   const lockerId = crypto.randomUUID();
+  const lockerSealed = await sealVaultKeyFor(createVaultKey(), kp.publicKey, lockerId, userId, 1);
   const reg = await call('POST', '/auth/register', {
     userId,
     email,
@@ -102,12 +109,20 @@ async function write() {
     salt: toBase64Url(salt),
     authKey: toBase64Url(keys.authKey),
     publicKey: toBase64Url(kp.publicKey),
+    signPublicKey: toBase64Url(sk.publicKey),
     wrappedPrivateKey: await wrapAccountPrivateKey(keys.wrapKey, kp.privateKey, userId),
+    wrappedSignPrivateKey: await wrapSignPrivateKey(keys.wrapKey, sk.privateKey, userId),
     recoveryProof: toBase64Url(await deriveRecoveryProof(recovery.key, userId)),
     recoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(recovery.key, kp.privateKey, userId),
+    recoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
+      recovery.key,
+      sk.privateKey,
+      userId,
+    ),
     locker: {
       vaultId: lockerId,
-      sealedKey: await sealVaultKeyFor(createVaultKey(), kp.publicKey, lockerId, userId, 1),
+      sealedKey: lockerSealed,
+      signature: await signKeyGrant(sk.privateKey, lockerId, userId, 1, lockerSealed),
     },
   });
   must(reg.status === 201, `register (${reg.status} ${JSON.stringify(reg.json)})`);

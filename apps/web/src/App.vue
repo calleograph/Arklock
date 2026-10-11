@@ -85,10 +85,17 @@ onMounted(() => {
           >
           <RouterLink
             v-if="auth.user?.role === 'admin'"
+            to="/admin"
+            data-testid="nav-admin"
+            class="rounded px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >{{ t('nav.admin') }}</RouterLink
+          >
+          <RouterLink
+            v-if="auth.user?.role === 'admin'"
             to="/admin/updates"
+            data-testid="nav-updates"
             class="rounded px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"
             exact-active-class="font-semibold"
-            data-testid="nav-updates"
             >{{ t('nav.updates') }}</RouterLink
           >
           <button

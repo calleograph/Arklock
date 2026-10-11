@@ -14,12 +14,14 @@ const SETTINGS: Record<string, z.ZodType> = {
   'vaults.creators': z.enum(['admins', 'members']),
   'trash.retentionDays': z.number().int().min(1).max(3650),
   'session.idleHours': z.number().min(0.25).max(720),
+  'security.passwordMaxAgeDays': z.number().int().min(0).max(3650),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
   'vaults.creators': 'admins',
   'trash.retentionDays': 30,
   'session.idleHours': 12,
+  'security.passwordMaxAgeDays': 365,
 };
 
 /** Пользователи, круги, настройки и журнал — только для администратора. */
