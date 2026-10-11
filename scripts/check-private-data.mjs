@@ -24,6 +24,7 @@ const ALLOW_FILE = path.join(ROOT, 'scripts', 'private-data.allow');
 const SELF = new Set([
   'scripts/check-private-data.mjs',
   'scripts/private-data.allow',
+  'LICENSE', // стандартный текст лицензии без изменений
   'tests/scripts/private-data.test.ts', // содержит заведомо «плохие» примеры для проверки самого сканера
 ]);
 const SKIP_EXT = new Set([

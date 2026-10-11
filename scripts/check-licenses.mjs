@@ -48,3 +48,27 @@ if (bad) {
   process.exit(1);
 }
 console.log('Все продуктивные зависимости имеют разрешённые лицензии.');
+
+// Собственная лицензия проекта: текст LICENSE и SPDX-идентификатор во всех манифестах.
+const licenseText = readFileSync('LICENSE', 'utf8');
+if (
+  !licenseText.includes('GNU AFFERO GENERAL PUBLIC LICENSE') ||
+  !licenseText.includes('Version 3, 19 November 2007')
+) {
+  console.error('LICENSE не содержит текст GNU AGPL-3.0');
+  process.exit(1);
+}
+for (const manifest of [
+  'package.json',
+  'packages/crypto/package.json',
+  'packages/contracts/package.json',
+  'apps/api/package.json',
+  'apps/web/package.json',
+]) {
+  const { license } = JSON.parse(readFileSync(manifest, 'utf8'));
+  if (license !== 'AGPL-3.0-only') {
+    console.error(`${manifest}: license должен быть AGPL-3.0-only, найдено: ${license}`);
+    process.exit(1);
+  }
+}
+console.log('Лицензия проекта: AGPL-3.0-only (LICENSE и манифесты согласованы).');
