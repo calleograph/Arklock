@@ -100,9 +100,11 @@ if [ ! -f "$HERE/scripts/lib/common.sh" ] || [ ! -f "$HERE/compose.yaml" ]; then
     okk "Каталог программы уже существует: $INSTALL_DIR (не перезаписывается)"
   fi
   [ "$DRY" -eq 0 ] || exit 0
-  exec "$INSTALL_DIR/install.sh" --bootstrapped --profile "${PROFILE:-}" --dir "$INSTALL_DIR" --data "${DATA_ROOT:-}" --config "$CONFIG_DIR" \
-    --project "$PROJECT" --port "${PORT:-}" --url "${PUBLIC_URL:-}" --repo "$REPO_URL" \
-    $([ "$YES" -eq 1 ] && echo --yes) $([ "$ALLOW_UNRELEASED" -eq 1 ] && echo --allow-unreleased)
+  args=(--bootstrapped --profile "${PROFILE:-}" --dir "$INSTALL_DIR" --data "${DATA_ROOT:-}" --config "$CONFIG_DIR"
+    --project "$PROJECT" --port "${PORT:-}" --url "${PUBLIC_URL:-}" --repo "$REPO_URL")
+  [ "$YES" -eq 1 ] && args+=(--yes)
+  [ "$ALLOW_UNRELEASED" -eq 1 ] && args+=(--allow-unreleased)
+  exec "$INSTALL_DIR/install.sh" "${args[@]}"
 fi
 
 # ------------------------------------------------------------------ далее — из каталога программы
@@ -209,9 +211,7 @@ if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
 
-NEW_ENV=0
 if [ ! -f "$ENV_FILE" ]; then
-  NEW_ENV=1
   install -m 0600 /dev/null "$ENV_FILE"
 fi
 set_default() { # задаёт параметр, только если его ещё нет (повторный запуск не меняет секреты)
