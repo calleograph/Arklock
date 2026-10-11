@@ -95,6 +95,9 @@ init_instance() {
   BACKUP_DIR="${BACKUP_DIR:-$DATA_ROOT/backups}"
   BACKUP_KEY_FILE="${BACKUP_KEY_FILE:-$DEFAULT_CONFIG_DIR/backup.key}"
   INSTALL_DIR="${INSTALL_DIR:-$REPO_ROOT}"
+  # GnuPG не должен зависеть от домашнего каталога пользователя (у служб он может быть недоступен для записи).
+  export GNUPGHOME="${GNUPGHOME:-$STATE_DIR/gnupg}"
+  if [ ! -d "$GNUPGHOME" ]; then mkdir -p "$GNUPGHOME" && chmod 700 "$GNUPGHOME"; fi
 }
 
 # docker compose строго для проекта Arklock: другие проекты и контейнеры не затрагиваются.

@@ -99,6 +99,19 @@ parse_request() { # parse_request ФАЙЛ
 }
 
 # ------------------------------------------------------------------ выполнение операций
+status_message() { # понятное описание итога по коду состояния update.sh / rollback.sh
+  case "$1" in
+    success) echo "Обновление выполнено" ;;
+    failed_backup) echo "Не удалось создать резервную копию. Система не изменена." ;;
+    failed_build) echo "Не удалось собрать новую версию. Работающая версия не затронута." ;;
+    rolled_back) echo "Обновление не удалось. Выполнен возврат на прежнюю версию, данные не изменены." ;;
+    restored_from_backup) echo "Обновление не удалось. База данных восстановлена из копии, работает прежняя версия." ;;
+    recovery_failed) echo "Обновление не удалось, автоматическое восстановление тоже не удалось. Требуется вмешательство администратора (scripts/rollback.sh, scripts/restore.sh)." ;;
+    rolled_back_manually) echo "Откат выполнен" ;;
+    *) echo "${1:-Ошибка, см. журнал}" ;;
+  esac
+}
+
 clean_run() { # запуск в стерильном окружении: настройки берутся только из файла окружения
   env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME=/root LANG=C.UTF-8 \
     ARKLOCK_PROGRESS=1 ARKLOCK_UPDATE_WAIT="${ARKLOCK_UPDATE_WAIT:-240}" "$@"
@@ -156,12 +169,12 @@ process_request() { # process_request ФАЙЛ_ЗАПРОСА
       ST_MSG="$([ "$rc" -eq 0 ] && echo 'Проверка выполнена' || echo 'Репозиторий недоступен')" ;;
     update)
       run_logged "$REPO_ROOT/scripts/update.sh" --env "$ENV_FILE" --ref "$REQ_VERSION" --yes || rc=$?
-      ST_MSG="$(state_get update status)" ;;
+      ST_MSG="$(status_message "$(state_get update status)")" ;;
     rollback)
       ST_NAME="Откат"; ST_NO=1; ST_TOTAL=1; write_status
       if [ "$REQ_RESTORE" = 1 ]; then run_logged "$REPO_ROOT/scripts/rollback.sh" --env "$ENV_FILE" --yes --with-restore || rc=$?
       else run_logged "$REPO_ROOT/scripts/rollback.sh" --env "$ENV_FILE" --yes || rc=$?; fi
-      ST_MSG="$(state_get update status)"
+      ST_MSG="$(status_message "$(state_get update status)")"
       [ "$rc" -ne 3 ] || ST_MSG="Автоматический откат невозможен: изменилась схема БД (см. журнал)" ;;
   esac
   ST_FINISHED="$(date -u +%FT%TZ)"
