@@ -73,28 +73,64 @@ jobs:
       - run: node scripts/check-private-data.mjs --history
 
   container:
-    name: container build and smoke test
+    name: container build, integration and restore test
     runs-on: ubuntu-24.04
+    env:
+      POSTGRES_PASSWORD: ci-only-db-password-XJ3k9
+      APP_SECRET: ci-only-app-secret-ci-only-app-secret-Qw81
+      APP_VERSION: ci
+      APP_GIT_COMMIT: ${{ github.sha }}
+      BASE_URL: http://127.0.0.1:8080
+      STATE_FILE: ${{ github.workspace }}/smoke-state.json
     steps:
       - uses: actions/checkout@v5
-      - name: Build and start the stack
-        env:
-          POSTGRES_PASSWORD: ci-only-not-a-secret
-          APP_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
-          APP_VERSION: ci
-          APP_GIT_COMMIT: ${{ github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @arklock/crypto
+      - name: Build and start the stack on an empty database
         run: |
           docker compose config -q
           docker compose up -d --build --wait --wait-timeout 180
-      - name: Smoke test
+      - name: Probes
         run: |
-          curl -fsS http://127.0.0.1:8080/api/v1/ready
-          curl -fsS http://127.0.0.1:8080/api/v1/version
-          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="app">'
-      - name: Container runs as non-root with read-only rootfs
+          curl -fsS "$BASE_URL/api/v1/health"
+          curl -fsS "$BASE_URL/api/v1/ready"
+          curl -fsS "$BASE_URL/api/v1/version"
+          curl -fsS "$BASE_URL/" | grep -q '<div id="app">'
+      - name: Integration - register, store and read an encrypted entry
+        run: node scripts/smoke-container.mjs write
+      - name: Container hardening
         run: |
           test "$(docker compose exec -T app id -u)" != "0"
-          docker inspect "$(docker compose ps -q app)" --format '{{.HostConfig.ReadonlyRootfs}}' | grep -q true
+          docker inspect "$(docker compose ps -q app)" --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}}' | tee /dev/stderr | grep -q 'true \[ALL\]'
+          # база данных не опубликована на хосте
+          if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then echo "PostgreSQL is reachable from the host"; exit 1; fi
+      - name: Data survives container re-creation
+        run: |
+          docker compose down
+          docker compose up -d --wait --wait-timeout 180
+          node scripts/smoke-container.mjs verify
+      - name: Backup and restore of the database
+        run: |
+          docker compose exec -T db pg_dump -U arklock -Fc arklock > backup.dump
+          test -s backup.dump
+          docker compose exec -T db createdb -U arklock restore_check
+          docker compose exec -T db pg_restore -U arklock -d restore_check --no-owner < backup.dump
+          n=$(docker compose exec -T db psql -U arklock -d restore_check -tAc 'select count(*) from entries')
+          u=$(docker compose exec -T db psql -U arklock -d restore_check -tAc 'select count(*) from users')
+          echo "restored: users=$u entries=$n"
+          test "$n" = 1
+          test "$u" = 1
+      - name: No secrets in image layers or logs
+        run: |
+          docker history --no-trunc arklock:local > history.txt
+          docker compose logs --no-color > logs.txt
+          for s in "$POSTGRES_PASSWORD" "$APP_SECRET" "$(node -p "require('./smoke-state.json').password")" "$(node -p "require('./smoke-state.json').secret.password")"; do
+            if grep -qF -- "$s" history.txt logs.txt; then echo "secret value found in image history or logs"; exit 1; fi
+          done
       - name: Logs on failure
         if: failure()
         run: docker compose logs --no-color --tail=200
