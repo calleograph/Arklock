@@ -113,7 +113,10 @@ status_message() { # понятное описание итога по коду 
 }
 
 clean_run() { # запуск в стерильном окружении: настройки берутся только из файла окружения
-  env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME=/root LANG=C.UTF-8 \
+  # Домашний каталог службы — внутри каталога данных (при ProtectHome каталог /root недоступен для записи).
+  local home="$STATE_DIR/home"
+  mkdir -p "$home/.docker" && chmod 700 "$home"
+  env -i PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" HOME="$home" DOCKER_CONFIG="$home/.docker" LANG=C.UTF-8 \
     ARKLOCK_PROGRESS=1 ARKLOCK_UPDATE_WAIT="${ARKLOCK_UPDATE_WAIT:-240}" "$@"
 }
 
