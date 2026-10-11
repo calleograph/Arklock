@@ -44,11 +44,12 @@ export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  opts: { auth?: boolean } = {},
+  opts: { auth?: boolean; headers?: Record<string, string> } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token && opts.auth !== false) headers.Authorization = `Bearer ${token}`;
+  Object.assign(headers, opts.headers);
   let res: Response;
   try {
     res = await fetch(`${API_PREFIX}${path}`, {
@@ -65,7 +66,7 @@ export async function api<T = unknown>(
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)
       ?.error;
-    if (res.status === 401 && token && path !== '/auth/login') onUnauthorized?.();
+    if (res.status === 401 && token && err?.code === 'unauthorized') onUnauthorized?.();
     throw new ApiError(
       res.status,
       err?.code ?? 'http_error',

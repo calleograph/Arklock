@@ -7,6 +7,7 @@ import type { Config } from './config.js';
 import { createContext } from './context.js';
 import type { Database } from './db/connect.js';
 import { AppError } from './errors.js';
+import { registerAdminRoutes } from './routes/admin.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSystemRoutes } from './routes/system.js';
 import { registerVaultRoutes } from './routes/vaults.js';
@@ -72,7 +73,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   app.setErrorHandler((err: Error & { statusCode?: number; code?: string }, req, reply) => {
     const known = err instanceof AppError;
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
-    if (status >= 500) {
+    if (status >= 500 && !known) {
       req.log.error({ err: { type: err.name, message: err.message } }, 'request failed');
     }
     if (known && err.code === 'too_many_attempts') {
@@ -81,8 +82,13 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     }
     const body: ErrorResponse = {
       error: {
-        code: status >= 500 ? 'internal_error' : known ? err.code : (err.code ?? 'bad_request'),
-        message: status >= 500 ? 'Internal server error' : err.message,
+        code:
+          status >= 500 && !known
+            ? 'internal_error'
+            : known
+              ? err.code
+              : (err.code ?? 'bad_request'),
+        message: status >= 500 && !known ? 'Internal server error' : err.message,
         requestId: req.id,
         ...(known && err.details !== undefined ? { details: err.details } : {}),
       },
@@ -93,6 +99,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerSystemRoutes, { prefix: API_PREFIX, config, database });
   await app.register(registerAuthRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminRoutes, { prefix: API_PREFIX, ctx });
 
   const webDist = config.WEB_DIST ? path.resolve(config.WEB_DIST) : '';
   if (webDist && existsSync(webDist)) {

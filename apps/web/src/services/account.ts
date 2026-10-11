@@ -140,6 +140,20 @@ export async function unlock(user: UserBundle, password: string): Promise<Unlock
   }
 }
 
+/** Повторное подтверждение мастер-пароля для опасных операций администратора (токен действует 5 минут). */
+export async function reauth(
+  user: UserBundle,
+  password: string,
+): Promise<{ token: string; expiresAt: string }> {
+  const { keys } = await keysFor(user.email, password);
+  try {
+    return await api('POST', '/admin/reauth', { authKey: toBase64Url(keys.authKey) });
+  } finally {
+    keys.wrapKey.fill(0);
+    keys.authKey.fill(0);
+  }
+}
+
 export async function changePassword(
   user: UserBundle,
   currentPassword: string,
