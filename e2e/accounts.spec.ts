@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 
+const SETUP_CODE = 'e2e-setup-code-e2e-setup-code-1';
 const EMAIL = 'e2e.user@example.com';
 const MASTER = 'e2e-master-password-UNIQUE-4711';
 const ENTRY_PASSWORD = 'entry-secret-UNIQUE-9182';
@@ -28,6 +29,7 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
 
   await page.getByTestId('email').fill(EMAIL);
   await page.getByTestId('name').fill('E2E User');
+  await page.getByTestId('setup-token').fill(SETUP_CODE);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('repeat').fill(MASTER);
   await page.getByTestId('submit').click();

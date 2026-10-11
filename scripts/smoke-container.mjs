@@ -97,6 +97,7 @@ async function write() {
     userId,
     email,
     displayName: 'Smoke Test',
+    setupToken: process.env.SETUP_TOKEN,
     kdf: KDF,
     salt: toBase64Url(salt),
     authKey: toBase64Url(keys.authKey),

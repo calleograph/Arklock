@@ -78,6 +78,8 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci-only-db-password-XJ3k9
       APP_SECRET: ci-only-app-secret-ci-only-app-secret-Qw81
+      BOOTSTRAP_TOKEN: ci-bootstrap-token-ci-bootstrap-1
+      SETUP_TOKEN: ci-bootstrap-token-ci-bootstrap-1
       APP_VERSION: ci
       APP_GIT_COMMIT: ${{ github.sha }}
       BASE_URL: http://127.0.0.1:8080
@@ -136,3 +138,140 @@ jobs:
         run: docker compose logs --no-color --tail=200
       - if: always()
         run: docker compose down -v
+
+  scripts:
+    name: shell scripts (syntax, shellcheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          rc=0
+          for f in install.sh scripts/*.sh scripts/lib/*.sh; do
+            bash -n "$f" || rc=1
+          done
+          exit $rc
+      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh
+
+  installer:
+    name: installer, backup and restore on a clean Ubuntu 24.04 runner
+    runs-on: ubuntu-24.04
+    env:
+      CFG: /etc/arklock-ci
+      DATA: /var/lib/arklock-ci
+      PROJ: arklock-ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @arklock/crypto
+      - name: Dry run changes nothing
+        run: |
+          sudo ./install.sh --dry-run --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
+          test ! -e "$CFG/arklock.env"
+      - name: Install (standalone)
+        run: sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log
+      - name: Install output has the setup instructions and no secrets other than the setup code
+        run: |
+          grep -q "УСТАНОВКА ЗАВЕРШЕНА" install.log
+          pw="$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' "$CFG/arklock.env")"
+          sec="$(sudo sed -n 's/^APP_SECRET=//p' "$CFG/arklock.env")"
+          if grep -qF -- "$pw" install.log || grep -qF -- "$sec" install.log; then echo "secret printed by installer"; exit 1; fi
+          test "$(sudo stat -c '%a' "$CFG/arklock.env")" = 600
+          test "$(sudo stat -c '%a' "$CFG/backup.key")" = 600
+      - name: Re-running the installer keeps secrets and data
+        run: |
+          before="$(sudo sha256sum "$CFG/arklock.env" "$CFG/backup.key")"
+          sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
+          after="$(sudo sha256sum "$CFG/arklock.env" "$CFG/backup.key")"
+          test "$before" = "$after"
+      - name: Load instance settings
+        run: |
+          echo "PORT=$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
+          echo "SETUP_TOKEN=$(sudo sed -n 's/^BOOTSTRAP_TOKEN=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
+      - name: First administrator requires the setup code
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/auth/register")"
+          test "$code" = 400
+          curl -fsS "http://127.0.0.1:$PORT/api/v1/auth/registration" | grep -q '"setupTokenRequired":true'
+      - name: Scripts verify, smoke-test, status, diag
+        run: |
+          sudo ./scripts/verify.sh --env "$CFG/arklock.env"
+          sudo ./scripts/smoke-test.sh --env "$CFG/arklock.env"
+          sudo ./scripts/status.sh --env "$CFG/arklock.env"
+          sudo ./scripts/preflight.sh --env "$CFG/arklock.env"
+          sudo ./scripts/diag.sh --env "$CFG/arklock.env"
+          pkg="$(sudo ls -1 "$DATA"/tmp/arklock-diag-*.tar.gz | head -n 1)"
+          sudo tar -xzOf "$pkg" > diag.txt
+          pw="$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' "$CFG/arklock.env")"
+          if grep -qF -- "$pw" diag.txt; then echo "secret in diagnostic package"; exit 1; fi
+      - name: Register a user and store an encrypted entry
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: node scripts/smoke-container.mjs write
+      - name: Encrypted backup and its verification
+        run: |
+          sudo ./scripts/backup.sh --env "$CFG/arklock.env"
+          f="$(sudo ls -1t "$DATA"/backups/*.bak.gpg | head -n 1)"
+          echo "BACKUP=$f" >> "$GITHUB_ENV"
+          sudo ./scripts/backup.sh --env "$CFG/arklock.env" --verify "$f"
+          # копия зашифрована: ни логин пользователя, ни пароль записи в открытом виде в ней не встречаются
+          user="$(node -p "require('./smoke-state.json').email")"
+          secret="$(node -p "require('./smoke-state.json').secret.password")"
+          if sudo grep -aqF -- "$user" "$f" || sudo grep -aqF -- "$secret" "$f"; then echo "plaintext in backup"; exit 1; fi
+      - name: A corrupted backup is rejected
+        run: |
+          sudo cp "$BACKUP" /tmp/corrupt.bak.gpg
+          sudo sh -c 'printf "X" | dd of=/tmp/corrupt.bak.gpg bs=1 seek=300 conv=notrunc 2>/dev/null'
+          if sudo ./scripts/backup.sh --env "$CFG/arklock.env" --verify /tmp/corrupt.bak.gpg; then echo "corrupted backup accepted"; exit 1; fi
+      - name: Disaster - destroy the database, re-install, restore from backup
+        run: |
+          sudo docker compose --project-name "$PROJ" down -v
+          sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
+          sudo ./scripts/restore.sh "$BACKUP" --env "$CFG/arklock.env" --yes
+      - name: After restore the same user decrypts the same entry
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: node scripts/smoke-container.mjs verify
+      - name: Repair is safe on a healthy system
+        run: sudo ./scripts/repair.sh --env "$CFG/arklock.env"
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo docker compose --project-name "$PROJ" logs --no-color --tail=100 || true
+          sudo docker compose --project-name "$PROJ" down -v || true
+
+  shared-host:
+    name: shared-host profile leaves foreign services untouched
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Foreign application on the same host
+        run: |
+          docker run -d --name foreign-app -p 18081:80 nginx:alpine
+          docker run -d --name foreign-db -e POSTGRES_PASSWORD=x postgres:16-alpine
+          sleep 3
+          echo "FOREIGN_APP=$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' foreign-app)" >> "$GITHUB_ENV"
+          echo "FOREIGN_DB=$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' foreign-db)" >> "$GITHUB_ENV"
+      - name: Occupied port is refused without side effects
+        run: |
+          if sudo ./install.sh --yes --profile shared-host --project arklock-sh --config /etc/arklock-sh --data /var/lib/arklock-sh --port 18081; then echo "installer took an occupied port"; exit 1; fi
+      - name: Install next to foreign containers
+        run: sudo ./install.sh --yes --profile shared-host --project arklock-sh --config /etc/arklock-sh --data /var/lib/arklock-sh
+      - name: Foreign containers and ports are intact
+        run: |
+          test "$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' foreign-app)" = "$FOREIGN_APP"
+          test "$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' foreign-db)" = "$FOREIGN_DB"
+          curl -fsS http://127.0.0.1:18081/ | grep -qi nginx
+          sudo ./scripts/verify.sh --env /etc/arklock-sh/arklock.env
+          port="$(sudo sed -n 's/^APP_PORT=//p' /etc/arklock-sh/arklock.env)"
+          test "$port" != 18081
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo docker compose --project-name arklock-sh down -v || true
+          docker rm -f foreign-app foreign-db || true

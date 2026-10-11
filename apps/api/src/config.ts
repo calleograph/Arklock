@@ -12,6 +12,8 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   /** Секрет приложения (не менее 32 символов): правдоподобные ответы для неизвестных адресов. Не ключ шифрования данных. */
   APP_SECRET: z.string().min(32, 'APP_SECRET must be at least 32 characters'),
+  /** Одноразовый код первоначальной настройки: без него в production создать первого администратора нельзя. */
+  BOOTSTRAP_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(24).optional()),
   /** Каталог собранного веб-клиента; пусто — API без раздачи статики. */
   WEB_DIST: z.string().default(''),
   /** Сколько прокси стоит перед приложением (для корректного IP клиента). */

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { and, count, eq, ne, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -73,6 +74,23 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   const { db, config } = ctx;
   const auth = requireAuth(ctx);
 
+  /** Первого администратора в production создаёт только владелец сервера, знающий одноразовый код установщика. */
+  const setupRequired = () =>
+    config.NODE_ENV === 'production' || config.BOOTSTRAP_TOKEN !== undefined;
+  function checkSetupToken(req: FastifyRequest, given: string | undefined): void {
+    if (!setupRequired()) return;
+    throttle(ctx, req, 'setup');
+    if (!config.BOOTSTRAP_TOKEN) {
+      throw new AppError(403, 'setup_disabled', 'Initial setup is not enabled on this server');
+    }
+    const want = Buffer.from(config.BOOTSTRAP_TOKEN);
+    const got = Buffer.from(given ?? '');
+    if (want.length !== got.length || !timingSafeEqual(want, got)) {
+      recordFailure(ctx, req, 'setup');
+      throw new AppError(403, 'invalid_setup_token', 'Invalid setup code');
+    }
+  }
+
   /** Параметры получения ключей. Для неизвестных адресов — правдоподобные детерминированные значения. */
   app.get('/auth/params', async (req): Promise<AuthParamsResponse> => {
     const { email } = parse(authParamsQuery, req.query);
@@ -87,9 +105,9 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
 
   app.get('/auth/registration', async (): Promise<RegistrationStatus> => {
     const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(users);
-    if (n === 0) return { open: true, firstUser: true };
+    if (n === 0) return { open: true, firstUser: true, setupTokenRequired: setupRequired() };
     const [mode] = await db.select().from(settings).where(eq(settings.key, 'registration.mode'));
-    return { open: mode?.value === 'open', firstUser: false };
+    return { open: mode?.value === 'open', firstUser: false, setupTokenRequired: false };
   });
 
   app.post('/auth/register', async (req, reply) => {
@@ -100,6 +118,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       // Сериализуем регистрации: первый пользователь становится администратором ровно один раз.
       await tx.execute(sql`select pg_advisory_xact_lock(7001)`);
       const [{ n } = { n: 0 }] = await tx.select({ n: count() }).from(users);
+      if (n === 0) checkSetupToken(req, body.setupToken);
       if (n > 0) {
         const [mode] = await tx
           .select()

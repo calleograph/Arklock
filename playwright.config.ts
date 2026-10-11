@@ -30,6 +30,7 @@ export default defineConfig({
       APP_SECRET: 'e2e-secret-e2e-secret-e2e-secret-12345',
       WEB_DIST: 'apps/web/dist',
       LOG_LEVEL: 'warn',
+      BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-1',
       TRUSTED_PROXY_HOPS: '0',
     },
   },

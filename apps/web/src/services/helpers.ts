@@ -12,6 +12,10 @@ export function errorMessage(e: unknown, t: T): string {
         return t('auth.locked');
       case 'registration_closed':
         return t('auth.closed');
+      case 'invalid_setup_token':
+        return t('auth.badSetupCode');
+      case 'setup_disabled':
+        return t('auth.setupDisabled');
       case 'already_exists':
         return t('auth.exists');
       case 'version_conflict':

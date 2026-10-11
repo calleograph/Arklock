@@ -17,6 +17,7 @@ import {
   timingSafeEqual,
 } from '@arklock/crypto';
 import { entries, ledger, sessions, settings } from '../src/db/schema.js';
+import { MIN_KDF } from '@arklock/crypto';
 import { FAST, TestClient, createTestApp } from './helpers.js';
 
 let app: FastifyInstance;
@@ -73,6 +74,40 @@ describe('registration policy', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.body).not.toContain(marker);
+  });
+});
+
+describe('first administrator bootstrap', () => {
+  it('requires the one-time setup code in production', async () => {
+    const token = 'setup-code-setup-code-setup-code-1';
+    const { app: prod } = await createTestApp({ NODE_ENV: 'production', BOOTSTRAP_TOKEN: token });
+    const st = (await prod.inject('/api/v1/auth/registration')).json();
+    expect(st).toEqual({ open: true, firstUser: true, setupTokenRequired: true });
+    const c = new TestClient(prod, 'root@example.com', 'root-password-12345');
+    const wrong = await c.register('wrong-code', MIN_KDF);
+    expect(wrong.statusCode).toBe(403);
+    expect(wrong.json().error.code).toBe('invalid_setup_token');
+    expect((await c.register(undefined, MIN_KDF)).statusCode).toBe(403);
+    expect((await c.register(token, MIN_KDF)).statusCode).toBe(201);
+    await prod.close();
+  });
+
+  it('refuses to create an administrator in production when no setup code is configured', async () => {
+    const { app: prod } = await createTestApp({ NODE_ENV: 'production' });
+    const c = new TestClient(prod, 'root2@example.com', 'root-password-12345');
+    const res = await c.register('anything', MIN_KDF);
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('setup_disabled');
+    await prod.close();
+  });
+
+  it('accepts the correct code (relaxed KDF floor in test mode)', async () => {
+    const token = 'setup-code-setup-code-setup-code-2';
+    const { app: dev } = await createTestApp({ BOOTSTRAP_TOKEN: token });
+    const c = new TestClient(dev, 'root3@example.com', 'root-password-12345');
+    expect((await c.register('nope-nope-nope-nope-nope-1')).statusCode).toBe(403);
+    expect((await c.register(token)).statusCode).toBe(201);
+    await dev.close();
   });
 });
 

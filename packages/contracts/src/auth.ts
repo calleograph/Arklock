@@ -29,6 +29,8 @@ export const registerRequest = z.object({
   userId: uuid,
   email,
   displayName: z.string().trim().min(1).max(100),
+  /** Код первоначальной настройки (нужен только для первой, администраторской записи). */
+  setupToken: z.string().max(200).optional(),
   kdf: kdfParams,
   salt: b64url(22, 22),
   authKey,
@@ -97,5 +99,10 @@ export const sessionInfo = z.object({
 export type SessionInfo = z.infer<typeof sessionInfo>;
 
 /** Публичный признак: можно ли сейчас создать учётную запись (первая запись или режим открытой регистрации). */
-export const registrationStatus = z.object({ open: z.boolean(), firstUser: z.boolean() });
+export const registrationStatus = z.object({
+  open: z.boolean(),
+  firstUser: z.boolean(),
+  /** Для создания первого администратора нужен код настройки (выдаётся установщиком). */
+  setupTokenRequired: z.boolean(),
+});
 export type RegistrationStatus = z.infer<typeof registrationStatus>;

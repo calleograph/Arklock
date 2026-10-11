@@ -38,6 +38,11 @@ export default {
     locked: 'Too many attempts. Try again later',
     closed: 'Registration is closed by the administrator',
     exists: 'An account with this email already exists',
+    setupCode: 'Setup code',
+    setupCodeHint:
+      'The one-time code printed by the installer on the server. Needed only to create the first administrator.',
+    badSetupCode: 'Invalid setup code',
+    setupDisabled: 'Initial setup is not enabled on this server (see the installation guide)',
     firstUser: 'The first account becomes the administrator.',
     recoveryTitle: 'Recovery key',
     recoveryWarn:

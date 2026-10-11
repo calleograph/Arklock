@@ -41,6 +41,7 @@ export async function createAccount(
   email: string,
   displayName: string,
   password: string,
+  setupToken?: string,
 ): Promise<{ recoveryCode: string }> {
   const userId = crypto.randomUUID();
   const salt = generateSalt();
@@ -57,6 +58,7 @@ export async function createAccount(
         userId,
         email,
         displayName,
+        setupToken: setupToken || undefined,
         kdf: DEFAULT_KDF,
         salt: toBase64Url(salt),
         authKey: toBase64Url(keys.authKey),

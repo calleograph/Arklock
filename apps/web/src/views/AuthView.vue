@@ -23,6 +23,8 @@ const busy = ref(false);
 const error = ref('');
 const registrationOpen = ref(true);
 const firstUser = ref(false);
+const setupRequired = ref(false);
+const setupToken = ref(typeof route.query.setup === 'string' ? route.query.setup : '');
 /** Показ ключа восстановления: после регистрации и после восстановления доступа. */
 const shownRecovery = ref('');
 const recoverySaved = ref(false);
@@ -44,6 +46,7 @@ onMounted(async () => {
     const status = await account.registrationStatus();
     registrationOpen.value = status.open;
     firstUser.value = status.firstUser;
+    setupRequired.value = status.setupTokenRequired;
     if (status.firstUser && mode.value === 'signin') mode.value = 'register';
   } catch {
     /* сервер недоступен — форма покажет ошибку при отправке */
@@ -88,6 +91,7 @@ async function submit(): Promise<void> {
         email.value.trim().toLowerCase(),
         displayName.value.trim(),
         password.value,
+        setupToken.value.trim(),
       );
       recoveryContext.value = 'register';
       shownRecovery.value = recoveryCode;
@@ -237,6 +241,18 @@ async function copyRecovery(): Promise<void> {
           class="field"
           data-testid="name"
         />
+      </label>
+      <label v-if="mode === 'register' && setupRequired" class="block text-sm">
+        <span class="mb-1 block">{{ t('auth.setupCode') }}</span>
+        <input
+          v-model="setupToken"
+          type="password"
+          required
+          autocomplete="off"
+          class="field font-mono"
+          data-testid="setup-token"
+        />
+        <span class="mt-1 block text-xs text-slate-500">{{ t('auth.setupCodeHint') }}</span>
       </label>
       <label v-if="mode === 'recover'" class="block text-sm">
         <span class="mb-1 block">{{ t('auth.recoveryCode') }}</span>

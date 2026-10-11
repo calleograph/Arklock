@@ -58,10 +58,10 @@ export class TestClient {
     return { authorization: `Bearer ${this.token}` };
   }
 
-  async register() {
+  async register(setupToken?: string, kdf: typeof FAST = FAST) {
     const userId = crypto.randomUUID();
     const salt = generateSalt();
-    const keys = await deriveMasterKeys(this.password, salt, userId, FAST, LOW_FLOOR);
+    const keys = await deriveMasterKeys(this.password, salt, userId, kdf, LOW_FLOOR);
     const kp = await generateAccountKeyPair();
     const recovery = await generateRecoveryKey();
     const lockerId = crypto.randomUUID();
@@ -73,7 +73,8 @@ export class TestClient {
         userId,
         email: this.email,
         displayName: 'Test User',
-        kdf: FAST,
+        setupToken,
+        kdf,
         salt: toBase64Url(salt),
         authKey: toBase64Url(keys.authKey),
         publicKey: toBase64Url(kp.publicKey),
