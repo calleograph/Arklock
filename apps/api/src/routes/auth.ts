@@ -22,7 +22,17 @@ import type {
 import { audit } from '../audit.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { sessions, settings, users, vaultMembers, vaults } from '../db/schema.js';
+import {
+  keyLog,
+  sessions,
+  settings,
+  users,
+  vaultKeys,
+  vaultMembers,
+  vaults,
+} from '../db/schema.js';
+import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
+import { desc } from 'drizzle-orm';
 import { AppError, notFound, parse } from '../errors.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 
@@ -43,7 +53,9 @@ function bundle(u: typeof users.$inferSelect): UserBundle {
     displayName: u.displayName,
     role: u.role,
     publicKey: u.publicKey,
+    signPublicKey: u.signPublicKey,
     wrappedPrivateKey: u.wrappedPrivateKey,
+    wrappedSignPrivateKey: u.wrappedSignPrivateKey,
   };
 }
 
@@ -147,18 +159,50 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         authSalt,
         authHash: hashProof(authSalt, body.authKey),
         publicKey: body.publicKey,
+        signPublicKey: body.signPublicKey,
         wrappedPrivateKey: body.wrappedPrivateKey,
+        wrappedSignPrivateKey: body.wrappedSignPrivateKey,
         recoverySalt,
         recoveryHash: hashProof(recoverySalt, body.recoveryProof),
         recoveryWrappedPrivateKey: body.recoveryWrappedPrivateKey,
+        recoveryWrappedSignPrivateKey: body.recoveryWrappedSignPrivateKey,
       });
-      await tx.insert(vaults).values({ id: body.locker.vaultId, kind: 'locker', keyVersion: 1 });
-      await tx.insert(vaultMembers).values({
+      // Журнал привязки ключей: запись о новой идентичности включается в хэш-цепочку.
+      const [last] = await tx
+        .select({ hash: keyLog.hash })
+        .from(keyLog)
+        .orderBy(desc(keyLog.seq))
+        .limit(1);
+      const prevHash = last?.hash ?? '';
+      await tx.insert(keyLog).values({
+        userId: body.userId,
+        encPublic: body.publicKey,
+        signPublic: body.signPublicKey,
+        prevHash,
+        hash: await keyLogHash(prevHash, body.userId, body.publicKey, body.signPublicKey),
+      });
+      const signOk = await verifyKeyGrant(
+        fromBase64Url(body.signPublicKey),
+        body.locker.signature,
+        body.locker.vaultId,
+        body.userId,
+        1,
+        body.locker.sealedKey,
+      ).catch(() => false);
+      if (!signOk) throw new AppError(400, 'bad_signature', 'Key grant signature is invalid');
+      await tx
+        .insert(vaults)
+        .values({ id: body.locker.vaultId, kind: 'locker', keyVersion: 1, createdBy: body.userId });
+      await tx
+        .insert(vaultMembers)
+        .values({ vaultId: body.locker.vaultId, userId: body.userId, role: 'owner' });
+      await tx.insert(vaultKeys).values({
         vaultId: body.locker.vaultId,
         userId: body.userId,
-        role: 'owner',
+        keyVersion: 1,
         sealedKey: body.locker.sealedKey,
-        sealedKeyVersion: 1,
+        grantedBy: body.userId,
+        signature: body.locker.signature,
       });
       return body.userId;
     });
@@ -270,6 +314,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         authSalt,
         authHash: hashProof(authSalt, body.newAuthKey),
         wrappedPrivateKey: body.wrappedPrivateKey,
+        wrappedSignPrivateKey: body.wrappedSignPrivateKey,
         updatedAt: new Date(),
       })
       .where(eq(users.id, user.id));
@@ -293,13 +338,17 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       return {
         userId: u.id,
         recoveryWrappedPrivateKey: u.recoveryWrappedPrivateKey,
+        recoveryWrappedSignPrivateKey: u.recoveryWrappedSignPrivateKey,
         publicKey: u.publicKey,
+        signPublicKey: u.signPublicKey,
       };
     }
     return {
       userId: fakeUuid(config.APP_SECRET, body.email),
       recoveryWrappedPrivateKey: `ak1.${fakeBytes(config.APP_SECRET, 'n', body.email, 12).toString('base64url')}.${fakeBytes(config.APP_SECRET, 'c', body.email, 154).toString('base64url')}`,
+      recoveryWrappedSignPrivateKey: `ak1.${fakeBytes(config.APP_SECRET, 'n2', body.email, 12).toString('base64url')}.${fakeBytes(config.APP_SECRET, 'c2', body.email, 154).toString('base64url')}`,
       publicKey: fakeBytes(config.APP_SECRET, 'pk', body.email, 65).toString('base64url'),
+      signPublicKey: fakeBytes(config.APP_SECRET, 'sk', body.email, 65).toString('base64url'),
     };
   });
 
@@ -333,9 +382,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           authSalt,
           authHash: hashProof(authSalt, body.newAuthKey),
           wrappedPrivateKey: body.wrappedPrivateKey,
+          wrappedSignPrivateKey: body.wrappedSignPrivateKey,
           recoverySalt,
           recoveryHash: hashProof(recoverySalt, body.newRecoveryProof),
           recoveryWrappedPrivateKey: body.newRecoveryWrappedPrivateKey,
+          recoveryWrappedSignPrivateKey: body.newRecoveryWrappedSignPrivateKey,
           updatedAt: new Date(),
         })
         .where(eq(users.id, u.id));

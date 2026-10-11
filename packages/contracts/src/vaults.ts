@@ -1,8 +1,14 @@
 import { z } from 'zod';
-import { sealedBox, sealedValue, uuid } from './common.js';
+import { b64url, sealedBox, sealedValue, uuid } from './common.js';
 
-export const vaultRole = z.enum(['owner', 'admin', 'editor', 'reader']);
+/** Роли в хранилище (по убыванию полномочий). limited — доступ только по грантам на ветви и записи. */
+export const vaultRole = z.enum(['owner', 'admin', 'editor', 'reader', 'limited']);
 export type VaultRole = z.infer<typeof vaultRole>;
+export const grantRole = z.enum(['reader', 'editor', 'manager']);
+export type GrantRole = z.infer<typeof grantRole>;
+
+const MAX_BLOB = 512 * 1024;
+const signature = b64url(80, 100);
 
 export const vaultInfo = z.object({
   id: uuid,
@@ -11,16 +17,31 @@ export const vaultInfo = z.object({
   /** Текущая версия ключа хранилища. */
   keyVersion: z.number().int(),
   role: vaultRole,
-  /** Ключ хранилища, запечатанный для текущего пользователя, и версия, для которой он запечатан. */
-  sealedKey: sealedBox,
-  sealedKeyVersion: z.number().int(),
+  /** Ключ хранилища, запечатанный для текущего пользователя (последней доступной версии), с подписью выдавшего. */
+  key: z
+    .object({
+      sealedKey: sealedBox,
+      keyVersion: z.number().int(),
+      grantedBy: uuid,
+      grantedBySignKey: z.string(),
+      signature,
+    })
+    .nullable(),
+  /** Доступ есть, но ключ ещё не выдан администратором хранилища. */
+  pendingKey: z.boolean(),
 });
 export type VaultInfo = z.infer<typeof vaultInfo>;
 
-const MAX_BLOB = 512 * 1024;
+export const createVaultRequest = z.object({
+  id: uuid,
+  name: z.string().trim().min(1).max(100),
+  sealedKey: sealedBox,
+  signature,
+});
 
 export const entryWrite = z.object({
   id: uuid.optional(),
+  branchId: uuid.nullable().optional(),
   wrappedEntryKey: sealedValue(512),
   ciphertext: sealedValue(MAX_BLOB),
   keyVersion: z.number().int().min(1),
@@ -34,11 +55,141 @@ export const entryDelete = z.object({ expectedVersion: z.number().int().min(1) }
 export const entryRecord = z.object({
   id: uuid,
   vaultId: uuid,
+  branchId: uuid.nullable(),
   wrappedEntryKey: z.string(),
   ciphertext: z.string(),
   keyVersion: z.number().int(),
   version: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+  pinned: z.boolean(),
+  /** Эффективное право текущего пользователя на запись. */
+  access: z.enum(['reader', 'editor', 'manager']),
 });
 export type EntryRecord = z.infer<typeof entryRecord>;
+
+export const branchWrite = z.object({
+  id: uuid,
+  parentId: uuid.nullable(),
+  nameCipher: sealedValue(2048),
+  keyVersion: z.number().int().min(1),
+});
+export const branchPatch = z.object({
+  parentId: uuid.nullable().optional(),
+  nameCipher: sealedValue(2048).optional(),
+  keyVersion: z.number().int().min(1).optional(),
+});
+export const branchRecord = z.object({
+  id: uuid,
+  vaultId: uuid,
+  parentId: uuid.nullable(),
+  nameCipher: z.string(),
+  keyVersion: z.number().int(),
+  version: z.number().int(),
+  deletedAt: z.string().nullable(),
+  access: z.enum(['reader', 'editor', 'manager']),
+});
+export type BranchRecord = z.infer<typeof branchRecord>;
+
+export const bulkRequest = z.object({
+  ids: z.array(uuid).min(1).max(500),
+  action: z.enum(['move', 'trash', 'restore', 'purge']),
+  branchId: uuid.nullable().optional(),
+});
+
+export const revisionRecord = z.object({
+  id: uuid,
+  version: z.number().int(),
+  wrappedEntryKey: z.string(),
+  ciphertext: z.string(),
+  keyVersion: z.number().int(),
+  savedAt: z.string(),
+  savedBy: uuid.nullable(),
+});
+export type RevisionRecord = z.infer<typeof revisionRecord>;
+
+export const memberPut = z.object({
+  role: vaultRole.exclude(['owner']),
+  /** Ключ хранилища для нового участника (если у администратора есть ключ). */
+  key: z
+    .object({ keyVersion: z.number().int().min(1), sealedKey: sealedBox, signature })
+    .optional(),
+});
+export const circleRolePut = z.object({ role: z.enum(['admin', 'editor', 'reader', 'limited']) });
+export const keysPost = z.object({
+  keys: z
+    .array(
+      z.object({
+        userId: uuid,
+        keyVersion: z.number().int().min(1),
+        sealedKey: sealedBox,
+        signature,
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+
+export const rotatePost = z.object({
+  newKeyVersion: z.number().int().min(2),
+  keys: z
+    .array(z.object({ userId: uuid, sealedKey: sealedBox, signature }))
+    .min(1)
+    .max(1000),
+  entries: z
+    .array(
+      z.object({ id: uuid, wrappedEntryKey: sealedValue(512), ciphertext: sealedValue(MAX_BLOB) }),
+    )
+    .max(20000),
+  revisions: z
+    .array(
+      z.object({ id: uuid, wrappedEntryKey: sealedValue(512), ciphertext: sealedValue(MAX_BLOB) }),
+    )
+    .max(100000),
+  branches: z.array(z.object({ id: uuid, nameCipher: sealedValue(2048) })).max(20000),
+});
+
+export const grantPut = z.object({
+  targetType: z.enum(['branch', 'entry']),
+  targetId: uuid,
+  subjectType: z.enum(['user', 'circle']),
+  subjectId: uuid,
+  role: grantRole,
+  expiresAt: z.string().datetime().nullable().optional(),
+});
+
+export const handoffCreate = z.object({
+  id: uuid,
+  label: z.string().trim().max(100).default(''),
+  ciphertext: sealedValue(64 * 1024),
+  hasPassphrase: z.boolean().default(false),
+  expiresInMinutes: z
+    .number()
+    .int()
+    .min(1)
+    .max(60 * 24 * 30),
+  maxViews: z.number().int().min(1).max(100),
+});
+
+export const signalsPost = z.object({
+  items: z
+    .array(
+      z.object({
+        entryId: uuid,
+        type: z.enum(['weak', 'reused', 'compromised', 'expired']),
+      }),
+    )
+    .max(2000),
+  /** Типы, по которым выполнялась проверка: сигналы этих типов вне списка закрываются как устранённые. */
+  checkedTypes: z.array(z.enum(['weak', 'reused', 'compromised', 'expired'])).max(4),
+});
+export const signalPatch = z.object({
+  status: z.enum(['open', 'in_progress', 'resolved', 'dismissed']).optional(),
+  assignedTo: uuid.nullable().optional(),
+});
+
+export const circleWrite = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(500).default(''),
+});

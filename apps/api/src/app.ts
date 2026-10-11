@@ -8,8 +8,11 @@ import { createContext } from './context.js';
 import type { Database } from './db/connect.js';
 import { AppError } from './errors.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSystemRoutes } from './routes/system.js';
+import { registerContentRoutes } from './routes/content.js';
+import { registerSharingRoutes } from './routes/sharing.js';
 import { registerVaultRoutes } from './routes/vaults.js';
 
 export interface AppDeps {
@@ -99,7 +102,10 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerSystemRoutes, { prefix: API_PREFIX, config, database });
   await app.register(registerAuthRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerContentRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerSharingRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
 
   const webDist = config.WEB_DIST ? path.resolve(config.WEB_DIST) : '';
   if (webDist && existsSync(webDist)) {

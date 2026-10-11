@@ -11,6 +11,7 @@ import {
   rewrapAccountPrivateKey,
   toBase64Url,
   unwrapPrivateKeyWithRecovery,
+  wrapSignPrivateKey,
   wrapAccountPrivateKey,
   wrapPrivateKeyForRecovery,
   generateRecoveryKey,
@@ -329,7 +330,10 @@ describe('end-to-end encryption and access control', () => {
       url: `/api/v1/vaults/${vaultId}/entries/${entryId}`,
       headers: a.authHeader(),
     });
-    expect(get.statusCode).toBe(404);
+    // запись в корзине: из дерева исчезла, прямое чтение показывает отметку удаления
+    expect(get.json().deletedAt).not.toBeNull();
+    const tree = (await a.req('GET', `/vaults/${vaultId}/tree`)).json();
+    expect(tree.entries.some((e: { id: string }) => e.id === entryId)).toBe(false);
   });
 });
 
@@ -359,6 +363,11 @@ describe('password change and account recovery', () => {
           oldKeys.wrapKey,
           newKeys.wrapKey,
           me.user.wrappedPrivateKey,
+          params.userId,
+        ),
+        wrappedSignPrivateKey: await wrapSignPrivateKey(
+          newKeys.wrapKey,
+          c.signPrivateKey,
           params.userId,
         ),
       },
@@ -400,6 +409,9 @@ describe('password change and account recovery', () => {
         wrappedPrivateKey: (
           await app.inject({ url: '/api/v1/auth/me', headers: c.authHeader() })
         ).json().user.wrappedPrivateKey,
+        wrappedSignPrivateKey: (
+          await app.inject({ url: '/api/v1/auth/me', headers: c.authHeader() })
+        ).json().user.wrappedSignPrivateKey,
       },
     });
     expect(res.statusCode).toBe(401);
@@ -426,11 +438,17 @@ describe('password change and account recovery', () => {
       start.userId,
     );
     expect(timingSafeEqual(priv, oldPrivate)).toBe(true);
+    const signPriv = await unwrapPrivateKeyWithRecovery(
+      rk,
+      start.recoveryWrappedSignPrivateKey,
+      start.userId,
+    );
 
     const salt = generateSalt();
     const keys = await deriveMasterKeys('frank-brand-new-pass', salt, start.userId, FAST, FAST);
     const newRecovery = await generateRecoveryKey();
     const wrapped = await wrapAccountPrivateKey(keys.wrapKey, priv, start.userId);
+    const wrappedSign = await wrapSignPrivateKey(keys.wrapKey, signPriv, start.userId);
     const send = async (proof: Uint8Array) =>
       app.inject({
         method: 'POST',
@@ -442,10 +460,16 @@ describe('password change and account recovery', () => {
           salt: toBase64Url(salt),
           newAuthKey: toBase64Url(keys.authKey),
           wrappedPrivateKey: wrapped,
+          wrappedSignPrivateKey: wrappedSign,
           newRecoveryProof: toBase64Url(await deriveRecoveryProof(newRecovery.key, start.userId)),
           newRecoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
             newRecovery.key,
             priv,
+            start.userId,
+          ),
+          newRecoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
+            newRecovery.key,
+            signPriv,
             start.userId,
           ),
         },

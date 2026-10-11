@@ -176,3 +176,52 @@ export async function rewrapEntry(
     body.fill(0);
   }
 }
+
+/** Закрытый ключ подписи аккаунта хранится так же, как ключ шифрования: под ключом обёртки мастер-пароля. */
+export function wrapSignPrivateKey(
+  wrapKey: Uint8Array,
+  privateKey: Uint8Array,
+  accountId: string,
+): Promise<string> {
+  return encrypt(wrapKey, privateKey, ctx('sign-key', accountId));
+}
+
+export function unwrapSignPrivateKey(wrapKey: Uint8Array, wrapped: string, accountId: string) {
+  return decrypt(wrapKey, wrapped, ctx('sign-key', accountId));
+}
+
+/** Название ветви шифруется ключом хранилища и привязано к хранилищу, ветви и версии ключа. */
+export async function encryptBranchName(
+  name: string,
+  vaultKey: Uint8Array,
+  vaultId: string,
+  branchId: string,
+  keyVersion: number,
+): Promise<string> {
+  return encrypt(vaultKey, utf8(name), ctx('branch', vaultId, branchId, keyVersion));
+}
+
+export async function decryptBranchName(
+  nameCipher: string,
+  vaultKey: Uint8Array,
+  vaultId: string,
+  branchId: string,
+  keyVersion: number,
+): Promise<string> {
+  const plain = await decrypt(vaultKey, nameCipher, ctx('branch', vaultId, branchId, keyVersion));
+  return fromUtf8(plain);
+}
+
+/** Перешифрование названия ветви новым ключом хранилища (ротация). */
+export async function rewrapBranchName(
+  nameCipher: string,
+  oldKey: Uint8Array,
+  newKey: Uint8Array,
+  vaultId: string,
+  branchId: string,
+  oldVersion: number,
+  newVersion: number,
+): Promise<string> {
+  const name = await decryptBranchName(nameCipher, oldKey, vaultId, branchId, oldVersion);
+  return encryptBranchName(name, newKey, vaultId, branchId, newVersion);
+}

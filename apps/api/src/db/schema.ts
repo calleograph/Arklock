@@ -1,5 +1,6 @@
 import {
   bigserial,
+  boolean,
   index,
   integer,
   jsonb,
@@ -52,16 +53,35 @@ export const users = pgTable(
     kdfSalt: text('kdf_salt').notNull(),
     authSalt: text('auth_salt').notNull(),
     authHash: text('auth_hash').notNull(),
+    /** Открытый ключ шифрования (ECDH P-256) и ключ подписи (ECDSA P-256). */
     publicKey: text('public_key').notNull(),
+    signPublicKey: text('sign_public_key').notNull(),
     wrappedPrivateKey: text('wrapped_private_key').notNull(),
+    wrappedSignPrivateKey: text('wrapped_sign_private_key').notNull(),
     recoverySalt: text('recovery_salt').notNull(),
     recoveryHash: text('recovery_hash').notNull(),
     recoveryWrappedPrivateKey: text('recovery_wrapped_private_key').notNull(),
+    recoveryWrappedSignPrivateKey: text('recovery_wrapped_sign_private_key').notNull(),
     disabledAt: ts('disabled_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('users_email_idx').on(t.email)],
+);
+
+/** Журнал привязки открытых ключей к идентичности (хэш-цепочка). */
+export const keyLog = pgTable(
+  'key_log',
+  {
+    seq: bigserial('seq', { mode: 'number' }).primaryKey(),
+    userId: uuid('user_id').notNull(),
+    encPublic: text('enc_public').notNull(),
+    signPublic: text('sign_public').notNull(),
+    prevHash: text('prev_hash').notNull(),
+    hash: text('hash').notNull(),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [index('key_log_user_idx').on(t.userId)],
 );
 
 /** Сессии. В БД хранится только SHA-256 токена. */
@@ -93,9 +113,11 @@ export const vaults = pgTable('vaults', {
   /** Название общего хранилища (открытый текст — решение зафиксировано в docs/security). У сейфа пусто. */
   name: text('name'),
   keyVersion: integer('key_version').notNull().default(1),
+  createdBy: uuid('created_by'),
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
+/** Прямое членство и роль в хранилище. Ключ хранилища выдаётся отдельно (vault_keys). */
 export const vaultMembers = pgTable(
   'vault_members',
   {
@@ -105,9 +127,7 @@ export const vaultMembers = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    role: text('role', { enum: ['owner', 'admin', 'editor', 'reader'] }).notNull(),
-    sealedKey: text('sealed_key').notNull(),
-    sealedKeyVersion: integer('sealed_key_version').notNull(),
+    role: text('role', { enum: ['owner', 'admin', 'editor', 'reader', 'limited'] }).notNull(),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [
@@ -116,7 +136,91 @@ export const vaultMembers = pgTable(
   ],
 );
 
-/** Записи: только шифртекст. Заголовок, логин, пароль, URL — внутри шифртекста. */
+/** Ключ хранилища, запечатанный для пользователя; подписан выдавшим администратором. */
+export const vaultKeys = pgTable(
+  'vault_keys',
+  {
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    keyVersion: integer('key_version').notNull(),
+    sealedKey: text('sealed_key').notNull(),
+    grantedBy: uuid('granted_by').notNull(),
+    signature: text('signature').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.vaultId, t.userId, t.keyVersion] })],
+);
+
+/** Круги (группы пользователей). */
+export const circles = pgTable(
+  'circles',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('circles_name_idx').on(t.name)],
+);
+
+export const circleMembers = pgTable(
+  'circle_members',
+  {
+    circleId: uuid('circle_id')
+      .notNull()
+      .references(() => circles.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.circleId, t.userId] }),
+    index('circle_members_user_idx').on(t.userId),
+  ],
+);
+
+/** Роль круга в хранилище: участники круга получают её (наибольшая из прямой и круговых ролей). */
+export const vaultCircles = pgTable(
+  'vault_circles',
+  {
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    circleId: uuid('circle_id')
+      .notNull()
+      .references(() => circles.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['admin', 'editor', 'reader', 'limited'] }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.vaultId, t.circleId] })],
+);
+
+/** Ветви (папки). Название шифруется ключом хранилища. */
+export const branches = pgTable(
+  'branches',
+  {
+    id: uuid('id').primaryKey(),
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    parentId: uuid('parent_id'),
+    nameCipher: text('name_cipher').notNull(),
+    keyVersion: integer('key_version').notNull(),
+    version: integer('version').notNull().default(1),
+    /** Элементы, удалённые вместе, имеют общую группу корзины и восстанавливаются вместе. */
+    trashGroup: uuid('trash_group'),
+    deletedAt: ts('deleted_at'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [index('branches_vault_idx').on(t.vaultId)],
+);
+
+/** Записи: только шифртекст. Заголовок, логин, пароль, URL, теги — внутри шифртекста. */
 export const entries = pgTable(
   'entries',
   {
@@ -124,6 +228,7 @@ export const entries = pgTable(
     vaultId: uuid('vault_id')
       .notNull()
       .references(() => vaults.id, { onDelete: 'cascade' }),
+    branchId: uuid('branch_id'),
     wrappedEntryKey: text('wrapped_entry_key').notNull(),
     ciphertext: text('ciphertext').notNull(),
     keyVersion: integer('key_version').notNull(),
@@ -132,9 +237,113 @@ export const entries = pgTable(
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
+    updatedBy: uuid('updated_by'),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
+    trashGroup: uuid('trash_group'),
     deletedAt: ts('deleted_at'),
   },
-  (t) => [index('entries_vault_idx').on(t.vaultId)],
+  (t) => [index('entries_vault_idx').on(t.vaultId), index('entries_branch_idx').on(t.branchId)],
+);
+
+/** Ревизии: предыдущие состояния записи (append-only, хранятся ограниченное число). */
+export const entryRevisions = pgTable(
+  'entry_revisions',
+  {
+    id: uuid('id').primaryKey(),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => entries.id, { onDelete: 'cascade' }),
+    vaultId: uuid('vault_id').notNull(),
+    version: integer('version').notNull(),
+    wrappedEntryKey: text('wrapped_entry_key').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+    keyVersion: integer('key_version').notNull(),
+    savedBy: uuid('saved_by'),
+    savedAt: ts('saved_at').notNull(),
+  },
+  (t) => [index('entry_revisions_entry_idx').on(t.entryId, t.version)],
+);
+
+/** Закреплённые (избранные) записи пользователя. */
+export const pins = pgTable(
+  'pins',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => entries.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.entryId] })],
+);
+
+/** Гранты на ветвь или запись для пользователя или круга (наследуются вниз по дереву, могут иметь срок). */
+export const grants = pgTable(
+  'grants',
+  {
+    id: uuid('id').primaryKey(),
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    targetType: text('target_type', { enum: ['branch', 'entry'] }).notNull(),
+    targetId: uuid('target_id').notNull(),
+    subjectType: text('subject_type', { enum: ['user', 'circle'] }).notNull(),
+    subjectId: uuid('subject_id').notNull(),
+    role: text('role', { enum: ['reader', 'editor', 'manager'] }).notNull(),
+    expiresAt: ts('expires_at'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('grants_vault_idx').on(t.vaultId),
+    uniqueIndex('grants_unique_idx').on(t.targetType, t.targetId, t.subjectType, t.subjectId),
+  ],
+);
+
+/** Одноразовые и временные ссылки передачи секрета (Handoff). Ключ ссылки сервер не знает. */
+export const handoffs = pgTable(
+  'handoffs',
+  {
+    id: uuid('id').primaryKey(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    label: text('label').notNull().default(''),
+    ciphertext: text('ciphertext').notNull(),
+    hasPassphrase: boolean('has_passphrase').notNull().default(false),
+    expiresAt: ts('expires_at').notNull(),
+    maxViews: integer('max_views').notNull(),
+    views: integer('views').notNull().default(0),
+    revokedAt: ts('revoked_at'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('handoffs_user_idx').on(t.createdBy)],
+);
+
+/** События безопасности по записям (слабый/повторяющийся/скомпрометированный/просроченный пароль). Секретов не содержат. */
+export const signals = pgTable(
+  'signals',
+  {
+    id: uuid('id').primaryKey(),
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => entries.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['weak', 'reused', 'compromised', 'expired'] }).notNull(),
+    status: text('status', { enum: ['open', 'in_progress', 'resolved', 'dismissed'] })
+      .notNull()
+      .default('open'),
+    assignedTo: uuid('assigned_to'),
+    reportedBy: uuid('reported_by').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('signals_vault_idx').on(t.vaultId),
+    uniqueIndex('signals_entry_type_idx').on(t.entryId, t.type),
+  ],
 );

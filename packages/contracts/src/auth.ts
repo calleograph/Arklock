@@ -19,6 +19,7 @@ const authKey = b64url(43, 43); // 32 байта
 const proof = b64url(43, 43);
 const publicKey = b64url(86, 88); // 65 байт
 const wrappedKey = sealedValue(4096);
+const signSig = b64url(80, 100);
 
 /** Параметры получения ключей. Для неизвестных адресов сервер возвращает правдоподобные значения. */
 export const authParamsQuery = z.object({ email });
@@ -35,11 +36,14 @@ export const registerRequest = z.object({
   salt: b64url(22, 22),
   authKey,
   publicKey,
+  signPublicKey: publicKey,
   wrappedPrivateKey: wrappedKey,
+  wrappedSignPrivateKey: wrappedKey,
   recoveryProof: proof,
   recoveryWrappedPrivateKey: wrappedKey,
-  /** Личное хранилище (сейф) создаётся при регистрации; ключ запечатан открытым ключом владельца. */
-  locker: z.object({ vaultId: uuid, sealedKey: sealedBox }),
+  recoveryWrappedSignPrivateKey: wrappedKey,
+  /** Личное хранилище (сейф) создаётся при регистрации; ключ запечатан открытым ключом владельца и подписан им же. */
+  locker: z.object({ vaultId: uuid, sealedKey: sealedBox, signature: signSig }),
 });
 export type RegisterRequest = z.infer<typeof registerRequest>;
 
@@ -49,7 +53,9 @@ export const userBundle = z.object({
   displayName: z.string(),
   role: z.enum(['admin', 'member']),
   publicKey,
+  signPublicKey: publicKey,
   wrappedPrivateKey: wrappedKey,
+  wrappedSignPrivateKey: wrappedKey,
 });
 export type UserBundle = z.infer<typeof userBundle>;
 
@@ -67,13 +73,16 @@ export const changePasswordRequest = z.object({
   salt: b64url(22, 22),
   newAuthKey: authKey,
   wrappedPrivateKey: wrappedKey,
+  wrappedSignPrivateKey: wrappedKey,
 });
 
 export const recoveryStartRequest = z.object({ email });
 export const recoveryStartResponse = z.object({
   userId: uuid,
   recoveryWrappedPrivateKey: wrappedKey,
+  recoveryWrappedSignPrivateKey: wrappedKey,
   publicKey,
+  signPublicKey: publicKey,
 });
 export const recoveryCompleteRequest = z.object({
   email,
@@ -82,9 +91,11 @@ export const recoveryCompleteRequest = z.object({
   salt: b64url(22, 22),
   newAuthKey: authKey,
   wrappedPrivateKey: wrappedKey,
+  wrappedSignPrivateKey: wrappedKey,
   /** Новый ключ восстановления: прежний после использования считается скомпрометированным. */
   newRecoveryProof: proof,
   newRecoveryWrappedPrivateKey: wrappedKey,
+  newRecoveryWrappedSignPrivateKey: wrappedKey,
 });
 
 export const sessionInfo = z.object({
