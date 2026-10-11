@@ -4,6 +4,7 @@ import { defineConfig } from '@playwright/test';
 
 const PORT_ACCOUNTS = 18181;
 const PORT_UPDATES = 18182;
+const PORT_WORKSPACE = 18183;
 const UPDATER_DIR = path.resolve('test-results', 'updater-dir');
 mkdirSync(UPDATER_DIR, { recursive: true });
 
@@ -40,12 +41,27 @@ export default defineConfig({
       use: { baseURL: process.env.LIVE_BASE_URL },
     },
     {
+      name: 'workspace',
+      testMatch: 'workspace.spec.ts',
+      use: { baseURL: `http://127.0.0.1:${PORT_WORKSPACE}` },
+    },
+    {
       name: 'updates',
       testMatch: 'updates.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_UPDATES}` },
     },
   ],
   webServer: [
+    {
+      command: 'node apps/api/dist/main.js',
+      url: `http://127.0.0.1:${PORT_WORKSPACE}/api/v1/ready`,
+      timeout: 60_000,
+      env: {
+        ...common,
+        PORT: String(PORT_WORKSPACE),
+        BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-3',
+      },
+    },
     {
       command: 'node apps/api/dist/main.js',
       url: `http://127.0.0.1:${PORT_ACCOUNTS}/api/v1/ready`,
