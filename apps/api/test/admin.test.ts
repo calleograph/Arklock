@@ -34,11 +34,14 @@ async function reauth(c: TestClient, password = c.password) {
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), 'arklock-updater-'));
-  const boot = await createTestApp({ UPDATER_DIR: dir, APP_VERSION: '0.1.0' });
-  app = boot.app;
+  const { app: instance, database } = await createTestApp({
+    UPDATER_DIR: dir,
+    APP_VERSION: '0.1.0',
+  });
+  app = instance;
   admin = new TestClient(app, 'admin@example.com', 'admin-password-123');
   expect((await admin.register()).statusCode).toBe(201);
-  await boot.database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
+  await database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
   member = new TestClient(app, 'member@example.com', 'member-password-123');
   expect((await member.register()).statusCode).toBe(201);
   await admin.login();
