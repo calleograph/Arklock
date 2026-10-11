@@ -240,7 +240,7 @@ cmd_install() {
   if [ ! -f "$UNIT_FILE" ] || ! cmp -s "$UNIT_FILE" "$UNIT_FILE.new"; then mv -f "$UNIT_FILE.new" "$UNIT_FILE"; systemctl daemon-reload; else rm -f "$UNIT_FILE.new"; fi
   systemctl enable "$UNIT" >/dev/null 2>&1
   systemctl restart "$UNIT"
-  local i age
+  local age
   for _ in $(seq 1 30); do
     age="$(heartbeat_age)"
     if [ -n "$age" ] && [ "$age" -lt 10 ]; then ok "Помощник обновлений запущен (служба $UNIT)"; return 0; fi

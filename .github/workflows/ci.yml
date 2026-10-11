@@ -412,11 +412,15 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: bash tests/updater/test-parse.sh
       - name: Release fixture (v0.0.1 and v0.0.2)
-        run: tests/update/web-fixture.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
+        run: |
+          tests/update/web-fixture.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
+          # служба помощника не видит /home и /tmp (ProtectHome, PrivateTmp), поэтому «удалённый» репозиторий лежит в /srv
+          sudo mv "$RUNNER_TEMP/origin.git" /srv/origin-web.git
+          sudo chown -R "$(id -u):$(id -g)" /srv/origin-web.git
       - name: Install v0.0.1; the helper service starts
         run: |
           cp install.sh "$RUNNER_TEMP/install-standalone.sh"
-          sudo "$RUNNER_TEMP/install-standalone.sh" --yes --profile standalone --repo "file://$RUNNER_TEMP/origin.git" --ref v0.0.1 \
+          sudo "$RUNNER_TEMP/install-standalone.sh" --yes --profile standalone --repo "file:///srv/origin-web.git" --ref v0.0.1 \
             --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" | tee install.log
           grep -q "Помощник обновлений: работает" install.log
           systemctl is-active "arklock-updater-$PROJ"
@@ -443,7 +447,7 @@ jobs:
       - name: Browser - check, update with re-authentication, failed release recovery
         env:
           LIVE_BASE_URL: http://127.0.0.1:${{ env.PORT }}
-          LIVE_ORIGIN: ${{ runner.temp }}/origin.git
+          LIVE_ORIGIN: /srv/origin-web.git
         run: |
           npx playwright install --with-deps chromium
           npm run build
