@@ -64,7 +64,7 @@ if [ "$YES" -ne 1 ]; then read -r -p "Выполнить откат на $PREV_V
 
 state_set update status rolling_back
 git -C "$REPO_ROOT" checkout --quiet --detach "$PREV_COMMIT" || die "Не удалось переключить код"
-export ARKLOCK_IMAGE="$PREV_IMAGE"
+export ARKLOCK_IMAGE="$PREV_IMAGE" ARKLOCK_IMAGE_OVERRIDE="$PREV_IMAGE"
 if [ "$NEED_RESTORE" -eq 1 ]; then
   "$REPO_ROOT/scripts/restore.sh" "$BACKUP_FILE" --env "$ENV_FILE" --yes || die "Восстановление БД не удалось. Копия: $BACKUP_FILE"
 else

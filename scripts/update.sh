@@ -96,7 +96,7 @@ recover() { # recover ПРИЧИНА — автоматическое восст
   else
     upd_log "Миграции уже применены ($now > ${CUR_MIGR:-0}) — восстановление БД из копии перед обновлением"
     git -C "$REPO_ROOT" checkout --quiet --detach "$CUR_COMMIT" || true
-    export ARKLOCK_IMAGE="$PREV_IMAGE"
+    export ARKLOCK_IMAGE="$PREV_IMAGE" ARKLOCK_IMAGE_OVERRIDE="$PREV_IMAGE"
     if "$REPO_ROOT/scripts/restore.sh" "$BACKUP_FILE" --env "$ENV_FILE" --yes --no-safety-backup; then
       state_set update status restored_from_backup; state_set update finished_at "$(date -u +%FT%TZ)"
       fail "Обновление не выполнено. БД восстановлена из копии перед обновлением, версия $CUR_VERSION работает."

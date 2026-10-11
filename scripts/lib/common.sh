@@ -86,6 +86,8 @@ resolve_env_file() {
 init_instance() {
   resolve_env_file
   load_env "$ENV_FILE"
+  # Явное указание образа (откат, восстановление после неудачного обновления) важнее значения в файле окружения.
+  [ -z "${ARKLOCK_IMAGE_OVERRIDE:-}" ] || export ARKLOCK_IMAGE="$ARKLOCK_IMAGE_OVERRIDE"
   validate_project_name
   require_vars DATA_ROOT
   DATA_ROOT="${DATA_ROOT%/}"
