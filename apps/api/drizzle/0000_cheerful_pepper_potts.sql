@@ -111,6 +111,21 @@ CREATE TABLE "ledger" (
 	"detail" jsonb
 );
 --> statement-breakpoint
+CREATE TABLE "mfa_backup_codes" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"user_id" uuid NOT NULL,
+	"code_hash" text NOT NULL,
+	"used_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "mfa_factors" (
+	"user_id" uuid PRIMARY KEY NOT NULL,
+	"secret_cipher" text NOT NULL,
+	"enabled_at" timestamp with time zone,
+	"last_step" bigint DEFAULT 0 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "pins" (
 	"user_id" uuid NOT NULL,
 	"entry_id" uuid NOT NULL,
@@ -215,6 +230,8 @@ ALTER TABLE "entries" ADD CONSTRAINT "entries_created_by_users_id_fk" FOREIGN KE
 ALTER TABLE "entry_revisions" ADD CONSTRAINT "entry_revisions_entry_id_entries_id_fk" FOREIGN KEY ("entry_id") REFERENCES "public"."entries"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "grants" ADD CONSTRAINT "grants_vault_id_vaults_id_fk" FOREIGN KEY ("vault_id") REFERENCES "public"."vaults"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "handoffs" ADD CONSTRAINT "handoffs_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "mfa_backup_codes" ADD CONSTRAINT "mfa_backup_codes_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "mfa_factors" ADD CONSTRAINT "mfa_factors_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pins" ADD CONSTRAINT "pins_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pins" ADD CONSTRAINT "pins_entry_id_entries_id_fk" FOREIGN KEY ("entry_id") REFERENCES "public"."entries"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -239,6 +256,7 @@ CREATE UNIQUE INDEX "grants_unique_idx" ON "grants" USING btree ("target_type","
 CREATE INDEX "handoffs_user_idx" ON "handoffs" USING btree ("created_by");--> statement-breakpoint
 CREATE INDEX "key_log_user_idx" ON "key_log" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "ledger_at_idx" ON "ledger" USING btree ("at");--> statement-breakpoint
+CREATE INDEX "mfa_backup_user_idx" ON "mfa_backup_codes" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "sessions_token_idx" ON "sessions" USING btree ("token_hash");--> statement-breakpoint
 CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "signals_vault_idx" ON "signals" USING btree ("vault_id");--> statement-breakpoint

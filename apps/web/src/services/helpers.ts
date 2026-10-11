@@ -20,6 +20,10 @@ export function errorMessage(e: unknown, t: T): string {
         return t('auth.exists');
       case 'version_conflict':
         return t('vault.conflict');
+      case 'mfa_admin_not_enrolled':
+        return t('adminx.mfaAdminNotEnrolled');
+      case 'mfa_required_by_policy':
+        return t('mfa.requiredByPolicy');
       case 'attachment_too_large':
         return t('files.tooLarge');
       case 'quota_exceeded':

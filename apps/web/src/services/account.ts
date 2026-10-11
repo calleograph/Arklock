@@ -22,6 +22,7 @@ import {
 import type {
   AuthParamsResponse,
   RegistrationStatus,
+  MfaChallengeResponse,
   SessionResponse,
   UserBundle,
 } from '@arklock/contracts';
@@ -140,23 +141,56 @@ async function unwrapAll(user: UserBundle, wrapKey: Uint8Array): Promise<Unlocke
   };
 }
 
+export type SignInResult =
+  | { kind: 'session'; session: SessionResponse; account: UnlockedAccount }
+  | {
+      kind: 'mfa';
+      /** Завершает вход кодом второго фактора (приложение или резервный код). */
+      complete: (code: string) => Promise<{ session: SessionResponse; account: UnlockedAccount }>;
+      /** Стирает ключи, удерживаемые до ввода кода. */
+      cancel: () => void;
+    };
+
 export async function signIn(
   email: string,
   password: string,
   signal?: AbortSignal,
-): Promise<{ session: SessionResponse; account: UnlockedAccount }> {
+): Promise<SignInResult> {
   const { keys } = await keysFor(email, password, signal);
+  const wipe = () => {
+    keys.wrapKey.fill(0);
+    keys.authKey.fill(0);
+  };
   try {
-    const session = await api<SessionResponse>(
+    const res = await api<SessionResponse | MfaChallengeResponse>(
       'POST',
       '/auth/login',
       { email, authKey: toBase64Url(keys.authKey) },
       { auth: false },
     );
-    return { session, account: await unwrapAll(session.user, keys.wrapKey) };
-  } finally {
-    keys.wrapKey.fill(0);
-    keys.authKey.fill(0);
+    if ('mfaRequired' in res) {
+      // ключ обёртки удерживается в замыкании до ввода кода (или отмены)
+      keys.authKey.fill(0);
+      return {
+        kind: 'mfa',
+        complete: async (code) => {
+          const session = await api<SessionResponse>(
+            'POST',
+            '/auth/mfa/verify',
+            { challenge: res.challenge, code },
+            { auth: false },
+          );
+          return { session, account: await unwrapAll(session.user, keys.wrapKey) };
+        },
+        cancel: wipe,
+      };
+    }
+    const account = await unwrapAll(res.user, keys.wrapKey);
+    wipe();
+    return { kind: 'session', session: res, account };
+  } catch (e) {
+    wipe();
+    throw e;
   }
 }
 
@@ -169,6 +203,17 @@ export async function unlock(
   const { keys } = await keysFor(user.email, password, signal);
   try {
     return await unwrapAll(user, keys.wrapKey);
+  } finally {
+    keys.wrapKey.fill(0);
+    keys.authKey.fill(0);
+  }
+}
+
+/** Ключ проверки мастер-пароля для операций, требующих его повторного ввода (например, отключение MFA). */
+export async function authKeyFor(user: UserBundle, password: string): Promise<string> {
+  const { keys } = await keysFor(user.email, password);
+  try {
+    return toBase64Url(keys.authKey);
   } finally {
     keys.wrapKey.fill(0);
     keys.authKey.fill(0);

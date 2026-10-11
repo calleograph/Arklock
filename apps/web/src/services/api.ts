@@ -40,6 +40,11 @@ export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
 }
 
+let onMfaRequired: (() => void) | null = null;
+export function setMfaRequiredHandler(fn: () => void): void {
+  onMfaRequired = fn;
+}
+
 export async function api<T = unknown>(
   method: string,
   path: string,
@@ -70,6 +75,7 @@ export async function api<T = unknown>(
     const err = (data as { error?: { code?: string; message?: string; details?: unknown } } | null)
       ?.error;
     if (res.status === 401 && token && err?.code === 'unauthorized') onUnauthorized?.();
+    if (res.status === 403 && err?.code === 'mfa_enrollment_required') onMfaRequired?.();
     throw new ApiError(
       res.status,
       err?.code ?? 'http_error',

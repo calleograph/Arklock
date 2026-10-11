@@ -14,12 +14,14 @@ import {
 } from '@arklock/contracts';
 import type {
   AuthParamsResponse,
+  MfaChallengeResponse,
   RegistrationStatus,
   SessionInfo,
   SessionResponse,
   UserBundle,
 } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { isEnrolled } from '../auth/mfa.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
@@ -46,7 +48,7 @@ function checkKdf(ctx: AppContext, kdf: KdfIn): void {
   }
 }
 
-function bundle(u: typeof users.$inferSelect): UserBundle {
+export function bundle(u: typeof users.$inferSelect): UserBundle {
   return {
     id: u.id,
     email: u.email,
@@ -123,6 +125,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'vaults.creators': get('vaults.creators', 'admins'),
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
+      'security.mfaRequired': get('security.mfaRequired', 'off'),
       'storage.enabled': config.BLOB_DIR !== '',
       'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 25),
     };
@@ -241,7 +244,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     return reply.status(201).send({ userId });
   });
 
-  app.post('/auth/login', async (req, reply): Promise<SessionResponse> => {
+  app.post('/auth/login', async (req, reply): Promise<SessionResponse | MfaChallengeResponse> => {
     const body = parse(loginRequest, req.body);
     throttle(ctx, req, body.email);
     const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
@@ -260,6 +263,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       throw new AppError(401, 'invalid_credentials', 'Invalid email or password');
     }
     ctx.attempts.byEmail.reset(body.email);
+    // Второй фактор: сессия и ключевой материал выдаются только после проверки кода
+    if (await isEnrolled(ctx, u.id)) {
+      reply.status(200);
+      return { mfaRequired: true, challenge: ctx.mfa.issue(u.id) };
+    }
     const s = await createSession(ctx, u.id, ipOf(req), req.headers['user-agent'] ?? null);
     await audit(db, `user:${u.id}`, 'auth.login', `session:${s.id}`, { ip: ipOf(req) });
     reply.status(200);

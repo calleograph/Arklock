@@ -378,3 +378,30 @@ export const attachments = pgTable(
     index('attachments_vault_idx').on(t.vaultId),
   ],
 );
+
+/** Второй фактор (TOTP). Секрет нужен серверу для проверки кода, поэтому хранится зашифрованным ключом из секрета приложения. */
+export const mfaFactors = pgTable('mfa_factors', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  secretCipher: text('secret_cipher').notNull(),
+  /** null — настройка начата, но не подтверждена кодом. */
+  enabledAt: ts('enabled_at'),
+  /** Последний принятый шаг времени: тот же код нельзя использовать дважды. */
+  lastStep: bigint('last_step', { mode: 'number' }).notNull().default(0),
+  createdAt: ts('created_at').notNull().defaultNow(),
+});
+
+/** Резервные коды: хранится только HMAC; код действует один раз. */
+export const mfaBackupCodes = pgTable(
+  'mfa_backup_codes',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    usedAt: ts('used_at'),
+  },
+  (t) => [index('mfa_backup_user_idx').on(t.userId)],
+);

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import * as account from '../services/account';
 import { errorMessage } from '../services/helpers';
+import { ApiError } from '../services/api';
 
 type Mode = 'signin' | 'register' | 'recover' | 'unlock';
 
@@ -13,6 +14,8 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
+const mfaStep = ref(false);
+const mfaCode = ref('');
 const mode = ref<Mode>(route.name === 'unlock' ? 'unlock' : 'signin');
 const email = ref('');
 const displayName = ref('');
@@ -75,8 +78,17 @@ async function submit(): Promise<void> {
   error.value = '';
   busy.value = true;
   try {
-    if (mode.value === 'signin') {
-      await auth.signIn(email.value.trim().toLowerCase(), password.value);
+    if (mfaStep.value) {
+      await auth.completeMfa(mfaCode.value.trim());
+      mfaStep.value = false;
+      mfaCode.value = '';
+      await router.replace('/');
+    } else if (mode.value === 'signin') {
+      if ((await auth.signIn(email.value.trim().toLowerCase(), password.value)) === 'mfa') {
+        mfaStep.value = true;
+        password.value = '';
+        return;
+      }
       await router.replace('/');
     } else if (mode.value === 'unlock') {
       await auth.unlock(password.value);
@@ -110,8 +122,11 @@ async function submit(): Promise<void> {
       shownRecovery.value = recoveryCode;
     }
   } catch (e) {
-    error.value =
-      mode.value === 'recover'
+    error.value = mfaStep.value
+      ? e instanceof ApiError && e.code === 'invalid_challenge'
+        ? t('mfa.expired')
+        : t('mfa.invalidCode')
+      : mode.value === 'recover'
         ? t('auth.recoveryFailed')
         : mode.value === 'unlock'
           ? t('auth.invalid')
@@ -144,6 +159,13 @@ async function afterRecoveryShown(): Promise<void> {
       busy.value = false;
     }
   }
+}
+
+function cancelMfaStep(): void {
+  auth.cancelMfa();
+  mfaStep.value = false;
+  mfaCode.value = '';
+  error.value = '';
 }
 
 function switchMode(next: Mode): void {
@@ -205,7 +227,7 @@ async function copyRecovery(): Promise<void> {
       class="space-y-4 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
       @submit.prevent="submit"
     >
-      <h1 class="text-xl font-semibold">{{ title }}</h1>
+      <h1 class="text-xl font-semibold">{{ mfaStep ? t('mfa.title') : title }}</h1>
       <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
         {{ t('auth.unlockHint') }}
       </p>
@@ -219,7 +241,7 @@ async function copyRecovery(): Promise<void> {
         {{ t('auth.registrationClosedNote') }}
       </p>
 
-      <label v-if="mode !== 'unlock'" class="block text-sm">
+      <label v-if="mode !== 'unlock' && !mfaStep" class="block text-sm">
         <span class="mb-1 block">{{ t('common.email') }}</span>
         <input
           v-model="email"
@@ -266,7 +288,21 @@ async function copyRecovery(): Promise<void> {
           data-testid="recovery-input"
         />
       </label>
-      <label class="block text-sm">
+      <label v-if="mfaStep" class="block text-sm">
+        <span class="mb-1 block">{{ t('mfa.code') }}</span>
+        <input
+          v-model="mfaCode"
+          type="text"
+          required
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          spellcheck="false"
+          class="field font-mono"
+          data-testid="mfa-code"
+        />
+        <span class="mt-1 block text-xs text-slate-500">{{ t('mfa.codeHint') }}</span>
+      </label>
+      <label v-if="!mfaStep" class="block text-sm">
         <span class="mb-1 block">{{ t('common.password') }}</span>
         <input
           v-model="password"
@@ -312,11 +348,21 @@ async function copyRecovery(): Promise<void> {
         :disabled="busy"
         data-testid="submit"
       >
-        {{ busy ? t('common.working') : title }}
+        {{ busy ? t('common.working') : mfaStep ? t('mfa.confirm') : title }}
+      </button>
+
+      <button
+        v-if="mfaStep"
+        type="button"
+        class="text-sm underline"
+        data-testid="mfa-cancel"
+        @click="cancelMfaStep"
+      >
+        {{ t('mfa.cancel') }}
       </button>
 
       <div
-        v-if="mode !== 'unlock'"
+        v-if="mode !== 'unlock' && !mfaStep"
         class="flex flex-wrap justify-between gap-2 text-sm text-brand-600 dark:text-brand-500"
       >
         <button

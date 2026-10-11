@@ -15,7 +15,7 @@ export const email = z
   .max(254)
   .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
 
-const authKey = b64url(43, 43); // 32 байта
+export const authKey = b64url(43, 43); // 32 байта
 const proof = b64url(43, 43);
 const publicKey = b64url(86, 88); // 65 байт
 const wrappedKey = sealedValue(4096);
@@ -66,6 +66,16 @@ export const sessionResponse = z.object({
   user: userBundle,
 });
 export type SessionResponse = z.infer<typeof sessionResponse>;
+
+/** Ответ на вход, когда включён второй фактор: сессия выдаётся только после проверки кода. */
+export interface MfaChallengeResponse {
+  mfaRequired: true;
+  challenge: string;
+}
+export const mfaVerifyRequest = z.object({
+  challenge: z.string().min(10).max(100),
+  code: z.string().min(6).max(12),
+});
 
 export const changePasswordRequest = z.object({
   currentAuthKey: authKey,

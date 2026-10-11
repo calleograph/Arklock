@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { isEnrolled, resetMfaPolicyCache } from '../auth/mfa.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { circleMembers, circles, ledger, sessions, settings, users } from '../db/schema.js';
@@ -15,6 +16,7 @@ const SETTINGS: Record<string, z.ZodType> = {
   'trash.retentionDays': z.number().int().min(1).max(3650),
   'session.idleHours': z.number().min(0.25).max(720),
   'security.passwordMaxAgeDays': z.number().int().min(0).max(3650),
+  'security.mfaRequired': z.enum(['off', 'admins', 'all']),
   'storage.attachmentMaxMiB': z.number().int().min(0).max(512),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
 };
@@ -24,6 +26,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'trash.retentionDays': 30,
   'session.idleHours': 12,
   'security.passwordMaxAgeDays': 365,
+  'security.mfaRequired': 'off',
   'storage.attachmentMaxMiB': 25,
   'storage.vaultQuotaMiB': 0,
 };
@@ -229,6 +232,16 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         ]);
       parse(schema, value);
     }
+    // Нельзя включить обязательный MFA, не настроив его самому: иначе администратор закроет себе доступ
+    if (
+      ['admins', 'all'].includes(String(body['security.mfaRequired'])) &&
+      !(await isEnrolled(ctx, user.id))
+    )
+      throw new AppError(
+        409,
+        'mfa_admin_not_enrolled',
+        'Set up two-factor authentication for yourself first',
+      );
     for (const [key, value] of Object.entries(body)) {
       await db
         .insert(settings)
@@ -237,6 +250,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           target: settings.key,
           set: { value: value as never, updatedAt: new Date(), updatedBy: user.id },
         });
+      if (key === 'security.mfaRequired') resetMfaPolicyCache(ctx);
       await audit(db, `user:${user.id}`, 'admin.setting.change', key, {
         value: typeof value === 'object' ? 'object' : (value as string | number | boolean),
       });

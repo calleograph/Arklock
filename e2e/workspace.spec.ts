@@ -349,3 +349,57 @@ test('a second user joins a shared vault; revoking access and rotating the key',
     expect(readFileSync(f).includes(Buffer.from(FILE_TEXT))).toBe(false);
   void login;
 });
+
+test('two-factor sign-in: enrol, sign out, password alone is not enough, code completes', async ({
+  browser,
+}) => {
+  const { totp, parseTotpInput } = await import('../packages/crypto/dist/index.js');
+  const page = adminPage;
+  await page.locator('a[href="/security"]').first().click();
+  await page.getByTestId('mfa-start').click();
+  const secret = (await page.getByTestId('mfa-secret').innerText()).trim();
+  // предыдущий шаг времени: следующий вход использует текущий, один шаг дважды не принимается
+  const prev = await totp(parseTotpInput(secret), Date.now() - 30_000);
+  await page.getByTestId('mfa-enable-code').fill(prev);
+  await page.getByTestId('mfa-enable').click();
+  await expect(page.getByTestId('mfa-backup-codes').locator('li')).toHaveCount(10);
+  const backup = (
+    await page.getByTestId('mfa-backup-codes').locator('li').first().innerText()
+  ).trim();
+  await page.getByTestId('mfa-codes-saved').click();
+  await expect(page.getByTestId('mfa-state')).toContainText(/10/);
+
+  await page.getByTestId('signout').click();
+  const fresh = await (await browser.newContext()).newPage();
+  await fresh.goto('/login');
+  await fresh.getByTestId('email').fill(ADMIN.email);
+  await fresh.getByTestId('password').fill(ADMIN.password);
+  await fresh.getByTestId('submit').click();
+  await expect(fresh.getByTestId('mfa-code')).toBeVisible({ timeout: 90_000 });
+  // без кода вход не завершается
+  await expect(fresh.getByTestId('vault-select')).toHaveCount(0);
+  await fresh.getByTestId('mfa-code').fill('000000');
+  await fresh.getByTestId('submit').click();
+  await expect(fresh.getByTestId('error')).toBeVisible();
+  await fresh.getByTestId('mfa-code').fill(await totp(parseTotpInput(secret)));
+  await fresh.getByTestId('submit').click();
+  await expect(fresh.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  // данные доступны после входа с кодом
+  await expect(fresh.getByTestId('entry-row').first()).toBeVisible({ timeout: 30_000 });
+
+  // резервный код работает один раз
+  await fresh.getByTestId('signout').click();
+  const login2 = async (code: string) => {
+    await fresh.goto('/login');
+    await fresh.getByTestId('email').fill(ADMIN.email);
+    await fresh.getByTestId('password').fill(ADMIN.password);
+    await fresh.getByTestId('submit').click();
+    await fresh.getByTestId('mfa-code').fill(code);
+    await fresh.getByTestId('submit').click();
+  };
+  await login2(backup);
+  await expect(fresh.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  await fresh.getByTestId('signout').click();
+  await login2(backup);
+  await expect(fresh.getByTestId('error')).toBeVisible({ timeout: 90_000 });
+});

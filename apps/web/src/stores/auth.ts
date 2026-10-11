@@ -1,7 +1,13 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { UserBundle } from '@arklock/contracts';
-import { api, loadToken, setToken, setUnauthorizedHandler } from '../services/api';
+import {
+  api,
+  loadToken,
+  setMfaRequiredHandler,
+  setToken,
+  setUnauthorizedHandler,
+} from '../services/api';
 import * as account from '../services/account';
 import { useWorkspaceStore } from './workspace';
 
@@ -76,12 +82,43 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
   }
 
-  async function signIn(email: string, password: string): Promise<void> {
-    const { session, account: acc } = await account.signIn(email, password);
+  let pendingMfa: Extract<account.SignInResult, { kind: 'mfa' }> | null = null;
+
+  function accept(
+    session: { token: string; user: UserBundle },
+    acc: Parameters<typeof setUnlocked>[0],
+  ): void {
     setToken(session.token);
     hasToken.value = true;
     user.value = session.user;
     setUnlocked(acc);
+  }
+
+  /** Возвращает 'mfa', если требуется код второго фактора (вход завершается вызовом completeMfa). */
+  async function signIn(email: string, password: string): Promise<'ok' | 'mfa'> {
+    pendingMfa?.cancel();
+    pendingMfa = null;
+    const res = await account.signIn(email, password);
+    if (res.kind === 'mfa') {
+      pendingMfa = res;
+      return 'mfa';
+    }
+    accept(res.session, res.account);
+    return 'ok';
+  }
+
+  async function completeMfa(code: string): Promise<void> {
+    if (!pendingMfa) throw new Error('no pending sign-in');
+    const p = pendingMfa;
+    const { session, account: acc } = await p.complete(code);
+    p.cancel();
+    pendingMfa = null;
+    accept(session, acc);
+  }
+
+  function cancelMfa(): void {
+    pendingMfa?.cancel();
+    pendingMfa = null;
   }
 
   async function unlock(password: string): Promise<void> {
@@ -101,6 +138,12 @@ export const useAuthStore = defineStore('auth', () => {
   /** Восстановление состояния после перезагрузки страницы: токен есть, ключей нет — потребуется разблокировка. */
   async function restore(): Promise<void> {
     setUnauthorizedHandler(clearSession);
+    // Политика требует второй фактор, а он не настроен: ведём на страницу настройки
+    setMfaRequiredHandler(() => {
+      void import('../router').then(({ router }) => {
+        if (router.currentRoute.value.path !== '/security') void router.replace('/security');
+      });
+    });
     if (loadToken()) {
       hasToken.value = true;
       try {
@@ -122,6 +165,8 @@ export const useAuthStore = defineStore('auth', () => {
     touch,
     lock,
     signIn,
+    completeMfa,
+    cancelMfa,
     unlock,
     signOut,
     restore,

@@ -2,7 +2,8 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../context.js';
 import { sessions, users } from '../db/schema.js';
-import { unauthorized } from '../errors.js';
+import { AppError, unauthorized } from '../errors.js';
+import { isEnrolled, mfaPolicy } from './mfa.js';
 import { randomB64url, sha256Hex } from '../security.js';
 
 export interface AuthInfo {
@@ -16,6 +17,12 @@ declare module 'fastify' {
   }
 }
 
+const MFA_EXEMPT = [
+  '/api/v1/auth/mfa',
+  '/api/v1/auth/me',
+  '/api/v1/auth/logout',
+  '/api/v1/auth/policy',
+];
 const TOKEN_RE = /^Bearer (aks_[A-Za-z0-9_-]{43})$/;
 
 export async function createSession(
@@ -66,6 +73,21 @@ export function requireAuth(ctx: AppContext) {
         .update(sessions)
         .set({ lastSeenAt: new Date(now) })
         .where(and(eq(sessions.id, row.session.id)));
+    }
+    // Политика обязательного MFA: пока второй фактор не настроен, доступны только страницы его настройки
+    const policy = await mfaPolicy(ctx);
+    if (policy === 'all' || (policy === 'admins' && row.user.role === 'admin')) {
+      const path = req.url.split('?')[0] ?? '';
+      if (
+        !MFA_EXEMPT.some((p) => path === p || path.startsWith(p + '/')) &&
+        !(await isEnrolled(ctx, row.user.id))
+      ) {
+        throw new AppError(
+          403,
+          'mfa_enrollment_required',
+          'Set up two-factor authentication first',
+        );
+      }
     }
     req.auth = row;
   };

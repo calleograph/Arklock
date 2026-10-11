@@ -86,6 +86,13 @@ const removeFromCircle = (uid: string) =>
     circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
   }, loadCircles);
 
+const resetMfa = (u: { id: string }) =>
+  window.confirm(t('admin.confirmDelete')) &&
+  run(async () => {
+    await api('POST', `/admin/users/${u.id}/mfa-reset`);
+    notice.value = t('adminx.mfaReset');
+  });
+
 // ---- настройки
 const settings = ref<Record<string, unknown>>({});
 const rangeUrl = ref('');
@@ -247,6 +254,14 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               </button>
               <button
                 type="button"
+                class="btn"
+                :data-testid="`reset-mfa-${u.email}`"
+                @click="resetMfa(u)"
+              >
+                {{ t('adminx.resetMfa') }}
+              </button>
+              <button
+                type="button"
                 :class="u.disabled ? 'btn' : 'btn-danger'"
                 :disabled="u.id === auth.user?.id"
                 :data-testid="`toggle-${u.email}`"
@@ -368,6 +383,52 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
             data-testid="set-trash"
             @change="
               saveSetting('trash.retentionDays', Number(($event.target as HTMLInputElement).value))
+            "
+        /></label>
+        <label class="flex items-center justify-between gap-3"
+          >{{ t('adminx.mfaRequired')
+          }}<select
+            :value="settings['security.mfaRequired']"
+            class="input w-auto"
+            data-testid="set-mfa"
+            @change="
+              saveSetting('security.mfaRequired', ($event.target as HTMLSelectElement).value)
+            "
+          >
+            <option value="off">{{ t('adminx.mfaOff') }}</option>
+            <option value="admins">{{ t('adminx.mfaAdmins') }}</option>
+            <option value="all">{{ t('adminx.mfaAll') }}</option>
+          </select></label
+        >
+        <label class="flex items-center justify-between gap-3"
+          >{{ t('adminx.attachMax')
+          }}<input
+            :value="settings['storage.attachmentMaxMiB']"
+            type="number"
+            min="0"
+            max="512"
+            class="input w-24"
+            data-testid="set-attach-max"
+            @change="
+              saveSetting(
+                'storage.attachmentMaxMiB',
+                Number(($event.target as HTMLInputElement).value),
+              )
+            "
+        /></label>
+        <label class="flex items-center justify-between gap-3"
+          >{{ t('adminx.vaultQuota')
+          }}<input
+            :value="settings['storage.vaultQuotaMiB']"
+            type="number"
+            min="0"
+            class="input w-24"
+            data-testid="set-vault-quota"
+            @change="
+              saveSetting(
+                'storage.vaultQuotaMiB',
+                Number(($event.target as HTMLInputElement).value),
+              )
             "
         /></label>
         <label class="flex items-center justify-between gap-3"

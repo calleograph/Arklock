@@ -12,6 +12,7 @@
     "@arklock/contracts": "0.1.0",
     "@arklock/crypto": "0.1.0",
     "pinia": "^3.0.0",
+    "qrcode-generator": "^1.4.4",
     "vue": "^3.5.0",
     "vue-i18n": "^11.1.0",
     "vue-router": "^4.5.0"
