@@ -1,0 +1,9 @@
+Arklock
+
+Сторонние материалы
+
+EFF Short Wordlist #1 (packages/crypto/src/wordlist.ts)
+  Copyright (c) Electronic Frontier Foundation
+  Лицензия: Creative Commons Attribution 3.0 United States (CC BY 3.0 US)
+  Источник: https://www.eff.org/dice
+  Изменения: список преобразован в массив TypeScript без изменения слов.
