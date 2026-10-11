@@ -203,7 +203,7 @@ jobs:
           sudo ./scripts/status.sh --env "$CFG/arklock.env"
           sudo ./scripts/preflight.sh --env "$CFG/arklock.env"
           sudo ./scripts/diag.sh --env "$CFG/arklock.env"
-          pkg="$(sudo ls -1 "$DATA"/tmp/arklock-diag-*.tar.gz | head -n 1)"
+          pkg="$(sudo sh -c 'ls -1 /var/lib/arklock-ci/tmp/arklock-diag-*.tar.gz' | head -n 1)"
           sudo tar -xzOf "$pkg" > diag.txt
           pw="$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' "$CFG/arklock.env")"
           if grep -qF -- "$pw" diag.txt; then echo "secret in diagnostic package"; exit 1; fi
@@ -215,7 +215,7 @@ jobs:
       - name: Encrypted backup and its verification
         run: |
           sudo ./scripts/backup.sh --env "$CFG/arklock.env"
-          f="$(sudo ls -1t "$DATA"/backups/*.bak.gpg | head -n 1)"
+          f="$(sudo sh -c 'ls -1t /var/lib/arklock-ci/backups/*.bak.gpg' | head -n 1)"
           echo "BACKUP=$f" >> "$GITHUB_ENV"
           sudo ./scripts/backup.sh --env "$CFG/arklock.env" --verify "$f"
           # копия зашифрована: ни логин пользователя, ни пароль записи в открытом виде в ней не встречаются
