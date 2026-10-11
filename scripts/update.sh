@@ -39,7 +39,7 @@ acquire_lock
 upd_log "Проверка обновлений: получение тегов"
 upd_fetch || die "Не удалось связаться с репозиторием. Приложение продолжает работать без изменений."
 
-CUR_COMMIT="$(git_commit)"; CUR_VERSION="$(app_version)"; CUR_TAG="$(upd_current_tag)"
+CUR_COMMIT="$(git_commit)"; CUR_VERSION="$(app_version)"
 TARGET_TAG="${REF:-$(upd_latest_tag)}"
 [ -n "$TARGET_TAG" ] || die "В репозитории нет релизных тегов"
 git -C "$REPO_ROOT" rev-parse --verify --quiet "refs/tags/$TARGET_TAG^{commit}" >/dev/null || die "Тег $TARGET_TAG не найден"
