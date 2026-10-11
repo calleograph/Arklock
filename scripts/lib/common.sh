@@ -41,7 +41,7 @@ load_env() {
 # Устанавливает KEY=VALUE в файле окружения (атомарно, права 600).
 env_set() {
   local file="$1" key="$2" val="$3" tmp
-  [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "Недопустимое имя параметра: $key"
+  [[ "$key" =~ ^[A-Za-z][A-Za-z0-9_]*$ ]] || die "Недопустимое имя параметра: $key"
   case "$val" in *$'\n'*) die "Значение $key содержит перевод строки" ;; esac
   tmp="$(mktemp "${file}.XXXXXX")"
   chmod 600 "$tmp"

@@ -12,7 +12,7 @@ set -uo pipefail
 RESTART=0; YES=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --env) ENV_FILE="$2"; shift 2 ;;
+    --env) export ENV_FILE="$2"; shift 2 ;;
     --restart) RESTART=1; shift ;;
     --yes|-y) YES=1; shift ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

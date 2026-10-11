@@ -8,7 +8,7 @@ set -uo pipefail
 NEED=3
 while [ $# -gt 0 ]; do
   case "$1" in
-    --env) ENV_FILE="$2"; shift 2 ;;
+    --env) export ENV_FILE="$2"; shift 2 ;;
     --need-gib) NEED="$2"; shift 2 ;;
     *) die "Неизвестный параметр: $1" ;;
   esac

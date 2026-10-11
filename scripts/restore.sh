@@ -14,7 +14,7 @@ set -euo pipefail
 FILE=""; YES=0; SAFETY=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --env) ENV_FILE="$2"; shift 2 ;;
+    --env) export ENV_FILE="$2"; shift 2 ;;
     --yes|-y) YES=1; shift ;;
     --no-safety-backup) SAFETY=0; shift ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;

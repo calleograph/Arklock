@@ -7,7 +7,7 @@ set -uo pipefail
 SVC=""; FOLLOW=""; N=200
 while [ $# -gt 0 ]; do
   case "$1" in
-    --env) ENV_FILE="$2"; shift 2 ;;
+    --env) export ENV_FILE="$2"; shift 2 ;;
     -f) FOLLOW="-f"; shift ;;
     -n) N="$2"; shift 2 ;;
     app|db) SVC="$1"; shift ;;

@@ -16,7 +16,7 @@ set -euo pipefail
 KEEP=14; LABEL=""; VERIFY=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --env) ENV_FILE="$2"; shift 2 ;;
+    --env) export ENV_FILE="$2"; shift 2 ;;
     --keep) KEEP="$2"; shift 2 ;;
     --label) LABEL="-$2"; shift 2 ;;
     --verify) VERIFY="$2"; shift 2 ;;

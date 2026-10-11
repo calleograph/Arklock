@@ -3,7 +3,7 @@
 set -uo pipefail
 # shellcheck source=lib/common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-while [ $# -gt 0 ]; do case "$1" in --env) ENV_FILE="$2"; shift 2 ;; *) die "Неизвестный параметр: $1" ;; esac; done
+while [ $# -gt 0 ]; do case "$1" in --env) export ENV_FILE="$2"; shift 2 ;; *) die "Неизвестный параметр: $1" ;; esac; done
 init_instance
 
 echo "== Экземпляр: $COMPOSE_PROJECT_NAME (профиль ${INSTALL_PROFILE:-?})"
