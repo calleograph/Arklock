@@ -1,0 +1,23 @@
+{
+  "name": "@arklock/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Arklock command-line client: keys stay on your machine, the server sees only ciphertext",
+  "bin": {
+    "arklock": "dist/main.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@arklock/contracts": "0.1.0",
+    "@arklock/crypto": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  },
+  "license": "AGPL-3.0-only"
+}

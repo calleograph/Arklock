@@ -405,3 +405,24 @@ export const mfaBackupCodes = pgTable(
   },
   (t) => [index('mfa_backup_user_idx').on(t.userId)],
 );
+
+/** Персональные токены доступа к API (автоматизация, CLI). Хранится только SHA-256; сами токены не открывают данные — ключей у них нет. */
+export const apiTokens = pgTable(
+  'api_tokens',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Первые символы для опознания в списке. */
+    prefix: text('prefix').notNull(),
+    scope: text('scope', { enum: ['read', 'write'] }).notNull(),
+    expiresAt: ts('expires_at'),
+    lastUsedAt: ts('last_used_at'),
+    revokedAt: ts('revoked_at'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('api_tokens_user_idx').on(t.userId)],
+);

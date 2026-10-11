@@ -127,3 +127,22 @@ export const registrationStatus = z.object({
   setupTokenRequired: z.boolean(),
 });
 export type RegistrationStatus = z.infer<typeof registrationStatus>;
+
+export const tokenCreate = z.object({
+  name: z.string().trim().min(1).max(100),
+  scope: z.enum(['read', 'write']),
+  /** Срок действия в днях; 0 — без срока. */
+  expiresInDays: z.number().int().min(0).max(3650),
+  authKey,
+  /** Код второго фактора, если он включён. */
+  code: z.string().min(6).max(12).optional(),
+});
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  scope: 'read' | 'write';
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}

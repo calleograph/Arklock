@@ -7,6 +7,7 @@ import { changePassword, MIN_MASTER_PASSWORD } from '../services/account';
 import { useAuthStore } from '../stores/auth';
 import { errorMessage } from '../services/helpers';
 import MfaSettings from '../components/MfaSettings.vue';
+import TokensSettings from '../components/TokensSettings.vue';
 
 const { t } = useI18n();
 const auth = useAuthStore();
@@ -112,6 +113,8 @@ async function submit(): Promise<void> {
     </div>
 
     <MfaSettings />
+
+    <TokensSettings />
 
     <form class="max-w-md space-y-3" @submit.prevent="submit">
       <h2 class="font-medium">{{ t('security.changePassword') }}</h2>
