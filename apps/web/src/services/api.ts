@@ -79,3 +79,39 @@ export async function api<T = unknown>(
   }
   return data as T;
 }
+
+/** Передача двоичных данных (зашифрованные вложения): тело — «как есть», ошибки приводятся к ApiError. */
+export async function apiBinary(
+  method: 'GET' | 'PUT',
+  path: string,
+  body?: Uint8Array,
+): Promise<Uint8Array> {
+  const headers: Record<string, string> = {};
+  if (body) headers['Content-Type'] = 'application/octet-stream';
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_PREFIX}${path}`, {
+      method,
+      headers,
+      body: body as BodyInit | undefined,
+      cache: 'no-store',
+    });
+  } catch {
+    throw new ApiError(0, 'network_error', 'Network error');
+  }
+  if (res.status === 204) return new Uint8Array();
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as {
+      error?: { code?: string; message?: string; details?: unknown };
+    } | null;
+    if (res.status === 401 && token && data?.error?.code === 'unauthorized') onUnauthorized?.();
+    throw new ApiError(
+      res.status,
+      data?.error?.code ?? 'http_error',
+      data?.error?.message ?? res.statusText,
+      data?.error?.details,
+    );
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}

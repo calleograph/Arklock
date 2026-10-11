@@ -22,6 +22,8 @@ import {
   wrapSignPrivateKey,
   unwrapSignPrivateKey,
   openVaultKey,
+  openAttachmentFile,
+  sealAttachment,
   sealVaultKeyFor,
   toBase64Url,
   unwrapAccountPrivateKey,
@@ -144,9 +146,46 @@ async function write() {
   const plain = await decryptEntry(got.json, key, locker.id, entryId);
   must(plain.password === secret.password, 'entry round-trip');
 
+  // вложение: шифруется здесь, на сервер уходит только шифртекст
+  const fileText = `file-${crypto.randomUUID()}`;
+  const sealed = await sealAttachment(
+    key,
+    locker.id,
+    locker.keyVersion,
+    { name: 'smoke.txt', type: 'text/plain', size: fileText.length },
+    new globalThis.TextEncoder().encode(fileText),
+  );
+  const reg2 = await call(
+    'POST',
+    `/vaults/${locker.id}/entries/${entryId}/attachments`,
+    {
+      id: sealed.id,
+      wrappedKey: sealed.wrappedKey,
+      metaCipher: sealed.metaCipher,
+      keyVersion: sealed.keyVersion,
+      size: sealed.file.length,
+    },
+    s.token,
+  );
+  must(reg2.status === 201, `register attachment (${reg2.status} ${JSON.stringify(reg2.json)})`);
+  const up = await fetch(`${BASE}/api/v1/vaults/${locker.id}/attachments/${sealed.id}/content`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${s.token}`, 'content-type': 'application/octet-stream' },
+    body: sealed.file,
+  });
+  must(up.status === 204, `upload attachment (${up.status})`);
+
   writeFileSync(
     STATE_FILE,
-    JSON.stringify({ email, password, entryId, vaultId: locker.id, secret }),
+    JSON.stringify({
+      email,
+      password,
+      entryId,
+      vaultId: locker.id,
+      secret,
+      attachmentId: sealed.id,
+      fileText,
+    }),
   );
   console.log('OK write: user registered, entry stored and decrypted');
 }
@@ -160,7 +199,24 @@ async function verify() {
   must(got.status === 200, `entry still present (${got.status})`);
   const plain = await decryptEntry(got.json, key, locker.id, st.entryId);
   must(plain.password === st.secret.password, 'entry content unchanged');
-  console.log('OK verify: data survived, entry decrypts');
+  const list = await call(
+    'GET',
+    `/vaults/${locker.id}/entries/${st.entryId}/attachments`,
+    null,
+    s.token,
+  );
+  must(list.status === 200 && list.json.length === 1, 'attachment listed');
+  const dl = await fetch(
+    `${BASE}/api/v1/vaults/${locker.id}/attachments/${st.attachmentId}/content`,
+    {
+      headers: { authorization: `Bearer ${s.token}` },
+    },
+  );
+  must(dl.status === 200, `attachment download (${dl.status})`);
+  const bytes = new Uint8Array(await dl.arrayBuffer());
+  const opened = await openAttachmentFile(key, locker.id, list.json[0], bytes);
+  must(new globalThis.TextDecoder().decode(opened) === st.fileText, 'attachment content unchanged');
+  console.log('OK verify: data survived, entry and attachment decrypt');
 }
 
 const mode = process.argv[2];

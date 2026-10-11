@@ -95,6 +95,7 @@ jobs:
       - name: Build and start the stack on an empty database
         run: |
           docker compose config -q
+          sudo install -d -m 0750 -o 1000 -g 1000 /var/lib/arklock/blobs
           docker compose up -d --build --wait --wait-timeout 180
       - name: Probes
         run: |
@@ -230,6 +231,8 @@ jobs:
       - name: Disaster - destroy the database, re-install, restore from backup
         run: |
           sudo docker compose --project-name "$PROJ" down -v
+          # файлы вложений тоже уничтожены: их должна вернуть копия
+          sudo rm -rf "$DATA/blobs"
           sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
           sudo ./scripts/restore.sh "$BACKUP" --env "$CFG/arklock.env" --yes
       - name: After restore the same user decrypts the same entry

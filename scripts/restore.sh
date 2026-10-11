@@ -71,6 +71,17 @@ info "Загрузка данных…"
 dc exec -T db pg_restore -U arklock -d arklock --no-owner --exit-on-error < "$tmp/db.dump" \
   || die "pg_restore завершился с ошибкой. Данные до восстановления — в аварийной копии (метка pre-restore)."
 
+if [ -d "$tmp/blobs" ]; then
+  info "Восстановление вложений…"
+  rm -rf "$DATA_ROOT/blobs.prev"
+  [ -d "$DATA_ROOT/blobs" ] && mv "$DATA_ROOT/blobs" "$DATA_ROOT/blobs.prev"
+  mv "$tmp/blobs" "$DATA_ROOT/blobs"
+  chown -R 1000:1000 "$DATA_ROOT/blobs" 2>/dev/null || warn "Не удалось назначить владельца каталога вложений"
+  rm -rf "$DATA_ROOT/blobs.prev"
+else
+  warn "В копии нет вложений (создана версией без поддержки файлов): текущие файлы оставлены без изменений"
+fi
+
 info "Запуск приложения…"
 export_build_info
 dc up -d --no-build --wait --wait-timeout 180 app >/dev/null || die "Приложение не стало готовым после восстановления: scripts/logs.sh"

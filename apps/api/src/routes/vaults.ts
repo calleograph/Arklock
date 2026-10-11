@@ -16,6 +16,7 @@ import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
+  attachments,
   branches,
   circleMembers,
   circles,
@@ -32,6 +33,7 @@ import {
   vaults,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { attachmentIdsOfVault, blobSuffix } from './attachments.js';
 
 export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (
   app,
@@ -195,7 +197,9 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
     if (v.kind === 'locker' || !roleAtLeast(access.role, 'owner')) throw forbidden();
+    const blobIds = await attachmentIdsOfVault(db, vaultId);
     await db.delete(vaults).where(eq(vaults.id, vaultId));
+    await ctx.blobs.remove(blobIds);
     await audit(db, `user:${user.id}`, 'vault.delete', `vault:${vaultId}`);
     return reply.status(204).send();
   });
@@ -523,13 +527,22 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         keyVersion: v.keyVersion,
       });
     }
-    const [allEntries, allRevisions, allBranches] = await Promise.all([
+    // Незавершённые загрузки теряют силу: их ключ относится к прежней версии
+    const pendingAtt = await db
+      .select({ id: attachments.id })
+      .from(attachments)
+      .where(and(eq(attachments.vaultId, vaultId), eq(attachments.status, 'pending')));
+    const [allEntries, allRevisions, allBranches, allAttachments] = await Promise.all([
       db.select({ id: entries.id }).from(entries).where(eq(entries.vaultId, vaultId)),
       db
         .select({ id: entryRevisions.id })
         .from(entryRevisions)
         .where(eq(entryRevisions.vaultId, vaultId)),
       db.select({ id: branches.id }).from(branches).where(eq(branches.vaultId, vaultId)),
+      db
+        .select({ id: attachments.id, size: attachments.size })
+        .from(attachments)
+        .where(and(eq(attachments.vaultId, vaultId), eq(attachments.status, 'ready'))),
     ]);
     const same = (a: string[], b: string[]) =>
       a.length === b.length && new Set(a).size === a.length && b.every((x) => new Set(a).has(x));
@@ -545,12 +558,16 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       !same(
         body.branches.map((e) => e.id),
         allBranches.map((e) => e.id),
+      ) ||
+      !same(
+        body.attachments.map((e) => e.id),
+        allAttachments.map((e) => e.id),
       )
     ) {
       throw new AppError(
         409,
         'incomplete_rotation',
-        'The rotation must cover every entry, revision and branch',
+        'The rotation must cover every entry, revision, branch and attachment',
       );
     }
     // Ключ нужен каждому, кто сейчас имеет доступ.
@@ -585,8 +602,28 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         k.sealedKey,
         k.signature,
       );
+    // Файлы, перешифрованные новым ключом, должны быть загружены заранее и иметь прежний размер
+    for (const att of allAttachments) {
+      if ((await ctx.blobs.size(att.id, blobSuffix(body.newKeyVersion))) !== att.size)
+        throw new AppError(
+          409,
+          'incomplete_rotation',
+          'Re-encrypted attachment files must be uploaded before rotation',
+        );
+    }
     const now = new Date();
     await db.transaction(async (tx) => {
+      for (const p of pendingAtt) await tx.delete(attachments).where(eq(attachments.id, p.id));
+      for (const att of body.attachments) {
+        await tx
+          .update(attachments)
+          .set({
+            wrappedKey: att.wrappedKey,
+            metaCipher: att.metaCipher,
+            keyVersion: body.newKeyVersion,
+          })
+          .where(and(eq(attachments.id, att.id), eq(attachments.vaultId, vaultId)));
+      }
       for (const e of body.entries) {
         await tx
           .update(entries)
@@ -632,6 +669,10 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       );
       await tx.update(vaults).set({ keyVersion: body.newKeyVersion }).where(eq(vaults.id, vaultId));
     });
+    // Файлы прежней версии ключа больше не нужны
+    for (const att of allAttachments)
+      await ctx.blobs.removeVersion(att.id, blobSuffix(body.newKeyVersion - 1));
+    await ctx.blobs.remove(pendingAtt.map((p) => p.id));
     await audit(db, `user:${user.id}`, 'vault.rotate', `vault:${vaultId}`, {
       keyVersion: body.newKeyVersion,
     });

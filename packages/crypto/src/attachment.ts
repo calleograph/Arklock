@@ -1,4 +1,12 @@
-import { CryptoAuthError, CryptoFormatError, concat, randomBytes, utf8 } from './bytes.js';
+import { decrypt, encrypt, generateKey } from './aead.js';
+import {
+  CryptoAuthError,
+  CryptoFormatError,
+  concat,
+  fromUtf8,
+  randomBytes,
+  utf8,
+} from './bytes.js';
 import { ctx } from './context.js';
 
 /**
@@ -128,4 +136,102 @@ export async function decryptAttachment(
   }
   if (!parts.length) throw new CryptoFormatError('empty attachment');
   return concat(...parts);
+}
+
+export interface AttachmentMeta {
+  name: string;
+  type: string;
+  size: number;
+}
+
+export interface SealedAttachment {
+  id: string;
+  wrappedKey: string;
+  metaCipher: string;
+  keyVersion: number;
+  /** Зашифрованный файл (кадры), его длина — объявляемый серверу размер. */
+  file: Uint8Array<ArrayBuffer>;
+}
+
+/** Шифрует файл новым ключом вложения; ключ вложения оборачивается ключом хранилища, метаданные шифруются ключом вложения. */
+export async function sealAttachment(
+  vaultKey: Uint8Array,
+  vaultId: string,
+  keyVersion: number,
+  meta: AttachmentMeta,
+  data: Uint8Array,
+  id: string = globalThis.crypto.randomUUID(),
+): Promise<SealedAttachment> {
+  const ak = generateKey();
+  try {
+    return {
+      id,
+      keyVersion,
+      wrappedKey: await encrypt(vaultKey, ak, ctx('att-key', vaultId, id, keyVersion)),
+      metaCipher: await encrypt(ak, utf8(JSON.stringify(meta)), ctx('att-meta', vaultId, id)),
+      file: await encryptAttachment(ak, id, data),
+    };
+  } finally {
+    ak.fill(0);
+  }
+}
+
+/** Разворачивает ключ вложения (его надо обнулить после использования). */
+export function openAttachmentKey(
+  vaultKey: Uint8Array,
+  vaultId: string,
+  att: { id: string; wrappedKey: string; keyVersion: number },
+): Promise<Uint8Array<ArrayBuffer>> {
+  return decrypt(vaultKey, att.wrappedKey, ctx('att-key', vaultId, att.id, att.keyVersion));
+}
+
+export async function openAttachmentMeta(
+  vaultKey: Uint8Array,
+  vaultId: string,
+  att: { id: string; wrappedKey: string; metaCipher: string; keyVersion: number },
+): Promise<AttachmentMeta> {
+  const ak = await openAttachmentKey(vaultKey, vaultId, att);
+  try {
+    const raw = await decrypt(ak, att.metaCipher, ctx('att-meta', vaultId, att.id));
+    const m = JSON.parse(fromUtf8(raw)) as Partial<AttachmentMeta>;
+    return {
+      name: typeof m.name === 'string' ? m.name : 'file',
+      type: typeof m.type === 'string' ? m.type : '',
+      size: typeof m.size === 'number' ? m.size : 0,
+    };
+  } finally {
+    ak.fill(0);
+  }
+}
+
+export async function openAttachmentFile(
+  vaultKey: Uint8Array,
+  vaultId: string,
+  att: { id: string; wrappedKey: string; keyVersion: number },
+  encrypted: Uint8Array,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const ak = await openAttachmentKey(vaultKey, vaultId, att);
+  try {
+    return await decryptAttachment(ak, att.id, encrypted);
+  } finally {
+    ak.fill(0);
+  }
+}
+
+/** Перешифровывает вложение новым ключом хранилища (при ротации): новый ключ вложения, новые метаданные и файл. */
+export async function rewrapAttachment(
+  oldVaultKey: Uint8Array,
+  newVaultKey: Uint8Array,
+  vaultId: string,
+  att: { id: string; wrappedKey: string; metaCipher: string; keyVersion: number },
+  encrypted: Uint8Array,
+  newKeyVersion: number,
+): Promise<SealedAttachment> {
+  const meta = await openAttachmentMeta(oldVaultKey, vaultId, att);
+  const plain = await openAttachmentFile(oldVaultKey, vaultId, att, encrypted);
+  try {
+    return await sealAttachment(newVaultKey, vaultId, newKeyVersion, meta, plain, att.id);
+  } finally {
+    plain.fill(0);
+  }
 }

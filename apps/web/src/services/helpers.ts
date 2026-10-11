@@ -20,6 +20,14 @@ export function errorMessage(e: unknown, t: T): string {
         return t('auth.exists');
       case 'version_conflict':
         return t('vault.conflict');
+      case 'attachment_too_large':
+        return t('files.tooLarge');
+      case 'quota_exceeded':
+        return t('files.quota');
+      case 'storage_unavailable':
+        return t('files.disabled');
+      case 'stale_key_version':
+        return t('files.stale');
       case 'network_error':
         return t('error.network');
     }

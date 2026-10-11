@@ -37,6 +37,7 @@ services:
       APP_SECRET: ${APP_SECRET:?задайте APP_SECRET в .env}
       BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
       UPDATER_DIR: /updater
+      BLOB_DIR: /blobs
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       UPDATE_CHANNEL: ${UPDATE_CHANNEL:-stable}
@@ -46,6 +47,8 @@ services:
     volumes:
       # Каталог обмена с помощником обновлений: приложение пишет туда только запросы, Docker-сокет не передаётся.
       - ${DATA_ROOT:-/var/lib/arklock}/updater:/updater
+      # Зашифрованные вложения (сервер хранит только шифртекст); входят в резервные копии.
+      - ${DATA_ROOT:-/var/lib/arklock}/blobs:/blobs
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]

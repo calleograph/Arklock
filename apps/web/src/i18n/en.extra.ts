@@ -1,4 +1,19 @@
 export default {
+  files: {
+    tab: 'Files',
+    add: 'Attach a file',
+    empty: 'No files',
+    download: 'Download',
+    remove: 'Delete',
+    confirmRemove: 'Delete this file?',
+    encryptedNote: 'Files are encrypted in the browser; the server only stores ciphertext.',
+    tooLarge: 'The file exceeds the allowed size',
+    quota: 'The vault storage quota for files is exhausted',
+    disabled: 'File storage is not configured by the administrator',
+    stale: 'The vault key was replaced, repeat the action',
+    max: 'Up to {n} MB',
+    broken: 'The file could not be decrypted',
+  },
   nav: { admin: 'Administration' },
   kind: {
     login: 'Login',

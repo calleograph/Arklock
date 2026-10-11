@@ -123,6 +123,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'vaults.creators': get('vaults.creators', 'admins'),
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
+      'storage.enabled': config.BLOB_DIR !== '',
+      'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 25),
     };
   });
 

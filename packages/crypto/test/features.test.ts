@@ -18,7 +18,11 @@ import {
   generateSigningKeyPair,
   generateTotpSecret,
   keyLogHash,
+  openAttachmentFile,
+  openAttachmentMeta,
   openHandoff,
+  rewrapAttachment,
+  sealAttachment,
   otpauthUri,
   parseTotpInput,
   passphraseEntropyBits,
@@ -237,5 +241,55 @@ describe('password tools', () => {
       '0018A45C4D1DEF81644B54AB7F969B88D65:3\r\n1E4C9B93F3F0682250B6CF8331B7EE68FD8:9545824\r\nFFFF:0';
     expect(findInRange(body, '1E4C9B93F3F0682250B6CF8331B7EE68FD8')).toBe(9545824);
     expect(findInRange(body, 'ABCDEF')).toBe(0);
+  });
+});
+
+describe('sealed attachments', () => {
+  const vaultId = '11111111-1111-4111-8111-111111111111';
+
+  it('seals a file, hides its name, opens with the vault key only', async () => {
+    const vk = generateKey();
+    const data = new TextEncoder().encode('contract text '.repeat(1000));
+    const sealed = await sealAttachment(
+      vk,
+      vaultId,
+      1,
+      { name: 'contract.pdf', type: 'application/pdf', size: data.length },
+      data,
+    );
+    expect(sealed.metaCipher).not.toContain('contract');
+    expect(await openAttachmentMeta(vk, vaultId, sealed)).toMatchObject({ name: 'contract.pdf' });
+    expect(await openAttachmentFile(vk, vaultId, sealed, sealed.file)).toEqual(data);
+    await expect(
+      openAttachmentFile(generateKey(), vaultId, sealed, sealed.file),
+    ).rejects.toBeInstanceOf(CryptoAuthError);
+    // чужой id (подмена записи вложения) и чужое хранилище не открываются
+    await expect(
+      openAttachmentMeta(vk, vaultId, { ...sealed, id: crypto.randomUUID() }),
+    ).rejects.toBeInstanceOf(CryptoAuthError);
+    await expect(
+      openAttachmentMeta(vk, '22222222-2222-4222-8222-222222222222', sealed),
+    ).rejects.toBeInstanceOf(CryptoAuthError);
+  });
+
+  it('rewrap moves the file to a new key and the old key no longer opens it', async () => {
+    const oldKey = generateKey();
+    const newKey = generateKey();
+    const data = new Uint8Array(3 * 1024 * 1024 + 17).map((_, i) => i % 251);
+    const sealed = await sealAttachment(
+      oldKey,
+      vaultId,
+      1,
+      { name: 'big.bin', type: '', size: data.length },
+      data,
+    );
+    const moved = await rewrapAttachment(oldKey, newKey, vaultId, sealed, sealed.file, 2);
+    expect(moved.id).toBe(sealed.id);
+    expect(moved.file.length).toBe(sealed.file.length);
+    const opened = await openAttachmentFile(newKey, vaultId, moved, moved.file);
+    expect(Buffer.from(opened).equals(Buffer.from(data))).toBe(true);
+    await expect(openAttachmentFile(oldKey, vaultId, moved, moved.file)).rejects.toBeInstanceOf(
+      CryptoAuthError,
+    );
   });
 });

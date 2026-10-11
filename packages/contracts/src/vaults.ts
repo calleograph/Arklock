@@ -148,6 +148,11 @@ export const rotatePost = z.object({
     )
     .max(100000),
   branches: z.array(z.object({ id: uuid, nameCipher: sealedValue(2048) })).max(20000),
+  /** Вложения: перешифрованные ключи; содержимое заранее загружено в область подготовки (PUT …/rotation). */
+  attachments: z
+    .array(z.object({ id: uuid, wrappedKey: sealedValue(512), metaCipher: sealedValue(4096) }))
+    .max(100000)
+    .default([]),
 });
 
 export const grantPut = z.object({
@@ -193,3 +198,23 @@ export const circleWrite = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(500).default(''),
 });
+
+/** Вложения: метаданные и обёрнутый ключ создаются до загрузки содержимого. */
+export const attachmentCreate = z.object({
+  id: uuid,
+  wrappedKey: sealedValue(512),
+  metaCipher: sealedValue(4096),
+  keyVersion: z.number().int().min(1),
+  /** Размер зашифрованного файла в байтах: сервер принимает ровно столько. */
+  size: z.number().int().min(1).max(2_147_483_647),
+});
+
+export interface AttachmentRecord {
+  id: string;
+  entryId: string;
+  wrappedKey: string;
+  metaCipher: string;
+  keyVersion: number;
+  size: number;
+  createdAt: string;
+}

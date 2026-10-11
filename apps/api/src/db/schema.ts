@@ -1,4 +1,5 @@
 import {
+  bigint,
   bigserial,
   boolean,
   index,
@@ -345,5 +346,35 @@ export const signals = pgTable(
   (t) => [
     index('signals_vault_idx').on(t.vaultId),
     uniqueIndex('signals_entry_type_idx').on(t.entryId, t.type),
+  ],
+);
+
+/** Вложения записей. Содержимое — зашифрованный файл в хранилище блобов; здесь только шифртекст метаданных и обёрнутый ключ. */
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: uuid('id').primaryKey(),
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    entryId: uuid('entry_id')
+      .notNull()
+      .references(() => entries.id, { onDelete: 'cascade' }),
+    /** Ключ вложения под ключом хранилища. */
+    wrappedKey: text('wrapped_key').notNull(),
+    /** Имя, тип и размер открытого файла под ключом вложения. */
+    metaCipher: text('meta_cipher').notNull(),
+    keyVersion: integer('key_version').notNull(),
+    /** Размер зашифрованного файла в байтах (по нему считаются квоты). */
+    size: bigint('size', { mode: 'number' }).notNull(),
+    status: text('status', { enum: ['pending', 'ready'] })
+      .notNull()
+      .default('pending'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('attachments_entry_idx').on(t.entryId),
+    index('attachments_vault_idx').on(t.vaultId),
   ],
 );

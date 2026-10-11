@@ -27,6 +27,7 @@ import {
   vaults,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { attachmentIdsExpired, attachmentIdsOfEntries } from './attachments.js';
 
 const REVISIONS_KEEP = 100;
 const atLeast = (a: Access | null, min: Access): boolean =>
@@ -293,7 +294,9 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       entryAccess(access, e, 'editor');
       if (!e.deletedAt)
         throw new AppError(409, 'not_in_trash', 'Move the entry to the trash first');
+      const blobIds = await attachmentIdsOfEntries(db, [entryId]);
       await db.delete(entries).where(eq(entries.id, entryId));
+      await ctx.blobs.remove(blobIds);
       await audit(db, `user:${user.id}`, 'entry.purge', `entry:${entryId}`, { vault: vaultId });
       return reply.status(204).send();
     }
@@ -524,9 +527,18 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     if (purge) {
       if (!b.deletedAt)
         throw new AppError(409, 'not_in_trash', 'Move the branch to the trash first');
+      const doomed = await db
+        .select({ id: entries.id })
+        .from(entries)
+        .where(and(eq(entries.vaultId, vaultId), inArray(entries.branchId, ids)));
+      const blobIds = await attachmentIdsOfEntries(
+        db,
+        doomed.map((d) => d.id),
+      );
       await db
         .delete(entries)
         .where(and(eq(entries.vaultId, vaultId), inArray(entries.branchId, ids)));
+      await ctx.blobs.remove(blobIds);
       await db.delete(branches).where(inArray(branches.id, ids));
       await audit(db, `user:${user.id}`, 'branch.purge', `branch:${branchId}`, { vault: vaultId });
       return reply.status(204).send();
@@ -648,7 +660,9 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     } else {
       if (rows.some((e) => !e.deletedAt))
         throw new AppError(409, 'not_in_trash', 'Only entries in the trash can be purged');
+      const blobIds = await attachmentIdsOfEntries(db, body.ids);
       await db.delete(entries).where(inArray(entries.id, body.ids));
+      await ctx.blobs.remove(blobIds);
     }
     await audit(db, `user:${user.id}`, `entry.bulk.${body.action}`, null, {
       vault: vaultId,
@@ -805,8 +819,10 @@ export async function purgeExpiredTrash(
   db: AppContext['db'],
   retentionDays: number,
   now = new Date(),
+  blobs?: AppContext['blobs'],
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - retentionDays * 86_400_000);
+  const blobIds = await attachmentIdsExpired(db, cutoff);
   const e = await db
     .delete(entries)
     .where(and(isNotNull(entries.deletedAt), lt(entries.deletedAt, cutoff)))
@@ -815,5 +831,6 @@ export async function purgeExpiredTrash(
     .delete(branches)
     .where(and(isNotNull(branches.deletedAt), lt(branches.deletedAt, cutoff)))
     .returning({ id: branches.id });
+  await blobs?.remove(blobIds);
   return e.length + b.length;
 }

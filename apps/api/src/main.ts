@@ -1,6 +1,7 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { connect } from './db/connect.js';
+import { BlobStore } from './blobs.js';
 import { runMaintenance } from './maintenance.js';
 
 async function main(): Promise<void> {
@@ -23,8 +24,8 @@ async function main(): Promise<void> {
   // Плановое обслуживание: очистка корзины по сроку хранения, старых сеансов и журналов.
   const timer = setInterval(
     () =>
-      void runMaintenance(database.db).catch((e: unknown) =>
-        app.log.error({ err: String(e) }, 'maintenance failed'),
+      void runMaintenance(database.db, new Date(), new BlobStore(config.BLOB_DIR)).catch(
+        (e: unknown) => app.log.error({ err: String(e) }, 'maintenance failed'),
       ),
     6 * 3_600_000,
   );

@@ -8,16 +8,26 @@ import {
   encryptBranchName,
   encryptEntry,
   fromBase64Url,
+  openAttachmentFile,
+  openAttachmentMeta,
   openVaultKey,
+  rewrapAttachment,
   rewrapBranchName,
   rewrapEntry,
+  sealAttachment,
   sealVaultKeyFor,
   signKeyGrant,
   verifyKeyGrant,
   verifyKeyLog,
 } from '@arklock/crypto';
-import type { BranchRecord, EntryRecord, RevisionRecord, VaultInfo } from '@arklock/contracts';
-import { api } from '../services/api';
+import type {
+  AttachmentRecord,
+  BranchRecord,
+  EntryRecord,
+  RevisionRecord,
+  VaultInfo,
+} from '@arklock/contracts';
+import { api, apiBinary } from '../services/api';
 import {
   blankEntry,
   normalizeEntry,
@@ -573,6 +583,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ),
       });
     }
+    // Вложения: файлы перешифровываются новыми ключами и загружаются заранее; метаданные уходят в запрос ротации
+    const attOut = [];
+    for (const att of await api<AttachmentRecord[]>('GET', `/vaults/${vaultId}/attachments`)) {
+      const encrypted = await apiBinary('GET', `/vaults/${vaultId}/attachments/${att.id}/content`);
+      const re = await rewrapAttachment(oldKey, newKey, vaultId, att, encrypted, newVersion);
+      await apiBinary('PUT', `/vaults/${vaultId}/attachments/${att.id}/rotation`, re.file);
+      attOut.push({ id: att.id, wrappedKey: re.wrappedKey, metaCipher: re.metaCipher });
+    }
     const m = await members(vaultId);
     const holders = m.members;
     const keys = [];
@@ -584,9 +602,91 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       entries: entryOut,
       revisions: revOut,
       branches: branchOut,
+      attachments: attOut,
     });
     await loadVaults();
     await loadTree();
+  }
+
+  // ------------------------------------------------------------------ вложения
+
+  interface AttachmentItem {
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    encryptedSize: number;
+    createdAt: string;
+    problem?: boolean;
+  }
+
+  async function attachmentList(item: EntryItem): Promise<AttachmentItem[]> {
+    const key = keyOf(item.vaultId, item.keyVersion);
+    if (!key) return [];
+    const rows = await api<AttachmentRecord[]>(
+      'GET',
+      `/vaults/${item.vaultId}/entries/${item.id}/attachments`,
+    );
+    const out: AttachmentItem[] = [];
+    for (const r of rows) {
+      try {
+        const m = await openAttachmentMeta(
+          keyOf(item.vaultId, r.keyVersion) ?? key,
+          item.vaultId,
+          r,
+        );
+        out.push({ id: r.id, ...m, encryptedSize: r.size, createdAt: r.createdAt });
+      } catch {
+        out.push({
+          id: r.id,
+          name: '?',
+          type: '',
+          size: 0,
+          encryptedSize: r.size,
+          createdAt: r.createdAt,
+          problem: true,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Шифрует файл в браузере и загружает; сервер получает только шифртекст. */
+  async function attachmentAdd(item: EntryItem, file: File): Promise<void> {
+    const v = vaults.value.find((x) => x.id === item.vaultId)!;
+    const key = keyOf(item.vaultId, v.keyVersion);
+    if (!key) throw new Error('vault is locked');
+    const sealed = await sealAttachment(
+      key,
+      item.vaultId,
+      v.keyVersion,
+      { name: file.name, type: file.type, size: file.size },
+      new Uint8Array(await file.arrayBuffer()),
+    );
+    await api('POST', `/vaults/${item.vaultId}/entries/${item.id}/attachments`, {
+      id: sealed.id,
+      wrappedKey: sealed.wrappedKey,
+      metaCipher: sealed.metaCipher,
+      keyVersion: sealed.keyVersion,
+      size: sealed.file.length,
+    });
+    await apiBinary('PUT', `/vaults/${item.vaultId}/attachments/${sealed.id}/content`, sealed.file);
+  }
+
+  async function attachmentOpen(item: EntryItem, id: string): Promise<Uint8Array> {
+    const rows = await api<AttachmentRecord[]>(
+      'GET',
+      `/vaults/${item.vaultId}/entries/${item.id}/attachments`,
+    );
+    const rec = rows.find((r) => r.id === id);
+    const key = rec && keyOf(item.vaultId, rec.keyVersion);
+    if (!rec || !key) throw new Error('attachment is not available');
+    const encrypted = await apiBinary('GET', `/vaults/${item.vaultId}/attachments/${id}/content`);
+    return openAttachmentFile(key, item.vaultId, rec, encrypted);
+  }
+
+  async function attachmentRemove(item: EntryItem, id: string): Promise<void> {
+    await api('DELETE', `/vaults/${item.vaultId}/attachments/${id}`);
   }
 
   // ------------------------------------------------------------------ ссылки передачи
@@ -657,6 +757,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     addMember,
     distributePending,
     rotate,
+    attachmentList,
+    attachmentAdd,
+    attachmentOpen,
+    attachmentRemove,
     createLink,
     blankEntry,
   };

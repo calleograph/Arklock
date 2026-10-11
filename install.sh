@@ -207,6 +207,8 @@ run install -d -m 0750 "$DATA_ROOT"
 for d in backups state updater logs tmp blobs; do run install -d -m 0750 "$DATA_ROOT/$d"; done
 # Каталог обмена с помощником обновлений: контейнер приложения (непривилегированный) должен писать в него запросы.
 run chmod 1777 "$DATA_ROOT/updater"
+# Вложения пишет непривилегированный пользователь контейнера (node, uid 1000).
+run chown 1000:1000 "$DATA_ROOT/blobs"
 
 if [ "$DRY" -eq 1 ]; then
   say "[dry-run] создание $ENV_FILE, ключа резервного шифрования, запуск контейнеров и проверок"

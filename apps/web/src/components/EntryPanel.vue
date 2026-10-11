@@ -47,7 +47,7 @@ const showPw = ref(false);
 const revealed = ref<Set<number>>(new Set());
 const error = ref('');
 const busy = ref(false);
-const tab = ref<'details' | 'history' | 'share'>('details');
+const tab = ref<'details' | 'history' | 'files' | 'share'>('details');
 const branchChoice = ref<string | null>(props.item?.branchId ?? props.branchId);
 
 watch(
@@ -62,6 +62,8 @@ watch(
     tab.value = 'details';
     branchChoice.value = props.item?.branchId ?? props.branchId;
     history.value = null;
+    files.value = null;
+    confirmFile.value = '';
     link.value = '';
   },
 );
@@ -180,6 +182,102 @@ async function revert(id: string): Promise<void> {
   }
 }
 
+// ---- файлы
+interface FileRow {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  problem?: boolean;
+}
+const files = ref<FileRow[] | null>(null);
+const storage = ref<{ enabled: boolean; maxMiB: number }>({ enabled: true, maxMiB: 25 });
+const confirmFile = ref('');
+const fileInput = ref<HTMLInputElement | null>(null);
+async function openFiles(): Promise<void> {
+  tab.value = 'files';
+  error.value = '';
+  if (!props.item) return;
+  try {
+    const policy = await api<Record<string, unknown>>('GET', '/auth/policy');
+    storage.value = {
+      enabled: policy['storage.enabled'] !== false,
+      maxMiB: Number(policy['storage.attachmentMaxMiB'] ?? 25),
+    };
+    files.value = storage.value.enabled ? await ws.attachmentList(props.item) : [];
+  } catch (e) {
+    error.value = errorMessage(e, t);
+    files.value = [];
+  }
+}
+async function addFile(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement;
+  const picked = Array.from(input.files ?? []);
+  input.value = '';
+  if (!props.item || !picked.length) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    for (const f of picked) {
+      if (f.size > storage.value.maxMiB * 1024 * 1024) {
+        error.value = t('files.tooLarge');
+        continue;
+      }
+      await ws.attachmentAdd(props.item, f);
+    }
+    files.value = await ws.attachmentList(props.item);
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
+async function downloadFile(f: FileRow): Promise<void> {
+  if (!props.item) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const bytes = await ws.attachmentOpen(props.item, f.id);
+    const url = URL.createObjectURL(
+      new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' }),
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } catch {
+    error.value = t('files.broken');
+  } finally {
+    busy.value = false;
+  }
+}
+async function removeFile(f: FileRow): Promise<void> {
+  if (!props.item) return;
+  if (confirmFile.value !== f.id) {
+    confirmFile.value = f.id;
+    return;
+  }
+  confirmFile.value = '';
+  busy.value = true;
+  try {
+    await ws.attachmentRemove(props.item, f.id);
+    files.value = await ws.attachmentList(props.item);
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
+const fmtSize = (n: number) =>
+  n >= 1048576
+    ? `${(n / 1048576).toFixed(1)} MB`
+    : n >= 1024
+      ? `${Math.round(n / 1024)} KB`
+      : `${n} B`;
+
 // ---- ссылка передачи
 const link = ref('');
 const share = ref({ passphrase: '', minutes: 60, views: 1, notes: false });
@@ -258,6 +356,15 @@ void api;
           @click="loadHistory"
         >
           {{ t('vault.history') }}
+        </button>
+        <button
+          type="button"
+          class="px-3 py-1"
+          :class="tab === 'files' ? 'border-b-2 border-brand-500 font-medium' : ''"
+          data-testid="tab-files"
+          @click="openFiles"
+        >
+          {{ t('files.tab') }}
         </button>
         <button
           type="button"
@@ -374,6 +481,71 @@ void api;
           >
         </div>
       </dl>
+
+      <div v-else-if="tab === 'files'" class="space-y-3 text-sm" data-testid="files-panel">
+        <p class="text-xs text-slate-500">
+          {{ t('files.encryptedNote') }} {{ t('files.max', { n: storage.maxMiB }) }}
+        </p>
+        <p v-if="!storage.enabled" class="text-amber-700" role="alert">{{ t('files.disabled') }}</p>
+        <p v-else-if="!files" class="text-slate-500">{{ t('common.working') }}</p>
+        <p v-else-if="!files.length" class="text-slate-500" data-testid="files-empty">
+          {{ t('files.empty') }}
+        </p>
+        <ul v-else class="divide-y divide-slate-200 dark:divide-slate-800">
+          <li
+            v-for="f in files"
+            :key="f.id"
+            class="flex flex-wrap items-center justify-between gap-2 py-2"
+            data-testid="file-row"
+          >
+            <span class="min-w-0 break-all"
+              >{{ f.name }}
+              <span class="text-xs text-slate-500">· {{ fmtSize(f.size) }}</span></span
+            >
+            <span class="flex gap-1">
+              <button
+                type="button"
+                class="btn"
+                :disabled="busy || f.problem"
+                data-testid="file-download"
+                @click="downloadFile(f)"
+              >
+                {{ t('files.download') }}
+              </button>
+              <button
+                v-if="canEdit"
+                type="button"
+                class="btn"
+                :disabled="busy"
+                data-testid="file-remove"
+                @click="removeFile(f)"
+              >
+                {{ confirmFile === f.id ? t('files.confirmRemove') : t('files.remove') }}
+              </button>
+            </span>
+          </li>
+        </ul>
+        <div v-if="canEdit && storage.enabled">
+          <input
+            ref="fileInput"
+            type="file"
+            multiple
+            class="hidden"
+            data-testid="file-input"
+            @change="addFile"
+          />
+          <button
+            type="button"
+            class="btn"
+            :disabled="busy"
+            data-testid="file-add"
+            @click="fileInput?.click()"
+          >
+            {{ t('files.add') }}
+          </button>
+        </div>
+        <p v-if="error" class="text-red-600" role="alert" data-testid="files-error">{{ error }}</p>
+      </div>
 
       <div v-else-if="tab === 'history'" data-testid="history-list">
         <p v-if="!history" class="text-sm text-slate-500">{{ t('common.working') }}</p>

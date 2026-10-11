@@ -83,8 +83,13 @@ migrations="$(dc exec -T db psql -U arklock -d arklock -tAc 'select count(*) fro
 printf '{\n  "format": 1,\n  "createdAt": "%s",\n  "appVersion": "%s",\n  "commit": "%s",\n  "project": "%s",\n  "migrations": %s,\n  "dumpSha256": "%s"\n}\n' \
   "$(date -u +%FT%TZ)" "$(app_version)" "$(git_commit)" "$COMPOSE_PROJECT_NAME" "${migrations:-0}" "$(sha256sum "$tmp/db.dump" | cut -d' ' -f1)" > "$tmp/manifest.json"
 
-info "Шифрование (AES-256)…"
-tar -C "$tmp" -cf - db.dump arklock.env manifest.json \
+blob_files=0
+[ -d "$DATA_ROOT/blobs" ] && blob_files="$(find "$DATA_ROOT/blobs" -type f ! -name '*.part' | wc -l | tr -d '[:space:]')"
+info "Шифрование (AES-256), файлов вложений: $blob_files…"
+# Вложения уже зашифрованы клиентом; в копию попадают как есть (после дампа БД: лишние файлы безвредны, их уберёт сверка).
+blobs_args=()
+[ -d "$DATA_ROOT/blobs" ] && blobs_args=(-C "$DATA_ROOT" --exclude='*.part' blobs)
+tar --warning=no-file-changed -C "$tmp" -cf - db.dump arklock.env manifest.json "${blobs_args[@]}" \
   | gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-file "$BACKUP_KEY_FILE" \
         --symmetric --cipher-algo AES256 --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65011712 \
         -o "$OUT.part"

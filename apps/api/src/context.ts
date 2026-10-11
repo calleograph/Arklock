@@ -1,6 +1,7 @@
 import type { Config } from './config.js';
 import type { Database, Db } from './db/connect.js';
 import { ReauthStore } from './auth/reauth.js';
+import { BlobStore } from './blobs.js';
 import { AttemptLimiter } from './rateLimit.js';
 import { UpdaterChannel } from './updater/protocol.js';
 
@@ -13,6 +14,7 @@ export interface AppContext {
   attempts: { byEmail: AttemptLimiter; byIp: AttemptLimiter };
   reauth: ReauthStore;
   updater: UpdaterChannel;
+  blobs: BlobStore;
 }
 
 export function createContext(config: Config, database: Database): AppContext {
@@ -23,6 +25,7 @@ export function createContext(config: Config, database: Database): AppContext {
     db: database.db,
     reauth: new ReauthStore(),
     updater: new UpdaterChannel(config.UPDATER_DIR),
+    blobs: new BlobStore(config.BLOB_DIR),
     attempts: {
       byEmail: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS, windowMs),
       byIp: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS * 5, windowMs),

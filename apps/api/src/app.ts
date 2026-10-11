@@ -9,6 +9,7 @@ import type { Database } from './db/connect.js';
 import { AppError } from './errors.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
+import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSystemRoutes } from './routes/system.js';
 import { registerContentRoutes } from './routes/content.js';
@@ -104,6 +105,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAuthRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContentRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAttachmentRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSharingRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSecurityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminRoutes, { prefix: API_PREFIX, ctx });

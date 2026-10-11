@@ -1,12 +1,15 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 
 const PORT_ACCOUNTS = 18181;
 const PORT_UPDATES = 18182;
 const PORT_WORKSPACE = 18183;
+const BLOB_WORKSPACE = path.resolve('test-results', 'blobs-workspace');
 const UPDATER_DIR = path.resolve('test-results', 'updater-dir');
 mkdirSync(UPDATER_DIR, { recursive: true });
+rmSync(BLOB_WORKSPACE, { recursive: true, force: true });
+mkdirSync(BLOB_WORKSPACE, { recursive: true });
 
 const common = {
   NODE_ENV: 'production',
@@ -59,6 +62,7 @@ export default defineConfig({
       env: {
         ...common,
         PORT: String(PORT_WORKSPACE),
+        BLOB_DIR: BLOB_WORKSPACE,
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-3',
       },
     },

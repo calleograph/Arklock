@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
 const SETUP = 'e2e-setup-code-e2e-setup-code-3';
@@ -60,6 +61,30 @@ async function newFolder(page: Page, name: string): Promise<void> {
   await page.getByTestId('name-input').fill(name);
   await page.getByTestId('name-ok').click();
   await expect(page.getByTestId('branch-row').filter({ hasText: name })).toBeVisible();
+}
+
+const FILE_TEXT = 'СЕКРЕТНОЕ СОДЕРЖИМОЕ ФАЙЛА 7731';
+const BLOB_DIR = path.resolve('test-results', 'blobs-workspace');
+
+/** Все файлы хранилища вложений: ни один не должен содержать открытый текст или имя файла. */
+function storedFiles(dir = BLOB_DIR): string[] {
+  const out: string[] = [];
+  for (const n of readdirSync(dir)) {
+    const p = path.join(dir, n);
+    if (statSync(p).isDirectory()) out.push(...storedFiles(p));
+    else out.push(p);
+  }
+  return out;
+}
+
+async function downloadText(page: Page): Promise<string> {
+  await page.getByTestId('tab-files').click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('file-download').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('договор.txt');
+  return readFileSync((await download.path())!, 'utf8');
 }
 
 let adminPage: Page;
@@ -259,6 +284,24 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText('Команда');
   await addEntry(page, { title: 'Общий сервер', username: 'ops', password: 'Shared-Secret-77!aa' });
 
+  // вложение: шифруется в браузере, на сервере лежит только шифртекст
+  await page.getByTestId('tab-files').click();
+  await expect(page.getByTestId('files-empty')).toBeVisible();
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'договор.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(FILE_TEXT),
+  });
+  await expect(page.getByTestId('file-row')).toContainText('договор.txt');
+  const stored = storedFiles();
+  expect(stored.length).toBeGreaterThanOrEqual(1);
+  for (const f of stored) {
+    const raw = readFileSync(f);
+    expect(raw.includes(Buffer.from(FILE_TEXT))).toBe(false);
+    expect(raw.includes(Buffer.from('договор'))).toBe(false);
+  }
+  expect(await downloadText(page)).toBe(FILE_TEXT);
+
   // добавление участника
   await page.getByTestId('btn-vault-settings').click();
   await page.getByTestId('member-search').fill('member');
@@ -277,6 +320,7 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await memberPage.getByTestId('entry-row').click();
   await memberPage.getByTestId('btn-reveal').click();
   await expect(memberPage.getByTestId('view-password')).toHaveText('Shared-Secret-77!aa');
+  expect(await downloadText(memberPage)).toBe(FILE_TEXT);
 
   // отзыв доступа и ротация ключа
   await page.getByTestId(`remove-${MEMBER.email}`).click();
@@ -298,5 +342,10 @@ test('a second user joins a shared vault; revoking access and rotating the key',
     .first()
     .click();
   await expect(page.getByTestId('entry-row').first()).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('entry-row').first().click();
+  // после ротации ключа файл открывается новым ключом и содержимое прежнее
+  expect(await downloadText(page)).toBe(FILE_TEXT);
+  for (const f of storedFiles())
+    expect(readFileSync(f).includes(Buffer.from(FILE_TEXT))).toBe(false);
   void login;
 });
