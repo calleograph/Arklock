@@ -289,7 +289,7 @@ describe('sign-in through OIDC', () => {
     try {
       idp.user = { ...keep, sub: 'u-2', email: 'unverified@example.com', email_verified: false };
       expect((await browserLogin()).error).toBe('claims');
-      idp.user = { ...keep, sub: 'u-3', email: 'x@other.org' };
+      idp.user = { ...keep, sub: 'u-3', email: 'x@example.org' };
       expect((await browserLogin()).error).toBe('claims');
       idp.user = { ...keep, sub: 'u-4', email: '' };
       expect((await browserLogin()).error).toBe('claims');
