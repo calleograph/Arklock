@@ -49,7 +49,7 @@ describe('check-private-data', () => {
     expect(r.stderr).toContain('запрещённый файл');
   });
 
-  it('applies the private deny list kept outside the repository', () => {
+  it('applies the optional extra deny list', () => {
     const dir = sandbox({ 'a.txt': 'contains Secret-Codename here' });
     const deny = path.join(dir, '..', `deny-${path.basename(dir)}.txt`);
     writeFileSync(deny, 'secret-codename\n');
@@ -59,6 +59,6 @@ describe('check-private-data', () => {
       env: { ...process.env, PRIVATE_DENY_FILE: deny },
     });
     expect(r.status).toBe(1);
-    expect(r.stderr).toContain('приватного списка');
+    expect(r.stderr).toContain('дополнительного списка');
   });
 });
