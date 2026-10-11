@@ -71,7 +71,10 @@ BACKUP_FILE="$(ls -1t "$BACKUP_DIR"/*-pre-update.bak.gpg 2>/dev/null | head -n 1
 # --- сохранение текущего состояния для отката
 IMG_BASE="$(upd_image_base)"
 PREV_IMAGE="${IMG_BASE}:prev-${CUR_COMMIT:0:12}"
-docker tag "$ARKLOCK_IMAGE" "$PREV_IMAGE" || die "Не удалось сохранить образ текущей версии"
+# Образ берётся у РАБОТАЮЩЕГО контейнера (по идентификатору), а не по тегу: после отката тег мог указывать на другую версию.
+RUNNING_IMAGE_ID="$(docker inspect -f '{{.Image}}' "$(dc ps -q app | head -n 1)" 2>/dev/null)"
+[ -n "$RUNNING_IMAGE_ID" ] || die "Не удалось определить образ работающего приложения"
+docker tag "$RUNNING_IMAGE_ID" "$PREV_IMAGE" || die "Не удалось сохранить образ текущей версии"
 state_set update previous_version "$CUR_VERSION"
 state_set update previous_commit "$CUR_COMMIT"
 state_set update previous_image "$PREV_IMAGE"
@@ -87,6 +90,7 @@ recover() { # recover ПРИЧИНА — автоматическое восст
   if [ -z "$now" ] || [ "${now:-0}" -le "${CUR_MIGR:-0}" ]; then
     upd_log "Схема БД не менялась — возврат кода и образа версии $CUR_VERSION"
     if upd_revert_code "$CUR_COMMIT" "$PREV_IMAGE"; then
+      upd_retag_current "$PREV_IMAGE"
       state_set update status rolled_back; state_set update finished_at "$(date -u +%FT%TZ)"
       fail "Обновление не выполнено, система возвращена на версию $CUR_VERSION и работает."
     else
@@ -98,6 +102,7 @@ recover() { # recover ПРИЧИНА — автоматическое восст
     git -C "$REPO_ROOT" checkout --quiet --detach "$CUR_COMMIT" || true
     export ARKLOCK_IMAGE="$PREV_IMAGE" ARKLOCK_IMAGE_OVERRIDE="$PREV_IMAGE"
     if "$REPO_ROOT/scripts/restore.sh" "$BACKUP_FILE" --env "$ENV_FILE" --yes --no-safety-backup; then
+      upd_retag_current "$PREV_IMAGE"
       state_set update status restored_from_backup; state_set update finished_at "$(date -u +%FT%TZ)"
       fail "Обновление не выполнено. БД восстановлена из копии перед обновлением, версия $CUR_VERSION работает."
     else

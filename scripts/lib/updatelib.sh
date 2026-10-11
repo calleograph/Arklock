@@ -55,6 +55,13 @@ upd_wait_app() {
   wait_ready 60
 }
 
+# Тег ARKLOCK_IMAGE из файла окружения должен всегда указывать на РАБОТАЮЩУЮ версию (иначе следующее обновление сохранит не тот образ).
+upd_retag_current() { # upd_retag_current ОБРАЗ_РАБОТАЮЩЕЙ_ВЕРСИИ
+  local main_tag
+  main_tag="$(env_get "$ENV_FILE" ARKLOCK_IMAGE)"
+  [ -z "$main_tag" ] || docker tag "$1" "$main_tag"
+}
+
 # Возврат кода и образа к сохранённому состоянию (без изменения БД).
 upd_revert_code() { # upd_revert_code COMMIT IMAGE
   git -C "$REPO_ROOT" checkout --quiet --detach "$1" || return 1
