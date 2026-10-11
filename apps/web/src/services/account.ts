@@ -66,7 +66,7 @@ export async function createAccount(
     const sealedKey = await sealVaultKeyFor(lockerKey, kp.publicKey, lockerId, userId, 1);
     created = await api<SessionResponse | { userId: string }>(
       'POST',
-      directory ? '/auth/ldap/enroll' : '/auth/register',
+      directory ? '/auth/external/enroll' : '/auth/register',
       {
         userId,
         ...(directory ? { enrollToken: directory.enrollToken } : { email, displayName }),

@@ -1,9 +1,7 @@
-import { randomBytes } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { assertKdfParams } from '@arklock/crypto';
-import { registerRequest, uuid } from '@arklock/contracts';
+import { uuid } from '@arklock/contracts';
 import type { MfaChallengeResponse, SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import {
@@ -21,7 +19,7 @@ import type { AppContext } from '../context.js';
 import { circleMembers, circles, sessions, settings, users } from '../db/schema.js';
 import { AppError, forbidden, parse } from '../errors.js';
 import { openSetting, sealSetting } from '../secretbox.js';
-import { bundle, insertAccount } from './auth.js';
+import { bundle } from './auth.js';
 
 const KEY = 'ldap.config';
 const PURPOSE = 'ldap-bind-password';
@@ -59,32 +57,35 @@ const loginSchema = z.object({
   username: z.string().trim().min(1).max(256),
   password: z.string().min(1).max(512),
 });
-const enrollSchema = registerRequest
-  .omit({ email: true, displayName: true, setupToken: true })
-  .extend({ enrollToken: z.string().min(10).max(100) });
 
-/** Идентичность из каталога, ожидающая создания учётной записи (клиент задаёт мастер-пароль и присылает ключи). */
-class EnrollStore {
-  private readonly items = new Map<string, { id: Ident; expiresAt: number }>();
-  issue(id: Ident, now = Date.now()): string {
-    for (const [k, v] of this.items) if (v.expiresAt <= now) this.items.delete(k);
-    const token = `ae_${randomBytes(24).toString('base64url')}`;
-    this.items.set(token, { id, expiresAt: now + 15 * 60_000 });
-    return token;
-  }
-  take(token: string, now = Date.now()): Ident | null {
-    const r = this.items.get(token);
-    this.items.delete(token);
-    return r && r.expiresAt > now ? r.id : null;
-  }
+/** Приводит членство пользователя в управляемых кругах в соответствие с группами каталога. */
+export async function syncCirclesFor(
+  db: AppContext['db'],
+  userId: string,
+  s: LdapConfig,
+  groups: string[],
+): Promise<void> {
+  const { want, managed } = circlesFor(s, groups);
+  if (!managed.length) return;
+  const existing = await db
+    .select({ id: circles.id })
+    .from(circles)
+    .where(inArray(circles.id, managed));
+  const valid = new Set(existing.map((c) => c.id));
+  await db.transaction(async (tx) => {
+    for (const cid of managed) {
+      if (!valid.has(cid)) continue;
+      if (want.includes(cid))
+        await tx.insert(circleMembers).values({ circleId: cid, userId }).onConflictDoNothing();
+      else
+        await tx
+          .delete(circleMembers)
+          .where(and(eq(circleMembers.circleId, cid), eq(circleMembers.userId, userId)));
+    }
+  });
 }
-interface Ident {
-  dn: string;
-  email: string;
-  name: string;
-  groups: string[];
-}
-const enroll = new EnrollStore();
+
+export const LDAP_SETTING_KEY = 'ldap.config';
 
 const ipOf = (req: FastifyRequest) => req.ip ?? null;
 
@@ -203,7 +204,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             disabled++;
           }
         } else {
-          await syncCircles(u.id, s, found.groups);
+          await syncCirclesFor(db, u.id, s, found.groups);
           updated++;
         }
       } catch (e) {
@@ -224,27 +225,6 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const s = await stored();
     return { enabled: !!s?.enabled, autoProvision: !!s?.autoProvision };
   });
-
-  async function syncCircles(userId: string, s: LdapConfig, groups: string[]): Promise<void> {
-    const { want, managed } = circlesFor(s, groups);
-    if (!managed.length) return;
-    const existing = await db
-      .select({ id: circles.id })
-      .from(circles)
-      .where(inArray(circles.id, managed));
-    const valid = new Set(existing.map((c) => c.id));
-    await db.transaction(async (tx) => {
-      for (const cid of managed) {
-        if (!valid.has(cid)) continue;
-        if (want.includes(cid))
-          await tx.insert(circleMembers).values({ circleId: cid, userId }).onConflictDoNothing();
-        else
-          await tx
-            .delete(circleMembers)
-            .where(and(eq(circleMembers.circleId, cid), eq(circleMembers.userId, userId)));
-      }
-    });
-  }
 
   function throttle(req: FastifyRequest, username: string): string {
     const key = `ldap:${username.toLowerCase()}`;
@@ -315,8 +295,9 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             'ldap_not_provisioned',
             'Your account has not been created yet — contact an administrator',
           );
-        const token = enroll.issue({
-          dn: ident.dn,
+        const token = ctx.enroll.issue({
+          source: 'ldap',
+          externalId: ident.dn,
           email: ident.email,
           name: ident.name,
           groups: ident.groups,
@@ -330,7 +311,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       }
       if (linked.disabledAt)
         throw new AppError(401, 'invalid_credentials', 'Invalid username or password');
-      await syncCircles(linked.id, s, ident.groups);
+      await syncCirclesFor(db, linked.id, s, ident.groups);
       if (await isEnrolled(ctx, linked.id)) {
         reply.status(200);
         return { mfaRequired: true, challenge: ctx.mfa.issue(linked.id) };
@@ -349,41 +330,4 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       return { token: sess.token, expiresAt: sess.expiresAt.toISOString(), user: bundle(linked) };
     },
   );
-
-  /** Создание учётной записи для пользователя каталога: клиент задаёт мастер-пароль и присылает зашифрованные ключи. */
-  app.post('/auth/ldap/enroll', async (req, reply): Promise<SessionResponse> => {
-    const body = parse(enrollSchema, req.body);
-    const ident = enroll.take(body.enrollToken);
-    if (!ident) throw new AppError(401, 'invalid_enroll', 'The sign-in step expired, start again');
-    try {
-      assertKdfParams(body.kdf, ctx.config.kdfFloor);
-    } catch {
-      throw new AppError(400, 'weak_kdf', 'Key derivation parameters are weaker than allowed');
-    }
-    const s = await stored();
-    if (!s?.enabled || !s.autoProvision)
-      throw new AppError(403, 'ldap_not_provisioned', 'Account creation is disabled');
-    const full = { ...body, email: ident.email, displayName: ident.name || ident.email };
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(7001)`);
-      const [dupe] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(sql`${users.email} = ${ident.email} or ${users.id} = ${body.userId}`)
-        .limit(1);
-      if (dupe) throw new AppError(409, 'already_exists', 'Account already exists');
-      await insertAccount(tx, full, { role: 'member', authSource: 'ldap', externalId: ident.dn });
-    });
-    await syncCircles(body.userId, s, ident.groups);
-    const [u] = await db.select().from(users).where(eq(users.id, body.userId));
-    const sess = await createSession(
-      ctx,
-      body.userId,
-      ipOf(req),
-      req.headers['user-agent'] ?? null,
-    );
-    await audit(db, `user:${body.userId}`, 'auth.ldap.enroll', `user:${body.userId}`);
-    reply.status(201);
-    return { token: sess.token, expiresAt: sess.expiresAt.toISOString(), user: bundle(u!) };
-  });
 };

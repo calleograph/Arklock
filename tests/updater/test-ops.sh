@@ -15,11 +15,11 @@ has() { local c; c="$(rd "$1")"; [[ "$c" == *"$2"* ]]; }
 
 # send ДЕЙСТВИЕ [ПАРАМЕТР=ЗНАЧЕНИЕ…] — ставит запрос и ждёт завершения именно этого запроса
 send() {
-  local id="" i
+  local id=""
   id="$(cat /proc/sys/kernel/random/uuid)"
   { echo "request_id=$id"; for l in "$@"; do echo "$l"; done; } | sudo tee "$CH/request.new" > /dev/null
   sudo mv "$CH/request.new" "$CH/request.txt"
-  for i in $(seq 1 240); do
+  for _ in $(seq 1 240); do
     if has "$CH/status.json" "\"request_id\":\"$id\"" && ! has "$CH/status.json" '"state":"running"'; then return 0; fi
     sleep 1
   done

@@ -137,6 +137,27 @@ export const useAuthStore = defineStore('auth', () => {
 
   const ldapIdentity = () => ldapEnroll;
 
+  /** Возврат от SSO: билет обменивается на сессию / шаг второго фактора / создание учётной записи. */
+  async function exchangeSso(ticket: string): Promise<'unlock' | 'mfa' | 'enroll'> {
+    const res = await api<
+      | SessionResponse
+      | MfaChallengeResponse
+      | { enroll: true; enrollToken: string; email: string; name: string }
+    >('POST', '/auth/sso/exchange', { ticket }, { auth: false });
+    if ('enroll' in res) {
+      ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
+      return 'enroll';
+    }
+    if ('mfaRequired' in res) {
+      ldapChallenge = res.challenge;
+      return 'mfa';
+    }
+    setToken(res.token);
+    hasToken.value = true;
+    user.value = res.user;
+    return 'unlock';
+  }
+
   /** Создание учётной записи для пользователя каталога: мастер-пароль остаётся только у него. */
   async function enrollLdap(masterPassword: string): Promise<{ recoveryCode: string }> {
     if (!ldapEnroll) throw new Error('no pending enrolment');
@@ -236,6 +257,7 @@ export const useAuthStore = defineStore('auth', () => {
     completeMfa,
     cancelMfa,
     signInLdap,
+    exchangeSso,
     enrollLdap,
     ldapIdentity,
     hasLdapChallenge,

@@ -325,3 +325,68 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await expect(local.getByTestId('add-entry')).toHaveCount(0);
   directory?.close();
 });
+
+// ---------------------------------------------------------------- единый вход (OpenID Connect)
+test('SSO: configure the provider, first sign-in creates the account, later sign-ins unlock it', async ({
+  page,
+  browser,
+}) => {
+  const { startIdp } = (await import('./mock-idp.mjs')) as {
+    startIdp: (o: {
+      clientId: string;
+      clientSecret: string;
+      user: { sub: string; email: string; name: string };
+    }) => Promise<{ issuer: string; close: () => void }>;
+  };
+  const idp = await startIdp({
+    clientId: 'arklock-e2e',
+    clientSecret: 'idp-secret-e2e',
+    user: { sub: 'bob-1', email: 'bob@example.com', name: 'Bob Sso' },
+  });
+  try {
+    await page.goto('/login');
+    await page.getByTestId('email').fill(ADMIN.email);
+    await page.getByTestId('password').fill(ADMIN.password);
+    await page.getByTestId('submit').click();
+    await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+    await page.getByTestId('nav-admin').click();
+    await tab(page, 'sso');
+    await expect(page.getByTestId('sso-redirect')).toContainText('/api/v1/auth/sso/callback');
+    await page.getByTestId('sso-enabled').check();
+    await page.getByTestId('sso-issuer').fill(idp.issuer);
+    await page.getByTestId('sso-client').fill('arklock-e2e');
+    await page.getByTestId('sso-secret').fill('idp-secret-e2e');
+    await page.getByTestId('sso-button-text').fill('Войти через Тест-IdP');
+    await page.getByTestId('sso-insecure').check();
+    await page.getByTestId('sso-save').click();
+    await page.getByTestId('sso-test').click();
+    await expect(page.getByTestId('sso-result')).toContainText(/отвечает|responds/i);
+
+    const bob = await (await browser.newContext()).newPage();
+    await bob.goto('/login');
+    await bob.getByTestId('to-sso').click();
+    await expect(bob.getByTestId('ldap-enroll-hint')).toBeVisible({ timeout: 30_000 });
+    await bob.getByTestId('password').fill('bob-master-password-e2e-1');
+    await bob.getByTestId('repeat').fill('bob-master-password-e2e-1');
+    await bob.getByTestId('submit').click();
+    await bob.getByTestId('recovery-saved').check({ timeout: 90_000 });
+    await bob.getByTestId('recovery-continue').click();
+    await expect(bob.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+    await bob.getByTestId('add-entry').click();
+    await bob.getByTestId('f-title').fill('SSO: запись');
+    await bob.getByTestId('f-save').click();
+    await expect(bob.getByTestId('view-title')).toHaveText('SSO: запись');
+
+    const again = await (await browser.newContext()).newPage();
+    await again.goto('/login');
+    await again.getByTestId('to-sso').click();
+    await again.waitForURL('**/unlock');
+    await again.getByTestId('password').fill('bob-master-password-e2e-1');
+    await again.getByTestId('submit').click();
+    await expect(again.getByTestId('entry-row').first()).toContainText('SSO: запись', {
+      timeout: 90_000,
+    });
+  } finally {
+    idp.close();
+  }
+});

@@ -5,6 +5,7 @@ import StatusView from './views/StatusView.vue';
 import UpdatesView from './views/UpdatesView.vue';
 import AdminView from './views/AdminView.vue';
 import HandoffOpenView from './views/HandoffOpenView.vue';
+import SsoDoneView from './views/SsoDoneView.vue';
 import InspectorView from './views/InspectorView.vue';
 import VaultSettingsView from './views/VaultSettingsView.vue';
 import WorkspaceView from './views/WorkspaceView.vue';
@@ -27,8 +28,9 @@ export const router = createRouter({
       meta: { requiresUnlock: true },
     },
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
+    { path: '/sso/done', name: 'sso-done', component: SsoDoneView },
     {
-      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap)?',
+      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso)?',
       name: 'admin',
       component: AdminView,
       meta: { requiresUnlock: true, requiresAdmin: true },

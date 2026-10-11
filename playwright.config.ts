@@ -73,6 +73,7 @@ export default defineConfig({
         PORT: String(PORT_ADMIN),
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-4',
         UPDATER_DIR: ADMIN_UPDATER_DIR,
+        APP_PUBLIC_URL: `http://127.0.0.1:${PORT_ADMIN}`,
         BLOB_DIR: path.resolve('test-results', 'blobs-admin'),
       },
     },

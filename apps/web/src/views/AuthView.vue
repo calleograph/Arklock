@@ -15,6 +15,7 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const ldapAvailable = ref(false);
+const sso = ref<{ enabled: boolean; buttonText: string }>({ enabled: false, buttonText: 'SSO' });
 const ldapMode = ref(false);
 const ldapEnrollStep = ref(false);
 const ldapUser = ref('');
@@ -56,6 +57,17 @@ onMounted(async () => {
     firstUser.value = status.firstUser;
     setupRequired.value = status.setupTokenRequired;
     if (status.firstUser && mode.value === 'signin') mode.value = 'register';
+    sso.value = await api<{ enabled: boolean; buttonText: string }>('GET', '/auth/sso', undefined, {
+      auth: false,
+    });
+    // возврат со страницы SSO: продолжаем начатый внешний вход
+    if (route.query.external === 'enroll' && auth.ldapIdentity()) {
+      ldapMode.value = true;
+      ldapEnrollStep.value = true;
+    } else if (route.query.external === 'mfa' && auth.hasLdapChallenge()) {
+      ldapMode.value = true;
+      mfaStep.value = true;
+    }
     ldapAvailable.value = (
       await api<{ enabled: boolean }>('GET', '/auth/ldap', undefined, { auth: false })
     ).enabled;
@@ -440,6 +452,15 @@ async function copyRecovery(): Promise<void> {
       >
         {{ t('mfa.cancel') }}
       </button>
+
+      <a
+        v-if="sso.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
+        href="/api/v1/auth/sso/start"
+        class="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+        data-testid="to-sso"
+      >
+        {{ sso.buttonText }}
+      </a>
 
       <button
         v-if="ldapAvailable && mode === 'signin' && !mfaStep && !ldapEnrollStep"

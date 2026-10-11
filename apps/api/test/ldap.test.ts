@@ -289,13 +289,13 @@ describe('sign-in through the directory', () => {
     // токен действует один раз и привязан к идентичности из каталога, а не к присланному адресу
     const wrongToken = await app.inject({
       method: 'POST',
-      url: '/api/v1/auth/ldap/enroll',
+      url: '/api/v1/auth/external/enroll',
       payload: { ...rest, enrollToken: 'ae_not-a-real-token-value' },
     });
     expect(wrongToken.statusCode).toBe(401);
     const done = await app.inject({
       method: 'POST',
-      url: '/api/v1/auth/ldap/enroll',
+      url: '/api/v1/auth/external/enroll',
       payload: { ...rest, email: 'evil@example.com', enrollToken },
     });
     expect(done.statusCode).toBe(201);
@@ -303,7 +303,7 @@ describe('sign-in through the directory', () => {
     expect(done.json().user.id).toBe(userId);
     const reuse = await app.inject({
       method: 'POST',
-      url: '/api/v1/auth/ldap/enroll',
+      url: '/api/v1/auth/external/enroll',
       payload: { ...rest, enrollToken },
     });
     expect(reuse.statusCode).toBe(401);
