@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { UserBundle } from '@arklock/contracts';
+import type { MfaChallengeResponse, SessionResponse, UserBundle } from '@arklock/contracts';
 import {
   api,
   loadToken,
@@ -107,7 +107,74 @@ export const useAuthStore = defineStore('auth', () => {
     return 'ok';
   }
 
+  // Вход через каталог (LDAP): пароль каталога проверяет сервер, мастер-пароль нужен только для ключей
+  let ldapChallenge: string | null = null;
+  let ldapEnroll: { token: string; email: string; name: string } | null = null;
+
+  /** ok — сессия есть, нужна разблокировка; mfa — нужен код; enroll — нужно создать мастер-пароль. */
+  async function signInLdap(
+    username: string,
+    password: string,
+  ): Promise<'unlock' | 'mfa' | 'enroll'> {
+    const res = await api<
+      | SessionResponse
+      | MfaChallengeResponse
+      | { enroll: true; enrollToken: string; email: string; name: string }
+    >('POST', '/auth/ldap/login', { username, password }, { auth: false });
+    if ('enroll' in res) {
+      ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
+      return 'enroll';
+    }
+    if ('mfaRequired' in res) {
+      ldapChallenge = res.challenge;
+      return 'mfa';
+    }
+    setToken(res.token);
+    hasToken.value = true;
+    user.value = res.user;
+    return 'unlock';
+  }
+
+  const ldapIdentity = () => ldapEnroll;
+
+  /** Создание учётной записи для пользователя каталога: мастер-пароль остаётся только у него. */
+  async function enrollLdap(masterPassword: string): Promise<{ recoveryCode: string }> {
+    if (!ldapEnroll) throw new Error('no pending enrolment');
+    const made = await account.createAccount(
+      ldapEnroll.email,
+      ldapEnroll.name,
+      masterPassword,
+      undefined,
+      undefined,
+      { enrollToken: ldapEnroll.token },
+    );
+    ldapEnroll = null;
+    if (!made.session) throw new Error('enrolment failed');
+    setToken(made.session.token);
+    hasToken.value = true;
+    user.value = made.session.user;
+    // ключи только что созданы из этого же пароля: открываем их
+    setUnlocked(await account.unlock(made.session.user, masterPassword));
+    return { recoveryCode: made.recoveryCode };
+  }
+
+  async function completeLdapMfa(code: string): Promise<void> {
+    if (!ldapChallenge) throw new Error('no pending sign-in');
+    const session = await api<SessionResponse>(
+      'POST',
+      '/auth/mfa/verify',
+      { challenge: ldapChallenge, code },
+      { auth: false },
+    );
+    ldapChallenge = null;
+    setToken(session.token);
+    hasToken.value = true;
+    user.value = session.user;
+  }
+  const hasLdapChallenge = () => ldapChallenge !== null;
+
   async function completeMfa(code: string): Promise<void> {
+    if (ldapChallenge) return completeLdapMfa(code);
     if (!pendingMfa) throw new Error('no pending sign-in');
     const p = pendingMfa;
     const { session, account: acc } = await p.complete(code);
@@ -119,6 +186,7 @@ export const useAuthStore = defineStore('auth', () => {
   function cancelMfa(): void {
     pendingMfa?.cancel();
     pendingMfa = null;
+    ldapChallenge = null;
   }
 
   async function unlock(password: string): Promise<void> {
@@ -167,6 +235,10 @@ export const useAuthStore = defineStore('auth', () => {
     signIn,
     completeMfa,
     cancelMfa,
+    signInLdap,
+    enrollLdap,
+    ldapIdentity,
+    hasLdapChallenge,
     unlock,
     signOut,
     restore,

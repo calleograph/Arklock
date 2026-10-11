@@ -50,7 +50,9 @@ export async function createAccount(
   password: string,
   setupToken?: string,
   signal?: AbortSignal,
-): Promise<{ recoveryCode: string }> {
+  /** Вход через каталог: адрес и имя задаёт сервер по данным каталога, запись создаётся по токену. */
+  directory?: { enrollToken: string },
+): Promise<{ recoveryCode: string; session?: SessionResponse }> {
   const userId = crypto.randomUUID();
   const salt = generateSalt();
   const keys = await deriveKeys(password, salt, userId, DEFAULT_KDF, signal);
@@ -59,16 +61,16 @@ export async function createAccount(
   const recovery = await generateRecoveryKey();
   const lockerId = crypto.randomUUID();
   const lockerKey = createVaultKey();
+  let created: SessionResponse | { userId: string } | undefined;
   try {
     const sealedKey = await sealVaultKeyFor(lockerKey, kp.publicKey, lockerId, userId, 1);
-    await api(
+    created = await api<SessionResponse | { userId: string }>(
       'POST',
-      '/auth/register',
+      directory ? '/auth/ldap/enroll' : '/auth/register',
       {
         userId,
-        email,
-        displayName,
-        setupToken: setupToken || undefined,
+        ...(directory ? { enrollToken: directory.enrollToken } : { email, displayName }),
+        setupToken: directory ? undefined : setupToken || undefined,
         kdf: DEFAULT_KDF,
         salt: toBase64Url(salt),
         authKey: toBase64Url(keys.authKey),
@@ -106,7 +108,10 @@ export async function createAccount(
     ])
       k.fill(0);
   }
-  return { recoveryCode: recovery.code };
+  return {
+    recoveryCode: recovery.code,
+    session: created && 'token' in created ? created : undefined,
+  };
 }
 
 async function keysFor(email: string, password: string, signal?: AbortSignal) {

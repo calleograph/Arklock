@@ -13,6 +13,7 @@ import {
   uuid,
 } from '@arklock/contracts';
 import type {
+  RegisterRequest,
   AuthParamsResponse,
   MfaChallengeResponse,
   RegistrationStatus,
@@ -46,6 +47,79 @@ function checkKdf(ctx: AppContext, kdf: KdfIn): void {
   } catch {
     throw new AppError(400, 'weak_kdf', 'Key derivation parameters are weaker than allowed');
   }
+}
+
+type Tx = Parameters<Parameters<AppContext['db']['transaction']>[0]>[0];
+
+/** Создание пользователя, записи журнала ключей и личного сейфа (одна транзакция вызывающего). */
+export async function insertAccount(
+  tx: Tx,
+  body: RegisterRequest,
+  opts: {
+    role: 'admin' | 'member';
+    authSource: 'local' | 'ldap' | 'oidc';
+    externalId: string | null;
+  },
+): Promise<void> {
+  const authSalt = randomB64url(16);
+  const recoverySalt = randomB64url(16);
+  await tx.insert(users).values({
+    id: body.userId,
+    email: body.email,
+    displayName: body.displayName,
+    role: opts.role,
+    authSource: opts.authSource,
+    externalId: opts.externalId,
+    kdf: body.kdf,
+    kdfSalt: body.salt,
+    authSalt,
+    authHash: hashProof(authSalt, body.authKey),
+    publicKey: body.publicKey,
+    signPublicKey: body.signPublicKey,
+    wrappedPrivateKey: body.wrappedPrivateKey,
+    wrappedSignPrivateKey: body.wrappedSignPrivateKey,
+    recoverySalt,
+    recoveryHash: hashProof(recoverySalt, body.recoveryProof),
+    recoveryWrappedPrivateKey: body.recoveryWrappedPrivateKey,
+    recoveryWrappedSignPrivateKey: body.recoveryWrappedSignPrivateKey,
+  });
+  // Журнал привязки ключей: запись о новой идентичности включается в хэш-цепочку.
+  const [last] = await tx
+    .select({ hash: keyLog.hash })
+    .from(keyLog)
+    .orderBy(desc(keyLog.seq))
+    .limit(1);
+  const prevHash = last?.hash ?? '';
+  await tx.insert(keyLog).values({
+    userId: body.userId,
+    encPublic: body.publicKey,
+    signPublic: body.signPublicKey,
+    prevHash,
+    hash: await keyLogHash(prevHash, body.userId, body.publicKey, body.signPublicKey),
+  });
+  const signOk = await verifyKeyGrant(
+    fromBase64Url(body.signPublicKey),
+    body.locker.signature,
+    body.locker.vaultId,
+    body.userId,
+    1,
+    body.locker.sealedKey,
+  ).catch(() => false);
+  if (!signOk) throw new AppError(400, 'bad_signature', 'Key grant signature is invalid');
+  await tx
+    .insert(vaults)
+    .values({ id: body.locker.vaultId, kind: 'locker', keyVersion: 1, createdBy: body.userId });
+  await tx
+    .insert(vaultMembers)
+    .values({ vaultId: body.locker.vaultId, userId: body.userId, role: 'owner' });
+  await tx.insert(vaultKeys).values({
+    vaultId: body.locker.vaultId,
+    userId: body.userId,
+    keyVersion: 1,
+    sealedKey: body.locker.sealedKey,
+    grantedBy: body.userId,
+    signature: body.locker.signature,
+  });
 }
 
 export function bundle(u: typeof users.$inferSelect): UserBundle {
@@ -181,62 +255,10 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         .limit(1);
       if (dupe) throw new AppError(409, 'already_exists', 'Account already exists');
 
-      const authSalt = randomB64url(16);
-      const recoverySalt = randomB64url(16);
-      await tx.insert(users).values({
-        id: body.userId,
-        email: body.email,
-        displayName: body.displayName,
+      await insertAccount(tx, body, {
         role: n === 0 ? 'admin' : 'member',
-        kdf: body.kdf,
-        kdfSalt: body.salt,
-        authSalt,
-        authHash: hashProof(authSalt, body.authKey),
-        publicKey: body.publicKey,
-        signPublicKey: body.signPublicKey,
-        wrappedPrivateKey: body.wrappedPrivateKey,
-        wrappedSignPrivateKey: body.wrappedSignPrivateKey,
-        recoverySalt,
-        recoveryHash: hashProof(recoverySalt, body.recoveryProof),
-        recoveryWrappedPrivateKey: body.recoveryWrappedPrivateKey,
-        recoveryWrappedSignPrivateKey: body.recoveryWrappedSignPrivateKey,
-      });
-      // Журнал привязки ключей: запись о новой идентичности включается в хэш-цепочку.
-      const [last] = await tx
-        .select({ hash: keyLog.hash })
-        .from(keyLog)
-        .orderBy(desc(keyLog.seq))
-        .limit(1);
-      const prevHash = last?.hash ?? '';
-      await tx.insert(keyLog).values({
-        userId: body.userId,
-        encPublic: body.publicKey,
-        signPublic: body.signPublicKey,
-        prevHash,
-        hash: await keyLogHash(prevHash, body.userId, body.publicKey, body.signPublicKey),
-      });
-      const signOk = await verifyKeyGrant(
-        fromBase64Url(body.signPublicKey),
-        body.locker.signature,
-        body.locker.vaultId,
-        body.userId,
-        1,
-        body.locker.sealedKey,
-      ).catch(() => false);
-      if (!signOk) throw new AppError(400, 'bad_signature', 'Key grant signature is invalid');
-      await tx
-        .insert(vaults)
-        .values({ id: body.locker.vaultId, kind: 'locker', keyVersion: 1, createdBy: body.userId });
-      await tx
-        .insert(vaultMembers)
-        .values({ vaultId: body.locker.vaultId, userId: body.userId, role: 'owner' });
-      await tx.insert(vaultKeys).values({
-        vaultId: body.locker.vaultId,
-        userId: body.userId,
-        keyVersion: 1,
-        sealedKey: body.locker.sealedKey,
-        grantedBy: body.userId,
-        signature: body.locker.signature,
+        authSource: 'local',
+        externalId: null,
       });
       return body.userId;
     });
@@ -263,6 +285,9 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       throw new AppError(401, 'invalid_credentials', 'Invalid email or password');
     }
     ctx.attempts.byEmail.reset(body.email);
+    // Учётные записи корпоративного каталога входят только через него: отключение в каталоге должно закрывать доступ
+    if (u.authSource !== 'local')
+      throw new AppError(403, 'external_login_required', 'Sign in with your corporate account');
     // Второй фактор: сессия и ключевой материал выдаются только после проверки кода
     if (await isEnrolled(ctx, u.id)) {
       reply.status(200);

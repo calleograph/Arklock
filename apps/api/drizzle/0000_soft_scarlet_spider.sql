@@ -190,6 +190,8 @@ CREATE TABLE "users" (
 	"sign_public_key" text NOT NULL,
 	"wrapped_private_key" text NOT NULL,
 	"wrapped_sign_private_key" text NOT NULL,
+	"auth_source" text DEFAULT 'local' NOT NULL,
+	"external_id" text,
 	"recovery_salt" text NOT NULL,
 	"recovery_hash" text NOT NULL,
 	"recovery_wrapped_private_key" text NOT NULL,

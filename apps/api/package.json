@@ -18,6 +18,7 @@
     "@fastify/static": "^10.1.6",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.6.0",
+    "ldapts": "^9.2.0",
     "pg": "^8.16.0",
     "zod": "^4.1.0"
   },
@@ -25,6 +26,7 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.15.0",
     "drizzle-kit": "^0.31.0",
+    "ldapjs": "^3.0.7",
     "tsx": "^4.20.0"
   },
   "license": "AGPL-3.0-only"

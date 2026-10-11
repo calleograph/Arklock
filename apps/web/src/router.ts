@@ -28,7 +28,7 @@ export const router = createRouter({
     },
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
     {
-      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp)?',
+      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap)?',
       name: 'admin',
       component: AdminView,
       meta: { requiresUnlock: true, requiresAdmin: true },

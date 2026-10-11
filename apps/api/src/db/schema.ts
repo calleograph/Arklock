@@ -59,6 +59,11 @@ export const users = pgTable(
     signPublicKey: text('sign_public_key').notNull(),
     wrappedPrivateKey: text('wrapped_private_key').notNull(),
     wrappedSignPrivateKey: text('wrapped_sign_private_key').notNull(),
+    /** Откуда учётная запись: local — мастер-пароль на сервере Arklock, ldap/oidc — вход через корпоративный каталог. */
+    authSource: text('auth_source', { enum: ['local', 'ldap', 'oidc'] })
+      .notNull()
+      .default('local'),
+    externalId: text('external_id'),
     recoverySalt: text('recovery_salt').notNull(),
     recoveryHash: text('recovery_hash').notNull(),
     recoveryWrappedPrivateKey: text('recovery_wrapped_private_key').notNull(),

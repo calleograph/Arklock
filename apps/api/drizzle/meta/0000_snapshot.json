@@ -1,5 +1,5 @@
 {
-  "id": "39d7f8fc-68f9-4351-a2dd-0e4578306e81",
+  "id": "4fe0dc70-9a21-4d8c-b329-f5c1848d7d86",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1676,6 +1676,19 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "auth_source": {
+          "name": "auth_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'local'"
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "recovery_salt": {
           "name": "recovery_salt",

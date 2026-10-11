@@ -13,6 +13,7 @@ import { registerAdminSystemRoutes } from './routes/admin-system.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerTokenRoutes } from './routes/tokens.js';
+import { registerLdapRoutes } from './routes/ldap.js';
 import { registerMfaRoutes } from './routes/mfa.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSystemRoutes } from './routes/system.js';
@@ -120,6 +121,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerSystemRoutes, { prefix: API_PREFIX, config, database });
   await app.register(registerAuthRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerTokenRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerLdapRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerMfaRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContentRoutes, { prefix: API_PREFIX, ctx });

@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import * as account from '../services/account';
 import { errorMessage } from '../services/helpers';
-import { ApiError } from '../services/api';
+import { api, ApiError } from '../services/api';
 
 type Mode = 'signin' | 'register' | 'recover' | 'unlock';
 
@@ -14,6 +14,11 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
+const ldapAvailable = ref(false);
+const ldapMode = ref(false);
+const ldapEnrollStep = ref(false);
+const ldapUser = ref('');
+const ldapEnrolled = ref(false);
 const mfaStep = ref(false);
 const mfaCode = ref('');
 const mode = ref<Mode>(route.name === 'unlock' ? 'unlock' : 'signin');
@@ -51,6 +56,9 @@ onMounted(async () => {
     firstUser.value = status.firstUser;
     setupRequired.value = status.setupTokenRequired;
     if (status.firstUser && mode.value === 'signin') mode.value = 'register';
+    ldapAvailable.value = (
+      await api<{ enabled: boolean }>('GET', '/auth/ldap', undefined, { auth: false })
+    ).enabled;
   } catch {
     /* сервер недоступен — форма покажет ошибку при отправке */
   }
@@ -82,7 +90,29 @@ async function submit(): Promise<void> {
       await auth.completeMfa(mfaCode.value.trim());
       mfaStep.value = false;
       mfaCode.value = '';
-      await router.replace('/');
+      // вход через каталог: ключей ещё нет, нужен мастер-пароль
+      leaveLdap();
+      await router.replace(auth.unlocked ? '/' : '/unlock');
+    } else if (ldapEnrollStep.value) {
+      const invalid = validateNewPassword();
+      if (invalid) {
+        error.value = invalid;
+        return;
+      }
+      const { recoveryCode } = await auth.enrollLdap(password.value);
+      ldapEnrolled.value = true;
+      recoveryContext.value = 'register';
+      shownRecovery.value = recoveryCode;
+    } else if (ldapMode.value) {
+      const next = await auth.signInLdap(ldapUser.value.trim(), password.value);
+      password.value = '';
+      if (next === 'mfa') mfaStep.value = true;
+      else if (next === 'enroll') ldapEnrollStep.value = true;
+      else {
+        leaveLdap();
+        await router.replace('/unlock');
+      }
+      return;
     } else if (mode.value === 'signin') {
       if ((await auth.signIn(email.value.trim().toLowerCase(), password.value)) === 'mfa') {
         mfaStep.value = true;
@@ -122,15 +152,18 @@ async function submit(): Promise<void> {
       shownRecovery.value = recoveryCode;
     }
   } catch (e) {
-    error.value = mfaStep.value
-      ? e instanceof ApiError && e.code === 'invalid_challenge'
-        ? t('mfa.expired')
-        : t('mfa.invalidCode')
-      : mode.value === 'recover'
-        ? t('auth.recoveryFailed')
-        : mode.value === 'unlock'
-          ? t('auth.invalid')
-          : errorMessage(e, t);
+    error.value =
+      ldapMode.value && !mfaStep.value && !ldapEnrollStep.value
+        ? ldapMessage(e)
+        : mfaStep.value
+          ? e instanceof ApiError && e.code === 'invalid_challenge'
+            ? t('mfa.expired')
+            : t('mfa.invalidCode')
+          : mode.value === 'recover'
+            ? t('auth.recoveryFailed')
+            : mode.value === 'unlock'
+              ? t('auth.invalid')
+              : errorMessage(e, t);
   } finally {
     busy.value = false;
     if (!shownRecovery.value) password.value = mode.value === 'unlock' ? '' : password.value;
@@ -147,6 +180,13 @@ async function afterRecoveryShown(): Promise<void> {
   mode.value = 'signin';
   email.value = keepEmail;
   password.value = '';
+  if (ldapEnrolled.value) {
+    ldapEnrolled.value = false;
+    ldapMode.value = false;
+    ldapEnrollStep.value = false;
+    await router.replace('/');
+    return;
+  }
   if (recoveryContext.value === 'register') {
     // сразу входим, чтобы не заставлять вводить пароль второй раз
     busy.value = true;
@@ -161,11 +201,32 @@ async function afterRecoveryShown(): Promise<void> {
   }
 }
 
+function ldapMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.code === 'invalid_credentials') return t('ldap.invalid');
+    if (e.code === 'ldap_unavailable') return t('ldap.unavailable');
+    if (e.code === 'ldap_not_provisioned') return t('ldap.notProvisioned');
+    if (e.code === 'account_exists_local') return t('ldap.localExists');
+    if (e.code === 'too_many_attempts') return t('auth.locked');
+  }
+  return errorMessage(e, t);
+}
+
+function leaveLdap(): void {
+  ldapMode.value = false;
+  ldapEnrollStep.value = false;
+  ldapUser.value = '';
+  password.value = '';
+  repeat.value = '';
+  error.value = '';
+}
+
 function cancelMfaStep(): void {
   auth.cancelMfa();
   mfaStep.value = false;
   mfaCode.value = '';
   error.value = '';
+  leaveLdap();
 }
 
 function switchMode(next: Mode): void {
@@ -241,7 +302,7 @@ async function copyRecovery(): Promise<void> {
         {{ t('auth.registrationClosedNote') }}
       </p>
 
-      <label v-if="mode !== 'unlock' && !mfaStep" class="block text-sm">
+      <label v-if="mode !== 'unlock' && !mfaStep && !ldapMode" class="block text-sm">
         <span class="mb-1 block">{{ t('common.email') }}</span>
         <input
           v-model="email"
@@ -288,6 +349,20 @@ async function copyRecovery(): Promise<void> {
           data-testid="recovery-input"
         />
       </label>
+      <label v-if="ldapMode && !mfaStep && !ldapEnrollStep" class="block text-sm">
+        <span class="mb-1 block">{{ t('ldap.username') }}</span>
+        <input
+          v-model="ldapUser"
+          type="text"
+          required
+          autocomplete="username"
+          class="field"
+          data-testid="ldap-user"
+        />
+      </label>
+      <p v-if="ldapEnrollStep" class="text-sm text-slate-500" data-testid="ldap-enroll-hint">
+        {{ t('ldap.enrollHint') }}
+      </p>
       <label v-if="mfaStep" class="block text-sm">
         <span class="mb-1 block">{{ t('mfa.code') }}</span>
         <input
@@ -303,7 +378,9 @@ async function copyRecovery(): Promise<void> {
         <span class="mt-1 block text-xs text-slate-500">{{ t('mfa.codeHint') }}</span>
       </label>
       <label v-if="!mfaStep" class="block text-sm">
-        <span class="mb-1 block">{{ t('common.password') }}</span>
+        <span class="mb-1 block">{{
+          ldapMode && !ldapEnrollStep ? t('ldap.password') : t('common.password')
+        }}</span>
         <input
           v-model="password"
           type="password"
@@ -315,7 +392,10 @@ async function copyRecovery(): Promise<void> {
           data-testid="password"
         />
       </label>
-      <label v-if="mode === 'register' || mode === 'recover'" class="block text-sm">
+      <label
+        v-if="mode === 'register' || mode === 'recover' || ldapEnrollStep"
+        class="block text-sm"
+      >
         <span class="mb-1 block">{{ t('auth.repeat') }}</span>
         <input
           v-model="repeat"
@@ -361,8 +441,18 @@ async function copyRecovery(): Promise<void> {
         {{ t('mfa.cancel') }}
       </button>
 
+      <button
+        v-if="ldapAvailable && mode === 'signin' && !mfaStep && !ldapEnrollStep"
+        type="button"
+        class="text-sm underline"
+        data-testid="to-ldap"
+        @click="ldapMode ? leaveLdap() : ((ldapMode = true), (error = ''))"
+      >
+        {{ ldapMode ? t('ldap.usePassword') : t('ldap.useDirectory') }}
+      </button>
+
       <div
-        v-if="mode !== 'unlock' && !mfaStep"
+        v-if="mode !== 'unlock' && !mfaStep && !ldapMode"
         class="flex flex-wrap justify-between gap-2 text-sm text-brand-600 dark:text-brand-500"
       >
         <button

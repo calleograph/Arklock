@@ -188,3 +188,140 @@ test('administration sections show real data and perform real operations', async
   await expect(page.getByTestId('smtp-host')).toHaveValue('127.0.0.1', { timeout: 60_000 });
   await expect(page.getByTestId('smtp-password')).toHaveValue('');
 });
+
+// ---------------------------------------------------------------- вход через каталог
+const BASE_DN = 'dc=example,dc=com';
+const ALICE = {
+  dn: `uid=alice,ou=people,${BASE_DN}`,
+  password: 'alice-ldap-e2e-pass',
+  master: 'alice-master-password-e2e-1',
+};
+let directory: {
+  close: () => void;
+  listen: (...a: unknown[]) => void;
+  address: () => { port: number };
+} | null = null;
+let ldapPort = 0;
+
+async function startDirectory(): Promise<void> {
+  const { createRequire } = await import('node:module');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ldap: any = createRequire(import.meta.url)('ldapjs');
+  const s = ldap.createServer();
+  s.bind(
+    'cn=svc,dc=example,dc=com',
+    (req: { credentials: string }, res: { end: () => void }, next: (e?: unknown) => void) => {
+      if (req.credentials !== 'svc-e2e') return next(new ldap.InvalidCredentialsError());
+      res.end();
+      return next();
+    },
+  );
+  s.bind(
+    `ou=people,${BASE_DN}`,
+    (
+      req: { dn: { toString: () => string }; credentials: string },
+      res: { end: () => void },
+      next: (e?: unknown) => void,
+    ) => {
+      if (req.dn.toString().toLowerCase() !== ALICE.dn || req.credentials !== ALICE.password)
+        return next(new ldap.InvalidCredentialsError());
+      res.end();
+      return next();
+    },
+  );
+  s.search(
+    BASE_DN,
+    (
+      req: { filter: { matches: (o: object) => boolean } },
+      res: { send: (e: object) => void; end: () => void },
+      next: () => void,
+    ) => {
+      const attrs = {
+        objectClass: 'person',
+        uid: 'alice',
+        mail: 'alice@example.com',
+        cn: 'Alice Directory',
+      };
+      if (req.filter.matches(attrs)) res.send({ dn: ALICE.dn, attributes: attrs });
+      res.end();
+      return next();
+    },
+  );
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+  directory = s;
+  ldapPort = s.address().port;
+}
+
+test('directory sign-in: configure LDAP, first sign-in creates the account, later sign-ins unlock it', async ({
+  page,
+  browser,
+}) => {
+  await startDirectory();
+  // администратор входит и настраивает каталог
+  await page.goto('/login');
+  await page.getByTestId('email').fill(ADMIN.email);
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('nav-admin').click();
+  await tab(page, 'ldap');
+  await page.getByTestId('ldap-enabled').check();
+  await page.getByTestId('ldap-url').fill(`ldap://127.0.0.1:${ldapPort}`);
+  await page.getByTestId('ldap-plaintext').check();
+  await page.getByTestId('ldap-binddn').fill('cn=svc,dc=example,dc=com');
+  await page.getByTestId('ldap-bindpw').fill('svc-e2e');
+  await page.getByTestId('ldap-basedn').fill(BASE_DN);
+  await page.getByTestId('ldap-save').click();
+  await page.getByTestId('ldap-test').click();
+  await expect(page.getByTestId('ldap-result')).toContainText(/работает|works/i);
+  await page.getByTestId('ldap-lookup-name').fill('alice');
+  await page.getByTestId('ldap-lookup').click();
+  await expect(page.getByTestId('ldap-lookup-result')).toContainText('alice@example.com');
+
+  // пользователь каталога: вход, создание мастер-пароля
+  const user = await (await browser.newContext()).newPage();
+  await user.goto('/login');
+  await user.getByTestId('to-ldap').click();
+  await user.getByTestId('ldap-user').fill('alice');
+  await user.getByTestId('password').fill('wrong-ldap-password');
+  await user.getByTestId('submit').click();
+  await expect(user.getByTestId('error')).toBeVisible();
+  await user.getByTestId('password').fill(ALICE.password);
+  await user.getByTestId('submit').click();
+  await expect(user.getByTestId('ldap-enroll-hint')).toBeVisible({ timeout: 30_000 });
+  await user.getByTestId('password').fill(ALICE.master);
+  await user.getByTestId('repeat').fill(ALICE.master);
+  await user.getByTestId('submit').click();
+  await user.getByTestId('recovery-saved').check({ timeout: 90_000 });
+  await user.getByTestId('recovery-continue').click();
+  await expect(user.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await user.getByTestId('add-entry').click();
+  await user.getByTestId('f-title').fill('Каталог: запись');
+  await user.getByTestId('f-password').fill('Dir-Secret-9!x');
+  await user.getByTestId('f-save').click();
+  await expect(user.getByTestId('view-title')).toHaveText('Каталог: запись');
+
+  // новый вход: пароль каталога, затем мастер-пароль
+  const again = await (await browser.newContext()).newPage();
+  await again.goto('/login');
+  await again.getByTestId('to-ldap').click();
+  await again.getByTestId('ldap-user').fill('alice@example.com');
+  await again.getByTestId('password').fill(ALICE.password);
+  await again.getByTestId('submit').click();
+  await again.waitForURL('**/unlock');
+  await again.getByTestId('password').fill(ALICE.master);
+  await again.getByTestId('submit').click();
+  await expect(again.getByTestId('entry-row').first()).toContainText('Каталог: запись', {
+    timeout: 90_000,
+  });
+
+  // вход по одному лишь мастер-паролю для учётной записи каталога закрыт
+  const local = await (await browser.newContext()).newPage();
+  await local.goto('/login');
+  await local.getByTestId('email').fill('alice@example.com');
+  await local.getByTestId('password').fill(ALICE.master);
+  await local.getByTestId('submit').click();
+  await expect(local.getByTestId('error')).toBeVisible({ timeout: 90_000 });
+  await expect(local.getByTestId('add-entry')).toHaveCount(0);
+  directory?.close();
+});

@@ -30,7 +30,7 @@ state() { rd "$CH/status.json" | sed -n 's/.*"state":"\([a-z]*\)".*/\1/p'; }
 message() { rd "$CH/status.json" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p'; }
 
 # 1. Снимок контейнеров: только контейнеры проекта (app и db), без чужих
-for i in $(seq 1 30); do has "$CH/containers.json" '"service":"db"' && break; sleep 1; done
+for _ in $(seq 1 30); do has "$CH/containers.json" '"service":"db"' && break; sleep 1; done
 svcs="$(rd "$CH/containers.json" | jq -r '.items[].service' | sort | tr '\n' ' ')"
 [ "$svcs" = "app db " ] && ok "containers.json: только app и db" || bad "containers.json: '$svcs'"
 

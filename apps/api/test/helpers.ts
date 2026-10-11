@@ -66,7 +66,8 @@ export class TestClient {
     return { authorization: `Bearer ${this.token}` };
   }
 
-  async register(setupToken?: string, kdf: typeof FAST = FAST) {
+  /** Тело регистрации, которое собрал бы браузер (ключи создаются здесь). */
+  async registerBody(setupToken?: string, kdf: typeof FAST = FAST) {
     const userId = crypto.randomUUID();
     const salt = generateSalt();
     const keys = await deriveMasterKeys(this.password, salt, userId, kdf, LOW_FLOOR);
@@ -76,35 +77,37 @@ export class TestClient {
     const lockerId = crypto.randomUUID();
     const sealedKey = await sealVaultKeyFor(createVaultKey(), kp.publicKey, lockerId, userId, 1);
     const lockerSig = await signKeyGrant(sk.privateKey, lockerId, userId, 1, sealedKey);
-    const res = await this.app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/register',
-      payload: {
+    const payload = {
+      userId,
+      email: this.email,
+      displayName: 'Test User',
+      setupToken,
+      kdf,
+      salt: toBase64Url(salt),
+      authKey: toBase64Url(keys.authKey),
+      publicKey: toBase64Url(kp.publicKey),
+      signPublicKey: toBase64Url(sk.publicKey),
+      wrappedPrivateKey: await wrapAccountPrivateKey(keys.wrapKey, kp.privateKey, userId),
+      wrappedSignPrivateKey: await wrapSignPrivateKey(keys.wrapKey, sk.privateKey, userId),
+      recoveryProof: toBase64Url(await deriveRecoveryProof(recovery.key, userId)),
+      recoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
+        recovery.key,
+        kp.privateKey,
         userId,
-        email: this.email,
-        displayName: 'Test User',
-        setupToken,
-        kdf,
-        salt: toBase64Url(salt),
-        authKey: toBase64Url(keys.authKey),
-        publicKey: toBase64Url(kp.publicKey),
-        signPublicKey: toBase64Url(sk.publicKey),
-        wrappedPrivateKey: await wrapAccountPrivateKey(keys.wrapKey, kp.privateKey, userId),
-        wrappedSignPrivateKey: await wrapSignPrivateKey(keys.wrapKey, sk.privateKey, userId),
-        recoveryProof: toBase64Url(await deriveRecoveryProof(recovery.key, userId)),
-        recoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
-          recovery.key,
-          kp.privateKey,
-          userId,
-        ),
-        recoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
-          recovery.key,
-          sk.privateKey,
-          userId,
-        ),
-        locker: { vaultId: lockerId, sealedKey, signature: lockerSig },
-      },
-    });
+      ),
+      recoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
+        recovery.key,
+        sk.privateKey,
+        userId,
+      ),
+      locker: { vaultId: lockerId, sealedKey, signature: lockerSig },
+    };
+    return { userId, lockerId, recovery, payload };
+  }
+
+  async register(setupToken?: string, kdf: typeof FAST = FAST) {
+    const { userId, lockerId, recovery, payload } = await this.registerBody(setupToken, kdf);
+    const res = await this.app.inject({ method: 'POST', url: '/api/v1/auth/register', payload });
     if (res.statusCode === 201) {
       this.userId = userId;
       this.lockerId = lockerId;
@@ -140,7 +143,11 @@ export class TestClient {
   async login(password = this.password) {
     const res = await this.loginRaw(password);
     if (res.statusCode !== 200) throw new Error(`login failed: ${res.statusCode} ${res.body}`);
-    const body = res.json() as SessionResponse;
+    return this.adopt(res.json() as SessionResponse, password);
+  }
+
+  /** Принимает готовую сессию (например, после входа через каталог) и открывает ключи мастер-паролем. */
+  async adopt(body: SessionResponse, password = this.password) {
     const { keys } = await this.derive(password);
     this.token = body.token;
     this.userId = body.user.id;
