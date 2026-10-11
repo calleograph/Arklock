@@ -1,0 +1,12 @@
+# Локальные и секретные файлы: окружение, ключи, служебные каталоги
+.local/
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+*.log
+
+test-results/
+playwright-report/

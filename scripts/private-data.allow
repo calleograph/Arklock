@@ -1,0 +1,39 @@
+# Разрешённые домены (и все их поддомены) и диапазоны IP для репозитория Arklock.
+# Всё остальное считается возможной частной настройкой и останавливает проверку.
+example.com
+example.org
+example.net
+test
+invalid
+localhost
+local
+github.com
+githubusercontent.com
+ghcr.io
+npmjs.org
+npmjs.com
+nodejs.org
+postgresql.org
+docker.com
+docker.io
+mozilla.org
+w3.org
+owasp.org
+rfc-editor.org
+ietf.org
+tailwindcss.com
+vuejs.org
+vitejs.dev
+fastify.dev
+pwnedpasswords.com
+haveibeenpwned.com
+users.noreply.github.com
+# IP: loopback, документационные (RFC 5737), приватные примеры, нули
+ip: ^127\.
+ip: ^0\.0\.0\.0$
+ip: ^192\.0\.2\.
+ip: ^198\.51\.100\.
+ip: ^203\.0\.113\.
+ip: ^255\.255\.255\.
+keepachangelog.com
+semver.org

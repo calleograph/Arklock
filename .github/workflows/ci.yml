@@ -1,0 +1,102 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: format, lint, typecheck, test, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run format:check
+      - run: npm run lint
+      # typecheck зависит от собранных пакетов (@arklock/crypto, @arklock/contracts)
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+
+  e2e:
+    name: browser end-to-end
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results
+          retention-days: 7
+
+  dependencies:
+    name: dependency audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --omit=dev --audit-level=high
+      - run: node scripts/check-licenses.mjs
+
+  private-data:
+    # Секреты, частные домены и адреса не должны попадать в публичный репозиторий.
+    name: secrets and private data scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: node scripts/check-private-data.mjs --history
+
+  container:
+    name: container build and smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and start the stack
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+          APP_SECRET: ci-only-not-a-secret-ci-only-not-a-secret
+          APP_VERSION: ci
+          APP_GIT_COMMIT: ${{ github.sha }}
+        run: |
+          docker compose config -q
+          docker compose up -d --build --wait --wait-timeout 180
+      - name: Smoke test
+        run: |
+          curl -fsS http://127.0.0.1:8080/api/v1/ready
+          curl -fsS http://127.0.0.1:8080/api/v1/version
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="app">'
+      - name: Container runs as non-root with read-only rootfs
+        run: |
+          test "$(docker compose exec -T app id -u)" != "0"
+          docker inspect "$(docker compose ps -q app)" --format '{{.HostConfig.ReadonlyRootfs}}' | grep -q true
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+      - if: always()
+        run: docker compose down -v
