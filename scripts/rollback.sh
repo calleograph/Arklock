@@ -70,7 +70,9 @@ if [ "$NEED_RESTORE" -eq 1 ]; then
 else
   upd_wait_app 180 || die "Предыдущая версия не стала готовой: scripts/logs.sh"
 fi
-"$REPO_ROOT/scripts/verify.sh" --env "$ENV_FILE" >/dev/null 2>&1 || warn "verify сообщил о проблемах после отката: scripts/verify.sh"
+if ! "$REPO_ROOT/scripts/verify.sh" --env "$ENV_FILE" >"$DATA_ROOT/logs/rollback-verify.log" 2>&1; then
+  warn "verify сообщил о проблемах после отката:"; cat "$DATA_ROOT/logs/rollback-verify.log" >&2
+fi
 state_set update status rolled_back_manually
 state_set update finished_at "$(date -u +%FT%TZ)"
 state_set install version "$PREV_VERSION"
