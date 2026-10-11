@@ -24,6 +24,6 @@ dc config -q 2>/dev/null && ok "Конфигурация compose коррект�
 free="$(free_gib "$DATA_ROOT")"
 [ "${free:-0}" -ge "$NEED" ] && ok "Свободно ${free} ГиБ (нужно ≥ $NEED)" || bad "Недостаточно места в $DATA_ROOT: ${free} ГиБ (нужно ≥ $NEED)"
 if curl -fsS --max-time 5 -o /dev/null https://github.com 2>/dev/null; then ok "GitHub доступен"; else warn "GitHub недоступен: проверка обновлений невозможна (работа приложения не затронута)"; fi
-if [ -f "$STATE_DIR/ops.lock" ] && ! flock -n "$STATE_DIR/ops.lock" true 2>/dev/null; then bad "Выполняется другая операция (блокировка занята)"; else ok "Незавершённых операций нет"; fi
+if [ "${ARKLOCK_LOCK_HELD:-}" != 1 ] && [ -f "$STATE_DIR/ops.lock" ] && ! flock -n "$STATE_DIR/ops.lock" true 2>/dev/null; then bad "Выполняется другая операция (блокировка занята)"; else ok "Незавершённых операций нет"; fi
 [ "$ERR" -eq 0 ] || { fail "Требования не выполнены: $ERR"; exit 1; }
 ok "Требования выполнены"

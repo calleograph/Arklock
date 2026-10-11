@@ -150,7 +150,7 @@ jobs:
             bash -n "$f" || rc=1
           done
           exit $rc
-      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh
+      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh
 
   installer:
     name: installer, backup and restore on a clean Ubuntu 24.04 runner
@@ -275,3 +275,117 @@ jobs:
         run: |
           sudo docker compose --project-name arklock-sh down -v || true
           docker rm -f foreign-app foreign-db || true
+
+  update-flow:
+    name: update, failed update recovery and rollback
+    runs-on: ubuntu-24.04
+    env:
+      CFG: /etc/arklock-up
+      DATA: /var/lib/arklock-up
+      APPDIR: /opt/arklock-up
+      PROJ: arklock-up
+      ARKLOCK_UPDATE_WAIT: '90'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @arklock/crypto
+      - name: Build the release fixture (v0.0.1 base, v0.0.2 migration, v0.0.3 broken migration, v0.0.4 broken build)
+        run: tests/update/make-fixture.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
+      - name: Install v0.0.1 with the stand-alone installer (bootstrap from the repository)
+        run: |
+          cp install.sh "$RUNNER_TEMP/install-standalone.sh"
+          sudo "$RUNNER_TEMP/install-standalone.sh" --yes --profile standalone --repo "file://$RUNNER_TEMP/origin.git" --ref v0.0.1 \
+            --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA"
+          echo "PORT=$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
+          echo "SETUP_TOKEN=$(sudo sed -n 's/^BOOTSTRAP_TOKEN=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
+          test "$(curl -fsS "http://127.0.0.1:$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
+      - name: Create a user and an entry on v0.0.1
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: node scripts/smoke-container.mjs write
+      - name: Update check reports the new version
+        run: |
+          set +e
+          sudo "$APPDIR/scripts/check-updates.sh" --env "$CFG/arklock.env"
+          rc=$?
+          test "$rc" = 10
+      - name: Update to v0.0.2 (new migration) succeeds and keeps data
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.2 --yes
+          test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.2
+          test "$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d arklock -tAc "select to_regclass('public.update_probe') is not null")" = t
+          node scripts/smoke-container.mjs verify
+          sudo ls "$DATA"/backups | grep -q pre-update
+      - name: Rollback is refused automatically because the schema changed
+        run: |
+          set +e
+          sudo "$APPDIR/scripts/rollback.sh" --env "$CFG/arklock.env" --yes
+          rc=$?
+          test "$rc" = 3
+          test "$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.2
+      - name: Rollback with restore returns to v0.0.1 and the data survives
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          sudo "$APPDIR/scripts/rollback.sh" --env "$CFG/arklock.env" --yes --with-restore
+          test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
+          test "$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d arklock -tAc "select to_regclass('public.update_probe') is not null")" = f
+          node scripts/smoke-container.mjs verify
+      - name: A failing migration (v0.0.3) is recovered automatically
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          set +e
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.3 --yes
+          rc=$?
+          set -e
+          test "$rc" != 0
+          test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
+          sudo grep -q 'status=rolled_back' "$DATA/state/update.state"
+          node scripts/smoke-container.mjs verify
+      - name: A failing image build (v0.0.4) leaves the running version untouched
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          set +e
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.4 --yes
+          rc=$?
+          set -e
+          test "$rc" != 0
+          test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
+          sudo grep -q 'status=failed_build' "$DATA/state/update.state"
+          node scripts/smoke-container.mjs verify
+      - name: Unavailable repository does not disturb the running system
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+        run: |
+          mv "$RUNNER_TEMP/origin.git" "$RUNNER_TEMP/origin.gone"
+          set +e
+          sudo "$APPDIR/scripts/check-updates.sh" --env "$CFG/arklock.env"
+          rc1=$?
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --yes
+          rc2=$?
+          set -e
+          mv "$RUNNER_TEMP/origin.gone" "$RUNNER_TEMP/origin.git"
+          test "$rc1" = 1
+          test "$rc2" != 0
+          curl -fsS "$BASE_URL/api/v1/ready"
+      - name: Update logs are kept and contain no secrets
+        run: |
+          sudo test -s "$DATA/logs/updates.log"
+          pw="$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' "$CFG/arklock.env")"
+          if sudo grep -qF -- "$pw" "$DATA/logs/updates.log"; then echo "secret in update log"; exit 1; fi
+      - name: Cleanup
+        if: always()
+        run: sudo docker compose --project-name "$PROJ" down -v || true
