@@ -241,7 +241,7 @@ cmd_install() {
   systemctl enable "$UNIT" >/dev/null 2>&1
   systemctl restart "$UNIT"
   local i age
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     age="$(heartbeat_age)"
     if [ -n "$age" ] && [ "$age" -lt 10 ]; then ok "Помощник обновлений запущен (служба $UNIT)"; return 0; fi
     sleep 1

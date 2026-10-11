@@ -446,7 +446,7 @@ jobs:
           LIVE_ORIGIN: ${{ runner.temp }}/origin.git
         run: |
           npx playwright install --with-deps chromium
-          npm run build -w @arklock/crypto -w @arklock/contracts
+          npm run build
           npx playwright test --project=live
       - name: Diagnostics on failure
         if: failure()
