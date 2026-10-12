@@ -29,6 +29,8 @@ export const vaultInfo = z.object({
     .nullable(),
   /** Доступ есть, но ключ ещё не выдан администратором хранилища. */
   pendingKey: z.boolean(),
+  /** Эффективные полномочия пользователя в хранилище (без грантов на ветви и записи). */
+  permissions: z.array(z.string()),
 });
 export type VaultInfo = z.infer<typeof vaultInfo>;
 
@@ -110,13 +112,22 @@ export const revisionRecord = z.object({
 export type RevisionRecord = z.infer<typeof revisionRecord>;
 
 export const memberPut = z.object({
-  role: vaultRole.exclude(['owner']),
+  /** Встроенная роль; при пользовательской роли не указывается. */
+  role: vaultRole.exclude(['owner']).optional(),
+  /** Пользовательская роль (набор полномочий). */
+  customRoleId: uuid.optional(),
+  /** Временный доступ: после этого момента участие не действует. */
+  expiresAt: z.string().datetime().nullable().optional(),
   /** Ключ хранилища для нового участника (если у администратора есть ключ). */
   key: z
     .object({ keyVersion: z.number().int().min(1), sealedKey: sealedBox, signature })
     .optional(),
 });
-export const circleRolePut = z.object({ role: z.enum(['admin', 'editor', 'reader', 'limited']) });
+export const circleRolePut = z.object({
+  role: z.enum(['admin', 'editor', 'reader', 'limited']).optional(),
+  customRoleId: uuid.optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+});
 export const keysPost = z.object({
   keys: z
     .array(

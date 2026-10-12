@@ -30,7 +30,7 @@ export const router = createRouter({
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
     { path: '/sso/done', name: 'sso-done', component: SsoDoneView },
     {
-      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|syslog|invitations)?',
+      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|syslog|invitations|roles)?',
       name: 'admin',
       component: AdminView,
       meta: { requiresUnlock: true, requiresAdmin: true },
@@ -60,7 +60,8 @@ router.beforeEach((to) => {
     if (!auth.isSignedIn) return { name: 'login' };
     if (!auth.unlocked) return { name: 'unlock' };
   }
-  if (to.meta.requiresAdmin && auth.user?.role !== 'admin') return { name: 'vault' };
+  if (to.meta.requiresAdmin && auth.user?.role !== 'admin' && !auth.user?.delegated)
+    return { name: 'vault' };
   if (to.name === 'unlock' && (!auth.isSignedIn || auth.unlocked)) {
     return auth.isSignedIn ? { name: 'vault' } : { name: 'login' };
   }

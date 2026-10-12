@@ -59,6 +59,8 @@ export const users = pgTable(
     signPublicKey: text('sign_public_key').notNull(),
     wrappedPrivateKey: text('wrapped_private_key').notNull(),
     wrappedSignPrivateKey: text('wrapped_sign_private_key').notNull(),
+    /** Административная роль (делегирование разделов панели) вместо полного доступа. */
+    adminRoleId: uuid('admin_role_id'),
     /** Откуда учётная запись: local — мастер-пароль на сервере Arklock, ldap/oidc — вход через корпоративный каталог. */
     authSource: text('auth_source', { enum: ['local', 'ldap', 'oidc'] })
       .notNull()
@@ -134,6 +136,10 @@ export const vaultMembers = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     role: text('role', { enum: ['owner', 'admin', 'editor', 'reader', 'limited'] }).notNull(),
+    /** Пользовательская роль вместо встроенной (тогда role = limited). */
+    customRoleId: uuid('custom_role_id'),
+    /** Временный доступ: после этого срока участие не действует. */
+    expiresAt: ts('expires_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [
@@ -200,6 +206,8 @@ export const vaultCircles = pgTable(
       .notNull()
       .references(() => circles.id, { onDelete: 'cascade' }),
     role: text('role', { enum: ['admin', 'editor', 'reader', 'limited'] }).notNull(),
+    customRoleId: uuid('custom_role_id'),
+    expiresAt: ts('expires_at'),
   },
   (t) => [primaryKey({ columns: [t.vaultId, t.circleId] })],
 );
@@ -470,4 +478,22 @@ export const invitations = pgTable(
     revokedAt: ts('revoked_at'),
   },
   (t) => [index('invitations_email_idx').on(t.email)],
+);
+
+/** Пользовательские роли: наборы разрешений и явных запретов с наследованием. */
+export const roles = pgTable(
+  'roles',
+  {
+    id: uuid('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    /** vault — роль в хранилище, admin — набор административных полномочий. */
+    scope: text('scope', { enum: ['vault', 'admin'] }).notNull(),
+    allow: jsonb('allow').notNull().default([]),
+    deny: jsonb('deny').notNull().default([]),
+    parents: jsonb('parents').notNull().default([]),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('roles_name_scope_idx').on(t.name, t.scope)],
 );

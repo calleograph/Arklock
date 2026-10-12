@@ -2,9 +2,10 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { reauthRequest, updateAction } from '@arklock/contracts';
 import type { UpdatesOverview } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { AppError, forbidden, parse } from '../errors.js';
+import { AppError, parse } from '../errors.js';
 import { verifyProof } from '../security.js';
 import { RequestPendingError } from '../updater/protocol.js';
 
@@ -17,7 +18,7 @@ export const registerAdminRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
 
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   });
 
   function requireReauth(req: FastifyRequest): void {

@@ -15,10 +15,11 @@ import {
   newBackupCodes,
   sealSecret,
 } from '../auth/mfa.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { mfaBackupCodes, mfaFactors, users } from '../db/schema.js';
-import { AppError, forbidden, parse } from '../errors.js';
+import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { verifyProof } from '../security.js';
 import { bundle } from './auth.js';
 
@@ -206,8 +207,12 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
   /** Сброс второго фактора администратором (потеря устройства и резервных кодов). */
   app.post('/admin/users/:id/mfa-reset', { preHandler: auth }, async (req, reply) => {
     const { user } = authOf(req);
-    if (user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
     const { id } = parse(z.object({ id: uuid }), req.params);
+    const [target] = await db.select().from(users).where(eq(users.id, id));
+    if (!target) throw notFound();
+    // делегированный администратор не затрагивает полных администраторов
+    if (target.role === 'admin' && user.role !== 'admin') throw forbidden();
     await db.delete(mfaFactors).where(eq(mfaFactors.userId, id));
     await db.delete(mfaBackupCodes).where(eq(mfaBackupCodes.userId, id));
     await audit(db, `user:${user.id}`, 'admin.mfa.reset', `user:${id}`);

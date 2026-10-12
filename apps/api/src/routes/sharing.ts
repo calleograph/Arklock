@@ -141,7 +141,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId } = parse(z.object({ vaultId: uuid }), req.params);
     const body = parse(signalsPost, req.body);
     const access = await requireVault(db, vaultId, user.id);
-    if (!access.isMember || access.role === 'limited') throw forbidden();
+    if (!access.isMember || !access.allows('vault.signals')) throw forbidden();
     const mine = await db
       .select({ id: entries.id, branchId: entries.branchId })
       .from(entries)

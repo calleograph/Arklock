@@ -14,10 +14,11 @@ import {
   type LdapConfig,
 } from '../auth/ldap.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { circleMembers, circles, sessions, settings, users } from '../db/schema.js';
-import { AppError, forbidden, parse } from '../errors.js';
+import { AppError, parse } from '../errors.js';
 import { openSetting, sealSetting } from '../secretbox.js';
 import { bundle } from './auth.js';
 
@@ -107,7 +108,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   const adminOnly = [
     auth,
     async (req: FastifyRequest) => {
-      if (authOf(req).user.role !== 'admin') throw forbidden();
+      await adminGate(ctx, req);
     },
   ];
 

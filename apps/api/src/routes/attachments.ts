@@ -89,6 +89,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { user } = authOf(req);
     const { vaultId, entryId } = parse(entryParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('attachment.read')) throw forbidden();
     await entryFor(vaultId, entryId, access, 'reader');
     const rows = await db
       .select()
@@ -124,6 +125,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { vaultId, entryId } = parse(entryParams, req.params);
     const body = parse(attachmentCreate, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('attachment.write')) throw forbidden();
     await entryFor(vaultId, entryId, access, 'editor');
     const [v] = await db.select().from(vaults).where(eq(vaults.id, vaultId));
     if (!v) throw notFound();
@@ -169,6 +171,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { user } = authOf(req);
     const { vaultId, attachmentId } = parse(attParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('attachment.write')) throw forbidden();
     const a = await attachmentFor(vaultId, attachmentId);
     await entryFor(vaultId, a.entryId, access, 'editor');
     if (a.status !== 'pending') throw new AppError(409, 'conflict', 'Content is already uploaded');
@@ -200,6 +203,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { user } = authOf(req);
     const { vaultId, attachmentId } = parse(attParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('attachment.read')) throw forbidden();
     const a = await attachmentFor(vaultId, attachmentId);
     if (a.status !== 'ready') throw notFound();
     await entryFor(vaultId, a.entryId, access, 'reader');
@@ -222,7 +226,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { user } = authOf(req);
     const { vaultId, attachmentId } = parse(attParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
-    if (!access.isAdmin) throw forbidden();
+    if (!access.can('vault.rotate')) throw forbidden();
     const a = await attachmentFor(vaultId, attachmentId);
     if (a.status !== 'ready') throw notFound();
     try {
@@ -252,9 +256,10 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const access = await requireVault(db, vaultId, user.id);
     const a = await attachmentFor(vaultId, attachmentId);
     if (rotation) {
-      if (!access.isAdmin) throw forbidden();
+      if (!access.can('vault.rotate')) throw forbidden();
       if (a.status !== 'ready') throw notFound();
     } else {
+      if (!access.allows('attachment.write')) throw forbidden();
       await entryFor(vaultId, a.entryId, access, 'editor');
       if (a.status !== 'pending')
         throw new AppError(409, 'conflict', 'Content is already uploaded');
@@ -329,6 +334,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { user } = authOf(req);
     const { vaultId, attachmentId } = parse(attParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('attachment.write')) throw forbidden();
     const a = await attachmentFor(vaultId, attachmentId);
     await entryFor(vaultId, a.entryId, access, 'editor');
     await db.delete(attachments).where(eq(attachments.id, a.id));

@@ -2,10 +2,11 @@ import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { settings } from '../db/schema.js';
-import { AppError, forbidden, parse } from '../errors.js';
+import { AppError, parse } from '../errors.js';
 import { assertSafeUrl, safeGet, UnsafeUrlError } from '../net/safeFetch.js';
 import { AttemptLimiter } from '../rateLimit.js';
 
@@ -68,7 +69,7 @@ export const registerSecurityRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   // ---- администрирование адреса
 
   const adminOnly = async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   };
 
   app.get('/admin/security/range', { preHandler: [requireAuth(ctx), adminOnly] }, async () => ({

@@ -22,6 +22,7 @@ import type {
   UserBundle,
 } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { adminPermsOf } from '../auth/adminperm.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { notifySecurity } from '../mail/send.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
@@ -138,6 +139,7 @@ export function bundle(u: typeof users.$inferSelect): UserBundle {
     email: u.email,
     displayName: u.displayName,
     role: u.role,
+    delegated: u.role !== 'admin' && !!u.adminRoleId,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
     wrappedPrivateKey: u.wrappedPrivateKey,
@@ -361,6 +363,13 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     await db.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.id, session.id));
     await audit(db, `user:${user.id}`, 'auth.logout', `session:${session.id}`);
     return reply.status(204).send();
+  });
+
+  /** Административные полномочия текущего пользователя (для показа разделов панели). */
+  app.get('/auth/admin-perms', { preHandler: auth }, async (req) => {
+    const { user } = authOf(req);
+    const perms = await adminPermsOf(ctx, user);
+    return { full: user.role === 'admin', permissions: [...perms].sort() };
   });
 
   app.get('/auth/me', { preHandler: auth }, async (req) => {

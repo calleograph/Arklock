@@ -89,7 +89,7 @@ onMounted(() => {
             >{{ t('nav.status') }}</RouterLink
           >
           <RouterLink
-            v-if="auth.user?.role === 'admin'"
+            v-if="auth.user?.role === 'admin' || auth.user?.delegated"
             to="/admin"
             data-testid="nav-admin"
             class="rounded px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"

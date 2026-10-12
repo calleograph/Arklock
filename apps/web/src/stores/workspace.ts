@@ -66,6 +66,8 @@ export interface MemberInfo {
   publicKey: string;
   signPublicKey: string;
   directRole: string | null;
+  directCustomRoleId: string | null;
+  directExpiresAt: string | null;
   circles: { id: string; name: string; role: string }[];
   hasKey: boolean;
 }
@@ -508,7 +510,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function addMember(
     vaultId: string,
     user: { id: string; publicKey: string; signPublicKey: string },
-    role: string,
+    role: string | object,
   ): Promise<void> {
     const v = vaults.value.find((x) => x.id === vaultId)!;
     const key = keyOf(vaultId, v.keyVersion)!;
@@ -519,7 +521,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       v.keyVersion,
       key,
     );
-    await api('PUT', `/vaults/${vaultId}/members/${user.id}`, { role, key: grant });
+    const roleBody = typeof role === 'string' ? { role } : role;
+    await api('PUT', `/vaults/${vaultId}/members/${user.id}`, { ...roleBody, key: grant });
   }
 
   /** Выдать ключи тем, у кого есть доступ (через круг или грант), но нет ключа. */

@@ -11,7 +11,8 @@ import {
   uuid,
 } from '@arklock/contracts';
 import type { VaultInfo, VaultRole } from '@arklock/contracts';
-import { loadAccess, requireVault, roleAtLeast } from '../access.js';
+import { loadAccess, loadRoleDefs, requireVault } from '../access.js';
+import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -107,6 +108,42 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     return [...new Set([...direct, ...viaCircles, ...viaGrants].map((r) => r.id))];
   }
 
+  /** Эффективные полномочия назначения (встроенная или пользовательская роль). Неизвестная роль не даёт ничего. */
+  async function assignmentPerms(
+    role: string | null | undefined,
+    customRoleId: string | null | undefined,
+  ): Promise<Set<string>> {
+    if (customRoleId) {
+      const defs = await loadRoleDefs(db);
+      const d = defs.get(customRoleId);
+      if (!d || d.scope !== 'vault') throw new AppError(400, 'validation_error', 'Unknown role');
+      return effective([expandRole(defs, customRoleId)]);
+    }
+    return new Set(BUILTIN_VAULT_ROLES[role ?? 'limited'] ?? []);
+  }
+
+  /**
+   * Нельзя выдать больше, чем есть у самого выдающего (повышение привилегий), а роли, позволяющие управлять участниками,
+   * выдаёт и меняет только владелец (полномочие vault.delete).
+   */
+  function assertCanAssign(access: { can: (p: string) => boolean }, perms: Set<string>): void {
+    for (const p of perms) if (!access.can(p)) throw forbidden();
+    if (perms.has('members.manage') && !access.can('vault.delete')) throw forbidden();
+  }
+
+  /** Роли хранилища (пользовательские) с эффективными полномочиями — для выбора при назначении участникам. */
+  app.get('/vault-roles', async (req) => {
+    authOf(req);
+    const defs = await loadRoleDefs(db);
+    return [...defs.values()]
+      .filter((d) => d.scope === 'vault')
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        permissions: [...effective([expandRole(defs, d.id)])].sort(),
+      }));
+  });
+
   app.get('/vaults', async (req): Promise<VaultInfo[]> => {
     const { user } = authOf(req);
     const ids = await userVaultIds(user.id);
@@ -139,6 +176,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             }
           : null,
         pendingKey: !k || k.k.keyVersion !== v.keyVersion,
+        permissions: [...a.perms].sort(),
       });
     }
     return out;
@@ -185,7 +223,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
     if (v.kind === 'locker') throw forbidden();
-    if (!access.isAdmin) throw forbidden();
+    if (!access.can('vault.settings')) throw forbidden();
     await db.update(vaults).set({ name }).where(eq(vaults.id, vaultId));
     await audit(db, `user:${user.id}`, 'vault.rename', `vault:${vaultId}`);
     return { id: vaultId, name };
@@ -196,7 +234,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const { vaultId } = parse(vaultParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
-    if (v.kind === 'locker' || !roleAtLeast(access.role, 'owner')) throw forbidden();
+    if (v.kind === 'locker' || !access.can('vault.delete')) throw forbidden();
     const blobIds = await attachmentIdsOfVault(db, vaultId);
     await db.delete(vaults).where(eq(vaults.id, vaultId));
     await ctx.blobs.remove(blobIds);
@@ -213,11 +251,22 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (!access.isAdmin) throw forbidden();
     const v = await getVault(vaultId);
     const direct = await db
-      .select({ userId: vaultMembers.userId, role: vaultMembers.role })
+      .select({
+        userId: vaultMembers.userId,
+        role: vaultMembers.role,
+        customRoleId: vaultMembers.customRoleId,
+        expiresAt: vaultMembers.expiresAt,
+      })
       .from(vaultMembers)
       .where(eq(vaultMembers.vaultId, vaultId));
     const vc = await db
-      .select({ circleId: vaultCircles.circleId, role: vaultCircles.role, name: circles.name })
+      .select({
+        circleId: vaultCircles.circleId,
+        role: vaultCircles.role,
+        customRoleId: vaultCircles.customRoleId,
+        expiresAt: vaultCircles.expiresAt,
+        name: circles.name,
+      })
       .from(vaultCircles)
       .innerJoin(circles, eq(circles.id, vaultCircles.circleId))
       .where(eq(vaultCircles.vaultId, vaultId));
@@ -266,12 +315,26 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         publicKey: u.publicKey,
         signPublicKey: u.signPublicKey,
         directRole: direct.find((d) => d.userId === u.id)?.role ?? null,
+        directCustomRoleId: direct.find((d) => d.userId === u.id)?.customRoleId ?? null,
+        directExpiresAt: direct.find((d) => d.userId === u.id)?.expiresAt?.toISOString() ?? null,
         circles: vc
           .filter((c) => viaCircle.some((m) => m.userId === u.id && m.circleId === c.circleId))
-          .map((c) => ({ id: c.circleId, name: c.name, role: c.role })),
+          .map((c) => ({
+            id: c.circleId,
+            name: c.name,
+            role: c.role,
+            customRoleId: c.customRoleId,
+            expiresAt: c.expiresAt?.toISOString() ?? null,
+          })),
         hasKey: hasKey.has(u.id),
       })),
-      circles: vc.map((c) => ({ id: c.circleId, name: c.name, role: c.role })),
+      circles: vc.map((c) => ({
+        id: c.circleId,
+        name: c.name,
+        role: c.role,
+        customRoleId: c.customRoleId,
+        expiresAt: c.expiresAt?.toISOString() ?? null,
+      })),
     };
   });
 
@@ -282,16 +345,19 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
     if (v.kind === 'locker' || !access.isAdmin) throw forbidden();
-    // Назначать и менять администраторов может только владелец.
-    if (body.role === 'admin' && !roleAtLeast(access.role, 'owner')) throw forbidden();
+    if (!body.role && !body.customRoleId)
+      throw new AppError(400, 'validation_error', 'Specify a role or a custom role');
+    const newPerms = await assignmentPerms(body.role, body.customRoleId);
+    assertCanAssign(access, newPerms);
     const [target] = await db.select().from(users).where(eq(users.id, userId));
     if (!target || target.disabledAt) throw notFound();
     const [existing] = await db
-      .select({ role: vaultMembers.role })
+      .select({ role: vaultMembers.role, customRoleId: vaultMembers.customRoleId })
       .from(vaultMembers)
       .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
     if (existing?.role === 'owner') throw forbidden();
-    if (existing?.role === 'admin' && !roleAtLeast(access.role, 'owner')) throw forbidden();
+    if (existing)
+      assertCanAssign(access, await assignmentPerms(existing.role, existing.customRoleId));
     if (body.key) {
       if (body.key.keyVersion !== v.keyVersion)
         throw new AppError(409, 'stale_key_version', 'Vault key was rotated', {
@@ -309,10 +375,20 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     await db.transaction(async (tx) => {
       await tx
         .insert(vaultMembers)
-        .values({ vaultId, userId, role: body.role })
+        .values({
+          vaultId,
+          userId,
+          role: body.customRoleId ? 'limited' : body.role!,
+          customRoleId: body.customRoleId ?? null,
+          expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+        })
         .onConflictDoUpdate({
           target: [vaultMembers.vaultId, vaultMembers.userId],
-          set: { role: body.role },
+          set: {
+            role: body.customRoleId ? 'limited' : body.role!,
+            customRoleId: body.customRoleId ?? null,
+            expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+          },
         });
       if (body.key) {
         await tx
@@ -330,7 +406,8 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     });
     await audit(db, `user:${user.id}`, 'vault.member.put', `vault:${vaultId}`, {
       member: userId,
-      role: body.role,
+      role: body.role ?? `custom:${body.customRoleId}`,
+      expires: body.expiresAt ?? null,
     });
     return reply.status(204).send();
   });
@@ -342,12 +419,12 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     if (!access.isAdmin) throw forbidden();
     const [existing] = await db
-      .select({ role: vaultMembers.role })
+      .select({ role: vaultMembers.role, customRoleId: vaultMembers.customRoleId })
       .from(vaultMembers)
       .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
     if (!existing) throw notFound();
     if (existing.role === 'owner') throw forbidden();
-    if (existing.role === 'admin' && !roleAtLeast(access.role, 'owner')) throw forbidden();
+    assertCanAssign(access, await assignmentPerms(existing.role, existing.customRoleId));
     await db.transaction(async (tx) => {
       await tx
         .delete(vaultMembers)
@@ -392,19 +469,32 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
     if (v.kind === 'locker' || !access.isAdmin) throw forbidden();
-    if (body.role === 'admin' && !roleAtLeast(access.role, 'owner')) throw forbidden();
+    if (!body.role && !body.customRoleId)
+      throw new AppError(400, 'validation_error', 'Specify a role or a custom role');
+    assertCanAssign(access, await assignmentPerms(body.role, body.customRoleId));
     const [c] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, circleId));
     if (!c) throw notFound();
     await db
       .insert(vaultCircles)
-      .values({ vaultId, circleId, role: body.role })
+      .values({
+        vaultId,
+        circleId,
+        role: body.customRoleId ? 'limited' : body.role!,
+        customRoleId: body.customRoleId ?? null,
+        expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+      })
       .onConflictDoUpdate({
         target: [vaultCircles.vaultId, vaultCircles.circleId],
-        set: { role: body.role },
+        set: {
+          role: body.customRoleId ? 'limited' : body.role!,
+          customRoleId: body.customRoleId ?? null,
+          expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+        },
       });
     await audit(db, `user:${user.id}`, 'vault.circle.put', `vault:${vaultId}`, {
       circle: circleId,
-      role: body.role,
+      role: body.role ?? `custom:${body.customRoleId}`,
+      expires: body.expiresAt ?? null,
     });
     return reply.status(204).send();
   });
@@ -520,7 +610,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(rotatePost, req.body);
     const access = await requireVault(db, vaultId, user.id);
-    if (!roleAtLeast(access.role, 'admin')) throw forbidden();
+    if (!access.can('vault.rotate')) throw forbidden();
     const v = await getVault(vaultId);
     if (body.newKeyVersion !== v.keyVersion + 1) {
       throw new AppError(409, 'stale_key_version', 'Vault key version changed', {

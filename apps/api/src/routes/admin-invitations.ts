@@ -3,10 +3,11 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { circles, invitations, users } from '../db/schema.js';
-import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { AppError, notFound, parse } from '../errors.js';
 import { sendMail } from '../mail/send.js';
 import { randomB64url, sha256Hex } from '../security.js';
 
@@ -26,7 +27,7 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
   const { db, config } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   });
 
   app.get('/admin/invitations', async () => {

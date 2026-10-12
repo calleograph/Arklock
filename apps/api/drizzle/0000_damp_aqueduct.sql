@@ -159,6 +159,18 @@ CREATE TABLE "pins" (
 	CONSTRAINT "pins_user_id_entry_id_pk" PRIMARY KEY("user_id","entry_id")
 );
 --> statement-breakpoint
+CREATE TABLE "roles" (
+	"id" uuid PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"description" text DEFAULT '' NOT NULL,
+	"scope" text NOT NULL,
+	"allow" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"deny" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"parents" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "sessions" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -203,6 +215,7 @@ CREATE TABLE "users" (
 	"sign_public_key" text NOT NULL,
 	"wrapped_private_key" text NOT NULL,
 	"wrapped_sign_private_key" text NOT NULL,
+	"admin_role_id" uuid,
 	"auth_source" text DEFAULT 'local' NOT NULL,
 	"external_id" text,
 	"recovery_salt" text NOT NULL,
@@ -218,6 +231,8 @@ CREATE TABLE "vault_circles" (
 	"vault_id" uuid NOT NULL,
 	"circle_id" uuid NOT NULL,
 	"role" text NOT NULL,
+	"custom_role_id" uuid,
+	"expires_at" timestamp with time zone,
 	CONSTRAINT "vault_circles_vault_id_circle_id_pk" PRIMARY KEY("vault_id","circle_id")
 );
 --> statement-breakpoint
@@ -236,6 +251,8 @@ CREATE TABLE "vault_members" (
 	"vault_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
 	"role" text NOT NULL,
+	"custom_role_id" uuid,
+	"expires_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "vault_members_vault_id_user_id_pk" PRIMARY KEY("vault_id","user_id")
 );
@@ -303,6 +320,7 @@ CREATE INDEX "invitations_email_idx" ON "invitations" USING btree ("email");--> 
 CREATE INDEX "key_log_user_idx" ON "key_log" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "ledger_at_idx" ON "ledger" USING btree ("at");--> statement-breakpoint
 CREATE INDEX "mfa_backup_user_idx" ON "mfa_backup_codes" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "roles_name_scope_idx" ON "roles" USING btree ("name","scope");--> statement-breakpoint
 CREATE UNIQUE INDEX "sessions_token_idx" ON "sessions" USING btree ("token_hash");--> statement-breakpoint
 CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "signals_vault_idx" ON "signals" USING btree ("vault_id");--> statement-breakpoint

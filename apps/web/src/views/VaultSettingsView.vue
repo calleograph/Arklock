@@ -31,10 +31,10 @@ const search = ref('');
 const found = ref<
   { id: string; name: string; email: string; publicKey: string; signPublicKey: string }[]
 >([]);
-const newRole = ref('editor');
+const newRole = ref('builtin:editor');
 const allCircles = ref<{ id: string; name: string }[]>([]);
 const circleChoice = ref('');
-const circleRole = ref('reader');
+const circleRole = ref('builtin:reader');
 const grants = ref<
   {
     id: string;
@@ -109,15 +109,40 @@ function onSearch(): void {
   }, 250);
 }
 
+/** Выбор роли: «builtin:editor» или «custom:<id>»; для пользовательской роли — идентификатор роли. */
+const customRoles = ref<{ id: string; name: string; permissions: string[] }[]>([]);
+void api<typeof customRoles.value>('GET', '/vault-roles')
+  .then((r) => (customRoles.value = r))
+  .catch(() => undefined);
+const roleBody = (value: string, expiresAt?: string | null) => ({
+  ...(value.startsWith('custom:')
+    ? { customRoleId: value.slice(7) }
+    : { role: value.replace('builtin:', '') }),
+  ...(expiresAt !== undefined ? { expiresAt } : {}),
+});
+const roleValue = (builtin: string | null, custom: string | null) =>
+  custom ? `custom:${custom}` : `builtin:${builtin}`;
+const toIso = (d: string) => (d ? new Date(d + 'T23:59:59').toISOString() : null);
+const newExpiry = ref('');
+
 const addMember = (u: (typeof found.value)[number]) =>
   run(async () => {
-    await ws.addMember(id, u, newRole.value);
+    await ws.addMember(
+      id,
+      u,
+      roleBody(newRole.value, newExpiry.value ? toIso(newExpiry.value) : undefined),
+    );
     found.value = [];
     search.value = '';
   }, t('settings.memberAdded'));
 
-const setRole = (m: MemberInfo, role: string) =>
-  run(() => api('PUT', `/vaults/${id}/members/${m.userId}`, { role }));
+const setRole = (m: MemberInfo, value: string, expiry?: string) =>
+  run(() =>
+    api('PUT', `/vaults/${id}/members/${m.userId}`, {
+      ...roleBody(value),
+      expiresAt: expiry !== undefined ? toIso(expiry) : (m.directExpiresAt ?? null),
+    }),
+  );
 const removeMember = (m: MemberInfo) =>
   run(async () => {
     await api('DELETE', `/vaults/${id}/members/${m.userId}`);
@@ -128,7 +153,7 @@ const distribute = () =>
     notice.value = t('settings.keysIssued', { n: await ws.distributePending(id) });
   });
 const addCircle = () =>
-  run(() => api('PUT', `/vaults/${id}/circles/${circleChoice.value}`, { role: circleRole.value }));
+  run(() => api('PUT', `/vaults/${id}/circles/${circleChoice.value}`, roleBody(circleRole.value)));
 const removeCircle = (cid: string) =>
   run(async () => {
     await api('DELETE', `/vaults/${id}/circles/${cid}`);
@@ -255,7 +280,7 @@ void decryptEntry;
               <td>
                 <select
                   v-if="m.directRole && m.directRole !== 'owner'"
-                  :value="m.directRole"
+                  :value="roleValue(m.directRole, m.directCustomRoleId)"
                   class="input w-auto"
                   :disabled="busy || (m.directRole === 'admin' && !isOwner)"
                   :data-testid="`role-${m.email}`"
@@ -264,12 +289,30 @@ void decryptEntry;
                   <option
                     v-for="r in ['admin', 'editor', 'reader', 'limited']"
                     :key="r"
-                    :value="r"
+                    :value="`builtin:${r}`"
                     :disabled="r === 'admin' && !isOwner"
                   >
                     {{ t(`role.${r}`) }}
                   </option>
+                  <option v-for="c in customRoles" :key="c.id" :value="`custom:${c.id}`">
+                    ◆ {{ c.name }}
+                  </option>
                 </select>
+                <input
+                  v-if="m.directRole && m.directRole !== 'owner'"
+                  type="date"
+                  class="input ml-1 w-auto"
+                  :value="m.directExpiresAt ? m.directExpiresAt.slice(0, 10) : ''"
+                  :title="t('settings.expires')"
+                  :data-testid="`expiry-${m.email}`"
+                  @change="
+                    setRole(
+                      m,
+                      roleValue(m.directRole, m.directCustomRoleId),
+                      ($event.target as HTMLInputElement).value,
+                    )
+                  "
+                />
                 <span v-else-if="m.directRole === 'owner'" class="badge">{{
                   t('role.owner')
                 }}</span>
@@ -324,12 +367,22 @@ void decryptEntry;
             <option
               v-for="r in ['admin', 'editor', 'reader', 'limited']"
               :key="r"
-              :value="r"
+              :value="`builtin:${r}`"
               :disabled="r === 'admin' && !isOwner"
             >
               {{ t(`role.${r}`) }}
             </option>
+            <option v-for="c in customRoles" :key="c.id" :value="`custom:${c.id}`">
+              ◆ {{ c.name }}
+            </option>
           </select>
+          <input
+            v-model="newExpiry"
+            type="date"
+            class="input w-auto"
+            :title="t('settings.expires')"
+            data-testid="new-expiry"
+          />
         </div>
         <ul
           v-if="found.length"
@@ -381,10 +434,13 @@ void decryptEntry;
           <option
             v-for="r in ['admin', 'editor', 'reader', 'limited']"
             :key="r"
-            :value="r"
+            :value="`builtin:${r}`"
             :disabled="r === 'admin' && !isOwner"
           >
             {{ t(`role.${r}`) }}
+          </option>
+          <option v-for="c in customRoles" :key="c.id" :value="`custom:${c.id}`">
+            ◆ {{ c.name }}
           </option>
         </select>
         <button

@@ -54,6 +54,8 @@ export const userBundle = z.object({
   email: z.string(),
   displayName: z.string(),
   role: z.enum(['admin', 'member']),
+  /** Назначена административная роль (делегированное администрирование отдельных разделов). */
+  delegated: z.boolean().optional(),
   publicKey,
   signPublicKey: publicKey,
   wrappedPrivateKey: wrappedKey,

@@ -4,9 +4,10 @@ import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { isEnrolled, resetMfaPolicyCache } from '../auth/mfa.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { circleMembers, circles, ledger, sessions, settings, users } from '../db/schema.js';
+import { circleMembers, circles, ledger, roles, sessions, settings, users } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
@@ -45,7 +46,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   const { db } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   });
   const idParam = z.object({ id: uuid });
 
@@ -63,6 +64,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       name: u.displayName,
       email: u.email,
       role: u.role,
+      adminRoleId: u.adminRoleId,
       disabled: !!u.disabledAt,
       createdAt: u.createdAt.toISOString(),
       lastSeenAt: seen.get(u.id) ? new Date(seen.get(u.id)!).toISOString() : null,
@@ -73,11 +75,26 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     const { user } = authOf(req);
     const { id } = parse(idParam, req.params);
     const body = parse(
-      z.object({ role: z.enum(['admin', 'member']).optional(), disabled: z.boolean().optional() }),
+      z.object({
+        role: z.enum(['admin', 'member']).optional(),
+        disabled: z.boolean().optional(),
+        /** Административная роль (делегирование); null — снять. */
+        adminRoleId: uuid.nullable().optional(),
+      }),
       req.body,
     );
     const [target] = await db.select().from(users).where(eq(users.id, id));
     if (!target) throw notFound();
+    // Делегированный администратор не затрагивает полных администраторов и не назначает роли
+    if (user.role !== 'admin') {
+      if (target.role === 'admin') throw forbidden();
+      if (body.role !== undefined || body.adminRoleId !== undefined) throw forbidden();
+    }
+    if (body.adminRoleId) {
+      const [r] = await db.select().from(roles).where(eq(roles.id, body.adminRoleId));
+      if (!r || r.scope !== 'admin')
+        throw new AppError(400, 'validation_error', 'Unknown administrative role');
+    }
     const demoting = body.role === 'member' && target.role === 'admin';
     const disabling = body.disabled === true && !target.disabledAt;
     if ((demoting || disabling) && target.role === 'admin') {
@@ -98,12 +115,13 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       .update(users)
       .set({
         ...(body.role ? { role: body.role } : {}),
+        ...(body.adminRoleId !== undefined ? { adminRoleId: body.adminRoleId } : {}),
         ...(body.disabled !== undefined ? { disabledAt: body.disabled ? new Date() : null } : {}),
         updatedAt: new Date(),
       })
       .where(eq(users.id, id));
     // Отключение и смена роли немедленно завершают все сеансы пользователя.
-    if (disabling || body.role) {
+    if (disabling || body.role || body.adminRoleId !== undefined) {
       await db
         .update(sessions)
         .set({ revokedAt: new Date() })
@@ -112,6 +130,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     await audit(db, `user:${user.id}`, 'admin.user.update', `user:${id}`, {
       role: body.role ?? null,
       disabled: body.disabled ?? null,
+      adminRole: body.adminRoleId ?? null,
     });
     return { id };
   });

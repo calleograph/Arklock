@@ -10,6 +10,7 @@ import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
+import RolesPanel from '../components/RolesPanel.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -27,7 +28,16 @@ type SysTab =
   | 'certificates'
   | 'smtp';
 type Tab =
-  'users' | 'circles' | 'settings' | 'ledger' | 'ldap' | 'sso' | 'syslog' | 'invitations' | SysTab;
+  | 'users'
+  | 'circles'
+  | 'settings'
+  | 'ledger'
+  | 'ldap'
+  | 'sso'
+  | 'syslog'
+  | 'invitations'
+  | 'roles'
+  | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
   'resources',
@@ -39,6 +49,31 @@ const SYS_TABS: SysTab[] = [
   'certificates',
   'smtp',
 ];
+/** Полномочие, необходимое для раздела: делегированный администратор видит только разрешённые разделы. */
+const TAB_PERM: Record<Tab, string> = {
+  users: 'admin.users',
+  circles: 'admin.circles',
+  settings: 'admin.settings',
+  ledger: 'admin.ledger',
+  overview: 'admin.system',
+  resources: 'admin.system',
+  containers: 'admin.system',
+  logs: 'admin.system',
+  storage: 'admin.system',
+  diagnostics: 'admin.system',
+  certificates: 'admin.system',
+  backups: 'admin.backups',
+  smtp: 'admin.integrations',
+  ldap: 'admin.integrations',
+  sso: 'admin.integrations',
+  syslog: 'admin.integrations',
+  invitations: 'admin.invitations',
+  roles: 'admin.roles',
+};
+const adminPerms = ref<{ full: boolean; permissions: string[] } | null>(null);
+const canTab = (x: Tab) =>
+  !adminPerms.value || adminPerms.value.full || adminPerms.value.permissions.includes(TAB_PERM[x]);
+const isFull = () => adminPerms.value?.full ?? auth.user?.role === 'admin';
 const tab = ref<Tab>((route.params.tab as Tab) || 'users');
 watch(tab, (v) => router.replace(`/admin/${v}`));
 const error = ref('');
@@ -61,6 +96,7 @@ interface U {
   name: string;
   email: string;
   role: 'admin' | 'member';
+  adminRoleId?: string | null;
   disabled: boolean;
   createdAt: string;
   lastSeenAt: string | null;
@@ -69,6 +105,15 @@ const users = ref<U[]>([]);
 const loadUsers = async () => {
   users.value = await api('GET', '/admin/users');
 };
+const adminRoles = ref<{ id: string; name: string }[]>([]);
+async function loadAdminRoles(): Promise<void> {
+  if (!isFull()) return;
+  const r = await api<{ roles: { id: string; name: string; scope: string }[] }>(
+    'GET',
+    '/admin/roles',
+  );
+  adminRoles.value = r.roles.filter((x) => x.scope === 'admin');
+}
 const patchUser = (u: U, body: object) =>
   run(() => api('PATCH', `/admin/users/${u.id}`, body), loadUsers);
 const endSessions = (u: U) =>
@@ -188,8 +233,10 @@ async function exportLedger(): Promise<void> {
 async function loadTab(): Promise<void> {
   error.value = '';
   try {
-    if (tab.value === 'users') await loadUsers();
-    else if (tab.value === 'circles') {
+    if (tab.value === 'users') {
+      await loadUsers();
+      await loadAdminRoles();
+    } else if (tab.value === 'circles') {
       await loadCircles();
       if (!users.value.length) await loadUsers();
     } else if (tab.value === 'settings') await loadSettings();
@@ -198,7 +245,27 @@ async function loadTab(): Promise<void> {
     error.value = errorMessage(e, t);
   }
 }
-onMounted(loadTab);
+const ALL_TABS: Tab[] = [
+  'users',
+  'circles',
+  'settings',
+  'ledger',
+  ...SYS_TABS,
+  'ldap',
+  'sso',
+  'syslog',
+  'invitations',
+  'roles',
+];
+onMounted(async () => {
+  try {
+    adminPerms.value = await api('GET', '/auth/admin-perms');
+  } catch {
+    /* сервер всё равно проверяет каждый запрос */
+  }
+  if (!canTab(tab.value)) tab.value = ALL_TABS.find(canTab) ?? tab.value;
+  else await loadTab();
+});
 watch(tab, loadTab);
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—');
 </script>
@@ -208,17 +275,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
     <h1 class="text-xl font-semibold">{{ t('admin.title') }}</h1>
     <nav class="flex flex-wrap gap-1 border-b border-slate-200 text-sm dark:border-slate-800">
       <button
-        v-for="x in [
-          'users',
-          'circles',
-          'settings',
-          'ledger',
-          ...SYS_TABS,
-          'ldap',
-          'sso',
-          'syslog',
-          'invitations',
-        ] as Tab[]"
+        v-for="x in ALL_TABS.filter(canTab)"
         :key="x"
         type="button"
         class="px-3 py-1.5"
@@ -246,7 +303,8 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
       {{ notice }}
     </p>
 
-    <InvitationsPanel v-if="tab === 'invitations'" />
+    <RolesPanel v-if="tab === 'roles'" />
+    <InvitationsPanel v-else-if="tab === 'invitations'" />
     <SyslogSettings v-else-if="tab === 'syslog'" />
     <SsoSettings v-else-if="tab === 'sso'" />
     <LdapSettings v-else-if="tab === 'ldap'" />
@@ -258,6 +316,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
           <tr>
             <th class="px-3 py-2">{{ t('common.name') }}</th>
             <th>{{ t('admin.role') }}</th>
+            <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
             <th>{{ t('admin.lastSeen') }}</th>
             <th>{{ t('admin.status') }}</th>
             <th />
@@ -283,6 +342,20 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               >
                 <option value="admin">{{ t('admin.roleAdmin') }}</option>
                 <option value="member">{{ t('admin.roleMember') }}</option>
+              </select>
+            </td>
+            <td v-if="isFull() && adminRoles.length">
+              <select
+                :value="u.adminRoleId ?? ''"
+                class="input w-auto"
+                :disabled="u.role === 'admin'"
+                :data-testid="`admin-role-${u.email}`"
+                @change="
+                  patchUser(u, { adminRoleId: ($event.target as HTMLSelectElement).value || null })
+                "
+              >
+                <option value="">{{ t('admin.noAdminRole') }}</option>
+                <option v-for="r in adminRoles" :key="r.id" :value="r.id">{{ r.name }}</option>
               </select>
             </td>
             <td class="text-xs">{{ fmt(u.lastSeenAt) }}</td>

@@ -6,10 +6,11 @@ import { count, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
-import { AppError, forbidden, parse } from '../errors.js';
+import { AppError, parse } from '../errors.js';
 import { smtpSession, SmtpError, type SmtpConfig } from '../mail/smtp.js';
 import { diskInfo, type Level } from '../resources.js';
 import { openSetting, sealSetting } from '../secretbox.js';
@@ -116,7 +117,7 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
   const { db, config, blobs } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   });
 
   const num = async (q: Promise<{ n: number }[]>) => (await q)[0]?.n ?? 0;

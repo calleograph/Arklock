@@ -1,8 +1,9 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { VaultRole } from '@arklock/contracts';
 import type { Db } from './db/connect.js';
-import { branches, circleMembers, grants, vaultCircles, vaultMembers } from './db/schema.js';
+import { branches, circleMembers, grants, roles, vaultCircles, vaultMembers } from './db/schema.js';
 import { notFound } from './errors.js';
+import { BUILTIN_VAULT_ROLES, effective, expandRole, type RoleDef } from './perms.js';
 
 /** Эффективное право на ветвь или запись. */
 export type Access = 'reader' | 'editor' | 'manager';
@@ -21,18 +22,19 @@ export const roleAtLeast = (role: VaultRole | null, min: VaultRole): boolean =>
 const maxAccess = (a: Access | null, b: Access | null): Access | null =>
   !a ? b : !b ? a : ACCESS_RANK[a] >= ACCESS_RANK[b] ? a : b;
 
-const baseAccess = (role: VaultRole | null): Access | null =>
-  role === 'owner' || role === 'admin'
-    ? 'manager'
-    : role === 'editor'
-      ? 'editor'
-      : role === 'reader'
-        ? 'reader'
-        : null;
+/** Уровень доступа по полномочиям: управление (изменение, удаление, ветви) > изменение > чтение. */
+function levelOf(perms: Set<string>): Access | null {
+  if (perms.has('entry.update') && perms.has('entry.delete') && perms.has('branch.manage'))
+    return 'manager';
+  if (perms.has('entry.update')) return 'editor';
+  if (perms.has('entry.read')) return 'reader';
+  return null;
+}
 
 /**
- * Контекст доступа пользователя к хранилищу: роль (прямая и через круги), гранты (на пользователя и его круги,
- * действующие на момент запроса) и дерево ветвей для наследования прав вниз по структуре.
+ * Контекст доступа пользователя к хранилищу: полномочия (встроенные и пользовательские роли прямо и через круги,
+ * с учётом срока, запретов и наследования), гранты на ветви и записи и дерево ветвей для наследования вниз по структуре.
+ * Явный запрет полномочия ограничивает и права, полученные через гранты.
  */
 export class VaultAccess {
   constructor(
@@ -41,19 +43,47 @@ export class VaultAccess {
     readonly role: VaultRole | null,
     private readonly grantMap: Map<string, Access>,
     private readonly parents: Map<string, string | null>,
+    /** Эффективные полномочия по ролям (без грантов). */
+    readonly perms: Set<string> = new Set(role ? (BUILTIN_VAULT_ROLES[role] ?? []) : []),
+    /** Запреты из всех назначенных ролей. */
+    private readonly denied: Set<string> = new Set(),
+    /** Названия пользовательских ролей (для отображения). */
+    readonly customRoles: string[] = [],
   ) {}
 
   get isMember(): boolean {
     return this.role !== null;
   }
 
+  can(perm: string): boolean {
+    return this.perms.has(perm);
+  }
+
+  /**
+   * Разрешено ли действие: роль даёт полномочие, либо доступ у пользователя только по грантам (без ролевого доступа к записям),
+   * и полномочие не запрещено явно.
+   */
+  allows(perm: string): boolean {
+    if (this.denied.has(perm)) return false;
+    return this.perms.has(perm) || !this.perms.has('entry.read');
+  }
+
+  /** Управление участниками и выдача ключей (администратор хранилища и роли с таким полномочием). */
   get isAdmin(): boolean {
-    return roleAtLeast(this.role, 'admin');
+    return this.can('members.manage');
+  }
+
+  /** Ограничение уровня доступа явными запретами. */
+  private cap(a: Access | null): Access | null {
+    if (!a) return null;
+    if (this.denied.has('entry.read')) return null;
+    if (this.denied.has('entry.update') && ACCESS_RANK[a] > ACCESS_RANK.reader) return 'reader';
+    return a;
   }
 
   /** Право на ветвь (null — нет доступа). Права наследуются от родительских ветвей. */
   branch(branchId: string | null): Access | null {
-    let best = baseAccess(this.role);
+    let best = levelOf(this.perms);
     let cur: string | null = branchId;
     const seen = new Set<string>();
     while (cur && !seen.has(cur)) {
@@ -61,12 +91,14 @@ export class VaultAccess {
       best = maxAccess(best, this.grantMap.get(`branch:${cur}`) ?? null);
       cur = this.parents.get(cur) ?? null;
     }
-    return best;
+    return this.cap(best);
   }
 
   /** Право на запись: роль, грант на запись, гранты на ветви-предки. */
   entry(entryId: string, branchId: string | null): Access | null {
-    return maxAccess(this.branch(branchId), this.grantMap.get(`entry:${entryId}`) ?? null);
+    return this.cap(
+      maxAccess(this.branch(branchId), this.grantMap.get(`entry:${entryId}`) ?? null),
+    );
   }
 
   /** Цепочка ветвей от указанной вверх (для проверки циклов при перемещении). */
@@ -81,14 +113,37 @@ export class VaultAccess {
   }
 }
 
+/** Все пользовательские роли (для разворачивания наследования). */
+export async function loadRoleDefs(db: Db): Promise<Map<string, RoleDef & { name: string }>> {
+  const rows = await db.select().from(roles);
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        id: r.id,
+        name: r.name,
+        scope: r.scope,
+        allow: r.allow as string[],
+        deny: r.deny as string[],
+        parents: r.parents as string[],
+      },
+    ]),
+  );
+}
+
 export async function loadAccess(
   db: Db,
   vaultId: string,
   userId: string,
   now: Date = new Date(),
 ): Promise<VaultAccess> {
+  const nowMs = now.getTime();
   const [direct] = await db
-    .select({ role: vaultMembers.role })
+    .select({
+      role: vaultMembers.role,
+      customRoleId: vaultMembers.customRoleId,
+      expiresAt: vaultMembers.expiresAt,
+    })
     .from(vaultMembers)
     .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
   const circleRows = await db
@@ -97,19 +152,49 @@ export async function loadAccess(
     .where(eq(circleMembers.userId, userId));
   const circleIds = circleRows.map((c) => c.circleId);
 
-  let role: VaultRole | null = direct?.role ?? null;
+  type Assign = { role: VaultRole; customRoleId: string | null };
+  const assigns: Assign[] = [];
+  if (direct && !(direct.expiresAt && direct.expiresAt.getTime() <= nowMs))
+    assigns.push({ role: direct.role, customRoleId: direct.customRoleId });
   if (circleIds.length) {
     const viaCircles = await db
-      .select({ role: vaultCircles.role })
+      .select({
+        role: vaultCircles.role,
+        customRoleId: vaultCircles.customRoleId,
+        expiresAt: vaultCircles.expiresAt,
+      })
       .from(vaultCircles)
       .where(and(eq(vaultCircles.vaultId, vaultId), inArray(vaultCircles.circleId, circleIds)));
-    for (const c of viaCircles) if (!role || ROLE_RANK[c.role] > ROLE_RANK[role]) role = c.role;
+    for (const c of viaCircles)
+      if (!(c.expiresAt && c.expiresAt.getTime() <= nowMs))
+        assigns.push({ role: c.role, customRoleId: c.customRoleId });
   }
+
+  const defs = assigns.some((a) => a.customRoleId) ? await loadRoleDefs(db) : new Map();
+  const parts: { allow: Iterable<string>; deny: Iterable<string> }[] = [];
+  const denied = new Set<string>();
+  const customNames: string[] = [];
+  let role: VaultRole | null = null;
+  for (const a of assigns) {
+    if (a.customRoleId) {
+      const def = defs.get(a.customRoleId);
+      if (!def || def.scope !== 'vault') continue; // удалённая роль не даёт ничего
+      const e = expandRole(defs, a.customRoleId);
+      parts.push(e);
+      e.deny.forEach((d) => denied.add(d));
+      customNames.push(def.name);
+      role ??= 'limited';
+    } else {
+      parts.push({ allow: BUILTIN_VAULT_ROLES[a.role] ?? [], deny: [] });
+      if (!role || ROLE_RANK[a.role] > ROLE_RANK[role]) role = a.role;
+    }
+  }
+  const perms = effective(parts);
 
   const grantRows = await db.select().from(grants).where(eq(grants.vaultId, vaultId));
   const grantMap = new Map<string, Access>();
   for (const g of grantRows) {
-    if (g.expiresAt && g.expiresAt.getTime() <= now.getTime()) continue;
+    if (g.expiresAt && g.expiresAt.getTime() <= nowMs) continue;
     const mine =
       (g.subjectType === 'user' && g.subjectId === userId) ||
       (g.subjectType === 'circle' && circleIds.includes(g.subjectId));
@@ -118,15 +203,14 @@ export async function loadAccess(
     grantMap.set(key, maxAccess(grantMap.get(key) ?? null, g.role) as Access);
   }
   // Член хранилища с ролью limited существует только пока есть гранты; без ролей и грантов доступа нет вообще.
-  const hasGrants = grantMap.size > 0;
-  if (!role && hasGrants) role = 'limited';
+  if (!role && grantMap.size > 0) role = 'limited';
 
   const brRows = await db
     .select({ id: branches.id, parentId: branches.parentId })
     .from(branches)
     .where(eq(branches.vaultId, vaultId));
   const parents = new Map(brRows.map((b) => [b.id, b.parentId]));
-  return new VaultAccess(vaultId, userId, role, grantMap, parents);
+  return new VaultAccess(vaultId, userId, role, grantMap, parents, perms, denied, customNames);
 }
 
 /** Доступ к хранилищу или 404: не участник не отличает хранилище от несуществующего. */

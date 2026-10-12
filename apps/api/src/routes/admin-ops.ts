@@ -2,9 +2,10 @@ import { createReadStream } from 'node:fs';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { AppError, notFound, parse } from '../errors.js';
 import { BACKUP_NAME_RE, RequestPendingError, type UpdaterRequest } from '../updater/protocol.js';
 
 const backupName = z
@@ -45,7 +46,7 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   const { db } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   });
 
   function requireReauth(req: FastifyRequest): void {

@@ -2,10 +2,11 @@ import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { settings } from '../db/schema.js';
-import { forbidden, parse } from '../errors.js';
+import { parse } from '../errors.js';
 import { SYSLOG_KEY, type SyslogConfig } from '../syslog.js';
 
 const putSchema = z.object({
@@ -33,7 +34,7 @@ export const registerAdminSyslogRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
   const { db } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
-    if (authOf(req).user.role !== 'admin') throw forbidden();
+    await adminGate(ctx, req);
   });
 
   const load = async () => {

@@ -427,3 +427,56 @@ test('an invitation lets a person register although registration is closed; the 
   await again.goto(link.replace(/^https?:\/\/[^/]+/, ''));
   await expect(again.getByTestId('invite-bad')).toBeVisible({ timeout: 30_000 });
 });
+
+test('custom roles: an administrative role opens only its own sections for a delegated administrator', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await page.getByTestId('email').fill(ADMIN.email);
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('nav-admin').click();
+  await tab(page, 'roles');
+
+  // создание роли: разрешение журнала, явный запрет в той же области без разрешений недопустим для UI-формы (взаимоисключение)
+  await page.getByTestId('role-new').click();
+  await page.getByTestId('role-name').fill('Аудитор журнала');
+  await page.getByTestId('role-scope').selectOption('admin');
+  await page.getByTestId('allow-admin.ledger').check();
+  await page.getByTestId('allow-admin.users').check();
+  await page.getByTestId('deny-admin.users').check(); // запрет снимает разрешение
+  await expect(page.getByTestId('allow-admin.users')).not.toBeChecked();
+  await page.getByTestId('role-save').click();
+  const row = page.getByTestId('role-row').filter({ hasText: 'Аудитор журнала' });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(/Журнал|Ledger/);
+
+  // назначение приглашённому пользователю
+  await tab(page, 'users');
+  const select = page.getByTestId('admin-role-invited.person@example.com');
+  await select.selectOption({ label: 'Аудитор журнала' });
+  await expect(select).toHaveValue(/.+/);
+
+  // делегированный администратор видит только разрешённый раздел
+  const guest = await (await browser.newContext()).newPage();
+  await guest.goto('/login');
+  await guest.getByTestId('email').fill('invited.person@example.com');
+  await guest.getByTestId('password').fill('invited-master-password-e2e-1');
+  await guest.getByTestId('submit').click();
+  await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await guest.getByTestId('nav-admin').click();
+  await expect(guest.getByTestId('admin-tab-ledger')).toBeVisible();
+  await expect(guest.getByTestId('admin-tab-users')).toHaveCount(0);
+  await expect(guest.getByTestId('admin-tab-roles')).toHaveCount(0);
+  // роль, назначенную пользователю, удалить нельзя
+  await page.reload();
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await page.getByTestId('nav-admin').click();
+  await tab(page, 'roles');
+  await page.getByTestId('role-delete-Аудитор журнала').click(); // первое нажатие — подтверждение
+  await page.getByTestId('role-delete-Аудитор журнала').click();
+  await expect(page.getByTestId('roles-error')).toBeVisible();
+});

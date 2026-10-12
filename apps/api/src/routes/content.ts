@@ -180,6 +180,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(entryWrite, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('entry.create')) throw forbidden();
     const branchId = body.branchId ?? null;
     if (branchId) await branchRow(vaultId, branchId);
     if (!atLeast(access.branch(branchId), 'editor')) throw forbidden();
@@ -290,6 +291,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const q = req.query as { expectedVersion?: string; purge?: string };
     const access = await requireVault(db, vaultId, user.id);
     if (q.purge === '1') {
+      if (!access.allows('trash.purge')) throw forbidden();
       const e = await loadEntry(vaultId, entryId, true);
       entryAccess(access, e, 'editor');
       if (!e.deletedAt)
@@ -300,6 +302,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       await audit(db, `user:${user.id}`, 'entry.purge', `entry:${entryId}`, { vault: vaultId });
       return reply.status(204).send();
     }
+    if (!access.allows('entry.delete')) throw forbidden();
     const { expectedVersion } = parse(entryDelete, { expectedVersion: Number(q.expectedVersion) });
     const e = await loadEntry(vaultId, entryId);
     entryAccess(access, e, 'editor');
@@ -339,6 +342,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { user } = authOf(req);
     const { vaultId, entryId } = parse(entryParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('entry.history')) throw forbidden();
     const e = await loadEntry(vaultId, entryId, true);
     entryAccess(access, e, 'reader'); // история доступна только при действующих правах: отозванный доступ не обойти старыми ревизиями
     const rows = await db
@@ -366,6 +370,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     );
     const { expectedVersion } = parse(entryDelete, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('entry.history')) throw forbidden();
     const cur = await loadEntry(vaultId, entryId);
     const a = entryAccess(access, cur, 'editor');
     const [rev] = await db
@@ -440,6 +445,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(branchWrite, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('branch.manage')) throw forbidden();
     if (body.parentId) await branchRow(vaultId, body.parentId);
     if (!atLeast(access.branch(body.parentId), 'editor')) throw forbidden();
     const kv = await vaultKeyVersion(vaultId);
@@ -464,6 +470,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId, branchId } = parse(branchParams, req.params);
     const body = parse(branchPatch, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('branch.manage')) throw forbidden();
     const b = await branchRow(vaultId, branchId);
     const a = access.branch(branchId);
     if (!a) throw notFound();
@@ -525,6 +532,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     // Удалять ветвь целиком может только тот, кто вправе менять всё её содержимое.
     for (const id of ids) if (!atLeast(access.branch(id), 'editor')) throw forbidden();
     if (purge) {
+      if (!access.allows('trash.purge')) throw forbidden();
       if (!b.deletedAt)
         throw new AppError(409, 'not_in_trash', 'Move the branch to the trash first');
       const doomed = await db
@@ -658,6 +666,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       for (const e of rows)
         if (e.deletedAt) await restoreGroup(vaultId, e.trashGroup, e.id, 'entry');
     } else {
+      if (!access.allows('trash.purge')) throw forbidden();
       if (rows.some((e) => !e.deletedAt))
         throw new AppError(409, 'not_in_trash', 'Only entries in the trash can be purged');
       const blobIds = await attachmentIdsOfEntries(db, body.ids);
@@ -724,6 +733,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(grantPut, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('grant.manage')) throw forbidden();
     let mine: Access | null;
     if (body.targetType === 'branch') {
       await branchRow(vaultId, body.targetId, true);
@@ -769,6 +779,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { user } = authOf(req);
     const { vaultId, grantId } = parse(z.object({ vaultId: uuid, grantId: uuid }), req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('grant.manage')) throw forbidden();
     const [g] = await db
       .select()
       .from(grants)
