@@ -28,25 +28,34 @@ export async function openSink(name: string, size: number): Promise<Sink> {
   if (sw) {
     const id = crypto.randomUUID();
     const channel = new MessageChannel();
+    // Запрос на /sw-download/<id> отправляется только после подтверждения от service worker: сообщение и запрос из разных
+    // источников могут обрабатываться в обратном порядке. Нет подтверждения — используются запасные приёмники.
+    const ready = new Promise<boolean>((resolve) => {
+      channel.port1.onmessage = (m) => resolve(m.data === 'ready');
+      setTimeout(() => resolve(false), 5000);
+    });
     sw.postMessage({ type: 'download', id, name }, [channel.port2]);
-    const frame = document.createElement('iframe');
-    frame.hidden = true;
-    frame.src = `/sw-download/${id}`;
-    document.body.appendChild(frame);
-    return {
-      write: async (c) => {
-        const copy = c.slice();
-        channel.port1.postMessage(copy, [copy.buffer]);
-      },
-      close: async () => {
-        channel.port1.postMessage(null);
-        setTimeout(() => frame.remove(), 60_000);
-      },
-      abort: async () => {
-        channel.port1.postMessage('abort');
-        frame.remove();
-      },
-    };
+    if (await ready) {
+      channel.port1.onmessage = null;
+      const frame = document.createElement('iframe');
+      frame.hidden = true;
+      frame.src = `/sw-download/${id}`;
+      document.body.appendChild(frame);
+      return {
+        write: async (c) => {
+          const copy = c.slice();
+          channel.port1.postMessage(copy, [copy.buffer]);
+        },
+        close: async () => {
+          channel.port1.postMessage(null);
+          setTimeout(() => frame.remove(), 60_000);
+        },
+        abort: async () => {
+          channel.port1.postMessage('abort');
+          frame.remove();
+        },
+      };
+    }
   }
   const w = window as SaveWindow;
   if (w.showSaveFilePicker) {

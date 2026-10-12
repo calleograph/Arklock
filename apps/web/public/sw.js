@@ -20,8 +20,12 @@ self.addEventListener('activate', (event) => {
 const downloads = new Map();
 self.addEventListener('message', (event) => {
   const d = event.data;
-  if (d && d.type === 'download' && event.ports[0])
+  if (d && d.type === 'download' && event.ports[0]) {
     downloads.set(d.id, { name: String(d.name || 'file'), port: event.ports[0] });
+    // подтверждение: запрос на /sw-download/<id> от страницы отправляется только после него, иначе сообщение и запрос
+    // из разных источников могут быть обработаны в обратном порядке («404» вместо скачивания)
+    event.ports[0].postMessage('ready');
+  }
 });
 
 self.addEventListener('fetch', (event) => {
