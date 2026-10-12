@@ -229,9 +229,11 @@ jobs:
           if sudo grep -aqF -- "$user" "$f" || sudo grep -aqF -- "$secret" "$f"; then echo "plaintext in backup"; exit 1; fi
       - name: Remote storage (S3, MinIO) - test, send, list, verify, rotation
         run: |
-          docker run -d --name minio -p 19000:9000 -e MINIO_ROOT_USER=ciaccesskey -e MINIO_ROOT_PASSWORD=cisecretkey-0123456789 minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null && break; sleep 1; done
-          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c 'mc alias set l http://127.0.0.1:19000 ciaccesskey cisecretkey-0123456789 && mc mb l/arklock-ci'
+          MINIO_IMG=quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+          docker pull "$MINIO_IMG" || MINIO_IMG=quay.io/minio/minio:latest
+          mkdir -p /tmp/minio-data/arklock-ci
+          docker run -d --name minio -p 19000:9000 -v /tmp/minio-data:/data -e MINIO_ROOT_USER=ciaccesskey -e MINIO_ROOT_PASSWORD=cisecretkey-0123456789 "$MINIO_IMG" server /data
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null && break; sleep 1; done
           export ARKLOCK_REMOTE_CONF="$CFG/remote.conf"
           export ARKLOCK_REMOTE_TYPE=s3 ARKLOCK_REMOTE_S3_ENDPOINT=http://127.0.0.1:19000 ARKLOCK_REMOTE_S3_BUCKET=arklock-ci ARKLOCK_REMOTE_S3_REGION=us-east-1
           export ARKLOCK_REMOTE_S3_ACCESS_KEY=ciaccesskey ARKLOCK_REMOTE_S3_SECRET_KEY=cisecretkey-0123456789 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
@@ -250,7 +252,9 @@ jobs:
           sudo -E ./scripts/remote.sh verify arklock-ci-big.bak.gpg
           sudo -E ./scripts/remote.sh delete arklock-ci-big.bak.gpg
           # повреждение на стороне хранилища обнаруживается
-          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c "mc alias set l http://127.0.0.1:19000 ciaccesskey cisecretkey-0123456789 >/dev/null && echo tampered | mc pipe l/arklock-ci/ci/server1/$name"
+          # подмена: на хранилище под тем же именем кладётся другой файл (без описания), прежнее описание остаётся
+          mkdir -p /tmp/tampered && head -c 4096 /dev/urandom > "/tmp/tampered/$name"
+          sudo -E ./scripts/remote.sh push "/tmp/tampered/$name"
           if sudo -E ./scripts/remote.sh verify "$name"; then echo "tampered object accepted"; exit 1; fi
           sudo -E ./scripts/remote.sh push "$BACKUP"
           sudo -E ./scripts/remote.sh verify "$name"
@@ -519,9 +523,11 @@ jobs:
           OFFSITE_ACCESS: ciwebaccesskey
           OFFSITE_SECRET: ciwebsecretkey-0123456789
         run: |
-          docker run -d --name minio-web -p 19001:9000 -e MINIO_ROOT_USER="$OFFSITE_ACCESS" -e MINIO_ROOT_PASSWORD="$OFFSITE_SECRET" minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:19001/minio/health/ready >/dev/null && break; sleep 1; done
-          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c "mc alias set l $OFFSITE_ENDPOINT $OFFSITE_ACCESS $OFFSITE_SECRET && mc mb l/$OFFSITE_BUCKET"
+          MINIO_IMG=quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+          docker pull "$MINIO_IMG" || MINIO_IMG=quay.io/minio/minio:latest
+          mkdir -p "/tmp/minio-web/$OFFSITE_BUCKET"
+          docker run -d --name minio-web -p 19001:9000 -v /tmp/minio-web:/data -e MINIO_ROOT_USER="$OFFSITE_ACCESS" -e MINIO_ROOT_PASSWORD="$OFFSITE_SECRET" "$MINIO_IMG" server /data
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:19001/minio/health/ready >/dev/null && break; sleep 1; done
           bash tests/updater/test-ops.sh "$DATA" "$CFG/arklock.env"
           docker rm -f minio-web || true
       - name: Helper survives a restart
