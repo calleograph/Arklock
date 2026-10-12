@@ -491,6 +491,8 @@ export default {
     secretField: 'secret',
     addField: 'Add field',
     tags: 'Labels',
+    links: 'Related entries',
+    addLink: 'Link',
     expires: 'Expires',
     updated: 'Modified',
     details: 'Details',

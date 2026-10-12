@@ -567,6 +567,7 @@ void router;
         :branch-id="branchSel"
         :vault="vault"
         :branches="ws.branches"
+        @open="(id) => (openId = id)"
         @saved="onSaved"
         @cancel="creating = false"
         @changed="() => (openId = openId)"

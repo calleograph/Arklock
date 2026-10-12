@@ -26,6 +26,8 @@ export interface EntryData {
   passwordChangedAt?: string;
   /** Срок действия пароля/ключа (ISO-дата). */
   expiresAt?: string;
+  /** Связанные записи этого хранилища (идентификаторы). Хранятся внутри зашифрованного содержимого: сервер связей не видит. */
+  links?: string[];
 }
 
 export const blankEntry = (kind: EntryKind = 'login'): EntryData => ({
@@ -54,6 +56,7 @@ export function normalizeEntry(raw: unknown): EntryData {
         }))
       : [],
     tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+    links: Array.isArray(r.links) ? r.links.map(String).slice(0, 50) : [],
   };
 }
 

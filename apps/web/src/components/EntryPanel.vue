@@ -33,6 +33,7 @@ const props = defineProps<{
   branches: BranchItem[];
 }>();
 const emit = defineEmits<{
+  (e: 'open', id: string): void;
   (e: 'saved', item: EntryItem): void;
   (e: 'cancel'): void;
   (e: 'changed'): void;
@@ -326,6 +327,27 @@ async function createLink(): Promise<void> {
   }
 }
 
+/** Связи записей: выбор среди других записей этого хранилища; названия берутся из расшифрованного списка. */
+const linkChoice = ref('');
+const siblings = computed(() =>
+  ws.entries.filter((e) => e.vaultId === props.vault.id && e.id !== props.item?.id && !e.deletedAt),
+);
+const titleOf = (id: string) => ws.entries.find((e) => e.id === id)?.data.title ?? '';
+const linkedEntries = computed(() =>
+  (props.item?.data.links ?? [])
+    .map((id) => ({ id, title: titleOf(id) }))
+    .filter((l) => l.title !== ''),
+);
+function addLink(): void {
+  if (!linkChoice.value) return;
+  const links = new Set(form.value.links ?? []);
+  links.add(linkChoice.value);
+  form.value.links = [...links];
+  linkChoice.value = '';
+}
+const removeLink = (id: string) =>
+  (form.value.links = (form.value.links ?? []).filter((x) => x !== id));
+
 const fmt = (iso: string) => new Date(iso).toLocaleString();
 void api;
 </script>
@@ -443,6 +465,21 @@ void api;
                 {{ copied === 'password' ? t('common.copied') : t('common.copy') }}
               </button>
             </span>
+          </dd>
+        </div>
+        <div v-if="linkedEntries.length" data-testid="links-view">
+          <dt class="text-xs text-slate-500">{{ t('vault.links') }}</dt>
+          <dd class="flex flex-wrap gap-1">
+            <button
+              v-for="l in linkedEntries"
+              :key="l.id"
+              type="button"
+              class="btn"
+              data-testid="link-open"
+              @click="emit('open', l.id)"
+            >
+              🔗 {{ l.title }}
+            </button>
           </dd>
         </div>
         <div v-if="item.data.url">
@@ -796,6 +833,38 @@ void api;
         <button type="button" class="btn" data-testid="btn-add-field" @click="addField">
           {{ t('vault.addField') }}
         </button>
+      </fieldset>
+
+      <fieldset class="space-y-1 text-sm" data-testid="links-editor">
+        <legend class="text-xs text-slate-500">{{ t('vault.links') }}</legend>
+        <div class="flex flex-wrap gap-1">
+          <span v-for="id in form.links ?? []" :key="id" class="badge">
+            {{ titleOf(id) || '…' }}
+            <button
+              type="button"
+              class="ml-1"
+              :aria-label="t('vault.links')"
+              @click="removeLink(id)"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+        <div class="flex gap-2">
+          <select v-model="linkChoice" class="input" data-testid="f-link-select">
+            <option value="">—</option>
+            <option v-for="e in siblings" :key="e.id" :value="e.id">{{ e.data.title }}</option>
+          </select>
+          <button
+            type="button"
+            class="btn"
+            :disabled="!linkChoice"
+            data-testid="btn-add-link"
+            @click="addLink"
+          >
+            {{ t('vault.addLink') }}
+          </button>
+        </div>
       </fieldset>
 
       <div class="grid grid-cols-2 gap-2">

@@ -252,6 +252,7 @@ jobs:
           sudo -E ./scripts/remote.sh verify "$name"
           # многочастная отправка большого файла (части по 5 МиБ — минимум, который требует S3)
           head -c 12000000 /dev/urandom > /tmp/arklock-ci-big.bak.gpg
+          echo "{\"sha256\":\"$(sha256sum /tmp/arklock-ci-big.bak.gpg | cut -d' ' -f1)\"}" > /tmp/arklock-ci-big.bak.gpg.json
           sudo -E env ARKLOCK_REMOTE_PART_MIB=5 ARKLOCK_REMOTE_SINGLE_MAX_MIB=5 ./scripts/remote.sh push /tmp/arklock-ci-big.bak.gpg
           sudo -E ./scripts/remote.sh verify arklock-ci-big.bak.gpg
           sudo -E ./scripts/remote.sh delete arklock-ci-big.bak.gpg

@@ -211,6 +211,17 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('scope-all').click();
   await expect(page.getByTestId('entry-row')).toHaveCount(2);
 
+  // связь записей: в карточке появляется переход к другой записи, он открывает её
+  await page.getByTestId('entry-row').first().click();
+  const firstTitle = await page.getByTestId('view-title').innerText();
+  await page.getByTestId('btn-edit').click();
+  await page.getByTestId('f-link-select').selectOption({ index: 1 });
+  await page.getByTestId('btn-add-link').click();
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('link-open')).toHaveCount(1);
+  await page.getByTestId('link-open').click();
+  await expect(page.getByTestId('view-title')).not.toHaveText(firstTitle);
+
   // массовое перемещение
   await page.getByTestId('select-all').check();
   await page.getByTestId('bulk-target').selectOption({ label: 'Финансы' });

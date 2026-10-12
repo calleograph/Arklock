@@ -112,7 +112,8 @@ function manifestPlugin(): Plugin {
           : {}),
         content_security_policy: {
           extension_pages:
-            "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; base-uri 'none'" +
+            (testHosts.length ? '' : "; frame-ancestors 'none'"),
         },
       };
       writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));

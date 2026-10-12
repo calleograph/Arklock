@@ -71,9 +71,15 @@ async function waitText(id: string, re: RegExp, timeout = 60_000): Promise<strin
 }
 
 test.beforeAll(async () => {
-  site = http.createServer((_req, res) => {
+  site = http.createServer((req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8');
-    res.end(FORM);
+    // /frame — обычная страница с окном расширения во фрейме: WebDriver не управляет страницами moz-extension
+    // верхнего уровня («privileged scope»), но работает с ними внутри фрейма обычной страницы
+    res.end(
+      req.url?.startsWith('/frame')
+        ? `<!doctype html><title>Arklock</title><iframe id="x" style="width:380px;height:760px;border:0" src="${BASE}/popup.html?targetUrl=${encodeURIComponent(`http://127.0.0.1:${sitePort}/login`)}"></iframe>`
+        : FORM,
+    );
   });
   await new Promise<void>((r) => site.listen(0, '127.0.0.1', r));
   sitePort = (site.address() as AddressInfo).port;
@@ -104,16 +110,23 @@ test.afterAll(async () => {
 });
 
 /** Открывает окно расширения вкладкой, привязанной к вкладке с формой. */
+/** Переходит в фрейм с окном расширения текущей вкладки. */
+async function enterFrame(): Promise<void> {
+  const f = await driver.wait(until.elementLocated(By.css('#x')), 30_000);
+  await driver.switchTo().frame(f);
+}
+
 async function openPopup(): Promise<void> {
   await driver.switchTo().newWindow('tab');
-  // WebDriver не открывает адреса moz-extension:// напрямую, а страница — открывает (окно расширения объявлено
-  // доступным для страниц только в проверочной сборке)
-  await driver.get(`http://127.0.0.1:${sitePort}/blank`);
-  await driver.executeScript(
-    'location.href = arguments[0]',
-    `${BASE}/popup.html?targetUrl=${encodeURIComponent(`http://127.0.0.1:${sitePort}/login`)}`,
-  );
-  await driver.wait(until.urlContains('moz-extension://'), 30_000);
+  await driver.get(`http://127.0.0.1:${sitePort}/frame`);
+  await enterFrame();
+}
+
+/** Возврат из вкладки с формой в окно расширения. */
+async function backToPopup(handle: string): Promise<void> {
+  await driver.switchTo().window(handle);
+  await driver.switchTo().defaultContent();
+  await enterFrame();
 }
 
 async function signInPopup(): Promise<void> {
@@ -208,7 +221,7 @@ test('Firefox: sign-in, search, create, fill, TOTP, generator, edit, lock and en
   expect(await (await driver.findElement(By.css('#p'))).getAttribute('value')).toBe(
     'Ext-Secret-4242!',
   );
-  await driver.switchTo().window(popupHandle);
+  await backToPopup(popupHandle);
 
   // TOTP
   await (await first.findElement(css('totp'))).click();
@@ -219,7 +232,7 @@ test('Firefox: sign-in, search, create, fill, TOTP, generator, edit, lock and en
   await driver.executeScript(
     "document.getElementById('u').value=''; document.getElementById('p').value='';",
   );
-  await driver.switchTo().window(popupHandle);
+  await backToPopup(popupHandle);
   const second = (await driver.findElements(css('entry')))[1];
   await (await second.findElement(css('fill'))).click();
   const alert = await driver.wait(until.alertIsPresent(), 15_000);
@@ -227,14 +240,16 @@ test('Firefox: sign-in, search, create, fill, TOTP, generator, edit, lock and en
   await alert.dismiss();
   await driver.switchTo().window(formHandle);
   expect(await (await driver.findElement(By.css('#p'))).getAttribute('value')).toBe('');
-  await driver.switchTo().window(popupHandle);
+  await backToPopup(popupHandle);
 
   // генератор
   await click('generate');
   expect((await textOf('gen-password')).length).toBe(20);
 
   // изменение записи в расширении
+  await driver.switchTo().defaultContent();
   await driver.navigate().refresh();
+  await enterFrame();
   await shown('entry');
   const entries = await driver.findElements(css('entry'));
   await (await entries[0].findElement(css('edit'))).click();

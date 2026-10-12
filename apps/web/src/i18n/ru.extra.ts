@@ -496,6 +496,8 @@ export default {
     secretField: 'секрет',
     addField: 'Добавить поле',
     tags: 'Метки',
+    links: 'Связанные записи',
+    addLink: 'Связать',
     expires: 'Срок действия',
     updated: 'Изменено',
     details: 'Данные',
