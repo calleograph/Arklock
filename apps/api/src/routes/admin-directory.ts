@@ -20,6 +20,8 @@ const SETTINGS: Record<string, z.ZodType> = {
   'storage.attachmentMaxMiB': z.number().int().min(0).max(512),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
   'notifications.security': z.boolean(),
+  'policy.password.minLength': z.number().int().min(0).max(128),
+  'policy.password.classes': z.number().int().min(0).max(4),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
@@ -31,6 +33,8 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'storage.attachmentMaxMiB': 25,
   'storage.vaultQuotaMiB': 0,
   'notifications.security': true,
+  'policy.password.minLength': 0,
+  'policy.password.classes': 0,
 };
 
 /** Пользователи, круги, настройки и журнал — только для администратора. */

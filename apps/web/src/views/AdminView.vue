@@ -444,6 +444,38 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
           </select></label
         >
         <label class="flex items-center justify-between gap-3"
+          >{{ t('policy.minLength')
+          }}<input
+            :value="settings['policy.password.minLength']"
+            type="number"
+            min="0"
+            max="128"
+            class="input w-24"
+            data-testid="set-minlen"
+            @change="
+              saveSetting(
+                'policy.password.minLength',
+                Number(($event.target as HTMLInputElement).value),
+              )
+            "
+        /></label>
+        <label class="flex items-center justify-between gap-3"
+          >{{ t('policy.classesLabel')
+          }}<input
+            :value="settings['policy.password.classes']"
+            type="number"
+            min="0"
+            max="4"
+            class="input w-24"
+            data-testid="set-classes"
+            @change="
+              saveSetting(
+                'policy.password.classes',
+                Number(($event.target as HTMLInputElement).value),
+              )
+            "
+        /></label>
+        <label class="flex items-center justify-between gap-3"
           >{{ t('invite.notify')
           }}<input
             type="checkbox"

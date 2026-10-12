@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { findInRange, sha1Hex } from '@arklock/crypto';
 import { api, ApiError } from '../services/api';
 import { inspect, type Issue } from '../services/inspector';
+import { NO_POLICY, policyFrom, type PasswordPolicy } from '../services/policy';
 import { useWorkspaceStore } from '../stores/workspace';
 
 const { t } = useI18n();
@@ -12,6 +13,7 @@ const ws = useWorkspaceStore();
 const router = useRouter();
 
 const maxAge = ref(365);
+const orgPolicy = ref<PasswordPolicy>(NO_POLICY);
 const issues = ref<Issue[]>([]);
 const checked = ref(false);
 const breachProgress = ref<{ done: number; total: number } | null>(null);
@@ -33,7 +35,10 @@ const score = computed(() => {
 
 function analyze(): void {
   const keepCompromised = issues.value.filter((i) => i.type === 'compromised');
-  issues.value = [...inspect(ws.entries, { maxAgeDays: maxAge.value }), ...keepCompromised];
+  issues.value = [
+    ...inspect(ws.entries, { maxAgeDays: maxAge.value, policy: orgPolicy.value }),
+    ...keepCompromised,
+  ];
   checked.value = true;
 }
 
@@ -43,6 +48,7 @@ onMounted(async () => {
   );
   if (typeof policy['security.passwordMaxAgeDays'] === 'number')
     maxAge.value = policy['security.passwordMaxAgeDays'] as number;
+  orgPolicy.value = policyFrom(policy);
   if (!ws.vaults.length) await ws.loadVaults();
   if (ws.current?.unlocked && !ws.entries.length) await ws.loadTree();
   analyze();
@@ -119,13 +125,13 @@ async function report(): Promise<void> {
     </div>
     <p class="text-sm text-slate-500">{{ t('inspector.privacy') }}</p>
 
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-5" data-testid="inspector-summary">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="inspector-summary">
       <div class="card p-3 text-center">
         <div class="text-2xl font-semibold" data-testid="score">{{ score }}%</div>
         <div class="text-xs text-slate-500">{{ t('inspector.score') }}</div>
       </div>
       <div
-        v-for="type in ['weak', 'reused', 'old', 'expired', 'compromised']"
+        v-for="type in ['weak', 'reused', 'old', 'expired', 'compromised', 'policy']"
         :key="type"
         class="card p-3 text-center"
       >

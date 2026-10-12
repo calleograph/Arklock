@@ -1,7 +1,8 @@
 import { estimateStrength } from '@arklock/crypto';
 import type { EntryItem } from './model';
+import { checkPolicy, NO_POLICY, type PasswordPolicy } from './policy';
 
-export type IssueType = 'weak' | 'reused' | 'old' | 'expired' | 'compromised';
+export type IssueType = 'weak' | 'reused' | 'old' | 'expired' | 'compromised' | 'policy';
 
 export interface Issue {
   entryId: string;
@@ -14,6 +15,8 @@ export interface InspectOptions {
   /** Максимальный возраст пароля, дней (0 — не проверять). */
   maxAgeDays: number;
   now?: Date;
+  /** Политика паролей организации: записи, ей не соответствующие, помечаются. */
+  policy?: PasswordPolicy;
 }
 
 /** Локальный анализ паролей. Пароли и их хэши никуда не отправляются. */
@@ -29,6 +32,8 @@ export function inspect(entries: EntryItem[], o: InspectOptions): Issue[] {
   for (const e of entries) {
     const d = e.data;
     if (d.kind === 'note') continue;
+    if (d.password && checkPolicy(d.password, o.policy ?? NO_POLICY).length)
+      issues.push({ entryId: e.id, type: 'policy' });
     if (d.password && estimateStrength(d.password).score < 2)
       issues.push({ entryId: e.id, type: 'weak' });
     const same = d.password ? byPassword.get(d.password) : undefined;

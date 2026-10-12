@@ -210,6 +210,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
       'security.mfaRequired': get('security.mfaRequired', 'off'),
+      'policy.password.minLength': get('policy.password.minLength', 0),
+      'policy.password.classes': get('policy.password.classes', 0),
       'storage.enabled': config.BLOB_DIR !== '',
       'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 25),
     };

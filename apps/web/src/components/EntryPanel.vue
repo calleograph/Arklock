@@ -20,6 +20,7 @@ import {
 import { useWorkspaceStore } from '../stores/workspace';
 import { errorMessage } from '../services/helpers';
 import { api } from '../services/api';
+import { NO_POLICY, checkPolicy, policyFrom, type PasswordPolicy } from '../services/policy';
 import type { VaultView } from '../stores/workspace';
 
 const props = defineProps<{
@@ -118,9 +119,17 @@ async function copy(label: string, value: string): Promise<void> {
   }
 }
 
+// ---- политика паролей организации
+const policy = ref<PasswordPolicy>(NO_POLICY);
+void api<Record<string, unknown>>('GET', '/auth/policy')
+  .then((p) => (policy.value = policyFrom(p)))
+  .catch(() => undefined);
+
 function generate(kind: 'password' | 'phrase'): void {
   form.value.password =
-    kind === 'password' ? generatePassword({ length: 20 }) : generatePassphrase({ words: 5 });
+    kind === 'password'
+      ? generatePassword({ length: Math.max(20, policy.value.minLength) })
+      : generatePassphrase({ words: Math.max(5, Math.ceil(policy.value.minLength / 8)) });
   showPw.value = true;
 }
 
@@ -133,6 +142,17 @@ async function save(): Promise<void> {
   if (!form.value.title.trim()) {
     error.value = t('vault.titleRequired');
     return;
+  }
+  if (form.value.password && form.value.kind !== 'note') {
+    const bad = checkPolicy(form.value.password, policy.value);
+    if (bad.length) {
+      error.value = bad
+        .map((b) =>
+          t(`policy.${b}`, { n: b === 'length' ? policy.value.minLength : policy.value.classes }),
+        )
+        .join(' ');
+      return;
+    }
   }
   if (form.value.totp) {
     try {

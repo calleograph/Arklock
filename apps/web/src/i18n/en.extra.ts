@@ -278,6 +278,13 @@ export default {
     badLink: 'The invitation link is invalid, already used or expired.',
     notify: 'Notify users about security events by e-mail',
   },
+  policy: {
+    length: 'The password is shorter than required: at least {n} characters.',
+    classes:
+      'The password must contain at least {n} kinds of characters (lower, upper, digits, other).',
+    minLength: 'Minimum password length (0 = no requirement)',
+    classesLabel: 'Required character kinds (0–4)',
+  },
   nav: { admin: 'Administration' },
   kind: {
     login: 'Login',
@@ -295,6 +302,7 @@ export default {
   },
   grant: { reader: 'Read', editor: 'Edit', manager: 'Manage access' },
   issue: {
+    policy: 'Violate the password policy',
     weak: 'Weak passwords',
     reused: 'Reused passwords',
     old: 'Old passwords',
