@@ -8,6 +8,8 @@ git clone -q --no-hardlinks "$SRC" "$WORK/w"
 cd "$WORK/w"
 git config user.name ci; git config user.email ci@example.com
 git checkout -q --detach HEAD
+# Теги рабочей копии (например, опубликованный v1.0.0) не должны попасть во фикстуру: updater выбирает наибольший тег.
+git tag -l | xargs -r git tag -d >/dev/null
 J=apps/api/drizzle/meta/_journal.json
 echo 0.0.1 > VERSION; git add -A; git commit -q -m "release 0.0.1"; git tag v0.0.1
 idx="$(grep -c '"tag"' "$J")"
