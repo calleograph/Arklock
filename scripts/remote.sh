@@ -369,7 +369,7 @@ smb_prepare() {
   } > "$SMB_AUTH"
 }
 smb_run() { # smb_run КОМАНДЫ — выполняет команды smbclient в общей папке; вывод — в stdout
-  local enc=(); [ "${R[encrypt]:-1}" = 1 ] && enc=(-e)
+  local enc=(); [ "${R[encrypt]:-1}" = 1 ] && enc=(--client-protection=encrypt)
   smbclient "//${R[host]}/${R[share]}" -A "$SMB_AUTH" -p "${R[port]:-445}" -m SMB3 "${enc[@]}" -c "$1" 2>&1
 }
 smb_dir() { printf '%s' "${R[prefix]:-}"; }

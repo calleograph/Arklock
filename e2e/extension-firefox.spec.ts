@@ -24,7 +24,7 @@ const USER = {
 };
 const GECKO_ID = 'arklock@example.com';
 const UUID = '5b1d6a53-1c2c-4b43-9a4d-4e7a8c0b9f01';
-const BASE = `moz-extension://${UUID}`;
+let BASE = `moz-extension://${UUID}`;
 const EXT = path.resolve('apps', 'extension', 'dist-firefox');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,6 +101,16 @@ test.beforeAll(async () => {
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [GECKO_ID]: UUID }));
   driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options).build();
   await driver.installAddon(zip, true);
+  // действительный адрес расширения берётся из настроек браузера (запрошенное соответствие могло не примениться)
+  await driver.setContext(firefox.Context.CHROME);
+  const uuids = JSON.parse(
+    await driver.executeScript(
+      "return Services.prefs.getStringPref('extensions.webextensions.uuids', '{}')",
+    ),
+  ) as Record<string, string>;
+  await driver.setContext(firefox.Context.CONTENT);
+  BASE = `moz-extension://${uuids[GECKO_ID] ?? UUID}`;
+  console.log('extension address:', BASE);
 });
 
 test.afterAll(async () => {
@@ -114,6 +124,14 @@ test.afterAll(async () => {
 async function enterFrame(): Promise<void> {
   const f = await driver.wait(until.elementLocated(By.css('#x')), 30_000);
   await driver.switchTo().frame(f);
+  try {
+    await driver.wait(until.elementLocated(css('server')), 20_000).catch(async () => {
+      // диагностика: что именно загрузилось во фрейме
+      console.log('frame source:', (await driver.getPageSource()).slice(0, 1500));
+    });
+  } catch {
+    /* дальше сработает обычное ожидание с понятной ошибкой */
+  }
 }
 
 async function openPopup(): Promise<void> {
