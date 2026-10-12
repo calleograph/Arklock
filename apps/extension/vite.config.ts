@@ -123,6 +123,9 @@ function manifestPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [manifestPlugin()],
+  // Проверочная сборка (EXT_TEST_HOSTS): окно расширения открывается во фрейме обычной страницы, где Firefox не даёт
+  // storage.session и alarms; для проверок используется запасная область. В боевой сборке константа ложна и код удаляется.
+  define: { __TEST_BUILD__: JSON.stringify(!!process.env.EXT_TEST_HOSTS) },
   base: './',
   build: {
     outDir: OUT_DIR,

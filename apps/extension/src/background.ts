@@ -7,4 +7,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // storage.session по умолчанию недоступно контент-скриптам: расширение не раздаёт ключи страницам.
 // В Firefox метода нет, а область session и так доступна только страницам расширения.
-void chrome.storage.session.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
+void chrome.storage.session?.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });

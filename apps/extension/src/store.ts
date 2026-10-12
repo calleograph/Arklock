@@ -15,6 +15,30 @@ interface Unlocked {
   vaults: { info: VaultInfo; keyB64: string | null; problem?: string }[];
 }
 
+declare const __TEST_BUILD__: boolean;
+
+/**
+ * Область сессии. В проверочной сборке при отсутствии storage.session используется sessionStorage вкладки;
+ * в боевой сборке (__TEST_BUILD__ === false) ветка удаляется, поведение не меняется.
+ */
+const sessionArea = (): Pick<chrome.storage.StorageArea, 'get' | 'set' | 'remove'> => {
+  if (__TEST_BUILD__ && !chrome.storage.session) {
+    return {
+      get: async (k: string) => {
+        const v = sessionStorage.getItem(k);
+        return v === null ? {} : { [k]: JSON.parse(v) };
+      },
+      set: async (o: Record<string, unknown>) => {
+        for (const [k, v] of Object.entries(o)) sessionStorage.setItem(k, JSON.stringify(v));
+      },
+      remove: async (k: string) => sessionStorage.removeItem(k),
+    } as never;
+  }
+  return chrome.storage.session;
+};
+
+const alarms = () => chrome.alarms as typeof chrome.alarms | undefined;
+
 const SESSION_KEY = 'unlocked';
 export const LOCK_ALARM = 'arklock-autolock';
 
@@ -29,11 +53,11 @@ export const saveUnlocked = async (o: Opened, server: string, token: string): Pr
       problem: v.problem,
     })),
   };
-  await chrome.storage.session.set({ [SESSION_KEY]: data });
+  await sessionArea().set({ [SESSION_KEY]: data });
 };
 
 export async function loadUnlocked(): Promise<Opened | null> {
-  const got = (await chrome.storage.session.get(SESSION_KEY))[SESSION_KEY] as Unlocked | undefined;
+  const got = (await sessionArea().get(SESSION_KEY))[SESSION_KEY] as Unlocked | undefined;
   if (!got) return null;
   return {
     api: new Api({ server: got.server, token: got.token }),
@@ -48,8 +72,8 @@ export async function loadUnlocked(): Promise<Opened | null> {
 }
 
 export async function lock(): Promise<void> {
-  await chrome.storage.session.remove(SESSION_KEY);
-  await chrome.alarms.clear(LOCK_ALARM);
+  await sessionArea().remove(SESSION_KEY);
+  await alarms()?.clear(LOCK_ALARM);
 }
 
 export interface Prefs {
@@ -65,5 +89,5 @@ export const savePrefs = (p: Prefs) => chrome.storage.local.set({ prefs: p });
 
 /** Продлевает таймер автоблокировки при активности. */
 export async function touch(minutes: number): Promise<void> {
-  await chrome.alarms.create(LOCK_ALARM, { delayInMinutes: Math.max(1, minutes) });
+  await alarms()?.create(LOCK_ALARM, { delayInMinutes: Math.max(1, minutes) });
 }
