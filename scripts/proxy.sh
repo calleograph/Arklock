@@ -210,8 +210,9 @@ cmd_setup() {
   [ "$MODE" != letsencrypt ] || need_pkgs certbot
   command -v nginx >/dev/null 2>&1 || die "Nginx не установлен"
   local port="${APP_PORT:-8080}" tmp cert key
-  tmp="$(mktemp)"
-  trap 'rm -f "$tmp"' EXIT
+  # переменная глобальная: ловушка выхода срабатывает уже после выхода из функции
+  PROXY_TMP="$(mktemp)"; tmp="$PROXY_TMP"
+  trap 'rm -f "${PROXY_TMP:-}"' EXIT
 
   case "$MODE" in
     self-signed)

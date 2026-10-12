@@ -45,7 +45,16 @@ const FORM = `<!doctype html><title>Sign in</title>
 </form>`;
 
 const css = (id: string) => By.css(`[data-testid="${id}"]`);
-const find = (id: string, timeout = 60_000) => driver.wait(until.elementLocated(css(id)), timeout);
+const find = async (id: string, timeout = 60_000) => {
+  try {
+    return await driver.wait(until.elementLocated(css(id)), timeout);
+  } catch (e) {
+    const seen = await driver
+      .executeScript('return document.body.innerText.slice(0, 600)')
+      .catch(() => '');
+    throw new Error(`элемент ${id} не появился; окно: ${seen}; ${(e as Error).message}`);
+  }
+};
 const shown = async (id: string, timeout = 60_000) => {
   const e = await find(id, timeout);
   await driver.wait(until.elementIsVisible(e), timeout);
@@ -62,11 +71,21 @@ const count = async (id: string) => (await driver.findElements(css(id))).length;
 /** Ждёт, пока текст элемента будет удовлетворять условию. */
 async function waitText(id: string, re: RegExp, timeout = 60_000): Promise<string> {
   let last = '';
-  await driver.wait(async () => {
-    const els = await driver.findElements(css(id));
-    last = els.length ? await els[0].getText() : '';
-    return re.test(last);
-  }, timeout);
+  try {
+    await driver.wait(async () => {
+      const els = await driver.findElements(css(id));
+      last = els.length ? await els[0].getText() : '';
+      return re.test(last);
+    }, timeout);
+  } catch (e) {
+    // что показывало окно на самом деле (в первую очередь видимое сообщение об ошибке)
+    const shown = await driver
+      .executeScript('return document.body.innerText.slice(0, 600)')
+      .catch(() => '');
+    throw new Error(
+      `${id}: ожидалось ${re}, получено «${last}»; окно: ${shown}; ${(e as Error).message}`,
+    );
+  }
   return last;
 }
 
