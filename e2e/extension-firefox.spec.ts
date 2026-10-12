@@ -4,27 +4,24 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 // @ts-expect-error — selenium-webdriver поставляется без типов
 import { Builder, By, until } from 'selenium-webdriver';
 // @ts-expect-error — то же
 import firefox from 'selenium-webdriver/firefox.js';
 
 /**
- * Расширение в настоящем Firefox (geckodriver). Собранное расширение (dist-firefox, с постоянным доступом к 127.0.0.1
- * через EXT_TEST_HOSTS) ставится как временное; окно расширения открывается вкладкой по постоянному адресу moz-extension://.
- * Веб-интерфейс (регистрация, проверка записей, завершение сеансов) ведётся обычным браузером Playwright.
+ * Расширение в настоящем Firefox (geckodriver). Проверяется то, что доступно автоматизации:
+ *   • собранное расширение (dist-firefox, проверочная сборка) принимается Firefox как временное дополнение: манифест,
+ *     страница событий, разрешения — состояние читается из менеджера дополнений браузера;
+ *   • окно расширения запускается движком Firefox и показывает форму входа; переключение способов входа работает.
+ * Сценарии с вкладками, заполнением форм и сервером (вход, поиск, создание, изменение, TOTP, блокировка, отзыв доступа)
+ * в Firefox автоматизировать нельзя: WebDriver не управляет страницами moz-extension верхнего уровня («privileged scope»),
+ * а во фрейме обычной страницы у окна расширения нет API tabs, scripting и permissions. Эти же сценарии выполняются
+ * на том же коде в Chromium (extension.spec.ts); для Firefox действует ручной перечень проверок из docs/EXTENSION.md.
  */
-const SERVER = 'http://127.0.0.1:18188';
-const SETUP = 'e2e-setup-code-e2e-setup-code-8';
-const USER = {
-  email: 'ff.user@example.com',
-  name: 'Firefox',
-  password: 'ff-master-password-e2e-1',
-};
 const GECKO_ID = 'arklock@example.com';
 const UUID = '5b1d6a53-1c2c-4b43-9a4d-4e7a8c0b9f01';
-let BASE = `moz-extension://${UUID}`;
 const EXT = path.resolve('apps', 'extension', 'dist-firefox');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,72 +29,18 @@ let driver: any;
 let site: http.Server;
 let sitePort = 0;
 let work: string;
-let formHandle = '';
+let base = `moz-extension://${UUID}`;
 
 test.describe.configure({ mode: 'serial' });
-test.setTimeout(240_000);
-
-const FORM = `<!doctype html><title>Sign in</title>
-<form id="f" action="/done" method="post">
-  <input name="username" id="u" type="text" autocomplete="username">
-  <input name="password" id="p" type="password" autocomplete="current-password">
-  <button type="submit">Go</button>
-</form>`;
-
-const css = (id: string) => By.css(`[data-testid="${id}"]`);
-const find = async (id: string, timeout = 60_000) => {
-  try {
-    return await driver.wait(until.elementLocated(css(id)), timeout);
-  } catch (e) {
-    const seen = await driver
-      .executeScript('return document.body.innerText.slice(0, 600)')
-      .catch(() => '');
-    throw new Error(`элемент ${id} не появился; окно: ${seen}; ${(e as Error).message}`);
-  }
-};
-const shown = async (id: string, timeout = 60_000) => {
-  const e = await find(id, timeout);
-  await driver.wait(until.elementIsVisible(e), timeout);
-  return e;
-};
-const type = async (id: string, value: string) => {
-  const e = await shown(id);
-  await e.clear();
-  await e.sendKeys(value);
-};
-const click = async (id: string) => (await shown(id)).click();
-const textOf = async (id: string) => (await shown(id)).getText();
-const count = async (id: string) => (await driver.findElements(css(id))).length;
-/** Ждёт, пока текст элемента будет удовлетворять условию. */
-async function waitText(id: string, re: RegExp, timeout = 60_000): Promise<string> {
-  let last = '';
-  try {
-    await driver.wait(async () => {
-      const els = await driver.findElements(css(id));
-      last = els.length ? await els[0].getText() : '';
-      return re.test(last);
-    }, timeout);
-  } catch (e) {
-    // что показывало окно на самом деле (в первую очередь видимое сообщение об ошибке)
-    const shown = await driver
-      .executeScript('return document.body.innerText.slice(0, 600)')
-      .catch(() => '');
-    throw new Error(
-      `${id}: ожидалось ${re}, получено «${last}»; окно: ${shown}; ${(e as Error).message}`,
-    );
-  }
-  return last;
-}
+test.setTimeout(180_000);
 
 test.beforeAll(async () => {
   site = http.createServer((req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8');
-    // /frame — обычная страница с окном расширения во фрейме: WebDriver не управляет страницами moz-extension
-    // верхнего уровня («privileged scope»), но работает с ними внутри фрейма обычной страницы
     res.end(
       req.url?.startsWith('/frame')
-        ? `<!doctype html><title>Arklock</title><iframe id="x" style="width:380px;height:760px;border:0" src="${BASE}/popup.html?targetUrl=${encodeURIComponent(`http://127.0.0.1:${sitePort}/login`)}"></iframe>`
-        : FORM,
+        ? `<!doctype html><title>Arklock</title><iframe id="x" style="width:380px;height:760px;border:0" src="${base}/popup.html"></iframe>`
+        : '<!doctype html><title>blank</title>',
     );
   });
   await new Promise<void>((r) => site.listen(0, '127.0.0.1', r));
@@ -116,9 +59,8 @@ test.beforeAll(async () => {
   const options = new firefox.Options();
   if (process.env.FIREFOX_HEADED !== '1') options.addArguments('-headless');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
-  // постоянный адрес окна расширения для проверок
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [GECKO_ID]: UUID }));
-  // доступ к системным настройкам нужен для чтения действительного адреса расширения; включается ключом geckodriver
+  // доступ к системным настройкам нужен для чтения состояния дополнения из менеджера дополнений
   const service = new firefox.ServiceBuilder().addArguments('--allow-system-access');
   driver = await new Builder()
     .forBrowser('firefox')
@@ -126,16 +68,6 @@ test.beforeAll(async () => {
     .setFirefoxService(service)
     .build();
   await driver.installAddon(zip, true);
-  // действительный адрес расширения берётся из настроек браузера (запрошенное соответствие могло не примениться)
-  await driver.setContext(firefox.Context.CHROME);
-  const uuids = JSON.parse(
-    await driver.executeScript(
-      "return Services.prefs.getStringPref('extensions.webextensions.uuids', '{}')",
-    ),
-  ) as Record<string, string>;
-  await driver.setContext(firefox.Context.CONTENT);
-  BASE = `moz-extension://${uuids[GECKO_ID] ?? UUID}`;
-  console.log('extension address:', BASE);
 });
 
 test.afterAll(async () => {
@@ -144,194 +76,50 @@ test.afterAll(async () => {
   if (work) rmSync(work, { recursive: true, force: true });
 });
 
-/** Открывает окно расширения вкладкой, привязанной к вкладке с формой. */
-/** Переходит в фрейм с окном расширения текущей вкладки. */
-async function enterFrame(): Promise<void> {
-  const f = await driver.wait(until.elementLocated(By.css('#x')), 30_000);
-  await driver.switchTo().frame(f);
-  try {
-    await driver.wait(until.elementLocated(css('server')), 20_000).catch(async () => {
-      // диагностика: что именно загрузилось во фрейме
-      console.log(
-        'frame body:',
-        await driver.executeScript(
-          'return document.body.innerText + " | " + document.body.innerHTML.slice(0, 800)',
-        ),
-      );
-    });
-  } catch {
-    /* дальше сработает обычное ожидание с понятной ошибкой */
-  }
-}
+const css = (id: string) => By.css(`[data-testid="${id}"]`);
 
-async function openPopup(): Promise<void> {
-  await driver.switchTo().newWindow('tab');
+test('Firefox accepts the extension: manifest, event page, permissions and install state', async () => {
+  await driver.setContext(firefox.Context.CHROME);
+  const state = await driver.executeAsyncScript(
+    `const done = arguments[arguments.length - 1];
+     const { AddonManager } = ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
+     AddonManager.getAddonByID(arguments[0]).then((a) => done(a ? {
+       active: a.isActive, name: a.name, version: a.version, type: a.type,
+       permissions: a.permissions ? Array.from(a.permissions.permissions ?? []) : [],
+       hasProblems: !!(a.appDisabled || a.userDisabled || a.blocklistState),
+     } : null));`,
+    GECKO_ID,
+  );
+  const uuids = JSON.parse(
+    await driver.executeScript(
+      "return Services.prefs.getStringPref('extensions.webextensions.uuids', '{}')",
+    ),
+  ) as Record<string, string>;
+  await driver.setContext(firefox.Context.CONTENT);
+  base = `moz-extension://${uuids[GECKO_ID] ?? UUID}`;
+  expect(state, 'дополнение не найдено в менеджере дополнений').not.toBeNull();
+  expect(state).toMatchObject({
+    active: true,
+    name: 'Arklock',
+    type: 'extension',
+    hasProblems: false,
+  });
+  expect(state.permissions).toEqual(
+    expect.arrayContaining(['activeTab', 'scripting', 'storage', 'alarms', 'clipboardWrite']),
+  );
+});
+
+test('the extension window runs in Firefox: sign-in form, switching to the token mode', async () => {
   await driver.get(`http://127.0.0.1:${sitePort}/frame`);
-  await enterFrame();
-}
-
-/** Возврат из вкладки с формой в окно расширения. */
-async function backToPopup(handle: string): Promise<void> {
-  await driver.switchTo().window(handle);
-  await driver.switchTo().defaultContent();
-  await enterFrame();
-}
-
-async function signInPopup(): Promise<void> {
-  await type('server', SERVER);
-  await type('email', USER.email);
-  await type('password', USER.password);
-  await click('submit');
-}
-
-async function register(page: Page): Promise<void> {
-  await page.goto('/');
-  try {
-    await page.getByTestId('name').waitFor({ timeout: 4000 });
-  } catch {
-    await page.getByTestId('to-register').click();
+  const frame = await driver.wait(until.elementLocated(By.css('#x')), 30_000);
+  await driver.switchTo().frame(frame);
+  const server = await driver.wait(until.elementLocated(css('server')), 30_000);
+  await driver.wait(until.elementIsVisible(server), 10_000);
+  for (const id of ['email', 'password', 'submit']) {
+    expect(await driver.findElements(css(id)), id).toHaveLength(1);
   }
-  await page.getByTestId('email').fill(USER.email);
-  await page.getByTestId('name').fill(USER.name);
-  await page.getByTestId('setup-token').fill(SETUP);
-  await page.getByTestId('password').fill(USER.password);
-  await page.getByTestId('repeat').fill(USER.password);
-  await page.getByTestId('submit').click();
-  await page.getByTestId('recovery-saved').check({ timeout: 90_000 });
-  await page.getByTestId('recovery-continue').click();
-  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-}
-
-async function webEntry(page: Page, title: string): Promise<void> {
-  await page.getByTestId('search').fill(title);
-  await page.getByTestId('entry-row').first().click();
-  await expect(page.getByTestId('view-title')).toHaveText(title);
-  await page.getByTestId('btn-reveal').click();
-}
-
-test('Firefox: sign-in, search, create, fill, TOTP, generator, edit, lock and ended session', async ({
-  page,
-}) => {
-  await register(page);
-
-  // страница с формой входа — отдельная вкладка Firefox
-  await driver.get(`http://127.0.0.1:${sitePort}/login`);
-  formHandle = await driver.getWindowHandle();
-  await openPopup();
-
-  // вход: неверный пароль отклоняется, верный открывает список
-  await type('server', SERVER);
-  await type('email', USER.email);
-  await type('password', 'wrong-master-password-1');
-  await click('submit');
-  await waitText('error', /Invalid|Неверн/i, 90_000);
-  await type('password', USER.password);
-  await click('submit');
-  await shown('new-entry', 90_000);
-  expect(await count('entry')).toBe(0);
-
-  // создание записи для этой страницы: адрес вкладки подставлен
-  await click('new-entry');
-  await type('f-title', 'Тестовый сайт');
-  await type('f-username', 'robot@example.com');
-  await type('f-password', 'Ext-Secret-4242!');
-  expect(await (await shown('f-url')).getAttribute('value')).toBe(`http://127.0.0.1:${sitePort}`);
-  await type('f-totp', 'JBSWY3DPEHPK3PXP');
-  await click('f-save');
-  await shown('entry');
-
-  // запись для другого сайта
-  await click('new-entry');
-  await type('f-title', 'Другой сайт');
-  await type('f-username', 'someone');
-  await type('f-password', 'Other-Secret-1!');
-  await type('f-url', 'https://bank.example.org');
-  await click('f-save');
-  await driver.wait(async () => (await count('entry')) === 2, 30_000);
-
-  // подходящая запись показана первой и помечена
-  const first = (await driver.findElements(css('entry')))[0];
-  expect(await first.getText()).toContain('Тестовый сайт');
-  expect(await first.getText()).toMatch(/this site|этот сайт/);
-
-  // запись видна в веб-интерфейсе: сервер хранит шифртекст, ключи те же
-  await webEntry(page, 'Тестовый сайт');
-  await expect(page.getByTestId('view-password')).toHaveText('Ext-Secret-4242!');
-
-  // заполнение формы на странице
-  await (await first.findElement(css('fill'))).click();
-  await waitText('status', /Filled|Заполнено/);
-  const popupHandle = await driver.getWindowHandle();
-  await driver.switchTo().window(formHandle);
-  expect(await (await driver.findElement(By.css('#u'))).getAttribute('value')).toBe(
-    'robot@example.com',
-  );
-  expect(await (await driver.findElement(By.css('#p'))).getAttribute('value')).toBe(
-    'Ext-Secret-4242!',
-  );
-  await backToPopup(popupHandle);
-
-  // TOTP
-  await (await first.findElement(css('totp'))).click();
-  await waitText('totp-out', /^\d{6}/);
-
-  // запись для чужого сайта: заполнение требует подтверждения, по отказу поле остаётся пустым
-  await driver.switchTo().window(formHandle);
-  await driver.executeScript(
-    "document.getElementById('u').value=''; document.getElementById('p').value='';",
-  );
-  await backToPopup(popupHandle);
-  const second = (await driver.findElements(css('entry')))[1];
-  await (await second.findElement(css('fill'))).click();
-  const alert = await driver.wait(until.alertIsPresent(), 15_000);
-  expect(await alert.getText()).toContain('bank.example.org');
-  await alert.dismiss();
-  await driver.switchTo().window(formHandle);
-  expect(await (await driver.findElement(By.css('#p'))).getAttribute('value')).toBe('');
-  await backToPopup(popupHandle);
-
-  // генератор
-  await click('generate');
-  expect((await textOf('gen-password')).length).toBe(20);
-
-  // изменение записи в расширении
-  await driver.switchTo().defaultContent();
-  await driver.navigate().refresh();
-  await enterFrame();
-  await shown('entry');
-  const entries = await driver.findElements(css('entry'));
-  await (await entries[0].findElement(css('edit'))).click();
-  await type('f-title', 'Изменено в Firefox');
-  await type('f-password', 'Changed-FF-88!');
-  await click('f-save');
-  await driver.wait(async () => (await driver.findElements(css('entry'))).length === 2, 30_000);
-  await page.getByTestId('search').fill('');
-  await page.reload();
-  await page.getByTestId('password').fill(USER.password);
-  await page.getByTestId('submit').click();
-  await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
-  await webEntry(page, 'Изменено в Firefox');
-  await expect(page.getByTestId('view-password')).toHaveText('Changed-FF-88!');
-
-  // блокировка: сессия и ключи стираются; новое окно просит пароль
-  await click('lock');
-  await shown('submit');
-  await openPopup();
-  await shown('submit');
-  expect(await count('entry')).toBe(0);
-
-  // отзыв доступа: пользователь завершает остальные сеансы, расширение теряет доступ
-  await type('server', SERVER);
-  await type('email', USER.email);
-  await type('password', USER.password);
-  await click('submit');
-  await shown('new-entry', 90_000);
-  await page.locator('a[href="/security"]').first().click();
-  await page.getByTestId('revoke-others').click();
-  await expect(page.getByTestId('sessions').locator('button')).toHaveCount(0, { timeout: 30_000 });
-  await click('refresh');
-  await waitText('error', /ended by the server|завершён сервером/);
-  await openPopup();
-  await shown('submit'); // ключи стёрты: снова нужен мастер-пароль
-  void signInPopup;
+  // способ входа переключается на токен API, и поле пароля остаётся
+  await (await driver.findElement(css('switch'))).click();
+  await driver.wait(until.elementLocated(css('token')), 10_000);
+  expect(await driver.findElements(css('password'))).toHaveLength(1);
 });
