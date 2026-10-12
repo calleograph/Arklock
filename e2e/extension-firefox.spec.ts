@@ -85,7 +85,7 @@ test('Firefox accepts the extension: manifest, event page, permissions and insta
      const { AddonManager } = ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
      AddonManager.getAddonByID(arguments[0]).then((a) => done(a ? {
        active: a.isActive, name: a.name, version: a.version, type: a.type,
-       permissions: a.permissions ? Array.from(a.permissions.permissions ?? []) : [],
+       permissions: Array.from(WebExtensionPolicy.getByID(arguments[0])?.permissions ?? []),
        hasProblems: !!(a.appDisabled || a.userDisabled || a.blocklistState),
      } : null));`,
     GECKO_ID,
