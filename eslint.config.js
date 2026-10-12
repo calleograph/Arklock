@@ -27,6 +27,7 @@ export default tseslint.config(
         setTimeout: 'readonly',
         Buffer: 'readonly',
         URL: 'readonly',
+        document: 'readonly',
       },
     },
   },
@@ -44,6 +45,11 @@ export default tseslint.config(
         Uint8Array: 'readonly',
       },
     },
+  },
+  {
+    files: ['apps/web/public/theme-init.js'],
+    languageOptions: { globals: { document: 'readonly', localStorage: 'readonly' } },
+    rules: { 'no-empty': 'off', '@typescript-eslint/no-unused-vars': 'off' },
   },
   {
     rules: {

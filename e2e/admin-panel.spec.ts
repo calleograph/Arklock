@@ -620,3 +620,45 @@ test('SAML: provider metadata, first sign-in creates the account, later ones unl
     server.close();
   }
 });
+
+test('themes: all six apply to the whole interface, are saved in the profile and follow the user to another browser', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  // до входа действует тема по умолчанию — корпоративная голубая
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'corporate');
+  await page.getByTestId('email').fill(ADMIN.email);
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('nav-settings').click();
+
+  const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const seen = new Set<string>();
+  for (const id of ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']) {
+    await page.getByTestId(`theme-${id}`).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', id);
+    const dark = id === 'dark' || id === 'forest';
+    await expect(page.locator('html')).toHaveClass(dark ? /dark/ : /^(?!.*\bdark\b)/);
+    await expect(page.getByTestId('theme-notice')).toBeVisible();
+    await page.waitForTimeout(350); // завершение плавной смены цвета
+    seen.add(await bodyBg());
+  }
+  expect(seen.size).toBe(6); // у каждой темы свой фон страницы
+
+  // выбор сохранён в профиле: другой браузер без локальных настроек получает его после входа
+  await page.getByTestId('theme-forest').click();
+  await expect(page.getByTestId('theme-notice')).toBeVisible();
+  const other = await (await browser.newContext()).newPage();
+  await other.goto('/login');
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'corporate');
+  await other.getByTestId('email').fill(ADMIN.email);
+  await other.getByTestId('password').fill(ADMIN.password);
+  await other.getByTestId('submit').click();
+  await expect(other.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'forest');
+  // перезагрузка не даёт вспышки: тема читается до отрисовки
+  await other.reload();
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'forest');
+});

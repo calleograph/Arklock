@@ -10,6 +10,7 @@ import {
 } from '../services/api';
 import * as account from '../services/account';
 import { useWorkspaceStore } from './workspace';
+import { applyTheme, type ThemeId } from '../services/theme';
 
 /**
  * Закрытый ключ аккаунта живёт ТОЛЬКО в памяти модуля (не в состоянии Pinia, не в хранилищах браузера):
@@ -284,7 +285,15 @@ export const useAuthStore = defineStore('auth', () => {
     ready.value = true;
   }
 
+  /** Меняет цветовую тему сразу и сохраняет выбор в профиле (на других устройствах он подхватится при входе). */
+  async function setTheme(id: ThemeId): Promise<void> {
+    applyTheme(id);
+    if (user.value) user.value = { ...user.value, theme: id };
+    if (hasToken.value) await api('PUT', '/auth/preferences', { theme: id });
+  }
+
   return {
+    setTheme,
     hold,
     user,
     unlocked,

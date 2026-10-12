@@ -36,6 +36,12 @@ export const router = createRouter({
       meta: { requiresUnlock: true, requiresAdmin: true },
     },
     {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('./views/SettingsView.vue'),
+      meta: { requiresUnlock: true },
+    },
+    {
       path: '/security',
       name: 'security',
       component: SecurityView,

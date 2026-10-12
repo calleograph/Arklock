@@ -61,6 +61,8 @@ export const users = pgTable(
     wrappedSignPrivateKey: text('wrapped_sign_private_key').notNull(),
     /** Административная роль (делегирование разделов панели) вместо полного доступа. */
     adminRoleId: uuid('admin_role_id'),
+    /** Цветовая тема интерфейса (личная настройка; к шифруемым данным не относится). */
+    theme: text('theme'),
     /** Откуда учётная запись: local — мастер-пароль на сервере Arklock, ldap/oidc/saml — вход через корпоративный каталог или провайдера идентификации. */
     authSource: text('auth_source', { enum: ['local', 'ldap', 'oidc', 'saml'] })
       .notNull()

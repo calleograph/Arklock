@@ -1,40 +1,305 @@
 @import 'tailwindcss';
 
+/* Тёмные схемы (dark, forest) включают класс .dark на <html>: так работают все пары «светлый/тёмный» в компонентах. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --color-brand-500: #3b6ef5;
-  --color-brand-600: #2f58d6;
+  --color-brand-50: #eaf3fc;
+  --color-brand-100: #d6e8f7;
+  --color-brand-500: #1676c5;
+  --color-brand-600: #0f63a8;
+  --color-brand-700: #0b4f87;
+}
+
+/*
+ * Цветовые схемы. Одна компонентная система, шесть палитр: меняются шкалы slate (поверхности, границы, текст),
+ * brand (акцент), белый цвет карточек и цвет текста на акценте. Переключение мгновенное (атрибут data-theme).
+ * Значения подобраны так, чтобы основной текст имел контраст не ниже 7:1, приглушённый — не ниже 4.5:1.
+ */
+:root,
+:root[data-theme='corporate'] {
+  --color-white: #ffffff;
+  --color-slate-50: #f3f8fd;
+  --color-slate-100: #e7f0f9;
+  --color-slate-200: #d6e8f7;
+  --color-slate-300: #b9d3ea;
+  --color-slate-400: #7f9fbe;
+  --color-slate-500: #56718f;
+  --color-slate-600: #3f5b7a;
+  --color-slate-700: #2c4968;
+  --color-slate-800: #1e3d5c;
+  --color-slate-900: #152f4a;
+  --color-slate-950: #0e2236;
+  --color-brand-50: #eaf3fc;
+  --color-brand-100: #d6e8f7;
+  --color-brand-500: #1676c5;
+  --color-brand-600: #0f63a8;
+  --color-brand-700: #0b4f87;
+  --on-brand: #ffffff;
+  --header-bg: rgb(255 255 255 / 0.85);
+  color-scheme: light;
+}
+
+:root[data-theme='light'] {
+  --color-white: #ffffff;
+  --color-slate-50: #f8f8f6;
+  --color-slate-100: #efefec;
+  --color-slate-200: #e4e6e8;
+  --color-slate-300: #cdd0d4;
+  --color-slate-400: #8b9098;
+  --color-slate-500: #5f646c;
+  --color-slate-600: #4a4f57;
+  --color-slate-700: #3a3f46;
+  --color-slate-800: #2d3138;
+  --color-slate-900: #24272d;
+  --color-slate-950: #17191d;
+  --color-brand-50: #eeeff1;
+  --color-brand-100: #e0e2e6;
+  --color-brand-500: #414752;
+  --color-brand-600: #2f343d;
+  --color-brand-700: #22262d;
+  --on-brand: #ffffff;
+  --header-bg: rgb(255 255 255 / 0.85);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --color-white: #262b34;
+  --color-slate-50: #f1f4fa;
+  --color-slate-100: #e8ecf5;
+  --color-slate-200: #cbd2e1;
+  --color-slate-300: #a9b3c7;
+  --color-slate-400: #97a3bd;
+  --color-slate-500: #8c98b3;
+  --color-slate-600: #5b6578;
+  --color-slate-700: #454c5a;
+  --color-slate-800: #2f3541;
+  --color-slate-900: #262b34;
+  --color-slate-950: #1a1d24;
+  --color-brand-50: #232a3d;
+  --color-brand-100: #2d3650;
+  --color-brand-500: #8fa0d0;
+  --color-brand-600: #a7b5de;
+  --color-brand-700: #bfc9e8;
+  --on-brand: #12151b;
+  --header-bg: rgb(26 29 36 / 0.85);
+  color-scheme: dark;
+}
+
+:root[data-theme='forest'] {
+  --color-white: #17332b;
+  --color-slate-50: #f0f7f2;
+  --color-slate-100: #e3f0e6;
+  --color-slate-200: #cfe4d6;
+  --color-slate-300: #b9d6c3;
+  --color-slate-400: #9dbfa9;
+  --color-slate-500: #86aa94;
+  --color-slate-600: #4e7a69;
+  --color-slate-700: #386052;
+  --color-slate-800: #24473c;
+  --color-slate-900: #17332b;
+  --color-slate-950: #0f241e;
+  --color-brand-50: #1d3d33;
+  --color-brand-100: #25493d;
+  --color-brand-500: #91b99c;
+  --color-brand-600: #a8cdb2;
+  --color-brand-700: #bfdcc6;
+  --on-brand: #0f241e;
+  --header-bg: rgb(15 36 30 / 0.85);
+  color-scheme: dark;
+}
+
+:root[data-theme='emerald'] {
+  --color-white: #ffffff;
+  --color-slate-50: #eef9f5;
+  --color-slate-100: #e0f3ec;
+  --color-slate-200: #cbe9df;
+  --color-slate-300: #a6d6c7;
+  --color-slate-400: #6fa899;
+  --color-slate-500: #4b7d70;
+  --color-slate-600: #3a6a5e;
+  --color-slate-700: #2c5a50;
+  --color-slate-800: #1f4a41;
+  --color-slate-900: #103f37;
+  --color-slate-950: #0b2b26;
+  --color-brand-50: #e4f5ef;
+  --color-brand-100: #c9ebe0;
+  --color-brand-500: #00806a;
+  --color-brand-600: #00695a;
+  --color-brand-700: #00544a;
+  --on-brand: #ffffff;
+  --header-bg: rgb(255 255 255 / 0.85);
+  color-scheme: light;
+}
+
+:root[data-theme='sunset'] {
+  --color-white: #fffaf6;
+  --color-slate-50: #fff6f0;
+  --color-slate-100: #ffebdd;
+  --color-slate-200: #f6d9c6;
+  --color-slate-300: #e8bfa5;
+  --color-slate-400: #b58470;
+  --color-slate-500: #8f6552;
+  --color-slate-600: #7a4c3b;
+  --color-slate-700: #61392c;
+  --color-slate-800: #4a2b20;
+  --color-slate-900: #3a2018;
+  --color-slate-950: #28150f;
+  --color-brand-50: #fdeee6;
+  --color-brand-100: #f9dccd;
+  --color-brand-500: #ad523b;
+  --color-brand-600: #94422d;
+  --color-brand-700: #7a3523;
+  --on-brand: #ffffff;
+  --header-bg: rgb(255 246 240 / 0.85);
+  color-scheme: light;
 }
 
 html {
-  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 4.5rem;
 }
-html.dark {
-  color-scheme: dark;
-}
+
 body {
   @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  font-feature-settings: 'cv11', 'ss01';
+  line-height: 1.5;
+  /* страница никогда не прокручивается вбок: широкие таблицы и коды прокручиваются внутри своих блоков */
+  overflow-x: hidden;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-brand-100);
+  color: var(--color-slate-900);
+}
+
+h1 {
+  @apply text-2xl font-semibold tracking-tight;
+}
+h2 {
+  @apply text-lg font-semibold tracking-tight;
+}
+
+/* таблицы: единый вид во всей программе */
+table {
+  @apply w-full border-collapse text-sm;
+}
+thead th {
+  @apply px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500;
+}
+tbody tr {
+  @apply transition-colors;
+}
+tbody tr:hover {
+  background: color-mix(in srgb, var(--color-brand-500) 6%, transparent);
+}
+
+select,
+textarea,
+input:not([type='checkbox']):not([type='radio']) {
+  color: inherit;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--color-brand-500);
+  width: 1rem;
+  height: 1rem;
+}
+
+code,
+.font-mono {
+  overflow-wrap: anywhere;
+}
+
+dialog {
+  @apply rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100;
+}
+dialog::backdrop {
+  background: rgb(10 15 25 / 0.5);
+  backdrop-filter: blur(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800;
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-xs transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-brand-500 bg-brand-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-brand-500 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-brand-500 bg-brand-500 px-3.5 py-1.5 text-sm font-medium shadow-xs transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50;
+    color: var(--on-brand);
   }
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-1 rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-red-500 disabled:opacity-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950;
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950;
+  }
+  .btn-ghost {
+    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
   }
   .input {
-    @apply w-full rounded-md border border-slate-300 bg-transparent px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-brand-500 dark:border-slate-700;
+    @apply min-h-9 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-xs transition-colors placeholder:text-slate-400 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
+  }
+  .input:focus-visible {
+    border-color: var(--color-brand-500);
+    outline-offset: 0;
   }
   .card {
-    @apply rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
+    @apply rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900;
   }
   .badge {
-    @apply inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300;
+    @apply inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
+  }
+  .badge-brand {
+    @apply inline-flex items-center rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
+  }
+  /* пустые состояния */
+  .empty {
+    @apply flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700;
+  }
+  .empty-icon {
+    @apply text-3xl opacity-70;
+  }
+  /* загрузка: заготовки вместо пустого экрана */
+  .skeleton {
+    @apply animate-pulse rounded-md bg-slate-200 dark:bg-slate-800;
+  }
+  /* уведомления: ненавязчивые полосы внутри страницы */
+  .notice {
+    @apply flex items-start gap-2 rounded-lg border px-3 py-2 text-sm;
+  }
+  .notice-ok {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200;
+  }
+  .notice-error {
+    @apply border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300;
+  }
+  .notice-warn {
+    @apply border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200;
+  }
+  /* пункты бокового меню и вкладок */
+  .nav-link {
+    @apply inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+  }
+  .nav-link-active {
+    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700 dark:bg-brand-50;
+  }
+  /* поле формы с подписью */
+  .field-label {
+    @apply mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300;
   }
 }

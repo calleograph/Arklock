@@ -1,4 +1,28 @@
 export default {
+  ui: {
+    skip: 'Skip to content',
+    mainNav: 'Main navigation',
+    selected: 'Selected',
+  },
+  theme: {
+    corporate: 'Corporate blue',
+    light: 'Light',
+    dark: 'Dark',
+    forest: 'Dark green',
+    emerald: 'Emerald',
+    sunset: 'Sunset',
+  },
+  prefs: {
+    title: 'Settings',
+    appearance: 'Appearance',
+    appearanceHint:
+      'The colour theme is saved in your profile and follows you to other devices. It is not part of the encrypted vault.',
+    themeSaved: 'Theme saved',
+    language: 'Language',
+    account: 'Account',
+    security: 'Security: password, second factor, sessions, API tokens',
+    signedInAs: 'Signed in as',
+  },
   files: {
     tab: 'Files',
     add: 'Attach a file',
@@ -411,7 +435,7 @@ export default {
     minLength: 'Minimum password length (0 = no requirement)',
     classesLabel: 'Required character kinds (0–4)',
   },
-  nav: { admin: 'Administration' },
+  nav: { admin: 'Administration', settings: 'Settings' },
   kind: {
     login: 'Login',
     note: 'Secure note',
@@ -660,6 +684,12 @@ export default {
       syslog: 'Syslog export',
       invitations: 'Invitations',
       roles: 'Roles',
+    },
+    group: {
+      people: 'People',
+      system: 'System',
+      integrations: 'Integrations',
+      security: 'Security',
     },
     adminRole: 'Admin role',
     noAdminRole: 'None',

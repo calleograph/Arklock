@@ -196,7 +196,7 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('tab-history').click();
   await expect(page.getByTestId('history-row')).toHaveCount(1);
   await page.getByTestId('btn-revert').click();
-  await expect(page.getByTestId('tab-history')).toBeVisible();
+  await expect(page.getByTestId('btn-revert')).toHaveCount(0);
   await page.getByRole('button', { name: /^Данные$|^Details$/ }).click();
   await page.getByTestId('btn-reveal').click();
   await expect(page.getByTestId('view-password')).toHaveText('Tr0ub4dor&3-qq');

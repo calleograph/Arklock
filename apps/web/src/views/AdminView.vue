@@ -248,6 +248,25 @@ async function loadTab(): Promise<void> {
     error.value = errorMessage(e, t);
   }
 }
+/** Разделы панели по смыслу: люди, система, интеграции, безопасность. */
+const GROUPS: { id: string; tabs: Tab[] }[] = [
+  { id: 'people', tabs: ['users', 'circles', 'roles', 'invitations'] },
+  {
+    id: 'system',
+    tabs: [
+      'overview',
+      'resources',
+      'containers',
+      'backups',
+      'logs',
+      'storage',
+      'diagnostics',
+      'certificates',
+    ],
+  },
+  { id: 'integrations', tabs: ['ldap', 'sso', 'saml', 'smtp', 'syslog'] },
+  { id: 'security', tabs: ['settings', 'ledger'] },
+];
 const ALL_TABS: Tab[] = [
   'users',
   'circles',
@@ -276,402 +295,441 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
 
 <template>
   <section class="space-y-4">
-    <h1 class="text-xl font-semibold">{{ t('admin.title') }}</h1>
-    <nav class="flex flex-wrap gap-1 border-b border-slate-200 text-sm dark:border-slate-800">
-      <button
-        v-for="x in ALL_TABS.filter(canTab)"
-        :key="x"
-        type="button"
-        class="px-3 py-1.5"
-        :class="tab === x ? 'border-b-2 border-brand-500 font-medium' : ''"
-        :data-testid="`admin-tab-${x}`"
-        @click="tab = x"
-      >
-        {{ t(`admin.tab.${x}`) }}
-      </button>
-      <RouterLink to="/admin/updates" class="px-3 py-1.5">{{ t('nav.updates') }}</RouterLink>
-    </nav>
-    <p
-      v-if="error"
-      class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
-      role="alert"
-      data-testid="admin-error"
-    >
-      {{ error }}
-    </p>
-    <p
-      v-if="notice"
-      class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-      role="status"
-    >
-      {{ notice }}
-    </p>
-
-    <RolesPanel v-if="tab === 'roles'" />
-    <InvitationsPanel v-else-if="tab === 'invitations'" />
-    <SyslogSettings v-else-if="tab === 'syslog'" />
-    <SsoSettings v-else-if="tab === 'sso'" />
-    <SamlSettings v-else-if="tab === 'saml'" />
-    <LdapSettings v-else-if="tab === 'ldap'" />
-    <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
-
-    <div v-else-if="tab === 'users'" class="card overflow-x-auto">
-      <table class="min-w-full text-sm" data-testid="users-table">
-        <thead class="text-left text-xs text-slate-500">
-          <tr>
-            <th class="px-3 py-2">{{ t('common.name') }}</th>
-            <th>{{ t('admin.role') }}</th>
-            <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
-            <th>{{ t('admin.lastSeen') }}</th>
-            <th>{{ t('admin.status') }}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="u in users"
-            :key="u.id"
-            class="border-t border-slate-200 dark:border-slate-800"
-            data-testid="user-row"
+    <h1>{{ t('admin.title') }}</h1>
+    <div class="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[13.5rem_minmax(0,1fr)]">
+      <nav class="md:sticky md:top-20 md:self-start" :aria-label="t('admin.title')">
+        <div
+          class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-5 md:overflow-visible md:px-0 md:pb-0"
+        >
+          <div
+            v-for="g in GROUPS"
+            :key="g.id"
+            class="flex shrink-0 items-center gap-1 md:block md:space-y-0.5"
           >
-            <td class="px-3 py-2">
-              <div>{{ u.name }}</div>
-              <div class="text-xs text-slate-500">{{ u.email }}</div>
-            </td>
-            <td>
-              <select
-                :value="u.role"
-                class="input w-auto"
-                :disabled="u.id === auth.user?.id"
-                @change="patchUser(u, { role: ($event.target as HTMLSelectElement).value })"
+            <div
+              class="hidden px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 md:block"
+            >
+              {{ t(`admin.group.${g.id}`) }}
+            </div>
+            <template v-for="x in g.tabs.filter(canTab)" :key="x">
+              <button
+                type="button"
+                class="nav-link w-full whitespace-nowrap"
+                :class="tab === x ? 'nav-link-active' : ''"
+                :aria-current="tab === x ? 'page' : undefined"
+                :data-testid="`admin-tab-${x}`"
+                @click="tab = x"
               >
-                <option value="admin">{{ t('admin.roleAdmin') }}</option>
-                <option value="member">{{ t('admin.roleMember') }}</option>
-              </select>
-            </td>
-            <td v-if="isFull() && adminRoles.length">
-              <select
-                :value="u.adminRoleId ?? ''"
+                {{ t(`admin.tab.${x}`) }}
+              </button>
+            </template>
+            <RouterLink
+              v-if="g.id === 'system' && auth.user?.role === 'admin'"
+              to="/admin/updates"
+              class="nav-link w-full whitespace-nowrap"
+              >{{ t('nav.updates') }}</RouterLink
+            >
+          </div>
+        </div>
+      </nav>
+      <div class="min-w-0 space-y-4">
+        <p
+          v-if="error"
+          class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+          role="alert"
+          data-testid="admin-error"
+        >
+          {{ error }}
+        </p>
+        <p
+          v-if="notice"
+          class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+          role="status"
+        >
+          {{ notice }}
+        </p>
+
+        <RolesPanel v-if="tab === 'roles'" />
+        <InvitationsPanel v-else-if="tab === 'invitations'" />
+        <SyslogSettings v-else-if="tab === 'syslog'" />
+        <SsoSettings v-else-if="tab === 'sso'" />
+        <SamlSettings v-else-if="tab === 'saml'" />
+        <LdapSettings v-else-if="tab === 'ldap'" />
+        <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
+
+        <div v-else-if="tab === 'users'" class="card overflow-x-auto">
+          <table class="min-w-full text-sm" data-testid="users-table">
+            <thead class="text-left text-xs text-slate-500">
+              <tr>
+                <th class="px-3 py-2">{{ t('common.name') }}</th>
+                <th>{{ t('admin.role') }}</th>
+                <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
+                <th>{{ t('admin.lastSeen') }}</th>
+                <th>{{ t('admin.status') }}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="u in users"
+                :key="u.id"
+                class="border-t border-slate-200 dark:border-slate-800"
+                data-testid="user-row"
+              >
+                <td class="px-3 py-2">
+                  <div>{{ u.name }}</div>
+                  <div class="text-xs text-slate-500">{{ u.email }}</div>
+                </td>
+                <td>
+                  <select
+                    :value="u.role"
+                    class="input w-auto"
+                    :disabled="u.id === auth.user?.id"
+                    @change="patchUser(u, { role: ($event.target as HTMLSelectElement).value })"
+                  >
+                    <option value="admin">{{ t('admin.roleAdmin') }}</option>
+                    <option value="member">{{ t('admin.roleMember') }}</option>
+                  </select>
+                </td>
+                <td v-if="isFull() && adminRoles.length">
+                  <select
+                    :value="u.adminRoleId ?? ''"
+                    class="input w-auto"
+                    :disabled="u.role === 'admin'"
+                    :data-testid="`admin-role-${u.email}`"
+                    @change="
+                      patchUser(u, {
+                        adminRoleId: ($event.target as HTMLSelectElement).value || null,
+                      })
+                    "
+                  >
+                    <option value="">{{ t('admin.noAdminRole') }}</option>
+                    <option v-for="r in adminRoles" :key="r.id" :value="r.id">{{ r.name }}</option>
+                  </select>
+                </td>
+                <td class="text-xs">{{ fmt(u.lastSeenAt) }}</td>
+                <td>
+                  <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
+                    u.disabled ? t('admin.disabled') : t('admin.active')
+                  }}</span>
+                </td>
+                <td class="space-x-1 whitespace-nowrap px-3 text-right">
+                  <button type="button" class="btn" @click="endSessions(u)">
+                    {{ t('admin.endSessions') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    :data-testid="`reset-mfa-${u.email}`"
+                    @click="resetMfa(u)"
+                  >
+                    {{ t('adminx.resetMfa') }}
+                  </button>
+                  <button
+                    type="button"
+                    :class="u.disabled ? 'btn' : 'btn-danger'"
+                    :disabled="u.id === auth.user?.id"
+                    :data-testid="`toggle-${u.email}`"
+                    @click="patchUser(u, { disabled: !u.disabled })"
+                  >
+                    {{ u.disabled ? t('admin.enable') : t('admin.disable') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-else-if="tab === 'circles'" class="space-y-3">
+          <form class="flex flex-wrap gap-2" @submit.prevent="createCircle">
+            <input
+              v-model="newCircle.name"
+              required
+              maxlength="100"
+              class="input max-w-xs"
+              :placeholder="t('common.name')"
+              data-testid="circle-name"
+            />
+            <input
+              v-model="newCircle.description"
+              maxlength="500"
+              class="input max-w-sm"
+              :placeholder="t('admin.description')"
+            />
+            <button type="submit" class="btn-primary" data-testid="circle-create">
+              {{ t('admin.create') }}
+            </button>
+          </form>
+          <ul
+            class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
+            data-testid="circles-list"
+          >
+            <li v-for="c in circles" :key="c.id" class="px-3 py-2">
+              <div class="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  class="min-w-0 truncate text-left font-medium"
+                  :data-testid="`circle-${c.name}`"
+                  @click="showCircle(c)"
+                >
+                  ◎ {{ c.name }}
+                  <span class="text-xs text-slate-500"
+                    >· {{ c.members }} {{ t('admin.membersN') }}</span
+                  >
+                </button>
+                <button type="button" class="btn-danger" @click="deleteCircle(c)">
+                  {{ t('common.delete') }}
+                </button>
+              </div>
+              <div v-if="openCircle === c.id" class="mt-2 space-y-2">
+                <ul class="text-xs">
+                  <li v-for="m in circleMembers" :key="m.id" class="flex justify-between py-0.5">
+                    {{ m.name }} ({{ m.email }})
+                    <button type="button" class="text-red-600" @click="removeFromCircle(m.id)">
+                      ×
+                    </button>
+                  </li>
+                </ul>
+                <div class="flex gap-2">
+                  <select v-model="addUserId" class="input" data-testid="circle-add-user">
+                    <option value="" disabled>…</option>
+                    <option v-for="u in users" :key="u.id" :value="u.id">
+                      {{ u.name }} ({{ u.email }})
+                    </option></select
+                  ><button
+                    type="button"
+                    class="btn"
+                    :disabled="!addUserId"
+                    data-testid="circle-add"
+                    @click="addToCircle"
+                  >
+                    {{ t('settings.add') }}
+                  </button>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div v-else-if="tab === 'settings'" class="space-y-6">
+          <div class="card space-y-3 p-4 text-sm">
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.registration')
+              }}<select
+                :value="settings['registration.mode']"
                 class="input w-auto"
-                :disabled="u.role === 'admin'"
-                :data-testid="`admin-role-${u.email}`"
+                data-testid="set-registration"
                 @change="
-                  patchUser(u, { adminRoleId: ($event.target as HTMLSelectElement).value || null })
+                  saveSetting('registration.mode', ($event.target as HTMLSelectElement).value)
                 "
               >
-                <option value="">{{ t('admin.noAdminRole') }}</option>
-                <option v-for="r in adminRoles" :key="r.id" :value="r.id">{{ r.name }}</option>
-              </select>
-            </td>
-            <td class="text-xs">{{ fmt(u.lastSeenAt) }}</td>
-            <td>
-              <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
-                u.disabled ? t('admin.disabled') : t('admin.active')
-              }}</span>
-            </td>
-            <td class="space-x-1 whitespace-nowrap px-3 text-right">
-              <button type="button" class="btn" @click="endSessions(u)">
-                {{ t('admin.endSessions') }}
-              </button>
-              <button
-                type="button"
-                class="btn"
-                :data-testid="`reset-mfa-${u.email}`"
-                @click="resetMfa(u)"
-              >
-                {{ t('adminx.resetMfa') }}
-              </button>
-              <button
-                type="button"
-                :class="u.disabled ? 'btn' : 'btn-danger'"
-                :disabled="u.id === auth.user?.id"
-                :data-testid="`toggle-${u.email}`"
-                @click="patchUser(u, { disabled: !u.disabled })"
-              >
-                {{ u.disabled ? t('admin.enable') : t('admin.disable') }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div v-else-if="tab === 'circles'" class="space-y-3">
-      <form class="flex flex-wrap gap-2" @submit.prevent="createCircle">
-        <input
-          v-model="newCircle.name"
-          required
-          maxlength="100"
-          class="input max-w-xs"
-          :placeholder="t('common.name')"
-          data-testid="circle-name"
-        />
-        <input
-          v-model="newCircle.description"
-          maxlength="500"
-          class="input max-w-sm"
-          :placeholder="t('admin.description')"
-        />
-        <button type="submit" class="btn-primary" data-testid="circle-create">
-          {{ t('admin.create') }}
-        </button>
-      </form>
-      <ul
-        class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
-        data-testid="circles-list"
-      >
-        <li v-for="c in circles" :key="c.id" class="px-3 py-2">
-          <div class="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              class="min-w-0 truncate text-left font-medium"
-              :data-testid="`circle-${c.name}`"
-              @click="showCircle(c)"
+                <option value="closed">{{ t('admin.closed') }}</option>
+                <option value="open">{{ t('admin.open') }}</option>
+              </select></label
             >
-              ◎ {{ c.name }}
-              <span class="text-xs text-slate-500"
-                >· {{ c.members }} {{ t('admin.membersN') }}</span
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.vaultCreators')
+              }}<select
+                :value="settings['vaults.creators']"
+                class="input w-auto"
+                data-testid="set-creators"
+                @change="saveSetting('vaults.creators', ($event.target as HTMLSelectElement).value)"
               >
-            </button>
-            <button type="button" class="btn-danger" @click="deleteCircle(c)">
-              {{ t('common.delete') }}
-            </button>
+                <option value="admins">{{ t('admin.onlyAdmins') }}</option>
+                <option value="members">{{ t('admin.allMembers') }}</option>
+              </select></label
+            >
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.trashDays')
+              }}<input
+                :value="settings['trash.retentionDays']"
+                type="number"
+                min="1"
+                max="3650"
+                class="input w-24"
+                data-testid="set-trash"
+                @change="
+                  saveSetting(
+                    'trash.retentionDays',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('adminx.mfaRequired')
+              }}<select
+                :value="settings['security.mfaRequired']"
+                class="input w-auto"
+                data-testid="set-mfa"
+                @change="
+                  saveSetting('security.mfaRequired', ($event.target as HTMLSelectElement).value)
+                "
+              >
+                <option value="off">{{ t('adminx.mfaOff') }}</option>
+                <option value="admins">{{ t('adminx.mfaAdmins') }}</option>
+                <option value="all">{{ t('adminx.mfaAll') }}</option>
+              </select></label
+            >
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('policy.minLength')
+              }}<input
+                :value="settings['policy.password.minLength']"
+                type="number"
+                min="0"
+                max="128"
+                class="input w-24"
+                data-testid="set-minlen"
+                @change="
+                  saveSetting(
+                    'policy.password.minLength',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('policy.classesLabel')
+              }}<input
+                :value="settings['policy.password.classes']"
+                type="number"
+                min="0"
+                max="4"
+                class="input w-24"
+                data-testid="set-classes"
+                @change="
+                  saveSetting(
+                    'policy.password.classes',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('invite.notify')
+              }}<input
+                type="checkbox"
+                :checked="settings['notifications.security'] !== false"
+                data-testid="set-notify"
+                @change="
+                  saveSetting('notifications.security', ($event.target as HTMLInputElement).checked)
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('adminx.attachMax')
+              }}<input
+                :value="settings['storage.attachmentMaxMiB']"
+                type="number"
+                min="0"
+                max="512"
+                class="input w-24"
+                data-testid="set-attach-max"
+                @change="
+                  saveSetting(
+                    'storage.attachmentMaxMiB',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('adminx.vaultQuota')
+              }}<input
+                :value="settings['storage.vaultQuotaMiB']"
+                type="number"
+                min="0"
+                class="input w-24"
+                data-testid="set-vault-quota"
+                @change="
+                  saveSetting(
+                    'storage.vaultQuotaMiB',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.passwordMaxAge')
+              }}<input
+                :value="settings['security.passwordMaxAgeDays']"
+                type="number"
+                min="0"
+                max="3650"
+                class="input w-24"
+                @change="
+                  saveSetting(
+                    'security.passwordMaxAgeDays',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
           </div>
-          <div v-if="openCircle === c.id" class="mt-2 space-y-2">
-            <ul class="text-xs">
-              <li v-for="m in circleMembers" :key="m.id" class="flex justify-between py-0.5">
-                {{ m.name }} ({{ m.email }})
-                <button type="button" class="text-red-600" @click="removeFromCircle(m.id)">
-                  ×
-                </button>
-              </li>
-            </ul>
+          <div class="card space-y-2 p-4 text-sm">
+            <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
+            <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
+            <input v-model="rangeUrl" class="input font-mono" data-testid="range-url" />
             <div class="flex gap-2">
-              <select v-model="addUserId" class="input" data-testid="circle-add-user">
-                <option value="" disabled>…</option>
-                <option v-for="u in users" :key="u.id" :value="u.id">
-                  {{ u.name }} ({{ u.email }})
-                </option></select
+              <button type="button" class="btn" data-testid="range-test" @click="testRange">
+                {{ t('admin.test') }}</button
               ><button
                 type="button"
-                class="btn"
-                :disabled="!addUserId"
-                data-testid="circle-add"
-                @click="addToCircle"
+                class="btn-primary"
+                data-testid="range-save"
+                @click="saveRange"
               >
-                {{ t('settings.add') }}
+                {{ t('common.save') }}
               </button>
             </div>
+            <p v-if="rangeResult" data-testid="range-result">{{ rangeResult }}</p>
           </div>
-        </li>
-      </ul>
-    </div>
+        </div>
 
-    <div v-else-if="tab === 'settings'" class="space-y-6">
-      <div class="card space-y-3 p-4 text-sm">
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('admin.registration')
-          }}<select
-            :value="settings['registration.mode']"
-            class="input w-auto"
-            data-testid="set-registration"
-            @change="saveSetting('registration.mode', ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="closed">{{ t('admin.closed') }}</option>
-            <option value="open">{{ t('admin.open') }}</option>
-          </select></label
-        >
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('admin.vaultCreators')
-          }}<select
-            :value="settings['vaults.creators']"
-            class="input w-auto"
-            data-testid="set-creators"
-            @change="saveSetting('vaults.creators', ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="admins">{{ t('admin.onlyAdmins') }}</option>
-            <option value="members">{{ t('admin.allMembers') }}</option>
-          </select></label
-        >
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('admin.trashDays')
-          }}<input
-            :value="settings['trash.retentionDays']"
-            type="number"
-            min="1"
-            max="3650"
-            class="input w-24"
-            data-testid="set-trash"
-            @change="
-              saveSetting('trash.retentionDays', Number(($event.target as HTMLInputElement).value))
-            "
-        /></label>
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('adminx.mfaRequired')
-          }}<select
-            :value="settings['security.mfaRequired']"
-            class="input w-auto"
-            data-testid="set-mfa"
-            @change="
-              saveSetting('security.mfaRequired', ($event.target as HTMLSelectElement).value)
-            "
-          >
-            <option value="off">{{ t('adminx.mfaOff') }}</option>
-            <option value="admins">{{ t('adminx.mfaAdmins') }}</option>
-            <option value="all">{{ t('adminx.mfaAll') }}</option>
-          </select></label
-        >
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('policy.minLength')
-          }}<input
-            :value="settings['policy.password.minLength']"
-            type="number"
-            min="0"
-            max="128"
-            class="input w-24"
-            data-testid="set-minlen"
-            @change="
-              saveSetting(
-                'policy.password.minLength',
-                Number(($event.target as HTMLInputElement).value),
-              )
-            "
-        /></label>
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('policy.classesLabel')
-          }}<input
-            :value="settings['policy.password.classes']"
-            type="number"
-            min="0"
-            max="4"
-            class="input w-24"
-            data-testid="set-classes"
-            @change="
-              saveSetting(
-                'policy.password.classes',
-                Number(($event.target as HTMLInputElement).value),
-              )
-            "
-        /></label>
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('invite.notify')
-          }}<input
-            type="checkbox"
-            :checked="settings['notifications.security'] !== false"
-            data-testid="set-notify"
-            @change="
-              saveSetting('notifications.security', ($event.target as HTMLInputElement).checked)
-            "
-        /></label>
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('adminx.attachMax')
-          }}<input
-            :value="settings['storage.attachmentMaxMiB']"
-            type="number"
-            min="0"
-            max="512"
-            class="input w-24"
-            data-testid="set-attach-max"
-            @change="
-              saveSetting(
-                'storage.attachmentMaxMiB',
-                Number(($event.target as HTMLInputElement).value),
-              )
-            "
-        /></label>
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('adminx.vaultQuota')
-          }}<input
-            :value="settings['storage.vaultQuotaMiB']"
-            type="number"
-            min="0"
-            class="input w-24"
-            data-testid="set-vault-quota"
-            @change="
-              saveSetting(
-                'storage.vaultQuotaMiB',
-                Number(($event.target as HTMLInputElement).value),
-              )
-            "
-        /></label>
-        <label class="flex items-center justify-between gap-3"
-          >{{ t('admin.passwordMaxAge')
-          }}<input
-            :value="settings['security.passwordMaxAgeDays']"
-            type="number"
-            min="0"
-            max="3650"
-            class="input w-24"
-            @change="
-              saveSetting(
-                'security.passwordMaxAgeDays',
-                Number(($event.target as HTMLInputElement).value),
-              )
-            "
-        /></label>
-      </div>
-      <div class="card space-y-2 p-4 text-sm">
-        <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
-        <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
-        <input v-model="rangeUrl" class="input font-mono" data-testid="range-url" />
-        <div class="flex gap-2">
-          <button type="button" class="btn" data-testid="range-test" @click="testRange">
-            {{ t('admin.test') }}</button
-          ><button type="button" class="btn-primary" data-testid="range-save" @click="saveRange">
-            {{ t('common.save') }}
+        <div v-else class="space-y-3">
+          <form class="flex flex-wrap gap-2" @submit.prevent="loadLedger()">
+            <input
+              v-model="filter.action"
+              class="input w-44"
+              :placeholder="t('admin.actionPrefix')"
+              data-testid="ledger-action"
+            />
+            <input v-model="filter.q" class="input w-44" :placeholder="t('vault.search')" />
+            <input v-model="filter.from" type="date" class="input w-auto" /><input
+              v-model="filter.to"
+              type="date"
+              class="input w-auto"
+            />
+            <button type="submit" class="btn" data-testid="ledger-apply">
+              {{ t('admin.apply') }}
+            </button>
+            <button type="button" class="btn" data-testid="ledger-export" @click="exportLedger">
+              CSV
+            </button>
+          </form>
+          <div class="card overflow-x-auto">
+            <table class="min-w-full text-xs" data-testid="ledger-table">
+              <thead class="text-left text-slate-500">
+                <tr>
+                  <th class="px-3 py-2">{{ t('admin.time') }}</th>
+                  <th>{{ t('admin.actor') }}</th>
+                  <th>{{ t('admin.action') }}</th>
+                  <th>{{ t('admin.target') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="l in ledger"
+                  :key="l.id"
+                  class="border-t border-slate-200 dark:border-slate-800"
+                  data-testid="ledger-row"
+                >
+                  <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
+                  <td class="font-mono">{{ l.actor.slice(0, 13) }}</td>
+                  <td>{{ l.action }}</td>
+                  <td class="font-mono">{{ l.target }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <button v-if="next" type="button" class="btn" @click="loadLedger(true)">
+            {{ t('admin.more') }}
           </button>
         </div>
-        <p v-if="rangeResult" data-testid="range-result">{{ rangeResult }}</p>
       </div>
-    </div>
-
-    <div v-else class="space-y-3">
-      <form class="flex flex-wrap gap-2" @submit.prevent="loadLedger()">
-        <input
-          v-model="filter.action"
-          class="input w-44"
-          :placeholder="t('admin.actionPrefix')"
-          data-testid="ledger-action"
-        />
-        <input v-model="filter.q" class="input w-44" :placeholder="t('vault.search')" />
-        <input v-model="filter.from" type="date" class="input w-auto" /><input
-          v-model="filter.to"
-          type="date"
-          class="input w-auto"
-        />
-        <button type="submit" class="btn" data-testid="ledger-apply">{{ t('admin.apply') }}</button>
-        <button type="button" class="btn" data-testid="ledger-export" @click="exportLedger">
-          CSV
-        </button>
-      </form>
-      <div class="card overflow-x-auto">
-        <table class="min-w-full text-xs" data-testid="ledger-table">
-          <thead class="text-left text-slate-500">
-            <tr>
-              <th class="px-3 py-2">{{ t('admin.time') }}</th>
-              <th>{{ t('admin.actor') }}</th>
-              <th>{{ t('admin.action') }}</th>
-              <th>{{ t('admin.target') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="l in ledger"
-              :key="l.id"
-              class="border-t border-slate-200 dark:border-slate-800"
-              data-testid="ledger-row"
-            >
-              <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
-              <td class="font-mono">{{ l.actor.slice(0, 13) }}</td>
-              <td>{{ l.action }}</td>
-              <td class="font-mono">{{ l.target }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <button v-if="next" type="button" class="btn" @click="loadLedger(true)">
-        {{ t('admin.more') }}
-      </button>
     </div>
   </section>
 </template>

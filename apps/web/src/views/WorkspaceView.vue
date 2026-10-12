@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import BranchNode from '../components/BranchNode.vue';
+import Icon from '../components/Icon.vue';
 import EntryPanel from '../components/EntryPanel.vue';
 import TransferDialog from '../components/TransferDialog.vue';
 import { useAuthStore } from '../stores/auth';
@@ -306,51 +307,52 @@ void router;
           <li>
             <button
               type="button"
-              class="w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-              :class="
-                scope === 'all' && !branchSel ? 'bg-slate-100 font-medium dark:bg-slate-800' : ''
-              "
+              class="nav-link w-full"
+              :class="scope === 'all' && !branchSel ? 'nav-link-active' : ''"
               data-testid="scope-all"
               @click="((scope = 'all'), (branchSel = null))"
               @dragover.prevent
               @drop.prevent="dropOn(null, dragId)"
             >
-              📚 {{ t('vault.all') }}
-              <span class="float-right text-xs text-slate-400">{{ ws.entries.length }}</span>
+              <Icon name="all" />
+              <span class="flex-1 text-left">{{ t('vault.all') }}</span>
+              <span class="text-xs text-slate-500">{{
+                ws.entries.filter((e) => !e.data.archived).length
+              }}</span>
             </button>
           </li>
           <li>
             <button
               type="button"
-              class="w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-              :class="scope === 'favorites' ? 'bg-slate-100 font-medium dark:bg-slate-800' : ''"
+              class="nav-link w-full"
+              :class="scope === 'favorites' ? 'nav-link-active' : ''"
               data-testid="scope-favorites"
               @click="scope = 'favorites'"
             >
-              ★ {{ t('vault.favorites') }}
+              <Icon name="star" /> <span class="flex-1 text-left">{{ t('vault.favorites') }}</span>
             </button>
           </li>
           <li>
             <button
               type="button"
-              class="w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-              :class="scope === 'archive' ? 'bg-slate-100 font-medium dark:bg-slate-800' : ''"
+              class="nav-link w-full"
+              :class="scope === 'archive' ? 'nav-link-active' : ''"
               data-testid="scope-archive"
               @click="scope = 'archive'"
             >
-              🗄 {{ t('vault.archive') }}
+              <Icon name="archive" /> <span class="flex-1 text-left">{{ t('vault.archive') }}</span>
             </button>
           </li>
           <li>
             <button
               type="button"
-              class="w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-              :class="scope === 'trash' ? 'bg-slate-100 font-medium dark:bg-slate-800' : ''"
+              class="nav-link w-full"
+              :class="scope === 'trash' ? 'nav-link-active' : ''"
               data-testid="scope-trash"
               @click="scope = 'trash'"
             >
-              🗑 {{ t('vault.trash') }}
-              <span class="float-right text-xs text-slate-400">{{
+              <Icon name="trash" /> <span class="flex-1 text-left">{{ t('vault.trash') }}</span>
+              <span class="text-xs text-slate-500">{{
                 ws.trash.entries.length + ws.trash.branches.length || ''
               }}</span>
             </button>
@@ -400,7 +402,7 @@ void router;
               :key="tg"
               type="button"
               class="badge"
-              :class="tagFilter === tg ? '!bg-brand-500 !text-white' : ''"
+              :class="tagFilter === tg ? 'badge-brand ring-1 ring-brand-500' : ''"
               @click="tagFilter = tagFilter === tg ? '' : tg"
             >
               #{{ tg }}
@@ -496,7 +498,7 @@ void router;
             :key="b.id"
             class="flex items-center justify-between px-3 py-2"
           >
-            <span>📁 {{ b.name }}</span>
+            <span class="flex items-center gap-2"><Icon name="folder" /> {{ b.name }}</span>
             <span class="flex gap-1"
               ><button
                 type="button"
@@ -530,21 +532,42 @@ void router;
             {{ t('vault.selectAll') }} · {{ list.length }}
           </div>
           <ul class="divide-y divide-slate-200 dark:divide-slate-800" data-testid="entry-list">
-            <li v-if="ws.loading" class="px-4 py-6 text-center text-sm text-slate-500">
-              {{ t('common.working') }}
+            <li v-if="ws.loading" class="space-y-2 px-4 py-4" aria-busy="true">
+              <div class="skeleton h-9" />
+              <div class="skeleton h-9" />
+              <div class="skeleton h-9" />
             </li>
-            <li
-              v-else-if="!list.length"
-              class="px-4 py-6 text-center text-sm text-slate-500"
-              data-testid="empty"
-            >
-              {{ query || tagFilter || kindFilter ? t('vault.noMatch') : t('vault.empty') }}
+            <li v-else-if="!list.length" class="p-4" data-testid="empty">
+              <div class="empty border-0">
+                <Icon
+                  :name="query || tagFilter || kindFilter ? 'search' : 'inbox'"
+                  class="!size-8 opacity-60"
+                />
+                <p>
+                  {{ query || tagFilter || kindFilter ? t('vault.noMatch') : t('vault.empty') }}
+                </p>
+                <button
+                  v-if="
+                    canWrite &&
+                    scope !== 'trash' &&
+                    scope !== 'archive' &&
+                    !query &&
+                    !tagFilter &&
+                    !kindFilter
+                  "
+                  type="button"
+                  class="btn-primary"
+                  @click="newEntry"
+                >
+                  <Icon name="plus" /> {{ t('vault.add') }}
+                </button>
+              </div>
             </li>
             <li
               v-for="e in list"
               :key="e.id"
-              class="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/50"
-              :class="openId === e.id ? 'bg-slate-50 dark:bg-slate-800/50' : ''"
+              class="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
+              :class="openId === e.id ? 'bg-brand-50 hover:bg-brand-50' : ''"
               data-testid="entry-row"
               draggable="true"
               @dragstart="dragId = e.id"
@@ -558,11 +581,16 @@ void router;
                 @click.stop
                 @change="toggle(e.id)"
               />
+              <span
+                class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-sm font-semibold text-brand-700"
+                aria-hidden="true"
+                >{{ (e.data.title || '?').trim().charAt(0).toUpperCase() }}</span
+              >
               <div class="min-w-0 flex-1">
                 <div class="truncate font-medium">{{ e.pinned ? '★ ' : '' }}{{ e.data.title }}</div>
                 <div class="truncate text-xs text-slate-500">
                   {{ e.data.username }}<span v-if="e.data.url"> · {{ e.data.url }}</span
-                  ><span v-if="e.branchId"> · 📁 {{ pathOf(e.branchId) }}</span>
+                  ><span v-if="e.branchId"> · {{ pathOf(e.branchId) }}</span>
                 </div>
               </div>
               <span class="badge shrink-0">{{ t(`kind.${e.data.kind}`) }}</span>
@@ -572,48 +600,51 @@ void router;
       </div>
 
       <!-- Панель записи -->
-      <EntryPanel
-        v-if="opened || creating"
-        :key="(opened?.id ?? 'new') + (creating ? 'c' : '')"
-        :item="creating ? null : opened"
-        :creating="creating"
-        :branch-id="branchSel"
-        :vault="vault"
-        :branches="ws.branches"
-        @open="(id) => (openId = id)"
-        @saved="onSaved"
-        @cancel="creating = false"
-        @changed="() => (openId = openId)"
-      />
-      <section v-else class="card hidden p-4 text-sm text-slate-500 lg:block">
-        {{ t('vault.selectEntry') }}
-      </section>
-      <div v-if="opened && scope === 'trash'" class="lg:col-start-3 flex gap-2">
-        <button
-          type="button"
-          class="btn"
-          data-testid="restore-entry"
-          @click="run(() => ws.restoreEntry(opened!))"
-        >
-          {{ t('vault.restore') }}
-        </button>
-        <button
-          type="button"
-          class="btn-danger"
-          @click="confirmBox(t('vault.confirmPurge')) && run(() => ws.purgeEntry(opened!))"
-        >
-          {{ t('vault.purge') }}
-        </button>
-      </div>
-      <div v-else-if="opened && canWrite && opened.access !== 'reader'" class="lg:col-start-3">
-        <button
-          type="button"
-          class="btn-danger"
-          data-testid="btn-trash"
-          @click="run(() => ws.trashEntry(opened!))"
-        >
-          {{ t('vault.toTrash') }}
-        </button>
+      <div class="min-w-0 space-y-2 lg:sticky lg:top-20 lg:self-start">
+        <EntryPanel
+          v-if="opened || creating"
+          :key="(opened?.id ?? 'new') + (creating ? 'c' : '')"
+          :item="creating ? null : opened"
+          :creating="creating"
+          :branch-id="branchSel"
+          :vault="vault"
+          :branches="ws.branches"
+          @open="(id) => (openId = id)"
+          @saved="onSaved"
+          @cancel="creating = false"
+          @changed="() => (openId = openId)"
+        />
+        <section v-else class="empty hidden lg:flex">
+          <Icon name="lock" class="!size-8 opacity-60" />
+          {{ t('vault.selectEntry') }}
+        </section>
+        <div v-if="opened && scope === 'trash'" class="flex gap-2">
+          <button
+            type="button"
+            class="btn"
+            data-testid="restore-entry"
+            @click="run(() => ws.restoreEntry(opened!))"
+          >
+            {{ t('vault.restore') }}
+          </button>
+          <button
+            type="button"
+            class="btn-danger"
+            @click="confirmBox(t('vault.confirmPurge')) && run(() => ws.purgeEntry(opened!))"
+          >
+            {{ t('vault.purge') }}
+          </button>
+        </div>
+        <div v-else-if="opened && canWrite && opened.access !== 'reader'">
+          <button
+            type="button"
+            class="btn-danger"
+            data-testid="btn-trash"
+            @click="run(() => ws.trashEntry(opened!))"
+          >
+            <Icon name="trash" /> {{ t('vault.toTrash') }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -626,7 +657,9 @@ void router;
       @click.self="menuBranch = null"
     >
       <div class="card w-full max-w-sm space-y-3 p-4" data-testid="folder-menu">
-        <h2 class="font-semibold">📁 {{ menuBranch.name }}</h2>
+        <h2 class="flex items-center gap-2 font-semibold">
+          <Icon name="folder" /> {{ menuBranch.name }}
+        </h2>
         <button
           type="button"
           class="btn w-full"

@@ -103,6 +103,7 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
   await noHorizontalScroll(page, 'просмотр записи');
 
   for (const [path, name] of [
+    ['/settings', 'настройки'],
     ['/security', 'безопасность'],
     ['/admin/users', 'администрирование: пользователи'],
     ['/admin/settings', 'администрирование: настройки'],

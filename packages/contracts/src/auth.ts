@@ -56,6 +56,8 @@ export const userBundle = z.object({
   role: z.enum(['admin', 'member']),
   /** Назначена административная роль (делегированное администрирование отдельных разделов). */
   delegated: z.boolean().optional(),
+  /** Выбранная цветовая тема; пусто — тема по умолчанию. */
+  theme: z.string().nullable().optional(),
   publicKey,
   signPublicKey: publicKey,
   wrappedPrivateKey: wrappedKey,

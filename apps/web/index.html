@@ -3,12 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#2563eb" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" href="/icons/192.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Arklock</title>
+    <style>
+      /* до загрузки основного стиля: фон и цвет текста выбранной темы, чтобы не было белой вспышки */
+      html {
+        background: #f3f8fd;
+      }
+      html[data-theme='light'] {
+        background: #f8f8f6;
+      }
+      html[data-theme='dark'] {
+        background: #1a1d24;
+      }
+      html[data-theme='forest'] {
+        background: #0f241e;
+      }
+      html[data-theme='emerald'] {
+        background: #eef9f5;
+      }
+      html[data-theme='sunset'] {
+        background: #fff6f0;
+      }
+    </style>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="app"></div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Icon from './Icon.vue';
 import { computed } from 'vue';
 import type { BranchItem } from '../services/model';
 
@@ -28,8 +29,8 @@ const open = computed(() => !props.collapsed.has(props.node.id));
 <template>
   <li>
     <div
-      class="group flex items-center gap-1 rounded px-1 py-1 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-      :class="selected === node.id ? 'bg-slate-100 font-medium dark:bg-slate-800' : ''"
+      class="group flex items-center gap-1 rounded-lg px-1 py-1 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+      :class="selected === node.id ? 'nav-link-active !text-brand-700' : ''"
       :style="{ paddingLeft: `${depth * 12 + 4}px` }"
       data-testid="branch-row"
       @dragover.prevent
@@ -49,13 +50,13 @@ const open = computed(() => !props.collapsed.has(props.node.id));
         class="min-w-0 flex-1 truncate text-left"
         @click="emit('select', node.id)"
       >
-        📁 {{ node.name }}
+        <Icon name="folder" class="mr-1 align-[-2px]" />{{ node.name }}
       </button>
       <span class="text-xs text-slate-400">{{ counts.get(node.id) ?? '' }}</span>
       <button
         v-if="node.access !== 'reader'"
         type="button"
-        class="invisible text-slate-500 group-hover:visible"
+        class="rounded px-1 text-slate-500 hover:bg-slate-200 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 dark:hover:bg-slate-700"
         aria-label="menu"
         @click.stop="emit('menu', node)"
       >

@@ -140,6 +140,7 @@ export function bundle(u: typeof users.$inferSelect): UserBundle {
     displayName: u.displayName,
     role: u.role,
     delegated: u.role !== 'admin' && !!u.adminRoleId,
+    theme: u.theme,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
     wrappedPrivateKey: u.wrappedPrivateKey,
@@ -370,6 +371,19 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const { user } = authOf(req);
     const perms = await adminPermsOf(ctx, user);
     return { full: user.role === 'admin', permissions: [...perms].sort() };
+  });
+
+  /** Личные настройки интерфейса (сейчас — цветовая тема). Хранятся в профиле, а не в зашифрованных данных. */
+  app.put('/auth/preferences', { preHandler: auth }, async (req, reply) => {
+    const { user } = authOf(req);
+    const body = parse(
+      z.object({
+        theme: z.enum(['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']),
+      }),
+      req.body,
+    );
+    await db.update(users).set({ theme: body.theme }).where(eq(users.id, user.id));
+    return reply.status(204).send();
   });
 
   app.get('/auth/me', { preHandler: auth }, async (req) => {
