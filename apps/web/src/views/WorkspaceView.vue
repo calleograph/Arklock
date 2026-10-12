@@ -294,7 +294,10 @@ void router;
       {{ error }}
     </p>
 
-    <div v-if="vault?.unlocked" class="grid gap-3 lg:grid-cols-[15rem_minmax(0,1fr)_24rem]">
+    <div
+      v-if="vault?.unlocked"
+      class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[15rem_minmax(0,1fr)_24rem]"
+    >
       <!-- Боковая панель -->
       <aside class="card p-2 text-sm" data-testid="sidebar">
         <ul class="mb-2 space-y-0.5">

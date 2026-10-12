@@ -8,13 +8,14 @@ import {
 } from '@arklock/crypto';
 import type { KdfParams } from '@arklock/crypto';
 import {
-  CliError,
+  ClientError as CliError,
   loadEntries,
   openAccount,
+  passwordLogin,
   type Credentials,
   type Entry,
   type Opened,
-} from './session.js';
+} from '@arklock/client';
 
 export interface Config {
   server?: string;
@@ -216,46 +217,13 @@ export async function run(argv: string[], io: Io): Promise<number> {
         const email = str(p, 'email');
         if (!server || !email)
           throw new CliError('Usage: arklock login --server URL --email EMAIL');
-        const { deriveMasterKeys, fromBase64Url, toBase64Url, MIN_KDF } =
-          await import('@arklock/crypto');
-        const f = io.fetchFn ?? fetch;
-        const base = `${server.replace(/\/$/, '')}/api/v1`;
-        const params = (await (
-          await f(`${base}/auth/params?email=${encodeURIComponent(email)}`)
-        ).json()) as {
-          salt: string;
-          kdf: KdfParams;
-          userId: string;
-        };
-        const keys = await deriveMasterKeys(
-          await password(io),
-          fromBase64Url(params.salt),
-          params.userId,
-          params.kdf,
-          io.kdfFloor ?? MIN_KDF,
-        );
-        const post = async (path: string, body: unknown) => {
-          const r = await f(`${base}${path}`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          return {
-            status: r.status,
-            json: (await r.json().catch(() => null)) as Record<string, unknown> | null,
-          };
-        };
-        let res = await post('/auth/login', { email, authKey: toBase64Url(keys.authKey) });
-        keys.authKey.fill(0);
-        keys.wrapKey.fill(0);
-        if (res.status !== 200) throw new CliError('Invalid email or password');
-        if (res.json?.mfaRequired) {
-          const code = io.env.ARKLOCK_MFA_CODE ?? (await io.ask?.('Two-factor code: ', false));
-          if (!code) throw new CliError('Two-factor code required (ARKLOCK_MFA_CODE)');
-          res = await post('/auth/mfa/verify', { challenge: res.json.challenge, code });
-          if (res.status !== 200) throw new CliError('The code is invalid or already used');
-        }
-        io.saveConfig({ ...io.loadConfig(), server, token: String(res.json?.token) });
+        const token = await passwordLogin(server, email, await password(io), {
+          fetchFn: io.fetchFn,
+          kdfFloor: io.kdfFloor,
+          askCode: async () =>
+            io.env.ARKLOCK_MFA_CODE ?? (await io.ask?.('Two-factor code: ', false)),
+        });
+        io.saveConfig({ ...io.loadConfig(), server, token });
         io.out('Signed in. The session token was saved.\n');
         return 0;
       }

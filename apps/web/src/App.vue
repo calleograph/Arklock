@@ -58,12 +58,17 @@ onMounted(() => {
 <template>
   <div class="min-h-screen">
     <header class="border-b border-slate-200 dark:border-slate-800">
-      <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+      <div
+        class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3"
+      >
         <div>
           <div class="text-lg font-semibold tracking-tight">{{ t('app.name') }}</div>
           <div class="text-xs text-slate-500 dark:text-slate-400">{{ t('app.tagline') }}</div>
         </div>
-        <nav v-if="auth.isSignedIn && auth.unlocked" class="flex items-center gap-1 text-sm">
+        <nav
+          v-if="auth.isSignedIn && auth.unlocked"
+          class="order-3 flex w-full flex-wrap items-center gap-1 text-sm sm:order-none sm:w-auto"
+        >
           <RouterLink
             to="/"
             class="rounded px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"

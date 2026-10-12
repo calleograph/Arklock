@@ -24,6 +24,21 @@ export default tseslint.config(
         fetch: 'readonly',
         crypto: 'readonly',
         setTimeout: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
+    // service worker выполняется в своём окружении
+    files: ['apps/web/public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        URL: 'readonly',
+        Response: 'readonly',
       },
     },
   },

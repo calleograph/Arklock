@@ -13,7 +13,7 @@ import {
 } from '@arklock/crypto';
 import type { BranchRecord, EntryRecord, UserBundle, VaultInfo } from '@arklock/contracts';
 
-export class CliError extends Error {
+export class ClientError extends Error {
   constructor(
     message: string,
     readonly exitCode = 1,
@@ -46,7 +46,7 @@ export interface Entry {
 export class Api {
   constructor(
     private readonly cred: Credentials,
-    private readonly fetchFn: typeof fetch = fetch,
+    private readonly fetchFn: typeof fetch = (...a) => fetch(...a),
   ) {}
 
   async call<T = unknown>(method: string, path: string, body?: unknown, auth = true): Promise<T> {
@@ -70,7 +70,7 @@ export class Api {
           : code === 'token_read_only'
             ? 'This token is read-only. Create a token with write access.'
             : (data?.error?.message ?? res.statusText);
-      throw new CliError(`${hint} (${res.status} ${code})`);
+      throw new ClientError(`${hint} (${res.status} ${code})`);
     }
     return data as T;
   }
@@ -117,7 +117,7 @@ export async function openAccount(
   try {
     privateKey = await unwrapAccountPrivateKey(keys.wrapKey, user.wrappedPrivateKey, user.id);
   } catch {
-    throw new CliError('Wrong master password');
+    throw new ClientError('Wrong master password');
   } finally {
     keys.wrapKey.fill(0);
     keys.authKey.fill(0);
@@ -140,11 +140,11 @@ export async function openAccount(
     after = page[page.length - 1]!.seq;
   }
   if (!(await verifyKeyLog(log)))
-    throw new CliError('The key log failed verification — the server may be compromised');
+    throw new ClientError('The key log failed verification — the server may be compromised');
   if (opts.pin) {
     const at = log.find((e) => e.seq === opts.pin!.seq);
     if (!at || at.hash !== opts.pin.hash)
-      throw new CliError(
+      throw new ClientError(
         'The key log no longer matches what this client saw before — refusing to continue',
       );
   }

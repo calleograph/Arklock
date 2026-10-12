@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arklock</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #0f172a;
+        --muted: #64748b;
+        --line: #cbd5e1;
+        --brand: #2563eb;
+        --err: #b91c1c;
+        --ok: #047857;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f172a;
+          --fg: #e2e8f0;
+          --muted: #94a3b8;
+          --line: #334155;
+          --brand: #60a5fa;
+          --err: #fca5a5;
+          --ok: #6ee7b7;
+        }
+      }
+      body {
+        margin: 0;
+        width: 360px;
+        min-height: 200px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+      }
+      main {
+        padding: 12px;
+      }
+      h1 {
+        font-size: 15px;
+        margin: 0 0 8px;
+      }
+      label {
+        display: block;
+        margin: 8px 0 2px;
+        color: var(--muted);
+      }
+      input,
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+      }
+      button {
+        padding: 5px 9px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--brand);
+        border-color: var(--brand);
+        color: #fff;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .row.spread {
+        justify-content: space-between;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .err {
+        color: var(--err);
+        margin-top: 8px;
+      }
+      .ok {
+        color: var(--ok);
+        margin-top: 8px;
+      }
+      ul {
+        list-style: none;
+        margin: 8px 0;
+        padding: 0;
+        max-height: 300px;
+        overflow: auto;
+      }
+      li {
+        padding: 8px 0;
+        border-top: 1px solid var(--line);
+      }
+      .title {
+        font-weight: 600;
+      }
+      .tag {
+        font-size: 11px;
+        padding: 0 5px;
+        border-radius: 8px;
+        border: 1px solid var(--ok);
+        color: var(--ok);
+      }
+      code {
+        font-family: ui-monospace, monospace;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module" src="/src/popup.ts"></script>
+  </body>
+</html>

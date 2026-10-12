@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@arklock/client": "0.1.0",
     "@arklock/contracts": "0.1.0",
     "@arklock/crypto": "0.1.0"
   },

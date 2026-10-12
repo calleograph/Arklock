@@ -18,6 +18,7 @@ COPY packages/crypto/package.json packages/crypto/
 COPY packages/contracts/package.json packages/contracts/
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY packages/client/package.json packages/client/
 COPY apps/cli/package.json apps/cli/
 RUN npm ci --omit=dev --no-audit --no-fund -w @arklock/api && npm cache clean --force
 COPY --from=build /src/packages/crypto/dist packages/crypto/dist

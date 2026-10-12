@@ -26,6 +26,13 @@ async function bootstrap(): Promise<void> {
   });
 
   app.mount('#app');
+
+  // Оболочка интерфейса кэшируется service worker'ом (данные и ответы API — никогда)
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    });
+  }
 }
 
 void bootstrap();
