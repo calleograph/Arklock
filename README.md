@@ -24,7 +24,8 @@
 | Установка одной командой (standalone и shared-host), идемпотентная                                                             | реализовано, проверено в CI на Ubuntu 24.04          |
 | Шифрованное резервное копирование, расписание, скачивание и восстановление (CLI и веб)                                         | реализовано, проверено в CI                          |
 | Обновление и откат (CLI и веб через помощника), автоматическое восстановление после сбоя                                       | реализовано, проверено в CI                          |
-| Удалённые хранилища копий (S3/SMB), автоматическая настройка HTTPS/Nginx                                                       | запланировано                                        |
+| Удалённые хранилища копий (S3 и SMB): настройка в панели, ротация, контроль целостности; восстановление на другом сервере | реализовано |
+| Автоматическая настройка HTTPS/Nginx | не реализовано |
 
 ## Установка
 
@@ -53,7 +54,7 @@ sudo scripts/rollback.sh            # откат (отказывает, если
 sudo scripts/diag.sh                # диагностический пакет без секретов
 ```
 
-Документация: [установка](docs/INSTALL.md) · [обновление](docs/UPDATE.md) · [резервное копирование](docs/BACKUP_AND_RESTORE.md) · [диагностика](docs/DIAGNOSTICS.md) · [командная строка и токены](docs/CLI.md) · [каталог и SSO](docs/DIRECTORY.md) · [SAML](docs/SAML.md) · [роли](docs/administration/README.md) · [расширение и телефон](docs/EXTENSION.md) · [криптография](docs/security/cryptography.md) · [модель угроз](docs/security/threat-model.md) · [API](docs/api/README.md) · [архитектура](docs/architecture/overview.md)
+Документация: [установка](docs/INSTALL.md) · [обновление](docs/UPDATE.md) · [резервное копирование](docs/BACKUP_AND_RESTORE.md) · [диагностика](docs/DIAGNOSTICS.md) · [командная строка и токены](docs/CLI.md) · [каталог и SSO](docs/DIRECTORY.md) · [SAML](docs/SAML.md) · [роли](docs/administration/README.md) · [копии и удалённое хранилище](docs/BACKUP_AND_RESTORE.md) · [расширение и телефон](docs/EXTENSION.md) · [криптография](docs/security/cryptography.md) · [модель угроз](docs/security/threat-model.md) · [API](docs/api/README.md) · [архитектура](docs/architecture/overview.md)
 
 ## Безопасность
 

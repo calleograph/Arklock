@@ -2,28 +2,38 @@
 # restore.sh — восстановление Arklock из зашифрованной копии backup.sh. Работает из командной строки,
 # веб-приложение для этого не нужно.
 #   scripts/restore.sh ФАЙЛ [--env ФАЙЛ] [--yes] [--no-safety-backup]
+#   scripts/restore.sh --remote ИМЯ [--env ФАЙЛ] [--yes]   взять копию с удалённого хранилища (scripts/remote.sh)
 #
 # ОПАСНО: заменяет содержимое базы данных проекта данными из копии. Перед заменой создаётся аварийная копия
 # текущего состояния (метка pre-restore), если база доступна. Файл окружения НЕ заменяется (на новом сервере
 # секреты и порты свои); конфигурация из копии остаётся внутри архива на случай ручной сверки.
-# На новом сервере: install.sh → скопировать ключ резервного шифрования в /etc/arklock/backup.key → restore.sh.
+# На новом сервере: install.sh → скопировать ключ резервного шифрования в /etc/arklock/backup.key → при копии на удалённом
+# хранилище: remote.sh configure (адрес и секреты хранилища), remote.sh list → restore.sh --remote ИМЯ.
 set -euo pipefail
 # shellcheck source=lib/common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-FILE=""; YES=0; SAFETY=1
+FILE=""; YES=0; SAFETY=1; REMOTE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --env) export ENV_FILE="$2"; shift 2 ;;
     --yes|-y) YES=1; shift ;;
     --no-safety-backup) SAFETY=0; shift ;;
+    --remote) REMOTE="$2"; shift 2 ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "Неизвестный параметр: $1" ;;
     *) FILE="$1"; shift ;;
   esac
 done
-[ -n "$FILE" ] && [ -f "$FILE" ] || die "Укажите существующий файл копии"
 init_instance
+if [ -n "$REMOTE" ]; then
+  [ -z "$FILE" ] || die "Укажите либо файл копии, либо --remote ИМЯ"
+  [[ "$REMOTE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] || die "--remote: имя копии вида *.bak.gpg"
+  info "Загрузка копии $REMOTE с удалённого хранилища…"
+  "$REPO_ROOT/scripts/remote.sh" pull "$REMOTE" "$BACKUP_DIR" >/dev/null || die "Копия не загружена с удалённого хранилища (или повреждена при передаче)"
+  FILE="$BACKUP_DIR/$REMOTE"
+fi
+[ -n "$FILE" ] && [ -f "$FILE" ] || die "Укажите существующий файл копии"
 need_cmd gpg; need_cmd tar
 [ -r "$BACKUP_KEY_FILE" ] || die "Нет ключа резервного шифрования: $BACKUP_KEY_FILE (скопируйте ключ исходного сервера)"
 acquire_lock

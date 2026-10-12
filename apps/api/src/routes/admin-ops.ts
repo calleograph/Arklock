@@ -34,6 +34,79 @@ const backupAction = z.discriminatedUnion('action', [
   }),
 ]);
 
+const prefixRe = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+const noDots = (v: string) => !v.includes('..');
+const common = {
+  prefix: z
+    .string()
+    .trim()
+    .max(200)
+    .refine(noDots)
+    .refine((v) => v === '' || prefixRe.test(v))
+    .default(''),
+  auto: z.boolean().default(true),
+  keep: z.number().int().min(1).max(365).default(14),
+};
+/** Секреты необязательны: пустое значение означает «оставить прежний». */
+const offsiteConfig = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('s3'),
+    endpoint: z.string().trim().url().max(500),
+    region: z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9-]{2,40}$/),
+    bucket: z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/),
+    accessKey: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9/+=._-]{3,128}$/),
+    secretKey: z.string().max(300).default(''),
+    pathStyle: z.boolean().default(true),
+    caPem: z.string().max(16_000).default(''),
+    insecureTls: z.boolean().default(false),
+    allowHttp: z.boolean().default(false),
+    ...common,
+  }),
+  z.object({
+    type: z.literal('smb'),
+    host: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._-]{1,253}$/),
+    port: z.number().int().min(1).max(65535).default(445),
+    share: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._$-]{1,80}$/),
+    user: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._@\\-]{1,128}$/),
+    password: z.string().max(300).default(''),
+    domain: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9._-]{0,128}$/)
+      .default(''),
+    encrypt: z.boolean().default(true),
+    ...common,
+  }),
+]);
+
+const offsiteAction = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('test') }),
+  z.object({ action: z.literal('refresh') }),
+  z.object({ action: z.literal('clear') }),
+  z.object({ action: z.literal('push'), file: backupName }),
+  z.object({ action: z.literal('pull'), file: backupName }),
+  z.object({ action: z.literal('verify'), file: backupName }),
+  z.object({ action: z.literal('delete'), file: backupName }),
+]);
+
 /**
  * Контейнеры, резервные копии, системные журналы. Веб-приложение сам ничего не выполняет: операции ставит в очередь
  * помощник на хосте (набор действий фиксирован и проверяется), а состояние читается из публикуемых им снимков.
@@ -121,6 +194,85 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
     await audit(db, `user:${user.id}`, `admin.backup.${body.action}`, `request:${requestId}`, {
       file: 'file' in body ? body.file : null,
     });
+    return reply.status(202).send({ requestId });
+  });
+
+  // ------------------------------------------------------------------ удалённое хранилище копий (S3 / SMB)
+
+  app.get('/admin/backups/offsite', async () => {
+    const [snap, alive] = await Promise.all([ctx.updater.offsite(), helperAlive()]);
+    return { helperAlive: alive, offsite: snap };
+  });
+
+  /** Настройка: секреты уходят помощнику в файле с правами 600 и в базе не хранятся; нужен повторный ввод пароля. */
+  app.put('/admin/backups/offsite', async (req, reply) => {
+    const { user } = authOf(req);
+    requireReauth(req);
+    const b = parse(offsiteConfig, req.body);
+    const v: Record<string, string> =
+      b.type === 's3'
+        ? {
+            type: 's3',
+            endpoint: b.endpoint,
+            region: b.region,
+            bucket: b.bucket,
+            prefix: b.prefix,
+            access_key: b.accessKey,
+            secret_key: b.secretKey,
+            path_style: b.pathStyle ? '1' : '0',
+            ca_pem: b.caPem,
+            insecure_tls: b.insecureTls ? '1' : '0',
+            allow_http: b.allowHttp ? '1' : '0',
+            auto: b.auto ? '1' : '0',
+            keep: String(b.keep),
+          }
+        : {
+            type: 'smb',
+            host: b.host,
+            port: String(b.port),
+            share: b.share,
+            prefix: b.prefix,
+            user: b.user,
+            password: b.password,
+            domain: b.domain,
+            encrypt: b.encrypt ? '1' : '0',
+            auto: b.auto ? '1' : '0',
+            keep: String(b.keep),
+          };
+    if (!(await helperAlive()))
+      throw new AppError(503, 'updater_unavailable', 'The host helper is not running');
+    await ctx.updater.writeOffsiteConfig(v);
+    let requestId: string;
+    try {
+      requestId = await submit(req, { action: 'offsite_import' });
+    } catch (e) {
+      await ctx.updater.removeOffsiteConfig();
+      throw e;
+    }
+    await audit(db, `user:${user.id}`, 'admin.backup.offsite.config', `request:${requestId}`, {
+      type: b.type,
+      auto: b.auto,
+      keep: b.keep,
+    });
+    return reply.status(202).send({ requestId });
+  });
+
+  app.post('/admin/backups/offsite', async (req, reply) => {
+    const { user } = authOf(req);
+    const body = parse(offsiteAction, req.body);
+    if (body.action === 'clear' || body.action === 'delete' || body.action === 'pull')
+      requireReauth(req);
+    const requestId = await submit(req, {
+      action: `offsite_${body.action}`,
+      file: 'file' in body ? body.file : undefined,
+    });
+    await audit(
+      db,
+      `user:${user.id}`,
+      `admin.backup.offsite.${body.action}`,
+      `request:${requestId}`,
+      { file: 'file' in body ? body.file : null },
+    );
     return reply.status(202).send({ requestId });
   });
 

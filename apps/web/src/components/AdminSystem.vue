@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError, apiBinary } from '../services/api';
 import { reauth } from '../services/account';
+import OffsiteBackups from './OffsiteBackups.vue';
 import { useAuthStore } from '../stores/auth';
 
 type Section =
@@ -674,6 +675,7 @@ const disks = computed(() => (data.value?.disks ?? []) as Json[]);
           }})</span
         >
       </form>
+      <OffsiteBackups />
     </div>
 
     <!-- Журналы системы -->

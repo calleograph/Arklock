@@ -227,18 +227,83 @@ jobs:
           user="$(node -p "require('./smoke-state.json').email")"
           secret="$(node -p "require('./smoke-state.json').secret.password")"
           if sudo grep -aqF -- "$user" "$f" || sudo grep -aqF -- "$secret" "$f"; then echo "plaintext in backup"; exit 1; fi
+      - name: Remote storage (S3, MinIO) - test, send, list, verify, rotation
+        run: |
+          docker run -d --name minio -p 19000:9000 -e MINIO_ROOT_USER=ciaccesskey -e MINIO_ROOT_PASSWORD=cisecretkey-0123456789 minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null && break; sleep 1; done
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c 'mc alias set l http://127.0.0.1:19000 ciaccesskey cisecretkey-0123456789 && mc mb l/arklock-ci'
+          export ARKLOCK_REMOTE_CONF="$CFG/remote.conf"
+          export ARKLOCK_REMOTE_TYPE=s3 ARKLOCK_REMOTE_S3_ENDPOINT=http://127.0.0.1:19000 ARKLOCK_REMOTE_S3_BUCKET=arklock-ci ARKLOCK_REMOTE_S3_REGION=us-east-1
+          export ARKLOCK_REMOTE_S3_ACCESS_KEY=ciaccesskey ARKLOCK_REMOTE_S3_SECRET_KEY=cisecretkey-0123456789 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
+          sudo -E ./scripts/remote.sh configure --from-env
+          test "$(sudo stat -c '%a' "$CFG/remote.conf")" = 600
+          sudo -E ./scripts/remote.sh show | grep -q 'секрет=задан'
+          if sudo -E ./scripts/remote.sh show | grep -qF cisecretkey; then echo "secret shown"; exit 1; fi
+          sudo -E ./scripts/remote.sh test
+          sudo -E ./scripts/remote.sh push "$BACKUP"
+          name="$(basename "$BACKUP")"
+          sudo -E ./scripts/remote.sh list | grep -q "$name"
+          sudo -E ./scripts/remote.sh verify "$name"
+          # многочастная отправка большого файла (части по 1 МиБ)
+          head -c 5000000 /dev/urandom > /tmp/arklock-ci-big.bak.gpg
+          sudo -E env ARKLOCK_REMOTE_PART_MIB=1 ARKLOCK_REMOTE_SINGLE_MAX_MIB=1 ./scripts/remote.sh push /tmp/arklock-ci-big.bak.gpg
+          sudo -E ./scripts/remote.sh verify arklock-ci-big.bak.gpg
+          sudo -E ./scripts/remote.sh delete arklock-ci-big.bak.gpg
+          # повреждение на стороне хранилища обнаруживается
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c "mc alias set l http://127.0.0.1:19000 ciaccesskey cisecretkey-0123456789 >/dev/null && echo tampered | mc pipe l/arklock-ci/ci/server1/$name"
+          if sudo -E ./scripts/remote.sh verify "$name"; then echo "tampered object accepted"; exit 1; fi
+          sudo -E ./scripts/remote.sh push "$BACKUP"
+          sudo -E ./scripts/remote.sh verify "$name"
+      - name: Remote storage (SMB, Samba) - test, send, list, verify, pull, rotation
+        run: |
+          sudo apt-get install -y --no-install-recommends smbclient
+          mkdir -p /tmp/smbshare && chmod 777 /tmp/smbshare
+          docker run -d --name samba -p 4445:445 -e ACCOUNT_arklock=smbpass-ci-0123 -e UID_arklock=1000 \
+            -e 'SAMBA_VOLUME_CONFIG_backups=[backups]; path=/shares/backups; valid users = arklock; guest ok = no; read only = no; browseable = yes' \
+            -v /tmp/smbshare:/shares/backups ghcr.io/servercontainers/samba:latest
+          for i in $(seq 1 40); do smbclient -L //127.0.0.1 -p 4445 -U 'arklock%smbpass-ci-0123' -m SMB3 >/dev/null 2>&1 && break; sleep 1; done
+          export ARKLOCK_REMOTE_CONF="$CFG/remote-smb.conf"
+          export ARKLOCK_REMOTE_TYPE=smb ARKLOCK_REMOTE_SMB_HOST=127.0.0.1 ARKLOCK_REMOTE_SMB_PORT=4445 ARKLOCK_REMOTE_SMB_SHARE=backups
+          export ARKLOCK_REMOTE_SMB_USER=arklock ARKLOCK_REMOTE_SMB_PASSWORD=smbpass-ci-0123 ARKLOCK_REMOTE_PREFIX=ci/server1 ARKLOCK_REMOTE_SMB_ENCRYPT=1
+          sudo -E ./scripts/remote.sh configure --from-env
+          test "$(sudo stat -c '%a' "$CFG/remote-smb.conf")" = 600
+          if sudo -E ./scripts/remote.sh show | grep -qF smbpass-ci; then echo "secret shown"; exit 1; fi
+          sudo -E ./scripts/remote.sh test
+          name="$(basename "$BACKUP")"
+          sudo -E ./scripts/remote.sh push "$BACKUP"
+          sudo -E ./scripts/remote.sh list | grep -q "$name"
+          sudo -E ./scripts/remote.sh verify "$name"
+          # повреждение на стороне хранилища обнаруживается
+          printf 'tampered' | sudo tee -a "/tmp/smbshare/ci/server1/$name" >/dev/null
+          if sudo -E ./scripts/remote.sh verify "$name"; then echo "tampered object accepted"; exit 1; fi
+          sudo -E ./scripts/remote.sh push "$BACKUP"
+          sudo -E ./scripts/remote.sh verify "$name"
+          # ротация: оставляем одну, чужие копии не трогаем
+          cp "$BACKUP" /tmp/arklock-ci-2.bak.gpg && sudo -E ./scripts/remote.sh push /tmp/arklock-ci-2.bak.gpg
+          sudo -E env COMPOSE_PROJECT_NAME=arklock ./scripts/remote.sh prune 1
+          test "$(sudo -E ./scripts/remote.sh list | wc -l)" = 1
+          sudo -E ./scripts/remote.sh pull "$(sudo -E ./scripts/remote.sh list | cut -d' ' -f1)" /tmp/smb-pulled
+          ls /tmp/smb-pulled/*.bak.gpg
+          sudo rm -f "$CFG/remote-smb.conf"
       - name: A corrupted backup is rejected
         run: |
           sudo cp "$BACKUP" /tmp/corrupt.bak.gpg
           sudo sh -c 'printf "X" | dd of=/tmp/corrupt.bak.gpg bs=1 seek=300 conv=notrunc 2>/dev/null'
           if sudo ./scripts/backup.sh --env "$CFG/arklock.env" --verify /tmp/corrupt.bak.gpg; then echo "corrupted backup accepted"; exit 1; fi
-      - name: Disaster - destroy the database, re-install, restore from backup
+      - name: Disaster - destroy the database, re-install, restore from the remote copy
         run: |
+          export ARKLOCK_REMOTE_CONF="$CFG/remote.conf"
+          export ARKLOCK_REMOTE_TYPE=s3 ARKLOCK_REMOTE_S3_ENDPOINT=http://127.0.0.1:19000 ARKLOCK_REMOTE_S3_BUCKET=arklock-ci ARKLOCK_REMOTE_S3_REGION=us-east-1
+          export ARKLOCK_REMOTE_S3_ACCESS_KEY=ciaccesskey ARKLOCK_REMOTE_S3_SECRET_KEY=cisecretkey-0123456789 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
           sudo docker compose --project-name "$PROJ" down -v
           # файлы вложений тоже уничтожены: их должна вернуть копия
           sudo rm -rf "$DATA/blobs"
           sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
-          sudo ./scripts/restore.sh "$BACKUP" --env "$CFG/arklock.env" --yes
+          # «другой сервер»: локальной копии нет, настройка хранилища вводится заново, копия берётся с удалённого хранилища
+          name="$(basename "$BACKUP")"
+          sudo rm -f "$BACKUP" "$BACKUP.json" "$CFG/remote.conf"
+          sudo -E ./scripts/remote.sh configure --from-env
+          sudo -E ./scripts/restore.sh --remote "$name" --env "$CFG/arklock.env" --yes
       - name: After restore the same user decrypts the same entry
         env:
           BASE_URL: http://127.0.0.1:${{ env.PORT }}
@@ -249,6 +314,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
+          docker rm -f minio samba || true
           sudo docker compose --project-name "$PROJ" logs --no-color --tail=100 || true
           sudo docker compose --project-name "$PROJ" down -v || true
 
@@ -446,8 +512,18 @@ jobs:
           sleep 5
           test ! -e "$DATA/updater/request.txt" || sudo test ! -L "$DATA/updater/request.txt"
           test "$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")" = "$before"
-      - name: Helper backup, verify, export, delete, schedule and logs
-        run: bash tests/updater/test-ops.sh "$DATA" "$CFG/arklock.env"
+      - name: Helper backup, verify, export, delete, schedule, logs and remote storage
+        env:
+          OFFSITE_ENDPOINT: http://127.0.0.1:19001
+          OFFSITE_BUCKET: arklock-web
+          OFFSITE_ACCESS: ciwebaccesskey
+          OFFSITE_SECRET: ciwebsecretkey-0123456789
+        run: |
+          docker run -d --name minio-web -p 19001:9000 -e MINIO_ROOT_USER="$OFFSITE_ACCESS" -e MINIO_ROOT_PASSWORD="$OFFSITE_SECRET" minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:19001/minio/health/ready >/dev/null && break; sleep 1; done
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2025-04-16T18-13-26Z -c "mc alias set l $OFFSITE_ENDPOINT $OFFSITE_ACCESS $OFFSITE_SECRET && mc mb l/$OFFSITE_BUCKET"
+          bash tests/updater/test-ops.sh "$DATA" "$CFG/arklock.env"
+          docker rm -f minio-web || true
       - name: Helper survives a restart
         run: |
           sudo systemctl restart "arklock-updater-$PROJ"

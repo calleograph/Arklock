@@ -66,6 +66,38 @@ if [ -n "$ENVF" ]; then
   if [ -n "$sec" ] && has "$CH/logs.txt" "$sec"; then bad "APP_SECRET в журнале"; else ok "APP_SECRET в журнале не найден"; fi
 fi
 
+# 5а. Удалённое хранилище (S3): настройка из веб-интерфейса, проверка, автоматическая отправка, проверка целостности, ротация
+if [ -n "${OFFSITE_ENDPOINT:-}" ]; then
+  b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+  {
+    echo "type=$(b64 s3)"; echo "endpoint=$(b64 "$OFFSITE_ENDPOINT")"; echo "region=$(b64 us-east-1)"; echo "bucket=$(b64 "$OFFSITE_BUCKET")"
+    echo "prefix=$(b64 ci/web)"; echo "access_key=$(b64 "$OFFSITE_ACCESS")"; echo "secret_key=$(b64 "$OFFSITE_SECRET")"
+    echo "allow_http=$(b64 1)"; echo "auto=$(b64 1)"; echo "keep=$(b64 2)"
+  } | sudo tee "$CH/offsite-config.in" > /dev/null
+  sudo chmod 600 "$CH/offsite-config.in"
+  send action=offsite_import && [ "$(state)" = success ] && ok "offsite_import" || bad "offsite_import: $(message)"
+  sudo test ! -e "$CH/offsite-config.in" && ok "файл настройки с секретами не остался в общем каталоге" || bad "файл настройки остался в $CH"
+  [ "$(rd "$CH/offsite.json" | jq -r '.configured,.type,.bucket,.keep' | tr '\n' ' ')" = "true s3 $OFFSITE_BUCKET 2 " ] && ok "offsite.json" || bad "offsite.json: $(rd "$CH/offsite.json")"
+  if has "$CH/offsite.json" "$OFFSITE_SECRET"; then bad "секрет в offsite.json"; else ok "секрета нет в снимке"; fi
+  if has "$CH/history.jsonl" "$OFFSITE_SECRET" || has "$CH/update.log" "$OFFSITE_SECRET"; then bad "секрет в журнале помощника"; else ok "секрета нет в журнале помощника"; fi
+  send action=offsite_test && [ "$(state)" = success ] && ok "offsite_test" || bad "offsite_test: $(message)"
+  # копия по запросу уходит на хранилище автоматически (auto=1)
+  send action=backup label=remote && [ "$(state)" = success ] && ok "backup с отправкой" || bad "backup: $(message)"
+  rname="$(rd "$CH/backups.json" | jq -r '.items[0].name')"
+  [ "$(rd "$CH/offsite.json" | jq -r --arg n "$rname" '[.items[].name] | index($n) != null')" = true ] && ok "копия $rname на хранилище" || bad "копии нет на хранилище: $(rd "$CH/offsite.json")"
+  [ "$(rd "$CH/offsite.json" | jq -r '.last_result')" = ok ] && ok "итог последней отправки: ok" || bad "итог отправки: $(rd "$CH/offsite.json")"
+  send action=offsite_verify "file=$rname" && [ "$(state)" = success ] && ok "offsite_verify" || bad "offsite_verify: $(message)"
+  # ротация на хранилище: храним 2, третья копия вытесняет самую старую
+  send action=backup label=remote2 && send action=backup label=remote3 && ok "ещё две копии" || bad "ещё копии: $(message)"
+  send action=offsite_refresh && [ "$(state)" = success ] || bad "offsite_refresh: $(message)"
+  [ "$(rd "$CH/offsite.json" | jq -r '[.items[] | select(.name | contains("-remote"))] | length')" = 2 ] && ok "ротация на хранилище: осталось 2" || bad "ротация: $(rd "$CH/offsite.json" | jq -c '[.items[].name]')"
+  send action=offsite_delete "file=$rname" || true
+  # самая старая могла быть уже вытеснена: удаление отсутствующего объекта не ошибка
+  send action=offsite_clear && [ "$(state)" = success ] && ok "offsite_clear" || bad "offsite_clear: $(message)"
+  [ "$(rd "$CH/offsite.json" | jq -r '.configured')" = false ] && ok "настройка и секреты удалены" || bad "после clear: $(rd "$CH/offsite.json")"
+  sudo test ! -e "$(dirname "$ENVF")/remote.conf" && ok "remote.conf стёрт" || bad "remote.conf остался"
+fi
+
 # 6. Подготовка к скачиванию и удаление
 send action=backup_export "file=$name" && [ "$(state)" = success ] && ok "backup_export" || bad "backup_export: $(message)"
 sudo test -f "$CH/export/$name" && ok "копия подготовлена" || bad "нет $CH/export/$name"

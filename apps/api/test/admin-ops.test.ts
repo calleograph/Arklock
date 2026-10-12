@@ -280,3 +280,160 @@ describe('containers, backups, logs', () => {
     );
   });
 });
+
+describe('remote backup storage (S3 / SMB)', () => {
+  const SECRET = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYsecretvalue';
+  const cfgFile = () => path.join(dir, 'offsite-config.in');
+  const s3 = (over: object = {}) => ({
+    type: 's3',
+    endpoint: 'https://s3.example.com',
+    region: 'eu-test-1',
+    bucket: 'arklock-backups',
+    prefix: 'srv1',
+    accessKey: 'AKIATESTACCESSKEY1',
+    secretKey: SECRET,
+    auto: true,
+    keep: 7,
+    ...over,
+  });
+  const put = async (c: TestClient, body: unknown, reauthed = true) =>
+    app.inject({
+      method: 'PUT',
+      url: '/api/v1/admin/backups/offsite',
+      headers: { ...c.authHeader(), ...(reauthed ? await reauth(c) : {}) },
+      payload: body as never,
+    });
+
+  it('shows what the helper published; unsafe names are dropped; only administrators', async () => {
+    expect((await admin.req('GET', '/admin/backups/offsite')).json().offsite).toBeNull();
+    writeFileSync(
+      path.join(dir, 'offsite.json'),
+      JSON.stringify({
+        configured: true,
+        type: 's3',
+        endpoint: 'https://s3.example.com',
+        bucket: 'arklock-backups',
+        prefix: 'srv1',
+        auto: true,
+        keep: 7,
+        last_at: '2026-10-12T02:00:00Z',
+        last_result: 'ok',
+        last_file: NAME,
+        items: [
+          { name: NAME, size: 123 },
+          { name: '../evil.bak.gpg', size: 1 },
+          { name: 'x.txt', size: 1 },
+        ],
+      }),
+    );
+    const r = (await admin.req('GET', '/admin/backups/offsite')).json();
+    expect(r.offsite).toMatchObject({ configured: true, type: 's3', keep: 7, lastResult: 'ok' });
+    expect(r.offsite.items).toEqual([{ name: NAME, size: 123 }]);
+    expect((await bob.req('GET', '/admin/backups/offsite')).statusCode).toBe(403);
+  });
+
+  it('configuration needs the master password, is validated, and the secret goes only to the helper', async () => {
+    expect((await put(admin, s3(), false)).statusCode).toBe(403);
+    for (const bad of [
+      s3({ prefix: '../etc' }),
+      s3({ prefix: 'a b' }),
+      s3({ bucket: 'Bad Bucket' }),
+      s3({ endpoint: 'not a url' }),
+      s3({ keep: 0 }),
+      s3({ accessKey: 'x y' }),
+      { type: 'smb', host: 'nas.example.com', share: 'back/ups', user: 'u' },
+      { type: 'ftp' },
+    ])
+      expect((await put(admin, bad)).statusCode, JSON.stringify(bad)).toBe(400);
+    expect((await put(bob, s3(), false)).statusCode).toBe(403);
+
+    const ok = await put(admin, s3());
+    expect(ok.statusCode, ok.body).toBe(202);
+    const file = readFileSync(cfgFile(), 'utf8');
+    const got = Object.fromEntries(
+      file
+        .trim()
+        .split('\n')
+        .map((l) => {
+          const [k, v] = l.split('=') as [string, string];
+          return [k, Buffer.from(v, 'base64').toString()];
+        }),
+    );
+    expect(got).toMatchObject({
+      type: 's3',
+      bucket: 'arklock-backups',
+      access_key: 'AKIATESTACCESSKEY1',
+      secret_key: SECRET,
+      auto: '1',
+      keep: '7',
+    });
+    // секрет не лежит открытым текстом ни в файле, ни в запросе, ни в базе, ни в журнале событий
+    expect(file).not.toContain(SECRET);
+    expect(readFileSync(reqFile(), 'utf8')).not.toContain(SECRET);
+    expect(consume()).toMatchObject({ action: 'offsite_import' });
+    const rows = JSON.stringify(
+      await database.db.select().from((await import('../src/db/schema.js')).settings),
+    );
+    expect(rows).not.toContain(SECRET);
+    const ledger = JSON.stringify(
+      await database.db.select().from((await import('../src/db/schema.js')).ledger),
+    );
+    expect(ledger).not.toContain(SECRET);
+    expect(ledger).toContain('admin.backup.offsite.config');
+    rmSync(cfgFile());
+  });
+
+  it('an SMB configuration is accepted; a busy helper leaves no configuration file behind', async () => {
+    const smb = {
+      type: 'smb',
+      host: 'nas.example.com',
+      share: 'backups',
+      user: 'arklock',
+      password: 'smb-password-1',
+      domain: 'CORP',
+      prefix: 'arklock',
+    };
+    expect((await put(admin, smb)).statusCode).toBe(202);
+    expect(readFileSync(cfgFile(), 'utf8')).not.toContain('smb-password-1');
+    // запрос ещё не обработан: вторая настройка отклоняется, файл с секретом убирается
+    const second = await put(admin, s3());
+    expect(second.statusCode).toBe(409);
+    consume();
+    rmSync(cfgFile(), { force: true });
+    expect((await put(admin, s3())).statusCode).toBe(202);
+    consume();
+    rmSync(cfgFile(), { force: true });
+  });
+
+  it('actions: test, refresh, send, verify need no re-confirmation; delete, download and clear do', async () => {
+    for (const body of [
+      { action: 'test' },
+      { action: 'refresh' },
+      { action: 'push', file: NAME },
+      { action: 'verify', file: NAME },
+    ]) {
+      const r = await admin.req('POST', '/admin/backups/offsite', body);
+      expect(r.statusCode, JSON.stringify(body)).toBe(202);
+      expect(consume()).toMatchObject({ action: `offsite_${body.action}` });
+    }
+    for (const body of [
+      { action: 'delete', file: NAME },
+      { action: 'pull', file: NAME },
+      { action: 'clear' },
+    ]) {
+      expect((await admin.req('POST', '/admin/backups/offsite', body)).statusCode).toBe(403);
+      const h = await reauth(admin);
+      expect((await withHeaders(admin, 'POST', '/admin/backups/offsite', h, body)).statusCode).toBe(
+        202,
+      );
+      expect(consume()).toMatchObject({ action: `offsite_${body.action}` });
+    }
+    expect(
+      (await admin.req('POST', '/admin/backups/offsite', { action: 'push', file: '../x.bak.gpg' }))
+        .statusCode,
+    ).toBe(400);
+    expect((await bob.req('POST', '/admin/backups/offsite', { action: 'test' })).statusCode).toBe(
+      403,
+    );
+  });
+});

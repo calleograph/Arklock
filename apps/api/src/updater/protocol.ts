@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { link, lstat, readFile, unlink, writeFile } from 'node:fs/promises';
+import { link, lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { UpdateStatus, UpdatesOverview } from '@arklock/contracts';
 
@@ -22,7 +22,15 @@ export type HelperAction =
   | 'backup_export'
   | 'restore'
   | 'logs'
-  | 'schedule';
+  | 'schedule'
+  | 'offsite_import'
+  | 'offsite_test'
+  | 'offsite_push'
+  | 'offsite_pull'
+  | 'offsite_verify'
+  | 'offsite_delete'
+  | 'offsite_refresh'
+  | 'offsite_clear';
 
 export interface UpdaterRequest {
   action: HelperAction;
@@ -61,6 +69,28 @@ export interface BackupSnapshot {
     version: string;
     migrations: number;
   }[];
+}
+
+/** Удалённое хранилище копий (S3 / SMB): настройка без секретов, итог последней отправки и список копий на хранилище. */
+export interface OffsiteSnapshot {
+  configured: boolean;
+  type: '' | 's3' | 'smb';
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  host: string;
+  share: string;
+  user: string;
+  auto: boolean;
+  keep: number;
+  lastAt: string;
+  lastResult: string;
+  lastFile: string;
+  lastError: string;
+  listedAt: string;
+  listError: string;
+  items: { name: string; size: number }[];
 }
 
 export interface ScheduleSnapshot {
@@ -261,6 +291,52 @@ export class UpdaterChannel {
         }))
         .filter((i) => BACKUP_NAME_RE.test(i.name) && !i.name.includes('..')),
     };
+  }
+
+  async offsite(): Promise<OffsiteSnapshot | null> {
+    const raw = await readJson<Record<string, unknown>>(this.p('offsite.json'));
+    if (!raw) return null;
+    const items = Array.isArray(raw.items) ? (raw.items as Record<string, unknown>[]) : [];
+    const type = raw.type === 's3' || raw.type === 'smb' ? raw.type : '';
+    return {
+      configured: raw.configured === true,
+      type,
+      endpoint: str(raw.endpoint) ?? '',
+      region: str(raw.region) ?? '',
+      bucket: str(raw.bucket) ?? '',
+      prefix: str(raw.prefix) ?? '',
+      host: str(raw.host) ?? '',
+      share: str(raw.share) ?? '',
+      user: str(raw.user) ?? '',
+      auto: raw.auto === true,
+      keep: num(raw.keep) || 14,
+      lastAt: str(raw.last_at) ?? '',
+      lastResult: str(raw.last_result) ?? '',
+      lastFile: str(raw.last_file) ?? '',
+      lastError: str(raw.last_error) ?? '',
+      listedAt: str(raw.listed_at) ?? '',
+      listError: str(raw.list_error) ?? '',
+      items: items
+        .map((i) => ({ name: str(i.name) ?? '', size: num(i.size) }))
+        .filter((i) => BACKUP_NAME_RE.test(i.name) && !i.name.includes('..')),
+    };
+  }
+
+  /**
+   * Передаёт помощнику настройку удалённого хранилища. Файл создаётся с правами 600 и содержит значения в base64;
+   * помощник переносит его в свой закрытый каталог и стирает. В базе данных Arklock секреты не хранятся.
+   */
+  async writeOffsiteConfig(values: Record<string, string>): Promise<void> {
+    const lines = Object.entries(values).map(
+      ([k, v]) => `${k}=${Buffer.from(v, 'utf8').toString('base64')}`,
+    );
+    const tmp = this.p(`.offsite.${randomUUID()}`);
+    await writeFile(tmp, lines.join('\n') + '\n', { mode: 0o600, flag: 'wx' });
+    await rename(tmp, this.p('offsite-config.in'));
+  }
+
+  async removeOffsiteConfig(): Promise<void> {
+    await unlink(this.p('offsite-config.in')).catch(() => undefined);
   }
 
   async schedule(): Promise<ScheduleSnapshot> {

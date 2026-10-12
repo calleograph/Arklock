@@ -65,6 +65,33 @@ write('containers.json', {
 write('schedule.json', { enabled: false, hour: 3, keep: 14, last_at: '', last_result: '' });
 publishBackups();
 
+// Удалённое хранилище: настройка (с секретом) остаётся только здесь, как у настоящего помощника
+let offsite = null; // { cfg, items, last }
+const publishOffsite = () => {
+  const c = offsite?.cfg;
+  write('offsite.json', {
+    configured: !!c,
+    type: c?.type ?? '',
+    endpoint: c?.endpoint ?? '',
+    region: c?.region ?? '',
+    bucket: c?.bucket ?? '',
+    prefix: c?.prefix ?? '',
+    host: c?.host ?? '',
+    share: c?.share ?? '',
+    user: c?.user ?? '',
+    auto: c?.auto === '1',
+    keep: Number(c?.keep ?? 14),
+    last_at: offsite?.last?.at ?? '',
+    last_result: offsite?.last?.result ?? '',
+    last_file: offsite?.last?.file ?? '',
+    last_error: '',
+    listed_at: new Date().toISOString(),
+    list_error: '',
+    items: offsite?.items ?? [],
+  });
+};
+publishOffsite();
+
 function finish(base, ok, message) {
   write('status.json', {
     ...base,
@@ -132,6 +159,55 @@ async function handleOps(req, base) {
       );
       writeFileSync(f('logs.service'), req.service + '\n');
       return finish(base, true, 'Журнал получен');
+    case 'offsite_import': {
+      const input = f('offsite-config.in');
+      if (!existsSync(input)) return finish(base, false, 'Файл настройки не найден');
+      const cfg = Object.fromEntries(
+        readFileSync(input, 'utf8')
+          .trim()
+          .split('\n')
+          .map((l) => {
+            const i = l.indexOf('=');
+            return [l.slice(0, i), Buffer.from(l.slice(i + 1), 'base64').toString()];
+          }),
+      );
+      unlinkSync(input);
+      const old = offsite?.cfg;
+      // пустой секрет — оставить прежний
+      if (!cfg.secret_key && old?.secret_key) cfg.secret_key = old.secret_key;
+      if (!cfg.password && old?.password) cfg.password = old.password;
+      offsite = { cfg, items: offsite?.items ?? [], last: offsite?.last };
+      publishOffsite();
+      return finish(base, true, 'Настройка удалённого хранилища сохранена');
+    }
+    case 'offsite_test':
+      return finish(base, !!offsite, offsite ? 'Соединение проверено' : 'Хранилище не настроено');
+    case 'offsite_push': {
+      const b = backups.find((x) => x.name === req.file);
+      if (!offsite || !b) return finish(base, false, 'Копия не найдена');
+      offsite.items = [
+        { name: b.name, size: b.size },
+        ...offsite.items.filter((x) => x.name !== b.name),
+      ].slice(0, Number(offsite.cfg.keep));
+      offsite.last = { at: new Date().toISOString(), result: 'ok', file: b.name };
+      publishOffsite();
+      return finish(base, true, `Копия ${b.name} отправлена и проверена на хранилище`);
+    }
+    case 'offsite_verify':
+      return finish(base, true, `Копия ${req.file} на хранилище цела`);
+    case 'offsite_delete':
+      if (offsite) offsite.items = offsite.items.filter((x) => x.name !== req.file);
+      publishOffsite();
+      return finish(base, true, `Копия ${req.file} удалена с хранилища`);
+    case 'offsite_pull':
+      return finish(base, true, `Копия ${req.file} загружена и проверена`);
+    case 'offsite_refresh':
+      publishOffsite();
+      return finish(base, true, 'Список обновлён');
+    case 'offsite_clear':
+      offsite = null;
+      publishOffsite();
+      return finish(base, true, 'Настройка и секреты удалены с этого сервера');
     case 'schedule':
       write('schedule.json', {
         enabled: req.schedule_enabled === '1',
@@ -159,6 +235,14 @@ async function handle(req) {
       'restore',
       'logs',
       'schedule',
+      'offsite_import',
+      'offsite_test',
+      'offsite_push',
+      'offsite_verify',
+      'offsite_delete',
+      'offsite_pull',
+      'offsite_refresh',
+      'offsite_clear',
     ].includes(req.action)
   ) {
     return handleOps(req, base);

@@ -58,7 +58,7 @@ env_get() { # env_get FILE KEY
 }
 
 rand_secret() { # rand_secret БАЙТ -> URL-безопасная строка
-  openssl rand -base64 "${1:-32}" | tr '+/' '-_' | tr -d '=\n'
+  openssl rand -base64 "${1:-32}" | tr '+/' '-_' | tr -d '=\r\n'
 }
 
 validate_project_name() {

@@ -90,7 +90,7 @@ parse_request() { # parse_request ФАЙЛ
     key="${line%%=*}"; val="${line#*=}"
     case "$key" in
       request_id) [[ "$val" =~ $UUID_RE ]] || { REQ_ERR="неверный request_id"; return 1; }; REQ_ID="$val" ;;
-      action) case "$val" in check|update|rollback|backup|backup_verify|backup_delete|backup_export|restore|logs|schedule) REQ_ACTION="$val" ;; *) REQ_ERR="недопустимое действие"; return 1 ;; esac ;;
+      action) case "$val" in check|update|rollback|backup|backup_verify|backup_delete|backup_export|restore|logs|schedule|offsite_import|offsite_test|offsite_push|offsite_pull|offsite_verify|offsite_delete|offsite_refresh|offsite_clear) REQ_ACTION="$val" ;; *) REQ_ERR="недопустимое действие"; return 1 ;; esac ;;
       file) [[ "$val" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] && [[ "$val" != *..* ]] || { REQ_ERR="недопустимое имя копии"; return 1; }; REQ_FILE="$val" ;;
       label) [[ "$val" =~ ^[a-z0-9]{1,20}$ ]] || { REQ_ERR="недопустимая метка"; return 1; }; REQ_LABEL="$val" ;;
       service) case "$val" in app|db) REQ_SERVICE="$val" ;; *) REQ_ERR="недопустимая служба"; return 1 ;; esac ;;
@@ -108,7 +108,7 @@ parse_request() { # parse_request ФАЙЛ
   [ -n "$REQ_ID" ] && [ -n "$REQ_ACTION" ] || { REQ_ERR="не хватает обязательных параметров"; return 1; }
   if [ "$REQ_ACTION" = update ] && [ -z "$REQ_VERSION" ]; then REQ_ERR="для update нужна версия"; return 1; fi
   case "$REQ_ACTION" in
-    backup_verify|backup_delete|backup_export|restore) [ -n "$REQ_FILE" ] || { REQ_ERR="не указана копия"; return 1; } ;;
+    backup_verify|backup_delete|backup_export|restore|offsite_push|offsite_pull|offsite_verify|offsite_delete) [ -n "$REQ_FILE" ] || { REQ_ERR="не указана копия"; return 1; } ;;
     logs) [ -n "$REQ_SERVICE" ] && [ -n "$REQ_LINES" ] || { REQ_ERR="для logs нужны service и lines"; return 1; } ;;
     schedule) [ -n "$REQ_SCHED_ENABLED" ] && [ -n "$REQ_SCHED_HOUR" ] && [ -n "$REQ_SCHED_KEEP" ] || { REQ_ERR="для schedule нужны все параметры"; return 1; } ;;
   esac
@@ -183,7 +183,7 @@ process_request() { # process_request ФАЙЛ_ЗАПРОСА
   : > "$CH/update.log"; chmod 644 "$CH/update.log"
 
   case "$REQ_ACTION" in
-    backup|backup_verify|backup_delete|backup_export|restore|logs|schedule)
+    backup|backup_verify|backup_delete|backup_export|restore|logs|schedule|offsite_*)
       run_ops_action || rc=$?
       ;;
     check)
@@ -221,7 +221,8 @@ run_ops_action() {
     backup)
       ST_NAME="Резервная копия"; write_status
       run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" ${REQ_LABEL:+--label "$REQ_LABEL"} || rc=$?
-      ST_MSG="$([ "$rc" -eq 0 ] && echo 'Резервная копия создана и проверена' || echo 'Не удалось создать резервную копию, см. журнал')" ;;
+      ST_MSG="$([ "$rc" -eq 0 ] && echo 'Резервная копия создана и проверена' || echo 'Не удалось создать резервную копию, см. журнал')"
+      if [ "$rc" -eq 0 ]; then offsite_after_backup && ST_MSG="$ST_MSG; копия на удалённом хранилище" || ST_MSG="$ST_MSG; ОТПРАВКА НА УДАЛЁННОЕ ХРАНИЛИЩЕ НЕ УДАЛАСЬ (см. журнал)"; fi ;;
     backup_verify)
       ST_NAME="Проверка копии"; write_status
       own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
@@ -251,6 +252,50 @@ run_ops_action() {
       clean_run "$REPO_ROOT/scripts/logs.sh" --env "$ENV_FILE" "$REQ_SERVICE" -n "$REQ_LINES" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | mask_text_stream | tail -c 300000 | atomic_write "$CH/logs.txt" || rc=1
       printf '%s\n' "$REQ_SERVICE" | atomic_write "$CH/logs.service"
       ST_MSG="Журнал получен" ;;
+    offsite_import)
+      ST_NAME="Удалённое хранилище: настройка"; write_status
+      [ -f "$CH/offsite-config.in" ] && [ ! -L "$CH/offsite-config.in" ] || { ST_MSG="Файл настройки не найден"; return 1; }
+      # перенос во внутренний каталог: файл с секретами не остаётся в общем каталоге обмена
+      install -d -m 0700 "$STATE_DIR/offsite"
+      mv -f -- "$CH/offsite-config.in" "$STATE_DIR/offsite/config.in" && chmod 600 "$STATE_DIR/offsite/config.in"
+      run_logged "$REPO_ROOT/scripts/remote.sh" import "$STATE_DIR/offsite/config.in" || rc=$?
+      rm -f -- "$STATE_DIR/offsite/config.in"
+      ST_MSG="$([ "$rc" -eq 0 ] && echo 'Настройка удалённого хранилища сохранена' || echo 'Настройка отклонена, см. журнал')"
+      offsite_publish 1 ;;
+    offsite_test)
+      ST_NAME="Удалённое хранилище: проверка соединения"; write_status
+      run_logged "$REPO_ROOT/scripts/remote.sh" test || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo 'Соединение проверено: запись, чтение и удаление работают' || echo 'Соединение не проверено, см. журнал')" ;;
+    offsite_push)
+      ST_NAME="Отправка копии на удалённое хранилище"; write_status
+      own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
+      offsite_push_file "$REQ_FILE" || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE отправлена и проверена на хранилище" || echo 'Отправка не удалась, см. журнал')"
+      offsite_publish 1 ;;
+    offsite_pull)
+      ST_NAME="Загрузка копии с удалённого хранилища"; write_status
+      [[ "$REQ_FILE" == "${COMPOSE_PROJECT_NAME}"-* ]] || { ST_MSG="Копия другого проекта"; return 1; }
+      run_logged "$REPO_ROOT/scripts/remote.sh" pull "$REQ_FILE" "$BACKUP_DIR" || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE загружена и проверена" || echo 'Загрузка не удалась, см. журнал')"
+      publish_backups ;;
+    offsite_verify)
+      ST_NAME="Проверка копии на удалённом хранилище"; write_status
+      run_logged "$REPO_ROOT/scripts/remote.sh" verify "$REQ_FILE" || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE на хранилище цела" || echo "Копия $REQ_FILE на хранилище НЕ прошла проверку")" ;;
+    offsite_delete)
+      ST_NAME="Удаление копии на удалённом хранилище"; write_status
+      run_logged "$REPO_ROOT/scripts/remote.sh" delete "$REQ_FILE" || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE удалена с хранилища" || echo 'Удаление не удалось, см. журнал')"
+      offsite_publish 1 ;;
+    offsite_refresh)
+      ST_NAME="Удалённое хранилище: список копий"; write_status
+      offsite_publish 1
+      ST_MSG="Список обновлён" ;;
+    offsite_clear)
+      ST_NAME="Удалённое хранилище: удаление настройки"; write_status
+      run_logged "$REPO_ROOT/scripts/remote.sh" clear || rc=$?
+      offsite_publish 1
+      ST_MSG="Настройка и секреты удалены с этого сервера" ;;
     schedule)
       ST_NAME="Расписание копий"; write_status
       state_set backup sched_enabled "$REQ_SCHED_ENABLED"; state_set backup sched_hour "$REQ_SCHED_HOUR"; state_set backup sched_keep "$REQ_SCHED_KEEP"
@@ -258,6 +303,82 @@ run_ops_action() {
       ST_MSG="Расписание сохранено" ;;
   esac
   return "$rc"
+}
+
+# ------------------------------------------------------------------ удалённое хранилище копий (S3 / SMB)
+offsite_conf() { printf '%s' "${ARKLOCK_REMOTE_CONF:-$(dirname "$ENV_FILE")/remote.conf}"; }
+offsite_configured() { [ -s "$(offsite_conf)" ]; }
+offsite_setting() { # offsite_setting КЛЮЧ — значение без секретов из «remote.sh show»
+  "$REPO_ROOT/scripts/remote.sh" show 2>/dev/null | sed -n "s/^$1=//p" | head -n1
+}
+
+# Отправляет копию, затем применяет ротацию на хранилище; итог фиксируется в состоянии.
+offsite_push_file() { # offsite_push_file ИМЯ
+  local name="$1" rc=0 keep
+  run_logged "$REPO_ROOT/scripts/remote.sh" push "$(backup_path "$name")" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    keep="$(offsite_setting keep)"; keep="${keep:-14}"
+    run_logged "$REPO_ROOT/scripts/remote.sh" prune "$keep" || true
+    state_set offsite last_result ok; state_set offsite last_error ""
+  else
+    state_set offsite last_result failed; state_set offsite last_error "отправка не удалась"
+  fi
+  state_set offsite last_at "$(date -u +%FT%TZ)"; state_set offsite last_file "$name"
+  return "$rc"
+}
+
+# После успешной копии: если автоматическая отправка включена, отправить последнюю. Код 0 и при выключенной отправке.
+offsite_after_backup() {
+  offsite_configured || return 0
+  [ "$(offsite_setting auto)" = 1 ] || return 0
+  local name; name="$(state_get backup last_file)"
+  [ -n "$name" ] && own_backup "$name" || return 0
+  local rc=0
+  offsite_push_file "$name" || rc=$?
+  offsite_publish 1
+  return "$rc"
+}
+
+# Снимок для интерфейса: настройка без секретов, итог последней отправки и (при list=1 либо раз в 30 минут) список копий.
+OFFSITE_LISTED_AT=0
+offsite_publish() { # offsite_publish [1 — обновить список]
+  local force="${1:-0}" now conf="false" typ="" ep="" region="" bucket="" prefix="" host="" share="" user="" auto=0 keep=14 items="[]" lerr="" listed=""
+  now="$(date +%s)"
+  if offsite_configured; then
+    conf="true"
+    local line k v
+    while IFS= read -r line; do
+      k="${line%%=*}"; v="${line#*=}"
+      case "$k" in type) typ="$v" ;; endpoint) ep="$v" ;; region) region="$v" ;; bucket) bucket="$v" ;; prefix) prefix="$v" ;; host) host="$v" ;; share) share="$v" ;; user) user="$v" ;; auto) auto="$v" ;; keep) keep="$v" ;; esac
+    done < <("$REPO_ROOT/scripts/remote.sh" show 2>/dev/null)
+    if [ "$force" = 1 ] || [ $((now - OFFSITE_LISTED_AT)) -ge 1800 ]; then
+      OFFSITE_LISTED_AT="$now"
+      local out first=1
+      if out="$("$REPO_ROOT/scripts/remote.sh" list 2>"$STATE_DIR/offsite/list.err")"; then
+        items="["
+        while read -r name size _; do
+          [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] || continue
+          [ "$first" = 1 ] || items+=","
+          first=0; items+="{\"name\":\"$(jstr "$name")\",\"size\":${size:-0}}"
+        done <<< "$out"
+        items+="]"
+        listed="$(date -u +%FT%TZ)"
+      else
+        lerr="$(tail -n 1 "$STATE_DIR/offsite/list.err" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | mask_text_stream | cut -c1-200)"
+        lerr="${lerr:-список не получен}"
+      fi
+      printf '%s\n' "$items" > "$STATE_DIR/offsite/items.json"
+      printf '%s\n' "$listed" > "$STATE_DIR/offsite/listed_at"; printf '%s\n' "$lerr" > "$STATE_DIR/offsite/list_error"
+    else
+      items="$(cat "$STATE_DIR/offsite/items.json" 2>/dev/null || echo '[]')"
+      listed="$(cat "$STATE_DIR/offsite/listed_at" 2>/dev/null || true)"; lerr="$(cat "$STATE_DIR/offsite/list_error" 2>/dev/null || true)"
+    fi
+  fi
+  printf '{"configured":%s,"type":"%s","endpoint":"%s","region":"%s","bucket":"%s","prefix":"%s","host":"%s","share":"%s","user":"%s","auto":%s,"keep":%s,"last_at":"%s","last_result":"%s","last_file":"%s","last_error":"%s","listed_at":"%s","list_error":"%s","items":%s}\n' \
+    "$conf" "$(jstr "$typ")" "$(jstr "$ep")" "$(jstr "$region")" "$(jstr "$bucket")" "$(jstr "$prefix")" "$(jstr "$host")" "$(jstr "$share")" "$(jstr "$user")" \
+    "$([ "${auto:-0}" = 1 ] && echo true || echo false)" "${keep:-14}" \
+    "$(jstr "$(state_get offsite last_at)")" "$(jstr "$(state_get offsite last_result)")" "$(jstr "$(state_get offsite last_file)")" "$(jstr "$(state_get offsite last_error)")" \
+    "$(jstr "$listed")" "$(jstr "$lerr")" "$items" | atomic_write "$CH/offsite.json"
 }
 
 publish_schedule() {
@@ -331,7 +452,10 @@ run_scheduled_backup() {
   : > "$CH/update.log"; chmod 644 "$CH/update.log"
   run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --label auto --keep "$keep" || rc=$?
   ST_FINISHED="$(date -u +%FT%TZ)"
-  if [ "$rc" -eq 0 ]; then ST_STATE=success; ST_RESULT=success; ST_MSG="Резервная копия по расписанию создана"; else ST_STATE=failed; ST_RESULT=failed; ST_MSG="Копия по расписанию не создана, см. журнал"; fi
+  if [ "$rc" -eq 0 ]; then
+    ST_STATE=success; ST_RESULT=success; ST_MSG="Резервная копия по расписанию создана"
+    offsite_after_backup || ST_MSG="$ST_MSG; ОТПРАВКА НА УДАЛЁННОЕ ХРАНИЛИЩЕ НЕ УДАЛАСЬ (см. журнал)"
+  else ST_STATE=failed; ST_RESULT=failed; ST_MSG="Копия по расписанию не создана, см. журнал"; fi
   state_set backup sched_last_at "$ST_FINISHED"; state_set backup sched_last_result "$ST_RESULT"
   history_add; write_status; publish_schedule; publish_backups
 }

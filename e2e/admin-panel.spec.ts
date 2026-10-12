@@ -140,6 +140,39 @@ test('administration sections show real data and perform real operations', async
     timeout: 30_000,
   });
 
+  // удалённое хранилище (S3): настройка с секретом, проверка, отправка, список, проверка целостности, удаление
+  await page.getByTestId('offsite-endpoint').fill('https://s3.example.com');
+  await page.getByTestId('offsite-bucket').fill('arklock-backups');
+  await page.getByTestId('offsite-access').fill('AKIATESTACCESSKEY1');
+  await page.getByTestId('offsite-secret').fill('e2e-secret-key-value');
+  await page.getByTestId('offsite-save').click(); // без пароля настройка не принимается
+  await expect(page.getByTestId('offsite-error')).toBeVisible();
+  await page.getByTestId('offsite-password').fill(ADMIN.password);
+  await page.getByTestId('offsite-save').click();
+  await expect(page.getByTestId('offsite-status')).toContainText('arklock-backups', {
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId('offsite')).not.toContainText('e2e-secret-key-value');
+  await expect(page.getByTestId('offsite-secret')).toHaveValue('');
+  await page.getByTestId('offsite-test').click();
+  await expect(page.getByTestId('offsite-notice')).toContainText(/проверено|verified/i, {
+    timeout: 30_000,
+  });
+  const localName = (
+    await page.getByTestId('offsite-local-row').first().locator('td').first().innerText()
+  ).trim();
+  await page.getByTestId(`offsite-push-${localName}`).click();
+  await expect(page.getByTestId('offsite-remote-row')).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.getByTestId('offsite-status')).toContainText(/успешно|succeeded/);
+  await page.getByTestId(`offsite-verify-${localName}`).click();
+  await expect(page.getByTestId('offsite-notice')).toContainText(/цела|intact/i, {
+    timeout: 30_000,
+  });
+  await page.getByTestId(`offsite-delete-${localName}`).click();
+  await expect(page.getByTestId('offsite-remote-row')).toHaveCount(0, { timeout: 30_000 });
+  await page.getByTestId('offsite-clear').click();
+  await expect(page.getByTestId('offsite-status')).toHaveCount(0, { timeout: 30_000 });
+
   // удаление
   await page.getByTestId('backup-delete').click();
   await expect(page.getByTestId('backup-row')).toHaveCount(0, { timeout: 30_000 });
