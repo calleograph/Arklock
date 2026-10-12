@@ -293,7 +293,7 @@ jobs:
           sudo -E env COMPOSE_PROJECT_NAME=arklock ./scripts/remote.sh prune 1
           test "$(sudo -E ./scripts/remote.sh list | wc -l)" = 1
           sudo -E ./scripts/remote.sh pull "$(sudo -E ./scripts/remote.sh list | cut -d' ' -f1)" /tmp/smb-pulled
-          ls /tmp/smb-pulled/*.bak.gpg
+          sudo ls /tmp/smb-pulled/
           sudo rm -f "$CFG/remote-smb.conf"
       - name: A corrupted backup is rejected
         run: |

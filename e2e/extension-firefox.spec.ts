@@ -133,7 +133,12 @@ async function enterFrame(): Promise<void> {
   try {
     await driver.wait(until.elementLocated(css('server')), 20_000).catch(async () => {
       // диагностика: что именно загрузилось во фрейме
-      console.log('frame source:', (await driver.getPageSource()).slice(0, 1500));
+      console.log(
+        'frame body:',
+        await driver.executeScript(
+          'return document.body.innerText + " | " + document.body.innerHTML.slice(0, 800)',
+        ),
+      );
     });
   } catch {
     /* дальше сработает обычное ожидание с понятной ошибкой */

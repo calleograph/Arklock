@@ -644,4 +644,17 @@ async function init(): Promise<void> {
   if (opened) await showMain();
   else showLogin();
 }
-void init();
+/** Сбой запуска не оставляет пустое окно: причина показывается пользователю (текст ошибки без данных записей). */
+function fatal(e: unknown): void {
+  const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  clear();
+  app.append(
+    h(
+      'div',
+      { class: 'err', role: 'alert', 'data-testid': 'fatal' },
+      `${T('Cannot start', 'Не удалось запустить')}: ${msg}`,
+    ),
+  );
+}
+window.addEventListener('unhandledrejection', (ev) => fatal(ev.reason));
+init().catch(fatal);
