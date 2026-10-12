@@ -54,7 +54,9 @@ describe('aead', () => {
     await expect(decrypt(generateKey(), sealed, 'ctx')).rejects.toBeInstanceOf(CryptoAuthError);
     await expect(decrypt(key, sealed, 'other')).rejects.toBeInstanceOf(CryptoAuthError);
     const parts = sealed.split('.');
-    const tampered = `${parts[0]}.${parts[1]}.${parts[2]!.slice(0, -2)}AA`;
+    // первый символ шифртекста несёт 6 значащих бит: замена гарантированно меняет данные (хвост мог совпасть с «AA»)
+    const body = parts[2]!;
+    const tampered = `${parts[0]}.${parts[1]}.${body[0] === 'A' ? 'B' : 'A'}${body.slice(1)}`;
     await expect(decrypt(key, tampered, 'ctx')).rejects.toBeInstanceOf(CryptoAuthError);
   });
 
