@@ -41,14 +41,8 @@ import {
 import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
 import { AppError, notFound, parse } from '../errors.js';
-import {
-  fakeBytes,
-  fakeUuid,
-  hashProof,
-  randomB64url,
-  sha256Hex,
-  verifyProof,
-} from '../security.js';
+import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
+import { invitationTokenHash } from '../activation.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
 
@@ -253,11 +247,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         ? await db
             .select()
             .from(invitations)
-            .where(eq(invitations.tokenHash, sha256Hex(token)))
+            .where(eq(invitations.tokenHash, invitationTokenHash(token)))
         : [];
     if (!inv || inv.usedAt || inv.revokedAt || inv.expiresAt.getTime() <= Date.now())
       throw notFound();
-    return { email: inv.email };
+    return { email: inv.email, displayName: inv.displayName, role: inv.role };
   });
 
   app.post('/auth/register', async (req, reply) => {
@@ -274,7 +268,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         [invite] = await tx
           .select()
           .from(invitations)
-          .where(eq(invitations.tokenHash, sha256Hex(body.inviteToken)));
+          .where(eq(invitations.tokenHash, invitationTokenHash(body.inviteToken)));
         if (
           !invite ||
           invite.usedAt ||
@@ -304,11 +298,16 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         .limit(1);
       if (dupe) throw new AppError(409, 'already_exists', 'Account already exists');
 
-      await insertAccount(tx, body, {
-        role: n === 0 ? 'admin' : 'member',
-        authSource: 'local',
-        externalId: null,
-      });
+      // имя и роль задаёт администратор в приглашении; при активации пользователь не может их изменить
+      await insertAccount(
+        tx,
+        invite?.displayName ? { ...body, displayName: invite.displayName } : body,
+        {
+          role: n === 0 ? 'admin' : (invite?.role ?? 'member'),
+          authSource: 'local',
+          externalId: null,
+        },
+      );
       if (invite) {
         await tx
           .update(invitations)

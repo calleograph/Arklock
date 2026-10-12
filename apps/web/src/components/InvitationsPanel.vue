@@ -9,14 +9,25 @@ const { t } = useI18n();
 interface Inv {
   id: string;
   email: string;
+  displayName: string | null;
+  role: 'admin' | 'member';
   status: 'pending' | 'used' | 'revoked' | 'expired';
   createdAt: string;
   expiresAt: string;
 }
 const list = ref<Inv[]>([]);
 const circles = ref<{ id: string; name: string }[]>([]);
-const form = ref({ email: '', days: 7, sendEmail: false, circleIds: [] as string[] });
-const created = ref<{ link: string; emailed: boolean } | null>(null);
+const empty = () => ({
+  name: '',
+  email: '',
+  role: 'member' as 'admin' | 'member',
+  days: 7,
+  sendEmail: false,
+  circleIds: [] as string[],
+});
+const form = ref(empty());
+/** Код активации показывается один раз — сразу после создания учётной записи. */
+const created = ref<{ code: string; emailed: boolean } | null>(null);
 const error = ref('');
 const busy = ref(false);
 
@@ -31,14 +42,16 @@ async function create(): Promise<void> {
   created.value = null;
   busy.value = true;
   try {
-    const r = await api<{ link: string; emailed: boolean }>('POST', '/admin/invitations', {
+    const r = await api<{ code: string; emailed: boolean }>('POST', '/admin/invitations', {
       email: form.value.email.trim(),
+      displayName: form.value.name.trim(),
+      role: form.value.role,
       expiresInDays: Number(form.value.days),
       sendEmail: form.value.sendEmail,
       circleIds: form.value.circleIds,
     });
     created.value = r;
-    form.value = { ...form.value, email: '' };
+    form.value = empty();
     await load();
   } catch (e) {
     error.value =
@@ -54,7 +67,7 @@ async function revoke(id: string): Promise<void> {
   await api('DELETE', `/admin/invitations/${id}`);
   await load();
 }
-const copy = () => navigator.clipboard.writeText(created.value?.link ?? '').catch(() => undefined);
+const copy = () => navigator.clipboard.writeText(created.value?.code ?? '').catch(() => undefined);
 const fmt = (s: string) => new Date(s).toLocaleString();
 </script>
 
@@ -71,6 +84,17 @@ const fmt = (s: string) => new Date(s).toLocaleString();
     </p>
 
     <form class="card max-w-xl space-y-3 p-4 text-sm" @submit.prevent="create">
+      <h2 class="text-base font-semibold">{{ t('invite.newUser') }}</h2>
+      <label class="block"
+        >{{ t('invite.name')
+        }}<input
+          v-model="form.name"
+          type="text"
+          required
+          maxlength="100"
+          class="input"
+          data-testid="invite-name"
+      /></label>
       <label class="block"
         >{{ t('common.email')
         }}<input
@@ -80,6 +104,13 @@ const fmt = (s: string) => new Date(s).toLocaleString();
           class="input"
           data-testid="invite-email"
       /></label>
+      <label class="block"
+        >{{ t('invite.role')
+        }}<select v-model="form.role" class="input" data-testid="invite-role">
+          <option value="member">{{ t('invite.roleMember') }}</option>
+          <option value="admin">{{ t('invite.roleAdmin') }}</option>
+        </select></label
+      >
       <div class="flex flex-wrap items-center gap-3">
         <label
           >{{ t('invite.days') }}
@@ -97,13 +128,15 @@ const fmt = (s: string) => new Date(s).toLocaleString();
         </label>
       </fieldset>
       <button type="submit" class="btn-primary" :disabled="busy" data-testid="invite-create">
-        {{ t('invite.create') }}
+        {{ t('invite.createAction') }}
       </button>
     </form>
 
     <div v-if="created" class="card max-w-xl space-y-2 p-4 text-sm" data-testid="invite-created">
-      <p>{{ t('invite.shownOnce') }}</p>
-      <code class="block break-all" data-testid="invite-link">{{ created.link }}</code>
+      <p>{{ t('invite.codeShown') }}</p>
+      <code class="block break-all text-base tracking-wider" data-testid="invite-code">{{
+        created.code
+      }}</code>
       <p v-if="created.emailed" class="text-emerald-700">{{ t('invite.emailed') }}</p>
       <button type="button" class="btn" @click="copy">{{ t('common.copy') }}</button>
     </div>
@@ -112,7 +145,9 @@ const fmt = (s: string) => new Date(s).toLocaleString();
       <table class="min-w-full text-sm" data-testid="invite-table">
         <thead class="text-left text-xs text-slate-500">
           <tr>
-            <th class="px-3 py-2">{{ t('common.email') }}</th>
+            <th class="px-3 py-2">{{ t('invite.name') }}</th>
+            <th>{{ t('common.email') }}</th>
+            <th>{{ t('invite.role') }}</th>
             <th>{{ t('invite.status') }}</th>
             <th>{{ t('invite.expires') }}</th>
             <th></th>
@@ -125,7 +160,9 @@ const fmt = (s: string) => new Date(s).toLocaleString();
             class="border-t border-slate-200 dark:border-slate-800"
             data-testid="invite-row"
           >
-            <td class="px-3 py-2">{{ i.email }}</td>
+            <td class="px-3 py-2">{{ i.displayName ?? '—' }}</td>
+            <td>{{ i.email }}</td>
+            <td>{{ i.role === 'admin' ? t('invite.roleAdmin') : t('invite.roleMember') }}</td>
             <td>{{ t(`invite.st.${i.status}`) }}</td>
             <td class="text-xs">{{ fmt(i.expiresAt) }}</td>
             <td class="px-3 text-right">

@@ -9,10 +9,13 @@ import type { AppContext } from '../context.js';
 import { circles, invitations, users } from '../db/schema.js';
 import { AppError, notFound, parse } from '../errors.js';
 import { sendMail } from '../mail/send.js';
-import { randomB64url, sha256Hex } from '../security.js';
+import { invitationTokenHash, newActivationCode } from '../activation.js';
 
 const createSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
+  /** Имя учётной записи; пользователь подтверждает его при активации. */
+  displayName: z.string().trim().min(1).max(100).optional(),
+  role: z.enum(['admin', 'member']).default('member'),
   circleIds: z.array(uuid).max(50).default([]),
   expiresInDays: z.number().int().min(1).max(60).default(7),
   /** Отправить ссылку письмом (если настроена почта). */
@@ -40,6 +43,8 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     return rows.map((i) => ({
       id: i.id,
       email: i.email,
+      displayName: i.displayName,
+      role: i.role,
       circleIds: i.circleIds as string[],
       createdAt: i.createdAt.toISOString(),
       expiresAt: i.expiresAt.toISOString(),
@@ -81,18 +86,21 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
           isNull(invitations.usedAt),
         ),
       );
-    const token = `inv_${randomB64url(24)}`;
+    // код активации показывается один раз; в базе хранится только его хэш
+    const token = newActivationCode();
     const id = crypto.randomUUID();
     await db.insert(invitations).values({
       id,
       email: body.email,
-      tokenHash: sha256Hex(token),
+      displayName: body.displayName ?? null,
+      role: body.role,
+      tokenHash: invitationTokenHash(token),
       circleIds: body.circleIds as never,
       createdBy: user.id,
       expiresAt: new Date(Date.now() + body.expiresInDays * 86_400_000),
     });
     const base = config.APP_PUBLIC_URL?.replace(/\/$/, '') ?? '';
-    const link = `${base}/login?invite=${token}`;
+    const link = `${base}/login?invite=${encodeURIComponent(token)}`;
     let emailed = false;
     if (body.sendEmail)
       emailed = await sendMail(
@@ -102,7 +110,7 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
         `Вас пригласили в Arklock. Создайте учётную запись по ссылке (действует ${body.expiresInDays} дн.):\n${link}\n\nYou have been invited to Arklock. Create your account here (valid for ${body.expiresInDays} days):\n${link}\n`,
       );
     await audit(db, `user:${user.id}`, 'admin.invitation.create', `invitation:${id}`, { emailed });
-    return reply.status(201).send({ id, link, emailed });
+    return reply.status(201).send({ id, code: token, link, emailed });
   });
 
   app.delete('/admin/invitations/:id', async (req, reply) => {

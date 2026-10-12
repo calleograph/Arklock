@@ -411,8 +411,23 @@ export default {
     hint: 'Ledger events (sign-ins, access changes, administrator actions) are forwarded to an external collector in RFC 5424 format. Passwords, keys and entry contents never reach the ledger. A collector outage does not affect the application.',
   },
   invite: {
-    tab: 'Invitations',
-    hint: 'An invited person creates an account from a one-time link even when registration is closed. The address in the form cannot be changed; selected circles are applied on registration.',
+    tab: 'New users',
+    hint: 'The administrator creates an account and gives the person a one-time activation code. The person sets their own master password at first sign-in: the administrator never learns it and cannot access encrypted data.',
+    newUser: 'New user',
+    name: 'Name',
+    role: 'Role',
+    roleMember: 'User',
+    roleAdmin: 'Administrator',
+    createAction: 'Create user',
+    codeShown:
+      'Give the person the activation code. It is shown only now and is not displayed again, not even to administrators.',
+    codeLabel: 'Activation code',
+    haveCode: 'I have an activation code',
+    activateTitle: 'Activate account',
+    activateHint:
+      'Enter your e-mail address and the code from your administrator. Then choose a master password.',
+    badCode:
+      'The code does not match: check the e-mail address and code, or ask the administrator for a new one.',
     days: 'Lifetime, days',
     send: 'Send the link by e-mail',
     circles: 'Add to circles',
@@ -682,7 +697,7 @@ export default {
       sso: 'Single sign-on',
       saml: 'SAML 2.0',
       syslog: 'Syslog export',
-      invitations: 'Invitations',
+      invitations: 'New users',
       roles: 'Roles',
     },
     group: {

@@ -117,7 +117,7 @@ describe('invitations', () => {
     expect(r.statusCode).toBe(201);
     const { link, emailed } = r.json();
     expect(emailed).toBe(false);
-    expect(link).toMatch(/^https:\/\/arklock\.example\.com\/login\?invite=inv_/);
+    expect(link).toMatch(/^https:\/\/arklock\.example\.com\/login\?invite=[A-Z2-9-]{27}$/);
     const [row] = await database.db.select().from(invitations);
     expect(row!.email).toBe('newbie@example.com');
     expect(JSON.stringify(row)).not.toContain(tokenOf(link));
@@ -137,6 +137,8 @@ describe('invitations', () => {
     const token = tokenOf(link);
     expect((await app.inject({ url: `/api/v1/auth/invitation?token=${token}` })).json()).toEqual({
       email: 'newbie@example.com',
+      displayName: null,
+      role: 'member',
     });
     expect(
       (await app.inject({ url: '/api/v1/auth/invitation?token=inv_unknown-token-value' }))
@@ -188,6 +190,49 @@ describe('invitations', () => {
       .set({ expiresAt: new Date(Date.now() - 1000) })
       .where(eq(invitations.email, 'late@example.com'));
     expect((await registerWith('late@example.com', third)).res.statusCode).toBe(403);
+  });
+
+  it('an administrator creates an account with a name and role; the one-time code is typed loosely and never stored', async () => {
+    const r = await admin.req('POST', '/admin/invitations', {
+      email: 'activate@example.com',
+      displayName: 'Анна Смирнова',
+      role: 'admin',
+      circleIds: [circleId],
+    });
+    expect(r.statusCode).toBe(201);
+    const { code } = r.json() as { code: string };
+    expect(code).toMatch(/^[A-Z2-9]{6}(-[A-Z2-9]{6}){3}$/);
+    // код хранится только хэшем: ни сам код, ни его части в базе не встречаются
+    const rows = JSON.stringify(await database.db.select().from(invitations));
+    expect(rows).not.toContain(code);
+    expect(rows).not.toContain(code.replace(/-/g, ''));
+    // список администратора тоже не раскрывает код
+    expect(JSON.stringify((await admin.req('GET', '/admin/invitations')).json())).not.toContain(
+      code.slice(0, 6),
+    );
+
+    // пользователь вводит код с другим регистром и пробелами вместо дефисов
+    const typed = ` ${code.toLowerCase().replace(/-/g, '  ')} `;
+    const info = await app.inject({
+      url: `/api/v1/auth/invitation?token=${encodeURIComponent(typed)}`,
+    });
+    expect(info.json()).toEqual({
+      email: 'activate@example.com',
+      displayName: 'Анна Смирнова',
+      role: 'admin',
+    });
+    // активация: имя и роль берутся из приглашения, а не из формы пользователя
+    const { res } = await registerWith('activate@example.com', typed);
+    expect(res.statusCode).toBe(201);
+    const [u] = await database.db
+      .select()
+      .from(users)
+      .where(eq(users.email, 'activate@example.com'));
+    expect(u).toMatchObject({ displayName: 'Анна Смирнова', role: 'admin' });
+    // код одноразовый
+    expect((await app.inject({ url: `/api/v1/auth/invitation?token=${code}` })).statusCode).toBe(
+      404,
+    );
   });
 
   it('existing users cannot be invited; unknown circles are rejected', async () => {

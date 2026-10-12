@@ -15,6 +15,13 @@
       "when": 1791819625587,
       "tag": "0001_clean_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791838018756,
+      "tag": "0002_busy_jocasta",
+      "breakpoints": true
     }
   ]
 }

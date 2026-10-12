@@ -471,6 +471,12 @@ export const invitations = pgTable(
     tokenHash: text('token_hash').notNull().unique(),
     /** Круги, в которые пользователь будет добавлен при регистрации. */
     circleIds: jsonb('circle_ids').notNull().default([]),
+    /** Имя, указанное администратором (пользователь подтверждает его при активации). */
+    displayName: text('display_name'),
+    /** Роль, с которой создаётся учётная запись при активации. */
+    role: text('role', { enum: ['admin', 'member'] })
+      .notNull()
+      .default('member'),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),

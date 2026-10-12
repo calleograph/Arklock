@@ -425,7 +425,7 @@ test('SSO: configure the provider, first sign-in creates the account, later sign
 });
 
 // ---------------------------------------------------------------- приглашения
-test('an invitation lets a person register although registration is closed; the link works once', async ({
+test('an administrator creates a local user; the person activates with a one-time code and sets their own master password', async ({
   page,
   browser,
 }) => {
@@ -436,18 +436,31 @@ test('an invitation lets a person register although registration is closed; the 
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
   await page.getByTestId('nav-admin').click();
   await tab(page, 'invitations');
+  await page.getByTestId('invite-name').fill('Новый Сотрудник');
   await page.getByTestId('invite-email').fill('invited.person@example.com');
   await page.getByTestId('invite-create').click();
-  const link = (await page.getByTestId('invite-link').innerText()).trim();
-  expect(link).toContain('/login?invite=inv_');
+  // администратор видит код активации один раз и не получает мастер-пароль
+  const code = (await page.getByTestId('invite-code').innerText()).trim();
+  expect(code).toMatch(/^[A-Z2-9]{6}(-[A-Z2-9]{6}){3}$/);
   await expect(page.getByTestId('invite-row')).toContainText('invited.person@example.com');
+  await expect(page.getByTestId('invite-row')).toContainText('Новый Сотрудник');
 
+  // пользователь вводит адрес и код на экране входа и задаёт свой мастер-пароль
   const guest = await (await browser.newContext()).newPage();
-  await guest.goto(link.replace(/^https?:\/\/[^/]+/, ''));
-  await expect(guest.getByTestId('invite-banner')).toBeVisible({ timeout: 30_000 });
-  await expect(guest.getByTestId('email')).toHaveValue('invited.person@example.com');
+  await guest.goto('/login');
+  await guest.getByTestId('to-activate').click();
+  // чужой адрес с тем же кодом не подходит
+  await guest.getByTestId('email').fill('someone.else@example.com');
+  await guest.getByTestId('activation-code').fill(code);
+  await guest.getByTestId('submit').click();
+  await expect(guest.getByRole('alert')).toBeVisible({ timeout: 30_000 });
+  await guest.getByTestId('email').fill('invited.person@example.com');
+  await guest.getByTestId('submit').click();
+  await expect(guest.getByTestId('email')).toHaveValue('invited.person@example.com', {
+    timeout: 30_000,
+  });
   await expect(guest.getByTestId('email')).toHaveAttribute('readonly', '');
-  await guest.getByTestId('name').fill('Приглашённый');
+  await expect(guest.getByTestId('name')).toHaveValue('Новый Сотрудник');
   await guest.getByTestId('password').fill('invited-master-password-e2e-1');
   await guest.getByTestId('repeat').fill('invited-master-password-e2e-1');
   await guest.getByTestId('submit').click();
@@ -455,10 +468,14 @@ test('an invitation lets a person register although registration is closed; the 
   await guest.getByTestId('recovery-continue').click();
   await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
 
-  // повторное открытие той же ссылки
+  // код одноразовый: повторная активация с ним невозможна
   const again = await (await browser.newContext()).newPage();
-  await again.goto(link.replace(/^https?:\/\/[^/]+/, ''));
-  await expect(again.getByTestId('invite-bad')).toBeVisible({ timeout: 30_000 });
+  await again.goto('/login');
+  await again.getByTestId('to-activate').click();
+  await again.getByTestId('email').fill('invited.person@example.com');
+  await again.getByTestId('activation-code').fill(code);
+  await again.getByTestId('submit').click();
+  await expect(again.getByRole('alert')).toBeVisible({ timeout: 30_000 });
 });
 
 test('custom roles: an administrative role opens only its own sections for a delegated administrator', async ({

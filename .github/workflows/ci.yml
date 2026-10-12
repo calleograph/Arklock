@@ -446,7 +446,7 @@ jobs:
           fetch-depth: 0
       - name: A local origin with a tag that points to this commit
         run: |
-          git tag v1.0.1-ci
+          git tag v-ci-piped
           git clone --bare --quiet "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin-ci.git"
       - name: Install from stdin (как curl … | bash), bound to the LAN address
         run: |
@@ -454,7 +454,7 @@ jobs:
           lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
           echo "LAN=$lan" >> "$GITHUB_ENV"
           cat install.sh | sudo bash -s -- --yes --profile standalone --bind "$lan" \
-            --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v1.0.1-ci \
+            --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v-ci-piped \
             --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log
           grep -q "УСТАНОВКА ЗАВЕРШЕНА" install.log
           grep -q "Адрес прослушивания: $lan:" install.log
@@ -464,11 +464,11 @@ jobs:
           test "$(sudo sed -n 's/^APP_BIND=//p' "$CFG/arklock.env")" = "$LAN"
           curl -fsS "http://$LAN:$port/api/v1/ready"
           curl -fsS "http://$LAN:$port/api/v1/auth/registration" | grep -q '"setupTokenRequired":true'
-          curl -fsS "http://$LAN:$port/api/v1/version" | grep -q '"version":"1.0.1"'
+          curl -fsS "http://$LAN:$port/api/v1/version" | grep -q "\"version\":\"$(tr -d '[:space:]' < VERSION)\""
       - name: Re-running the piped installer keeps the bind address
         run: |
           cat install.sh | sudo bash -s -- --yes --profile standalone \
-            --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v1.0.1-ci \
+            --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v-ci-piped \
             --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" > install2.log 2>&1
           grep -q "Адрес прослушивания: $LAN:" install2.log
       - name: Logs on failure

@@ -8,14 +8,16 @@ import * as account from '../services/account';
 import { errorMessage, hasWebCrypto } from '../services/helpers';
 import { api, ApiError } from '../services/api';
 
-type Mode = 'signin' | 'register' | 'recover' | 'unlock';
+type Mode = 'signin' | 'register' | 'recover' | 'unlock' | 'activate';
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
-const inviteToken = typeof route.query.invite === 'string' ? route.query.invite : '';
+/** Код приглашения или активации: из ссылки либо введённый вручную. */
+const inviteCode = ref(typeof route.query.invite === 'string' ? route.query.invite : '');
+const activationCode = ref('');
 const inviteEmail = ref('');
 const inviteBad = ref(false);
 const ldapAvailable = ref(false);
@@ -66,16 +68,17 @@ onMounted(async () => {
     firstUser.value = status.firstUser;
     setupRequired.value = status.setupTokenRequired;
     if (status.firstUser && mode.value === 'signin') mode.value = 'register';
-    if (inviteToken) {
+    if (inviteCode.value) {
       try {
-        const inv = await api<{ email: string }>(
+        const inv = await api<{ email: string; displayName: string | null }>(
           'GET',
-          `/auth/invitation?token=${encodeURIComponent(inviteToken)}`,
+          `/auth/invitation?token=${encodeURIComponent(inviteCode.value)}`,
           undefined,
           { auth: false },
         );
         inviteEmail.value = inv.email;
         email.value = inv.email;
+        displayName.value = inv.displayName ?? '';
         mode.value = 'register';
         registrationOpen.value = true;
       } catch {
@@ -114,8 +117,39 @@ const title = computed(
       register: t('auth.register'),
       recover: t('auth.recover'),
       unlock: t('auth.unlock'),
+      activate: t('invite.activateTitle'),
     })[mode.value],
 );
+
+/** Вход по коду активации: проверяем код вместе с адресом и переходим к заданию мастер-пароля. */
+async function activate(): Promise<void> {
+  const code = activationCode.value.trim();
+  const typedEmail = email.value.trim().toLowerCase();
+  let info: { email: string; displayName: string | null };
+  try {
+    info = await api<{ email: string; displayName: string | null }>(
+      'GET',
+      `/auth/invitation?token=${encodeURIComponent(code)}`,
+      undefined,
+      { auth: false },
+    );
+  } catch {
+    error.value = t('invite.badCode');
+    return;
+  }
+  if (info.email !== typedEmail) {
+    error.value = t('invite.badCode');
+    return;
+  }
+  inviteCode.value = code;
+  inviteEmail.value = info.email;
+  email.value = info.email;
+  displayName.value = info.displayName ?? '';
+  activationCode.value = '';
+  registrationOpen.value = true;
+  error.value = '';
+  mode.value = 'register';
+}
 
 function validateNewPassword(): string | null {
   if (password.value.length < account.MIN_MASTER_PASSWORD) return t('auth.tooShort');
@@ -189,6 +223,8 @@ async function submit(): Promise<void> {
     } else if (mode.value === 'unlock') {
       await auth.unlock(password.value);
       await router.replace('/');
+    } else if (mode.value === 'activate') {
+      await activate();
     } else if (mode.value === 'register') {
       const invalid = validateNewPassword();
       if (invalid) {
@@ -202,7 +238,7 @@ async function submit(): Promise<void> {
         setupToken.value.trim(),
         undefined,
         undefined,
-        inviteEmail.value ? inviteToken : undefined,
+        inviteEmail.value ? inviteCode.value : undefined,
       );
       recoveryContext.value = 'register';
       shownRecovery.value = recoveryCode;
@@ -398,6 +434,23 @@ async function copyRecovery(): Promise<void> {
           data-testid="email"
         />
       </label>
+      <template v-if="mode === 'activate'">
+        <p class="text-sm text-slate-500 dark:text-slate-400">{{ t('invite.activateHint') }}</p>
+        <label class="block text-sm">
+          <span class="mb-1 block">{{ t('invite.codeLabel') }}</span>
+          <input
+            v-model="activationCode"
+            type="text"
+            required
+            autocomplete="one-time-code"
+            autocapitalize="characters"
+            spellcheck="false"
+            class="field font-mono tracking-wider uppercase"
+            placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX"
+            data-testid="activation-code"
+          />
+        </label>
+      </template>
       <label v-if="mode === 'register'" class="block text-sm">
         <span class="mb-1 block">{{ t('common.name') }}</span>
         <input
@@ -405,6 +458,7 @@ async function copyRecovery(): Promise<void> {
           type="text"
           required
           maxlength="100"
+          :readonly="!!inviteEmail && !!displayName"
           autocomplete="name"
           class="field"
           data-testid="name"
@@ -462,7 +516,7 @@ async function copyRecovery(): Promise<void> {
         />
         <span class="mt-1 block text-xs text-slate-500">{{ t('mfa.codeHint') }}</span>
       </label>
-      <label v-if="!mfaStep" class="block text-sm">
+      <label v-if="!mfaStep && mode !== 'activate'" class="block text-sm">
         <span class="mb-1 block">{{
           ldapMode && !ldapEnrollStep ? t('ldap.password') : t('common.password')
         }}</span>
@@ -585,6 +639,15 @@ async function copyRecovery(): Promise<void> {
           @click="switchMode('register')"
         >
           {{ t('auth.toRegister') }}
+        </button>
+        <button
+          v-if="mode === 'signin' && !firstUser"
+          type="button"
+          class="underline"
+          data-testid="to-activate"
+          @click="switchMode('activate')"
+        >
+          {{ t('invite.haveCode') }}
         </button>
         <button
           v-if="mode === 'signin'"
