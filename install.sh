@@ -16,6 +16,11 @@
 #   --project ИМЯ     имя compose-проекта (по умолчанию arklock)
 #   --port ПОРТ       порт на 127.0.0.1 (по умолчанию подбирается свободный: 8080 или выше)
 #   --url АДРЕС       публичный адрес (https://…), по которому пользователи откроют Arklock
+#   --https РЕЖИМ     автоматическая настройка Nginx и HTTPS: letsencrypt | self-signed | existing (нужен --domain);
+#                     в профиле shared-host Nginx не меняется — создаётся только пример конфигурации
+#   --domain ИМЯ      имя сервера для HTTPS (например, arklock.example.com)
+#   --email АДРЕС     почта для уведомлений Let's Encrypt
+#   --tls-cert ФАЙЛ --tls-key ФАЙЛ   свой сертификат и ключ (режим existing)
 #   --ref ТЕГ         версия для загрузки (по умолчанию — последний релиз; main — только с --allow-unreleased)
 #   --repo URL        репозиторий исходного кода
 #   --allow-unreleased  разрешить установку непомеченной ветки (для разработки и проверки)
@@ -28,9 +33,10 @@ set -euo pipefail
 
 REPO_URL_DEFAULT="https://github.com/calleograph/arklock.git"
 PROFILE=""; INSTALL_DIR=""; DATA_ROOT=""; CONFIG_DIR="/etc/arklock"; PROJECT="arklock"; PORT=""; PUBLIC_URL=""
+HTTPS_MODE=""; DOMAIN=""; ACME_EMAIL=""; TLS_CERT=""; TLS_KEY=""
 REF=""; REPO_URL="$REPO_URL_DEFAULT"; ALLOW_UNRELEASED=0; YES=0; DRY=0; BOOTSTRAPPED=0
 
-usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -41,6 +47,11 @@ while [ $# -gt 0 ]; do
     --project) PROJECT="${2:-}"; shift 2 ;;
     --port) PORT="${2:-}"; shift 2 ;;
     --url) PUBLIC_URL="${2:-}"; shift 2 ;;
+    --https) HTTPS_MODE="${2:-}"; shift 2 ;;
+    --domain) DOMAIN="${2:-}"; shift 2 ;;
+    --email) ACME_EMAIL="${2:-}"; shift 2 ;;
+    --tls-cert) TLS_CERT="${2:-}"; shift 2 ;;
+    --tls-key) TLS_KEY="${2:-}"; shift 2 ;;
     --ref) REF="${2:-}"; shift 2 ;;
     --repo) REPO_URL="${2:-}"; shift 2 ;;
     --allow-unreleased) ALLOW_UNRELEASED=1; shift ;;
@@ -53,6 +64,12 @@ while [ $# -gt 0 ]; do
 done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+case "$HTTPS_MODE" in
+  ''|letsencrypt|self-signed|existing) ;;
+  *) echo "--https: letsencrypt, self-signed или existing" >&2; exit 2 ;;
+esac
+if [ -n "$HTTPS_MODE" ] && [ -z "$DOMAIN" ]; then echo "--https требует --domain" >&2; exit 2; fi
 
 say()  { printf '[..] %s\n' "$*"; }
 okk()  { printf '[ok] %s\n' "$*"; }
@@ -270,6 +287,21 @@ else
   HELPER_STATE="не установлен: systemd не обнаружен (обновление из веб-интерфейса недоступно)"
 fi
 
+# ------------------------------------------------------------------ 8б. HTTPS и Nginx
+PROXY_STATE="не настраивался (--https letsencrypt|self-signed|existing --domain ИМЯ или scripts/proxy.sh)"
+if [ -n "$HTTPS_MODE" ]; then
+  if [ "$PROFILE" = shared-host ]; then
+    "$REPO_ROOT/scripts/proxy.sh" print --env "$ENV_FILE" --domain "$DOMAIN" > "$CONFIG_DIR/nginx-arklock.conf.example" 2>/dev/null || true
+    PROXY_STATE="shared-host: Nginx не изменён; пример конфигурации — $CONFIG_DIR/nginx-arklock.conf.example"
+  else
+    proxy_args=(setup --env "$ENV_FILE" --domain "$DOMAIN" --mode "$HTTPS_MODE")
+    [ -z "$ACME_EMAIL" ] || proxy_args+=(--email "$ACME_EMAIL")
+    [ -z "$TLS_CERT" ] || proxy_args+=(--cert "$TLS_CERT" --key "$TLS_KEY")
+    if "$REPO_ROOT/scripts/proxy.sh" "${proxy_args[@]}"; then PROXY_STATE="HTTPS включён: https://$DOMAIN"; else PROXY_STATE="НЕ НАСТРОЕН — исправьте причину (см. выше) и выполните scripts/proxy.sh setup"; fi
+    APP_PUBLIC_URL="$(env_get "$ENV_FILE" APP_PUBLIC_URL)"
+  fi
+fi
+
 # ------------------------------------------------------------------ 9. Итог
 URL="${APP_PUBLIC_URL:-$(app_url_local)}"
 TOKEN="$(env_get "$ENV_FILE" BOOTSTRAP_TOKEN)"
@@ -281,6 +313,7 @@ cat <<EOF
  Адрес (локально): $(app_url_local)
  Адрес (публичный): ${APP_PUBLIC_URL:-не задан — настройте reverse proxy с HTTPS на 127.0.0.1:$PORT}
  Помощник обновлений: $HELPER_STATE
+ HTTPS / Nginx:    $PROXY_STATE
  Конфигурация:     $ENV_FILE
  Данные:           $DATA_ROOT
 

@@ -319,12 +319,72 @@ jobs:
         run: node scripts/smoke-container.mjs verify
       - name: Repair is safe on a healthy system
         run: sudo ./scripts/repair.sh --env "$CFG/arklock.env"
+      - name: Low disk space - backup is refused with a clear message and nothing changes
+        run: |
+          before="$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")"
+          sudo mount -t tmpfs -o size=8m tmpfs "$DATA/backups"
+          if sudo ./scripts/backup.sh --env "$CFG/arklock.env" > /tmp/lowdisk.log 2>&1; then cat /tmp/lowdisk.log; echo "backup accepted on a full disk"; exit 1; fi
+          grep -q 'Недостаточно места' /tmp/lowdisk.log || { cat /tmp/lowdisk.log; exit 1; }
+          sudo umount "$DATA/backups"
+          # система не изменилась и отвечает
+          test "$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")" = "$before"
+          sudo ./scripts/verify.sh --env "$CFG/arklock.env"
+      - name: HTTPS through Nginx (self-signed certificate), http redirect, headers, status, removal
+        run: |
+          sudo ./scripts/proxy.sh setup --env "$CFG/arklock.env" --domain arklock.test --mode self-signed
+          sudo ./scripts/proxy.sh status --env "$CFG/arklock.env"
+          test "$(sudo sed -n 's/^APP_PUBLIC_URL=//p' "$CFG/arklock.env")" = https://arklock.test
+          test "$(sudo sed -n 's/^TRUSTED_PROXY_HOPS=//p' "$CFG/arklock.env")" = 1
+          curl -fsk --resolve arklock.test:443:127.0.0.1 https://arklock.test/api/v1/ready > /dev/null
+          out="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --resolve arklock.test:80:127.0.0.1 http://arklock.test/)"
+          test "$out" = "301 https://arklock.test/" || { echo "redirect: $out"; exit 1; }
+          curl -skI --resolve arklock.test:443:127.0.0.1 https://arklock.test/ | grep -i '^strict-transport-security: max-age=31536000'
+          # адрес клиента передаётся прокси, а не берётся из присланного заголовка
+          sudo grep -q 'proxy_set_header X-Forwarded-For $remote_addr;' "/etc/nginx/conf.d/arklock-$PROJ.conf"
+          # повторная настройка безопасна, неверный режим отклоняется без изменений
+          sudo ./scripts/proxy.sh setup --env "$CFG/arklock.env" --domain arklock.test --mode self-signed
+          if sudo ./scripts/proxy.sh setup --env "$CFG/arklock.env" --domain "bad domain" --mode self-signed; then echo "bad domain accepted"; exit 1; fi
+          sudo ./scripts/proxy.sh remove --env "$CFG/arklock.env"
+          test ! -e "/etc/nginx/conf.d/arklock-$PROJ.conf"
       - name: Cleanup
         if: always()
         run: |
           docker rm -f s3server samba || true
           sudo docker compose --project-name "$PROJ" logs --no-color --tail=100 || true
           sudo docker compose --project-name "$PROJ" down -v || true
+
+  debian12:
+    name: scripts and remote storage on Debian 12
+    runs-on: ubuntu-24.04
+    container: debian:12
+    steps:
+      - name: System tools of a minimal Debian 12
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ca-certificates curl git openssl procps xz-utils shellcheck smbclient gnupg > /dev/null
+          . /etc/os-release && echo "$PRETTY_NAME"
+          test "$VERSION_ID" = 12
+          bash --version | head -n 1
+          curl --version | head -n 1
+          openssl version
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Scripts pass shellcheck and syntax checks with the Debian 12 shell
+        run: |
+          for f in install.sh scripts/*.sh scripts/lib/*.sh; do bash -n "$f"; done
+          shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh
+      - name: Remote storage client against a signature-checking S3 server (Debian bash, curl, openssl)
+        run: npx vitest run --project remote
+      - name: Nginx configuration is generated for Debian's Nginx 1.22 syntax
+        run: |
+          printf 'COMPOSE_PROJECT_NAME=arklock\nDATA_ROOT=/tmp/arklock-data\nAPP_PORT=8080\n' > /tmp/arklock.env
+          scripts/proxy.sh print --env /tmp/arklock.env --domain arklock.example.com | tee /tmp/nginx.conf
+          grep -q 'listen 443 ssl http2;' /tmp/nginx.conf
+          if grep -q 'http2 on;' /tmp/nginx.conf; then echo "directive unsupported by Nginx 1.22"; exit 1; fi
 
   shared-host:
     name: shared-host profile leaves foreign services untouched
@@ -536,6 +596,14 @@ jobs:
         run: |
           sudo systemctl restart "arklock-updater-$PROJ"
           sleep 6
+          sudo "$APPDIR/scripts/updater.sh" status --env "$CFG/arklock.env"
+      - name: Stack and helper come back after the Docker daemon restarts (server reboot simulation)
+        run: |
+          sudo systemctl restart docker
+          for i in $(seq 1 90); do curl -fsS "http://127.0.0.1:$PORT/api/v1/ready" > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS "http://127.0.0.1:$PORT/api/v1/ready"
+          systemctl is-active "arklock-updater-$PROJ"
+          sleep 8
           sudo "$APPDIR/scripts/updater.sh" status --env "$CFG/arklock.env"
       - name: Browser - check, update with re-authentication, failed release recovery
         env:
