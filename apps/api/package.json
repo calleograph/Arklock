@@ -16,6 +16,7 @@
     "@arklock/crypto": "0.1.0",
     "@electric-sql/pglite": "^0.3.0",
     "@fastify/static": "^10.1.6",
+    "@simplewebauthn/server": "^14.0.2",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.6.0",
     "ldapts": "^9.2.0",

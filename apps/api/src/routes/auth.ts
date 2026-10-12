@@ -22,7 +22,7 @@ import type {
   UserBundle,
 } from '@arklock/contracts';
 import { audit } from '../audit.js';
-import { isEnrolled } from '../auth/mfa.js';
+import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
@@ -291,7 +291,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     // Второй фактор: сессия и ключевой материал выдаются только после проверки кода
     if (await isEnrolled(ctx, u.id)) {
       reply.status(200);
-      return { mfaRequired: true, challenge: ctx.mfa.issue(u.id) };
+      return mfaChallenge(ctx, u.id);
     }
     const s = await createSession(ctx, u.id, ipOf(req), req.headers['user-agent'] ?? null);
     await audit(db, `user:${u.id}`, 'auth.login', `session:${s.id}`, { ip: ipOf(req) });

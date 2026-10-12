@@ -6,6 +6,7 @@ import { api, ApiError } from '../services/api';
 import { authKeyFor } from '../services/account';
 import { errorMessage } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
+import { createCredential, webauthnSupported } from '../services/webauthn';
 
 const { t } = useI18n();
 const auth = useAuthStore();
@@ -32,8 +33,65 @@ const qr = computed(() => {
   return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
 });
 
+interface KeyRow {
+  id: string;
+  name: string;
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+const keys = ref<{ available: boolean; credentials: KeyRow[] }>({
+  available: false,
+  credentials: [],
+});
+const keyName = ref('');
+const keyPassword = ref('');
+
 async function load(): Promise<void> {
   state.value = await api('GET', '/auth/mfa');
+  keys.value = await api('GET', '/auth/webauthn');
+}
+
+async function addKey(): Promise<void> {
+  if (!auth.user) return;
+  error.value = '';
+  busy.value = true;
+  try {
+    const authKey = await authKeyFor(auth.user, keyPassword.value);
+    const options = await api<Record<string, unknown>>('POST', '/auth/webauthn/register/options', {
+      authKey,
+    });
+    const response = await createCredential(options);
+    await api('POST', '/auth/webauthn/register/verify', { name: keyName.value.trim(), response });
+    keyName.value = '';
+    keyPassword.value = '';
+    await load();
+  } catch (e) {
+    error.value =
+      e instanceof ApiError && e.code === 'invalid_credentials'
+        ? t('security.wrongPassword')
+        : t('mfa.keyFailed');
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function removeKey(k: KeyRow): Promise<void> {
+  if (!auth.user) return;
+  const pw = window.prompt(t('common.password'));
+  if (!pw) return;
+  error.value = '';
+  busy.value = true;
+  try {
+    await api('POST', `/auth/webauthn/${k.id}/delete`, {
+      authKey: await authKeyFor(auth.user, pw),
+    });
+    await load();
+  } catch (e) {
+    fail(e);
+  } finally {
+    busy.value = false;
+  }
 }
 onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
 
@@ -216,6 +274,70 @@ const copyCodes = () => navigator.clipboard.writeText(shownCodes.value.join('\n'
         </div>
       </form>
     </template>
+    <div
+      class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
+      data-testid="keys-section"
+    >
+      <h3 class="font-medium">{{ t('mfa.keys') }}</h3>
+      <p class="text-xs text-slate-500">{{ t('mfa.keysHint') }}</p>
+      <p v-if="!keys.available" class="text-sm text-amber-700">{{ t('mfa.keyUnavailable') }}</p>
+      <p v-else-if="!webauthnSupported()" class="text-sm text-amber-700">
+        {{ t('mfa.keyUnsupported') }}
+      </p>
+      <template v-else>
+        <ul
+          v-if="keys.credentials.length"
+          class="divide-y divide-slate-200 text-sm dark:divide-slate-800"
+          data-testid="key-list"
+        >
+          <li
+            v-for="k in keys.credentials"
+            :key="k.id"
+            class="flex items-center justify-between gap-2 py-1"
+            data-testid="key-row"
+          >
+            <span
+              >{{ k.name }}
+              <span class="text-xs text-slate-500">{{
+                k.backedUp ? '· ' + t('mfa.keyBacked') : ''
+              }}</span></span
+            >
+            <button
+              type="button"
+              class="btn"
+              :disabled="busy"
+              data-testid="key-remove"
+              @click="removeKey(k)"
+            >
+              {{ t('mfa.keyRemove') }}
+            </button>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-slate-500">{{ t('mfa.keyNone') }}</p>
+        <form class="space-y-2" @submit.prevent="addKey">
+          <input
+            v-model="keyName"
+            required
+            maxlength="60"
+            class="field"
+            :placeholder="t('mfa.keyName')"
+            data-testid="key-name"
+          />
+          <input
+            v-model="keyPassword"
+            type="password"
+            required
+            autocomplete="current-password"
+            class="field"
+            :placeholder="t('common.password')"
+            data-testid="key-password"
+          />
+          <button type="submit" class="btn" :disabled="busy" data-testid="key-add">
+            {{ t('mfa.keyAdd') }}
+          </button>
+        </form>
+      </template>
+    </div>
     <p
       v-if="error"
       class="text-sm text-red-600 dark:text-red-400"

@@ -71,6 +71,8 @@ export type SessionResponse = z.infer<typeof sessionResponse>;
 export interface MfaChallengeResponse {
   mfaRequired: true;
   challenge: string;
+  /** Доступные способы подтверждения. */
+  methods: { totp: boolean; webauthn: boolean };
 }
 export const mfaVerifyRequest = z.object({
   challenge: z.string().min(10).max(100),

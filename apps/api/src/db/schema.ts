@@ -431,3 +431,23 @@ export const apiTokens = pgTable(
   },
   (t) => [index('api_tokens_user_idx').on(t.userId)],
 );
+
+/** Ключи доступа (WebAuthn / passkeys) как второй фактор. Хранятся только открытый ключ и счётчик. */
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
+  {
+    /** Идентификатор учётных данных (base64url), выдаётся аутентификатором. */
+    id: text('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    publicKey: text('public_key').notNull(),
+    counter: bigint('counter', { mode: 'number' }).notNull().default(0),
+    transports: jsonb('transports'),
+    backedUp: boolean('backed_up').notNull().default(false),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    lastUsedAt: ts('last_used_at'),
+  },
+  (t) => [index('webauthn_user_idx').on(t.userId)],
+);

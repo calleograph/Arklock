@@ -101,6 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await account.signIn(email, password);
     if (res.kind === 'mfa') {
       pendingMfa = res;
+      mfaMethods = res.methods;
       return 'mfa';
     }
     accept(res.session, res.account);
@@ -109,6 +110,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Вход через каталог (LDAP): пароль каталога проверяет сервер, мастер-пароль нужен только для ключей
   let ldapChallenge: string | null = null;
+  let mfaMethods: { totp: boolean; webauthn: boolean } = { totp: true, webauthn: false };
   let ldapEnroll: { token: string; email: string; name: string } | null = null;
 
   /** ok — сессия есть, нужна разблокировка; mfa — нужен код; enroll — нужно создать мастер-пароль. */
@@ -127,6 +129,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if ('mfaRequired' in res) {
       ldapChallenge = res.challenge;
+      mfaMethods = res.methods;
       return 'mfa';
     }
     setToken(res.token);
@@ -150,6 +153,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if ('mfaRequired' in res) {
       ldapChallenge = res.challenge;
+      mfaMethods = res.methods;
       return 'mfa';
     }
     setToken(res.token);
@@ -204,6 +208,25 @@ export const useAuthStore = defineStore('auth', () => {
     accept(session, acc);
   }
 
+  /** Подтверждение входа ключом доступа (WebAuthn). */
+  async function completeWebauthn(): Promise<void> {
+    if (ldapChallenge) {
+      const session = await account.completeWithKey(ldapChallenge);
+      ldapChallenge = null;
+      setToken(session.token);
+      hasToken.value = true;
+      user.value = session.user;
+      return;
+    }
+    if (!pendingMfa) throw new Error('no pending sign-in');
+    const p = pendingMfa;
+    const { session, account: acc } = await p.completeWebauthn();
+    p.cancel();
+    pendingMfa = null;
+    accept(session, acc);
+  }
+  const mfaOffers = () => mfaMethods;
+
   function cancelMfa(): void {
     pendingMfa?.cancel();
     pendingMfa = null;
@@ -255,6 +278,8 @@ export const useAuthStore = defineStore('auth', () => {
     lock,
     signIn,
     completeMfa,
+    completeWebauthn,
+    mfaOffers,
     cancelMfa,
     signInLdap,
     exchangeSso,

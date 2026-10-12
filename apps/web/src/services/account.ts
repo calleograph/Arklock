@@ -27,6 +27,7 @@ import type {
   UserBundle,
 } from '@arklock/contracts';
 import { api } from './api';
+import { getAssertion } from './webauthn';
 import { deriveKeys } from './kdf';
 
 /** Минимальная длина мастер-пароля (NIST SP 800-63B: длина важнее правил состава). */
@@ -146,12 +147,32 @@ async function unwrapAll(user: UserBundle, wrapKey: Uint8Array): Promise<Unlocke
   };
 }
 
+/** Запрос подписи у аутентификатора и обмен ответа на сессию. */
+export async function completeWithKey(challenge: string): Promise<SessionResponse> {
+  const options = await api<Record<string, unknown>>(
+    'POST',
+    '/auth/mfa/webauthn/options',
+    { challenge },
+    { auth: false },
+  );
+  const response = await getAssertion(options);
+  return api<SessionResponse>(
+    'POST',
+    '/auth/mfa/webauthn/verify',
+    { challenge, response },
+    { auth: false },
+  );
+}
+
 export type SignInResult =
   | { kind: 'session'; session: SessionResponse; account: UnlockedAccount }
   | {
       kind: 'mfa';
+      methods: { totp: boolean; webauthn: boolean };
       /** Завершает вход кодом второго фактора (приложение или резервный код). */
       complete: (code: string) => Promise<{ session: SessionResponse; account: UnlockedAccount }>;
+      /** Завершает вход ключом доступа (WebAuthn). */
+      completeWebauthn: () => Promise<{ session: SessionResponse; account: UnlockedAccount }>;
       /** Стирает ключи, удерживаемые до ввода кода. */
       cancel: () => void;
     };
@@ -187,6 +208,11 @@ export async function signIn(
           );
           return { session, account: await unwrapAll(session.user, keys.wrapKey) };
         },
+        completeWebauthn: async () => {
+          const session = await completeWithKey(res.challenge);
+          return { session, account: await unwrapAll(session.user, keys.wrapKey) };
+        },
+        methods: res.methods,
         cancel: wipe,
       };
     }

@@ -94,7 +94,12 @@ async function load(): Promise<void> {
   } catch (e) {
     error.value = failMessage(e);
   }
-  const every = AUTO[props.section];
+  // Если помощник временно недоступен, раздел сам перепроверяет состояние
+  const every =
+    AUTO[props.section] ??
+    (['backups', 'logs'].includes(props.section) && data.value?.helperAlive === false
+      ? 5000
+      : undefined);
   if (alive && every) timer = setTimeout(load, every);
 }
 // ---- повторное подтверждение пароля для опасных действий

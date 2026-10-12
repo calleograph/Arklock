@@ -118,6 +118,8 @@ export class RequestPendingError extends Error {
 }
 
 export class UpdaterChannel {
+  private lastBeat = 0;
+
   constructor(private readonly dir: string) {}
 
   get configured(): boolean {
@@ -165,7 +167,16 @@ export class UpdaterChannel {
       readJson<Record<string, unknown>>(this.p('remote.json')),
       readSafe(this.p('history.jsonl')),
     ]);
-    const ts = hb && typeof hb.ts === 'number' ? hb.ts * 1000 : 0;
+    // Пульс пишется помощником атомарно, но чтение может совпасть с заменой файла: берём последнее прочитанное значение
+    if (hb && typeof hb.ts === 'number') this.lastBeat = hb.ts * 1000;
+    else if (
+      !(await lstat(this.p('helper.json')).then(
+        () => true,
+        () => false,
+      ))
+    )
+      this.lastBeat = 0;
+    const ts = this.lastBeat;
     const alive = ts > 0 && Date.now() - ts < HEARTBEAT_MAX_AGE_MS;
     const history = (historyText ?? '')
       .split('\n')

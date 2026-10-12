@@ -15,6 +15,20 @@ export default {
     broken: 'The file could not be decrypted',
   },
   mfa: {
+    useKey: 'Confirm with a security key',
+    keyFailed: 'The security key was not accepted or the action was cancelled',
+    keys: 'Security keys (WebAuthn)',
+    keysHint:
+      'A hardware key or the device built-in authenticator as a second factor. Register at least two keys.',
+    keyName: 'Key name',
+    keyAdd: 'Add a key',
+    keyNone: 'No keys',
+    keyRemove: 'Remove',
+    keyUnavailable:
+      'Security keys are unavailable: the administrator has not set the public address (APP_PUBLIC_URL)',
+    keyUnsupported: 'This browser does not support security keys',
+    keyBacked: 'synced',
+    keyLastUsed: 'used',
     section: 'Two-factor authentication',
     title: 'Second factor',
     code: 'Authenticator code or backup code',

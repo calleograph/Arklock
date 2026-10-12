@@ -8,6 +8,7 @@ const PORT_WORKSPACE = 18183;
 const PORT_ADMIN = 18184;
 const PORT_EXTENSION = 18185;
 const PORT_MOBILE = 18186;
+const PORT_WEBAUTHN = 18187;
 /** Расширению нужен видимый браузер (в CI — xvfb), поэтому проект включается только по запросу. */
 const WITH_EXTENSION = process.env.E2E_EXTENSION === '1';
 const BLOB_WORKSPACE = path.resolve('test-results', 'blobs-workspace');
@@ -68,12 +69,29 @@ export default defineConfig({
       use: { baseURL: `http://127.0.0.1:${PORT_MOBILE}` },
     },
     {
+      name: 'webauthn',
+      testMatch: 'webauthn.spec.ts',
+      // WebAuthn не допускает IP-адреса как идентификатор сайта: localhost
+      use: { baseURL: `http://localhost:${PORT_WEBAUTHN}` },
+    },
+    {
       name: 'updates',
       testMatch: 'updates.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_UPDATES}` },
     },
   ],
   webServer: [
+    {
+      command: 'node apps/api/dist/main.js',
+      url: `http://127.0.0.1:${PORT_WEBAUTHN}/api/v1/ready`,
+      timeout: 60_000,
+      env: {
+        ...common,
+        PORT: String(PORT_WEBAUTHN),
+        BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-7',
+        APP_PUBLIC_URL: `http://localhost:${PORT_WEBAUTHN}`,
+      },
+    },
     {
       command: 'node apps/api/dist/main.js',
       url: `http://127.0.0.1:${PORT_MOBILE}/api/v1/ready`,

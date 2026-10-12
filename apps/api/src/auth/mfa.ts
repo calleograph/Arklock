@@ -9,7 +9,7 @@ import {
 import { and, eq, isNull } from 'drizzle-orm';
 import { parseTotpInput, totp } from '@arklock/crypto';
 import type { AppContext } from '../context.js';
-import { mfaBackupCodes, mfaFactors } from '../db/schema.js';
+import { mfaBackupCodes, mfaFactors, webauthnCredentials } from '../db/schema.js';
 
 const STEP_MS = 30_000;
 
@@ -73,6 +73,15 @@ export class MfaChallenges {
     return token;
   }
 
+  /** Вызов WebAuthn, выданный для этого входа (ожидаемое значение при проверке ответа аутентификатора). */
+  private readonly webauthn = new Map<string, string>();
+  setWebauthn(token: string, challenge: string): void {
+    this.webauthn.set(this.key(token), challenge);
+  }
+  getWebauthn(token: string): string | undefined {
+    return this.webauthn.get(this.key(token));
+  }
+
   peek(token: string, now = Date.now()): string | null {
     const r = this.items.get(this.key(token));
     return r && r.expiresAt > now ? r.userId : null;
@@ -87,6 +96,7 @@ export class MfaChallenges {
   }
 
   done(token: string): void {
+    this.webauthn.delete(this.key(token));
     this.items.delete(this.key(token));
   }
 }
@@ -155,7 +165,31 @@ export function resetMfaPolicyCache(ctx: AppContext): void {
   ctx.mfaPolicyCache = undefined;
 }
 
-export async function isEnrolled(ctx: AppContext, userId: string): Promise<boolean> {
+/** Включён ли второй фактор TOTP. */
+export async function hasTotp(ctx: AppContext, userId: string): Promise<boolean> {
   const [f] = await ctx.db.select().from(mfaFactors).where(eq(mfaFactors.userId, userId));
   return !!f?.enabledAt;
+}
+
+export async function hasPasskey(ctx: AppContext, userId: string): Promise<boolean> {
+  const rows = await ctx.db
+    .select({ id: webauthnCredentials.id })
+    .from(webauthnCredentials)
+    .where(eq(webauthnCredentials.userId, userId))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/** Есть ли у пользователя какой-либо второй фактор (TOTP или ключ доступа). */
+export async function isEnrolled(ctx: AppContext, userId: string): Promise<boolean> {
+  return (await hasTotp(ctx, userId)) || (await hasPasskey(ctx, userId));
+}
+
+/** Ответ на вход, когда нужен второй фактор: способы подтверждения и одноразовый «вызов» без сессии. */
+export async function mfaChallenge(ctx: AppContext, userId: string) {
+  return {
+    mfaRequired: true as const,
+    challenge: ctx.mfa.issue(userId),
+    methods: { totp: await hasTotp(ctx, userId), webauthn: await hasPasskey(ctx, userId) },
+  };
 }

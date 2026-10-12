@@ -14,16 +14,24 @@ import path from 'node:path';
 const dir = process.argv[2];
 const f = (n) => path.join(dir, n);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** Атомарная запись (временный файл и переименование). В Windows переименование поверх открытого файла может отказать — повтор, затем запись напрямую. */
 const write = (n, obj) => {
   const tmp = f(`.${n}.tmp`);
-  writeFileSync(tmp, JSON.stringify(obj));
-  renameSync(tmp, f(n));
+  const json = JSON.stringify(obj);
+  writeFileSync(tmp, json);
+  for (let i = 0; i < 8; i++) {
+    try {
+      renameSync(tmp, f(n));
+      return;
+    } catch (e) {
+      if (!['EPERM', 'EBUSY', 'EACCES'].includes(e.code)) throw e;
+      pause(15);
+    }
+  }
+  writeFileSync(f(n), json);
 };
-const beat = () =>
-  writeFileSync(
-    f('helper.json'),
-    JSON.stringify({ ts: Math.floor(Date.now() / 1000), pid: process.pid }),
-  );
+const beat = () => write('helper.json', { ts: Math.floor(Date.now() / 1000), pid: process.pid });
 
 // Снимки состояния, которые публикует настоящий помощник
 let backups = [];

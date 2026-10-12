@@ -17,7 +17,7 @@ import {
   verifyIdToken,
   type OidcConfig,
 } from '../auth/oidc.js';
-import { isEnrolled } from '../auth/mfa.js';
+import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { settings, users } from '../db/schema.js';
@@ -268,7 +268,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       if (!u || u.disabledAt) throw new AppError(401, 'invalid_ticket', 'The sign-in step expired');
       if (await isEnrolled(ctx, u.id)) {
         reply.status(200);
-        return { mfaRequired: true, challenge: ctx.mfa.issue(u.id) };
+        return mfaChallenge(ctx, u.id);
       }
       const sess = await createSession(ctx, u.id, ipOf(req), req.headers['user-agent'] ?? null);
       await audit(db, `user:${u.id}`, 'auth.login', `session:${sess.id}`, {

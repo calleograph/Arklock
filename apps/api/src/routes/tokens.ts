@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { tokenCreate, uuid } from '@arklock/contracts';
 import type { ApiTokenInfo } from '@arklock/contracts';
 import { audit } from '../audit.js';
-import { checkSecondFactor, isEnrolled } from '../auth/mfa.js';
+import { checkSecondFactor, hasPasskey, hasTotp } from '../auth/mfa.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { apiTokens } from '../db/schema.js';
@@ -52,7 +52,14 @@ export const registerTokenRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       ctx.attempts.byEmail.fail(`mfa:${user.id}`);
       throw new AppError(401, 'invalid_credentials', 'Invalid master password');
     }
-    if (await isEnrolled(ctx, user.id)) {
+    if (!(await hasTotp(ctx, user.id)) && (await hasPasskey(ctx, user.id)))
+      // подтвердить создание токена ключом доступа здесь нельзя: нужен TOTP или резервный код
+      throw new AppError(
+        409,
+        'totp_required_for_tokens',
+        'Enable an authenticator app to create API tokens',
+      );
+    if (await hasTotp(ctx, user.id)) {
       const kind = body.code ? await checkSecondFactor(ctx, user.id, body.code) : null;
       if (!kind) {
         ctx.attempts.byEmail.fail(`mfa:${user.id}`);

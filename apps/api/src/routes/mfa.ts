@@ -8,7 +8,8 @@ import { audit } from '../audit.js';
 import {
   backupHash,
   checkSecondFactor,
-  isEnrolled,
+  hasTotp,
+  hasPasskey,
   mfaPolicy,
   newBackupCodes,
   sealSecret,
@@ -72,7 +73,7 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
   /** Состояние второго фактора текущего пользователя и действующая политика. */
   app.get('/auth/mfa', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
-    const enabled = await isEnrolled(ctx, user.id);
+    const enabled = await hasTotp(ctx, user.id);
     const remaining = enabled
       ? (
           await db
@@ -82,8 +83,10 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         ).length
       : 0;
     const policy = await mfaPolicy(ctx);
+    const passkeys = await hasPasskey(ctx, user.id);
     return {
       enabled,
+      passkeys,
       backupCodesRemaining: remaining,
       policy,
       required: policy === 'all' || (policy === 'admins' && user.role === 'admin'),
@@ -93,7 +96,7 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
   /** Начало настройки: новый секрет; пока код не подтверждён, вход его не требует. */
   app.post('/auth/mfa/setup', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
-    if (await isEnrolled(ctx, user.id))
+    if (await hasTotp(ctx, user.id))
       throw new AppError(409, 'mfa_already_enabled', 'Two-factor authentication is already on');
     const secret = generateTotpSecret();
     const sealed = sealSecret(config.APP_SECRET, user.id, secret);
@@ -111,7 +114,7 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
   app.post('/auth/mfa/enable', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
     const body = parse(z.object({ code }), req.body);
-    if (await isEnrolled(ctx, user.id))
+    if (await hasTotp(ctx, user.id))
       throw new AppError(409, 'mfa_already_enabled', 'Two-factor authentication is already on');
     await checkCode(user.id, body.code, true);
     await db
@@ -143,7 +146,7 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     const { user } = authOf(req);
     const body = parse(z.object({ authKey, code }), req.body);
     checkPassword(user, body.authKey);
-    if (!(await isEnrolled(ctx, user.id)))
+    if (!(await hasTotp(ctx, user.id)))
       throw new AppError(409, 'mfa_not_enabled', 'Two-factor authentication is off');
     await checkCode(user.id, body.code);
     const backupCodes = await issueBackupCodes(user.id);

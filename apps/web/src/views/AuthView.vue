@@ -94,6 +94,25 @@ function validateNewPassword(): string | null {
   return null;
 }
 
+async function useKey(): Promise<void> {
+  error.value = '';
+  busy.value = true;
+  try {
+    await auth.completeWebauthn();
+    mfaStep.value = false;
+    mfaCode.value = '';
+    leaveLdap();
+    await router.replace(auth.unlocked ? '/' : '/unlock');
+  } catch (e) {
+    error.value =
+      e instanceof ApiError && e.code === 'invalid_challenge'
+        ? t('mfa.expired')
+        : t('mfa.keyFailed');
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function submit(): Promise<void> {
   error.value = '';
   busy.value = true;
@@ -380,7 +399,7 @@ async function copyRecovery(): Promise<void> {
         <input
           v-model="mfaCode"
           type="text"
-          required
+          :required="!auth.mfaOffers().webauthn"
           inputmode="numeric"
           autocomplete="one-time-code"
           spellcheck="false"
@@ -443,6 +462,16 @@ async function copyRecovery(): Promise<void> {
         {{ busy ? t('common.working') : mfaStep ? t('mfa.confirm') : title }}
       </button>
 
+      <button
+        v-if="mfaStep && auth.mfaOffers().webauthn"
+        type="button"
+        class="w-full rounded-md border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+        :disabled="busy"
+        data-testid="mfa-webauthn"
+        @click="useKey"
+      >
+        {{ t('mfa.useKey') }}
+      </button>
       <button
         v-if="mfaStep"
         type="button"

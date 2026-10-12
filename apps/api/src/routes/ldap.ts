@@ -13,7 +13,7 @@ import {
   ldapTest,
   type LdapConfig,
 } from '../auth/ldap.js';
-import { isEnrolled } from '../auth/mfa.js';
+import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { circleMembers, circles, sessions, settings, users } from '../db/schema.js';
@@ -314,7 +314,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       await syncCirclesFor(db, linked.id, s, ident.groups);
       if (await isEnrolled(ctx, linked.id)) {
         reply.status(200);
-        return { mfaRequired: true, challenge: ctx.mfa.issue(linked.id) };
+        return mfaChallenge(ctx, linked.id);
       }
       const sess = await createSession(
         ctx,

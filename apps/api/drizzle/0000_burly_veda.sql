@@ -236,6 +236,18 @@ CREATE TABLE "vaults" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "webauthn_credentials" (
+	"id" text PRIMARY KEY NOT NULL,
+	"user_id" uuid NOT NULL,
+	"name" text NOT NULL,
+	"public_key" text NOT NULL,
+	"counter" bigint DEFAULT 0 NOT NULL,
+	"transports" jsonb,
+	"backed_up" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_used_at" timestamp with time zone
+);
+--> statement-breakpoint
 ALTER TABLE "api_tokens" ADD CONSTRAINT "api_tokens_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "attachments" ADD CONSTRAINT "attachments_vault_id_vaults_id_fk" FOREIGN KEY ("vault_id") REFERENCES "public"."vaults"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "attachments" ADD CONSTRAINT "attachments_entry_id_entries_id_fk" FOREIGN KEY ("entry_id") REFERENCES "public"."entries"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -260,6 +272,7 @@ ALTER TABLE "vault_keys" ADD CONSTRAINT "vault_keys_vault_id_vaults_id_fk" FOREI
 ALTER TABLE "vault_keys" ADD CONSTRAINT "vault_keys_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "vault_members" ADD CONSTRAINT "vault_members_vault_id_vaults_id_fk" FOREIGN KEY ("vault_id") REFERENCES "public"."vaults"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "vault_members" ADD CONSTRAINT "vault_members_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "webauthn_credentials" ADD CONSTRAINT "webauthn_credentials_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "api_tokens_user_idx" ON "api_tokens" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "attachments_entry_idx" ON "attachments" USING btree ("entry_id");--> statement-breakpoint
 CREATE INDEX "attachments_vault_idx" ON "attachments" USING btree ("vault_id");--> statement-breakpoint
@@ -280,4 +293,5 @@ CREATE INDEX "sessions_user_idx" ON "sessions" USING btree ("user_id");--> state
 CREATE INDEX "signals_vault_idx" ON "signals" USING btree ("vault_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "signals_entry_type_idx" ON "signals" USING btree ("entry_id","type");--> statement-breakpoint
 CREATE UNIQUE INDEX "users_email_idx" ON "users" USING btree ("email");--> statement-breakpoint
-CREATE INDEX "vault_members_user_idx" ON "vault_members" USING btree ("user_id");
+CREATE INDEX "vault_members_user_idx" ON "vault_members" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "webauthn_user_idx" ON "webauthn_credentials" USING btree ("user_id");
