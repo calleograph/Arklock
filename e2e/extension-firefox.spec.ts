@@ -96,12 +96,16 @@ test.beforeAll(async () => {
   );
   const options = new firefox.Options();
   if (process.env.FIREFOX_HEADED !== '1') options.addArguments('-headless');
-  // нужен для чтения настроек браузера (действительный адрес расширения)
-  options.addArguments('-remote-allow-system-access');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   // постоянный адрес окна расширения для проверок
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [GECKO_ID]: UUID }));
-  driver = await new Builder().forBrowser('firefox').setFirefoxOptions(options).build();
+  // доступ к системным настройкам нужен для чтения действительного адреса расширения; включается ключом geckodriver
+  const service = new firefox.ServiceBuilder().addArguments('--allow-system-access');
+  driver = await new Builder()
+    .forBrowser('firefox')
+    .setFirefoxOptions(options)
+    .setFirefoxService(service)
+    .build();
   await driver.installAddon(zip, true);
   // действительный адрес расширения берётся из настроек браузера (запрошенное соответствие могло не примениться)
   await driver.setContext(firefox.Context.CHROME);

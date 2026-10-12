@@ -289,7 +289,7 @@ jobs:
           sudo -E ./scripts/remote.sh push "$BACKUP"
           sudo -E ./scripts/remote.sh verify "$name"
           # ротация: оставляем одну, чужие копии не трогаем
-          cp "$BACKUP" /tmp/arklock-ci-2.bak.gpg && sudo -E ./scripts/remote.sh push /tmp/arklock-ci-2.bak.gpg
+          sudo cp "$BACKUP" /tmp/arklock-ci-2.bak.gpg && sudo chmod 644 /tmp/arklock-ci-2.bak.gpg && sudo -E ./scripts/remote.sh push /tmp/arklock-ci-2.bak.gpg
           sudo -E env COMPOSE_PROJECT_NAME=arklock ./scripts/remote.sh prune 1
           test "$(sudo -E ./scripts/remote.sh list | wc -l)" = 1
           sudo -E ./scripts/remote.sh pull "$(sudo -E ./scripts/remote.sh list | cut -d' ' -f1)" /tmp/smb-pulled
