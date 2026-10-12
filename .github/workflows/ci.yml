@@ -233,20 +233,18 @@ jobs:
           user="$(node -p "require('./smoke-state.json').email")"
           secret="$(node -p "require('./smoke-state.json').secret.password")"
           if sudo grep -aqF -- "$user" "$f" || sudo grep -aqF -- "$secret" "$f"; then echo "plaintext in backup"; exit 1; fi
-      - name: Remote storage (S3, MinIO) - test, send, list, verify, rotation
+      - name: Remote storage (S3, CloudServer) - test, send, list, verify, rotation
         run: |
-          MINIO_IMG=quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
-          docker pull "$MINIO_IMG" || MINIO_IMG=quay.io/minio/minio:latest
-          mkdir -p /tmp/minio-data/arklock-ci
-          docker run -d --name minio -p 19000:9000 -v /tmp/minio-data:/data -e MINIO_ROOT_USER=ciaccesskey -e MINIO_ROOT_PASSWORD=cisecretkey-0123456789 "$MINIO_IMG" server /data
-          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:19000/minio/health/ready >/dev/null && break; sleep 1; done
+          docker run -d --name s3server -p 19000:8000 -e S3BACKEND=mem -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver
+          for i in $(seq 1 90); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19000/)" != 000 ] && break; sleep 1; done
+          curl -fsS -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" --user accessKey1:verySecretKey1 -H 'x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' http://127.0.0.1:19000/arklock-ci
           export ARKLOCK_REMOTE_CONF="$CFG/remote.conf"
           export ARKLOCK_REMOTE_TYPE=s3 ARKLOCK_REMOTE_S3_ENDPOINT=http://127.0.0.1:19000 ARKLOCK_REMOTE_S3_BUCKET=arklock-ci ARKLOCK_REMOTE_S3_REGION=us-east-1
-          export ARKLOCK_REMOTE_S3_ACCESS_KEY=ciaccesskey ARKLOCK_REMOTE_S3_SECRET_KEY=cisecretkey-0123456789 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
+          export ARKLOCK_REMOTE_S3_ACCESS_KEY=accessKey1 ARKLOCK_REMOTE_S3_SECRET_KEY=verySecretKey1 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
           sudo -E ./scripts/remote.sh configure --from-env
           test "$(sudo stat -c '%a' "$CFG/remote.conf")" = 600
           sudo -E ./scripts/remote.sh show | grep -q 'секрет=задан'
-          if sudo -E ./scripts/remote.sh show | grep -qF cisecretkey; then echo "secret shown"; exit 1; fi
+          if sudo -E ./scripts/remote.sh show | grep -qF verySecretKey1; then echo "secret shown"; exit 1; fi
           sudo -E ./scripts/remote.sh test
           sudo -E ./scripts/remote.sh push "$BACKUP"
           name="$(basename "$BACKUP")"
@@ -304,7 +302,7 @@ jobs:
         run: |
           export ARKLOCK_REMOTE_CONF="$CFG/remote.conf"
           export ARKLOCK_REMOTE_TYPE=s3 ARKLOCK_REMOTE_S3_ENDPOINT=http://127.0.0.1:19000 ARKLOCK_REMOTE_S3_BUCKET=arklock-ci ARKLOCK_REMOTE_S3_REGION=us-east-1
-          export ARKLOCK_REMOTE_S3_ACCESS_KEY=ciaccesskey ARKLOCK_REMOTE_S3_SECRET_KEY=cisecretkey-0123456789 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
+          export ARKLOCK_REMOTE_S3_ACCESS_KEY=accessKey1 ARKLOCK_REMOTE_S3_SECRET_KEY=verySecretKey1 ARKLOCK_REMOTE_ALLOW_HTTP=1 ARKLOCK_REMOTE_PREFIX=ci/server1
           sudo docker compose --project-name "$PROJ" down -v
           # файлы вложений тоже уничтожены: их должна вернуть копия
           sudo rm -rf "$DATA/blobs"
@@ -324,7 +322,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rm -f minio samba || true
+          docker rm -f s3server samba || true
           sudo docker compose --project-name "$PROJ" logs --no-color --tail=100 || true
           sudo docker compose --project-name "$PROJ" down -v || true
 
@@ -526,16 +524,14 @@ jobs:
         env:
           OFFSITE_ENDPOINT: http://127.0.0.1:19001
           OFFSITE_BUCKET: arklock-web
-          OFFSITE_ACCESS: ciwebaccesskey
-          OFFSITE_SECRET: ciwebsecretkey-0123456789
+          OFFSITE_ACCESS: accessKey1
+          OFFSITE_SECRET: verySecretKey1
         run: |
-          MINIO_IMG=quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
-          docker pull "$MINIO_IMG" || MINIO_IMG=quay.io/minio/minio:latest
-          mkdir -p "/tmp/minio-web/$OFFSITE_BUCKET"
-          docker run -d --name minio-web -p 19001:9000 -v /tmp/minio-web:/data -e MINIO_ROOT_USER="$OFFSITE_ACCESS" -e MINIO_ROOT_PASSWORD="$OFFSITE_SECRET" "$MINIO_IMG" server /data
-          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:19001/minio/health/ready >/dev/null && break; sleep 1; done
+          docker run -d --name s3server-web -p 19001:8000 -e S3BACKEND=mem -e REMOTE_MANAGEMENT_DISABLE=1 zenko/cloudserver
+          for i in $(seq 1 90); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19001/)" != 000 ] && break; sleep 1; done
+          curl -fsS -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" --user accessKey1:verySecretKey1 -H 'x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' http://127.0.0.1:19001/arklock-web
           bash tests/updater/test-ops.sh "$DATA" "$CFG/arklock.env"
-          docker rm -f minio-web || true
+          docker rm -f s3server-web || true
       - name: Helper survives a restart
         run: |
           sudo systemctl restart "arklock-updater-$PROJ"

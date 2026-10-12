@@ -292,6 +292,8 @@ test('a second user joins a shared vault; revoking access and rotating the key',
 }: {
   browser: Browser;
 }) => {
+  // шифрование и расшифровка файла в 40 МиБ на медленном исполнителе CI занимают минуты
+  test.setTimeout(420_000);
   const page = adminPage;
   // администратор открывает регистрацию в настройках
   await page.getByTestId('nav-admin').click();
