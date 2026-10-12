@@ -23,6 +23,8 @@ jobs:
       - run: npm run lint
       # typecheck зависит от собранных пакетов (@arklock/crypto, @arklock/contracts)
       - run: npm run build
+      # манифест и код расширения для Firefox проверяются валидатором Mozilla (предупреждения считаются ошибками)
+      - run: npm run lint:firefox -w @arklock/extension
       - run: npm run typecheck
       - run: npm test
 
@@ -43,6 +45,10 @@ jobs:
         run: |
           EXT_TEST_HOSTS='http://127.0.0.1/*' npm run build -w @arklock/extension
           E2E_EXTENSION=1 xvfb-run -a npx playwright test --project=extension
+      - name: Browser extension in Firefox (geckodriver)
+        run: |
+          firefox --version
+          E2E_FIREFOX=1 npx playwright test --project=extension-firefox
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

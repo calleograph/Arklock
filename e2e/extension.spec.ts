@@ -168,3 +168,79 @@ test('the extension signs in, finds the entry for the page and fills the form; a
   const third = await popupFor(page);
   await expect(third.getByTestId('submit')).toBeVisible();
 });
+
+/** Вход в окно расширения мастер-паролем. */
+async function signIn(popup: Page): Promise<void> {
+  await popup.getByTestId('server').fill(SERVER);
+  await popup.getByTestId('email').fill(USER.email);
+  await popup.getByTestId('password').fill(USER.password);
+  await popup.getByTestId('submit').click();
+  await expect(popup.getByTestId('entry').first()).toBeVisible({ timeout: 90_000 });
+}
+
+/** Входит в веб-интерфейс новой вкладкой (токен хранится во вкладке) и находит запись по названию. */
+async function webEntry(title: string): Promise<Page> {
+  const web = await context.newPage();
+  await web.goto(`${SERVER}/login`);
+  await web.getByTestId('email').fill(USER.email);
+  await web.getByTestId('password').fill(USER.password);
+  await web.getByTestId('submit').click();
+  await expect(web.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  await web.getByTestId('search').fill(title);
+  await web.getByTestId('entry-row').first().click();
+  await expect(web.getByTestId('view-title')).toHaveText(title);
+  return web;
+}
+
+test('entries are created and edited from the extension, readable in the web app; ending the session locks the extension', async () => {
+  const page = await context.newPage();
+  await page.goto(`http://127.0.0.1:${sitePort}/login`);
+  const popup = await popupFor(page);
+  await signIn(popup);
+
+  // создание: адрес предзаполняется адресом вкладки, пароль можно сгенерировать
+  await popup.getByTestId('new-entry').click();
+  await popup.getByTestId('f-title').fill('Создано в расширении');
+  await popup.getByTestId('f-username').fill('ext-created');
+  await popup.getByTestId('f-generate').click();
+  const generated = await popup.getByTestId('f-password').inputValue();
+  expect(generated).toHaveLength(20);
+  await expect(popup.getByTestId('f-url')).toHaveValue(`http://127.0.0.1:${sitePort}`);
+  await popup.getByTestId('f-totp').fill('not a valid secret !!');
+  await popup.getByTestId('f-save').click();
+  await expect(popup.getByTestId('f-error')).not.toBeEmpty(); // неверный секрет TOTP отклоняется до отправки
+  await popup.getByTestId('f-totp').fill('JBSWY3DPEHPK3PXP');
+  await popup.getByTestId('f-save').click();
+  await popup.getByTestId('search').fill('Создано');
+  await expect(popup.getByTestId('entry')).toHaveCount(1);
+  await expect(popup.getByTestId('entry')).toContainText('ext-created');
+
+  // запись читается в веб-интерфейсе: сервер хранит только шифртекст, ключи те же
+  let web = await webEntry('Создано в расширении');
+  await web.getByTestId('btn-reveal').click();
+  await expect(web.getByTestId('view-password')).toHaveText(generated);
+  await web.close();
+
+  // изменение: пароль и название; поля, которых нет в форме, сохраняются
+  await popup.getByTestId('entry').first().getByTestId('edit').click();
+  await expect(popup.getByTestId('f-title')).toHaveValue('Создано в расширении');
+  await popup.getByTestId('f-title').fill('Изменено в расширении');
+  await popup.getByTestId('f-password').fill('Changed-By-Ext-77!');
+  await popup.getByTestId('f-save').click();
+  await popup.getByTestId('search').fill('Изменено');
+  await expect(popup.getByTestId('entry')).toHaveCount(1);
+  web = await webEntry('Изменено в расширении');
+  await web.getByTestId('btn-reveal').click();
+  await expect(web.getByTestId('view-password')).toHaveText('Changed-By-Ext-77!');
+
+  // отзыв доступа: пользователь завершает остальные сеансы — расширение теряет доступ и стирает ключи
+  await web.locator('a[href="/security"]').first().click();
+  await web.getByTestId('revoke-others').click();
+  await expect(web.getByTestId('sessions').locator('button')).toHaveCount(0, { timeout: 30_000 });
+  await popup.getByTestId('refresh').click();
+  await expect(popup.getByTestId('submit')).toBeVisible({ timeout: 30_000 });
+  await expect(popup.getByTestId('error')).toContainText(/ended by the server|завершён сервером/);
+  const [sw] = context.serviceWorkers();
+  expect(JSON.stringify(await sw!.evaluate(() => chrome.storage.session.get(null)))).toBe('{}');
+  await web.close();
+});

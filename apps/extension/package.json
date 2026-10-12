@@ -5,7 +5,10 @@
   "type": "module",
   "description": "Arklock browser extension (Manifest V3): search, autofill, TOTP and password generator",
   "scripts": {
-    "build": "vite build",
+    "build": "node build.mjs all",
+    "build:chromium": "node build.mjs chromium",
+    "build:firefox": "node build.mjs firefox",
+    "lint:firefox": "web-ext lint --source-dir dist-firefox --warnings-as-errors",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -15,7 +18,8 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.1.0",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "web-ext": "^10.7.0"
   },
   "license": "AGPL-3.0-only"
 }

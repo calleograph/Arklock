@@ -73,7 +73,12 @@ async function submit(): Promise<void> {
     <div>
       <div class="mb-2 flex items-center justify-between">
         <h2 class="font-medium">{{ t('security.sessions') }}</h2>
-        <button type="button" class="text-sm underline" @click="revokeOthers">
+        <button
+          type="button"
+          class="text-sm underline"
+          data-testid="revoke-others"
+          @click="revokeOthers"
+        >
           {{ t('security.revokeOthers') }}
         </button>
       </div>

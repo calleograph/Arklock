@@ -2,6 +2,7 @@ import {
   MIN_KDF,
   decryptBranchName,
   decryptEntry,
+  encryptEntry,
   deriveMasterKeys,
   fromBase64Url,
   keyLogHash,
@@ -17,6 +18,17 @@ export class ClientError extends Error {
   constructor(
     message: string,
     readonly exitCode = 1,
+  ) {
+    super(message);
+  }
+}
+
+/** Ошибка ответа сервера: код состояния и код ошибки доступны программно (отзыв доступа, конфликт версий). */
+export class ApiError extends ClientError {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
   ) {
     super(message);
   }
@@ -41,6 +53,11 @@ export interface Entry {
   tags: string[];
   fields: { name: string; value: string; secret: boolean }[];
   kind: string;
+  /** Версия записи на сервере (контроль конфликтов при изменении). */
+  version: number;
+  branchId: string | null;
+  /** Расшифрованное содержимое целиком: поля, которых нет в форме, при изменении сохраняются. */
+  raw: Record<string, unknown>;
 }
 
 export class Api {
@@ -70,7 +87,7 @@ export class Api {
           : code === 'token_read_only'
             ? 'This token is read-only. Create a token with write access.'
             : (data?.error?.message ?? res.statusText);
-      throw new ClientError(`${hint} (${res.status} ${code})`);
+      throw new ApiError(`${hint} (${res.status} ${code})`, res.status, code);
     }
     return data as T;
   }
@@ -244,10 +261,67 @@ export async function loadEntries(o: Opened, v: Opened['vaults'][number]): Promi
         tags: Array.isArray(d.tags) ? d.tags.map(String) : [],
         fields: Array.isArray(d.fields) ? d.fields : [],
         kind: String(d.kind ?? 'login'),
+        version: e.version,
+        branchId: e.branchId,
+        raw: d as Record<string, unknown>,
       });
     } catch {
       /* запись не расшифровалась (чужая версия ключа) — пропускается */
     }
   }
   return out;
+}
+
+/** Поля, которые пользователь вводит при создании и изменении записи входа. */
+export interface EntryInput {
+  title: string;
+  username: string;
+  password: string;
+  url: string;
+  notes: string;
+  totp: string;
+}
+
+export type OpenedVault = Opened['vaults'][number];
+
+/** Можно ли выполнить действие в хранилище: решение принимает сервер, здесь — только подсказка для интерфейса. */
+export const canDo = (v: OpenedVault, perm: 'entry.create' | 'entry.update'): boolean =>
+  !!v.key && !v.problem && v.info.permissions.includes(perm);
+
+/**
+ * Создаёт запись (existing не задан) или изменяет существующую. Содержимое шифруется здесь, на клиенте;
+ * сервер получает шифртекст. При изменении сохраняются поля записи, которых нет в форме, а время смены пароля обновляется.
+ */
+export async function saveEntry(
+  o: Opened,
+  v: OpenedVault,
+  input: EntryInput,
+  existing?: Entry,
+): Promise<string> {
+  if (!v.key || v.problem) throw new ClientError('The vault is locked');
+  if (!canDo(v, existing ? 'entry.update' : 'entry.create'))
+    throw new ClientError('You cannot change entries in this vault');
+  const title = input.title.trim();
+  if (!title) throw new ClientError('Enter a title');
+  const id = existing?.id ?? crypto.randomUUID();
+  const payload: Record<string, unknown> = {
+    ...(existing?.raw ?? { kind: 'login', fields: [], tags: [] }),
+    title,
+    username: input.username,
+    password: input.password,
+    url: input.url.trim(),
+    notes: input.notes,
+    totp: input.totp.trim(),
+  };
+  if (!existing || existing.password !== input.password)
+    payload.passwordChangedAt = new Date().toISOString();
+  const enc = await encryptEntry(payload, v.key, v.info.id, id, v.info.keyVersion);
+  if (existing)
+    await o.api.call('PUT', `/vaults/${v.info.id}/entries/${id}`, {
+      ...enc,
+      branchId: existing.branchId,
+      expectedVersion: existing.version,
+    });
+  else await o.api.call('POST', `/vaults/${v.info.id}/entries`, { id, branchId: null, ...enc });
+  return id;
 }

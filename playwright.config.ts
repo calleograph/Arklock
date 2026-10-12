@@ -9,8 +9,11 @@ const PORT_ADMIN = 18184;
 const PORT_EXTENSION = 18185;
 const PORT_MOBILE = 18186;
 const PORT_WEBAUTHN = 18187;
+const PORT_FIREFOX = 18188;
 /** Расширению нужен видимый браузер (в CI — xvfb), поэтому проект включается только по запросу. */
 const WITH_EXTENSION = process.env.E2E_EXTENSION === '1';
+/** Расширение в Firefox проверяется через geckodriver (Selenium) и требует установленного Firefox. */
+const WITH_FIREFOX = process.env.E2E_FIREFOX === '1';
 const BLOB_WORKSPACE = path.resolve('test-results', 'blobs-workspace');
 const ADMIN_UPDATER_DIR = path.resolve('test-results', 'admin-updater');
 const UPDATER_DIR = path.resolve('test-results', 'updater-dir');
@@ -63,6 +66,15 @@ export default defineConfig({
       use: { baseURL: `http://127.0.0.1:${PORT_ADMIN}` },
     },
     ...(WITH_EXTENSION ? [{ name: 'extension', testMatch: 'extension.spec.ts' }] : []),
+    ...(WITH_FIREFOX
+      ? [
+          {
+            name: 'extension-firefox',
+            testMatch: 'extension-firefox.spec.ts',
+            use: { baseURL: `http://127.0.0.1:${PORT_FIREFOX}` },
+          },
+        ]
+      : []),
     {
       name: 'mobile',
       testMatch: 'mobile.spec.ts',
@@ -102,6 +114,20 @@ export default defineConfig({
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-6',
       },
     },
+    ...(WITH_FIREFOX
+      ? [
+          {
+            command: 'node apps/api/dist/main.js',
+            url: `http://127.0.0.1:${PORT_FIREFOX}/api/v1/ready`,
+            timeout: 60_000,
+            env: {
+              ...common,
+              PORT: String(PORT_FIREFOX),
+              BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-8',
+            },
+          },
+        ]
+      : []),
     ...(WITH_EXTENSION
       ? [
           {

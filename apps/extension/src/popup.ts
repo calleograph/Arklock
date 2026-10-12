@@ -1,9 +1,13 @@
 import {
+  ApiError,
   ClientError,
+  canDo,
   loadEntries,
   openAccount,
   passwordLogin,
+  saveEntry,
   type Entry,
+  type EntryInput,
   type Opened,
 } from '@arklock/client';
 import {
@@ -25,6 +29,8 @@ let prefs: Prefs;
 let opened: Opened | null = null;
 let entries: Entry[] = [];
 let tab: { id?: number; url: string } = { url: '' };
+/** Перечитывает записи с сервера (после правки, по кнопке «Обновить»). */
+let refreshAction: (() => Promise<boolean>) | null = null;
 
 /** Небольшой помощник построения DOM без innerHTML (значения записей никогда не попадают в разметку). */
 function h<K extends keyof HTMLElementTagNameMap>(
@@ -59,7 +65,14 @@ function normalizeServer(raw: string): string {
 }
 
 async function currentTab(): Promise<{ id?: number; url: string }> {
-  const target = new URLSearchParams(location.search).get('target');
+  const params = new URLSearchParams(location.search);
+  // targetUrl: окно открыто отдельной вкладкой (проверки, телефон) — целевая вкладка ищется по адресу
+  const byUrl = params.get('targetUrl');
+  if (byUrl) {
+    const t = (await chrome.tabs.query({})).find((x) => x.url === byUrl);
+    if (t) return { id: t.id, url: t.url ?? '' };
+  }
+  const target = params.get('target');
   if (target) {
     const t = await chrome.tabs.get(Number(target));
     return { id: t.id, url: t.url ?? '' };
@@ -177,10 +190,8 @@ function showLogin(message = ''): void {
       const base = normalizeServer(server.value);
       // Доступ к серверу запрашивается у пользователя явно и только для этого адреса
       const origins = [`${base}/*`];
-      if (
-        !(await chrome.permissions.contains({ origins })) &&
-        !(await chrome.permissions.request({ origins }))
-      )
+      // request вызывается первым и без предварительных await: Firefox требует вызова из обработчика действия пользователя
+      if (!(await chrome.permissions.request({ origins })))
         throw new ClientError(
           T('Access to the server was not granted', 'Доступ к серверу не разрешён'),
         );
@@ -313,6 +324,12 @@ function render(list: HTMLElement, filter: string, status: HTMLElement): void {
       T('Fill', 'Заполнить'),
     );
     fillBtn.addEventListener('click', () => void fill(e, status));
+    const vault = opened?.vaults.find((v) => v.info.id === e.vaultId);
+    const editBtn =
+      vault && canDo(vault, 'entry.update') && e.kind === 'login'
+        ? h('button', { type: 'button', 'data-testid': 'edit' }, T('Edit', 'Изменить'))
+        : null;
+    editBtn?.addEventListener('click', () => showEditor(e));
     const row = h(
       'li',
       { 'data-testid': 'entry' },
@@ -327,7 +344,7 @@ function render(list: HTMLElement, filter: string, status: HTMLElement): void {
         { class: 'muted' },
         `${e.username} · ${e.vaultName}${e.folder ? '/' + e.folder : ''}`,
       ),
-      h('div', { class: 'row', style: 'margin-top:4px' }, fillBtn, userBtn, pwBtn),
+      h('div', { class: 'row', style: 'margin-top:4px' }, fillBtn, userBtn, pwBtn, editBtn ?? ''),
     );
     if (e.totp) {
       const tb = h('button', { type: 'button', 'data-testid': 'totp' }, 'TOTP');
@@ -339,6 +356,141 @@ function render(list: HTMLElement, filter: string, status: HTMLElement): void {
     }
     list.append(row);
   }
+}
+
+// ---------------------------------------------------------------------------------------------- создание и изменение
+
+/** Форма записи входа. Значения шифруются в расширении (EntryInput → saveEntry); сервер получает шифртекст. */
+function showEditor(existing?: Entry): void {
+  if (!opened) return showLogin();
+  const writable = opened.vaults.filter((v) =>
+    canDo(v, existing ? 'entry.update' : 'entry.create'),
+  );
+  if (!writable.length) return void showMain();
+  clear();
+  const field = (id: string, label: string, attrs: Record<string, string> = {}) => {
+    const input = h('input', { id, 'data-testid': id, autocomplete: 'off', ...attrs });
+    return { input, row: [h('label', { for: id }, label), input] };
+  };
+  const title = field('f-title', T('Title', 'Название'), { type: 'text', maxlength: '200' });
+  const user = field('f-username', T('Username', 'Логин'), { type: 'text' });
+  const pass = field('f-password', T('Password', 'Пароль'), { type: 'password' });
+  const url = field('f-url', T('Site address', 'Адрес сайта'), { type: 'text' });
+  const totpF = field('f-totp', T('TOTP secret (optional)', 'Секрет TOTP (необязательно)'), {
+    type: 'text',
+  });
+  const notes = h('textarea', { id: 'f-notes', 'data-testid': 'f-notes', rows: '3' });
+  const vaultSel = h('select', { id: 'f-vault', 'data-testid': 'f-vault' });
+  for (const v of writable)
+    vaultSel.append(
+      h(
+        'option',
+        { value: v.info.id },
+        v.info.kind === 'locker' ? T('Locker', 'Сейф') : (v.info.name ?? v.info.id),
+      ),
+    );
+  if (existing) {
+    vaultSel.value = existing.vaultId;
+    vaultSel.disabled = true; // запись остаётся в своём хранилище
+    title.input.value = existing.title;
+    user.input.value = existing.username;
+    pass.input.value = existing.password;
+    url.input.value = existing.url;
+    totpF.input.value = existing.totp;
+    notes.value = existing.notes;
+  } else if (/^https?:/i.test(tab.url)) {
+    try {
+      url.input.value = new URL(tab.url).origin;
+    } catch {
+      /* адрес вкладки недоступен — поле остаётся пустым */
+    }
+  }
+  const gen = h(
+    'button',
+    { type: 'button', 'data-testid': 'f-generate' },
+    T('Generate', 'Сгенерировать'),
+  );
+  gen.addEventListener('click', () => {
+    pass.input.value = generatePassword({ length: 20 });
+    pass.input.type = 'text';
+  });
+  const toggle = h('button', { type: 'button', 'data-testid': 'f-show' }, T('Show', 'Показать'));
+  toggle.addEventListener('click', () => {
+    pass.input.type = pass.input.type === 'password' ? 'text' : 'password';
+  });
+  const err = h('div', { class: 'err', role: 'alert', 'data-testid': 'f-error' });
+  const save = h(
+    'button',
+    { class: 'primary', type: 'submit', 'data-testid': 'f-save' },
+    T('Save', 'Сохранить'),
+  );
+  const cancel = h('button', { type: 'button', 'data-testid': 'f-cancel' }, T('Cancel', 'Отмена'));
+  cancel.addEventListener('click', () => void showMain());
+  const form = h(
+    'form',
+    {},
+    h('h1', {}, existing ? T('Edit entry', 'Изменение записи') : T('New entry', 'Новая запись')),
+    h('label', { for: 'f-vault' }, T('Vault', 'Хранилище')),
+    vaultSel,
+    ...title.row,
+    ...user.row,
+    ...pass.row,
+    h('div', { class: 'row' }, gen, toggle),
+    ...url.row,
+    ...totpF.row,
+    h('label', { for: 'f-notes' }, T('Notes', 'Заметки')),
+    notes,
+    err,
+    h('div', { class: 'row spread', style: 'margin-top:10px' }, cancel, save),
+  );
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    err.textContent = '';
+    save.disabled = true;
+    try {
+      const v = opened!.vaults.find((x) => x.info.id === vaultSel.value)!;
+      const input: EntryInput = {
+        title: title.input.value,
+        username: user.input.value,
+        password: pass.input.value,
+        url: url.input.value,
+        notes: notes.value,
+        totp: totpF.input.value,
+      };
+      if (input.totp) parseTotpInput(input.totp); // неверный секрет отклоняется до отправки
+      await saveEntry(opened!, v, input, existing);
+      await touch(prefs.lockMinutes);
+      await showMain();
+    } catch (e) {
+      save.disabled = false;
+      if (e instanceof ApiError && e.status === 401) {
+        opened = null;
+        await lock();
+        return showLogin(
+          T(
+            'Your session was ended by the server. Sign in again.',
+            'Сеанс завершён сервером. Войдите снова.',
+          ),
+        );
+      }
+      err.textContent =
+        e instanceof ApiError && e.code === 'version_conflict'
+          ? T(
+              'The entry was changed elsewhere. Cancel, refresh and edit again.',
+              'Запись изменили в другом месте. Отмените, обновите список и повторите.',
+            )
+          : e instanceof ApiError && e.status === 403
+            ? T(
+                'You no longer have access to change this entry.',
+                'У вас больше нет права менять эту запись.',
+              )
+            : e instanceof ClientError
+              ? e.message
+              : T('Check the TOTP secret.', 'Проверьте секрет TOTP.');
+    }
+  });
+  app.append(form);
+  title.input.focus();
 }
 
 async function showMain(): Promise<void> {
@@ -370,6 +522,19 @@ async function showMain(): Promise<void> {
     gen.hidden = false;
     gen.replaceChildren(pwCode, copyPw, copyPh);
   });
+  const newBtn = h(
+    'button',
+    { type: 'button', class: 'primary', 'data-testid': 'new-entry' },
+    T('New', 'Новая'),
+  );
+  newBtn.addEventListener('click', () => showEditor());
+  newBtn.hidden = !opened.vaults.some((v) => canDo(v, 'entry.create'));
+  const refreshBtn = h(
+    'button',
+    { type: 'button', 'data-testid': 'refresh' },
+    T('Refresh', 'Обновить'),
+  );
+  refreshBtn.addEventListener('click', () => void refreshAction?.());
   const lockBtn = h(
     'button',
     { type: 'button', 'data-testid': 'lock' },
@@ -408,6 +573,8 @@ async function showMain(): Promise<void> {
     h(
       'div',
       { class: 'row spread', style: 'margin-top:8px' },
+      newBtn,
+      refreshBtn,
       genBtn,
       h(
         'label',
@@ -418,19 +585,52 @@ async function showMain(): Promise<void> {
       lockBtn,
     ),
   );
-  list.append(h('li', { class: 'muted' }, T('Loading…', 'Загрузка…')));
-  try {
-    const all: Entry[] = [];
-    for (const v of opened.vaults) all.push(...(await loadEntries(opened, v)));
-    entries = all;
-    render(list, '', status);
-  } catch (e) {
-    // сессия отозвана или истекла
-    opened = null;
-    await lock();
-    showLogin(e instanceof ClientError ? e.message : T('Session expired', 'Сеанс истёк'));
-    return;
-  }
+  const load = async (): Promise<boolean> => {
+    list.replaceChildren(h('li', { class: 'muted' }, T('Loading…', 'Загрузка…')));
+    status.textContent = '';
+    try {
+      const all: Entry[] = [];
+      const lost: string[] = [];
+      for (const v of opened!.vaults) {
+        try {
+          all.push(...(await loadEntries(opened!, v)));
+        } catch (e) {
+          // доступ к отдельному хранилищу отозван, ключ сменился или оно удалено: остальные хранилища остаются доступными
+          if (e instanceof ApiError && (e.status === 403 || e.status === 404))
+            lost.push(v.info.name ?? v.info.kind);
+          else throw e;
+        }
+      }
+      entries = all;
+      render(list, search.value, status);
+      if (lost.length) {
+        status.className = 'err';
+        status.textContent = T(
+          `Access changed for: ${lost.join(', ')}. Lock and unlock to refresh the vault list.`,
+          `Доступ изменён: ${lost.join(', ')}. Заблокируйте и разблокируйте, чтобы обновить список хранилищ.`,
+        );
+      }
+      return true;
+    } catch (e) {
+      // сессия отозвана (администратор завершил сеансы, пользователь отключён) или истекла: ключи стираются, нужен новый вход
+      opened = null;
+      entries = [];
+      await lock();
+      showLogin(
+        e instanceof ApiError && e.status === 401
+          ? T(
+              'Your session was ended by the server. Sign in again.',
+              'Сеанс завершён сервером. Войдите снова.',
+            )
+          : e instanceof ClientError
+            ? e.message
+            : T('Session expired', 'Сеанс истёк'),
+      );
+      return false;
+    }
+  };
+  refreshAction = load;
+  if (!(await load())) return;
   search.addEventListener('input', () => {
     render(list, search.value, status);
     void touch(prefs.lockMinutes);

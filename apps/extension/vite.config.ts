@@ -49,6 +49,10 @@ function icon(size: number): Buffer {
   ]);
 }
 
+/** Цель сборки: chromium (по умолчанию) или firefox (EXT_TARGET=firefox) — отдельный каталог и манифест. */
+const FIREFOX = process.env.EXT_TARGET === 'firefox';
+const OUT_DIR = FIREFOX ? 'dist-firefox' : 'dist';
+
 /**
  * Манифест Manifest V3 формируется при сборке.
  * Права минимальны: activeTab + scripting (заполнение только по действию пользователя на текущей вкладке),
@@ -60,7 +64,7 @@ function manifestPlugin(): Plugin {
     name: 'arklock-manifest',
     apply: 'build',
     closeBundle() {
-      const out = path.resolve(__dirname, 'dist');
+      const out = path.resolve(__dirname, OUT_DIR);
       mkdirSync(path.join(out, 'icons'), { recursive: true });
       for (const s of [16, 48, 128]) writeFileSync(path.join(out, 'icons', `${s}.png`), icon(s));
       const testHosts = (process.env.EXT_TEST_HOSTS ?? '').split(',').filter(Boolean);
@@ -71,14 +75,29 @@ function manifestPlugin(): Plugin {
         description:
           'Arklock: search, autofill, TOTP and password generator. Secrets are decrypted only in your browser.',
         version: process.env.EXT_VERSION ?? '0.1.0',
-        minimum_chrome_version: '116',
+        ...(FIREFOX
+          ? {
+              // Идентификатор нужен Firefox для хранилища и подписи; для публикации задайте свой: EXT_GECKO_ID
+              browser_specific_settings: {
+                gecko: {
+                  id: process.env.EXT_GECKO_ID ?? 'arklock@example.com',
+                  strict_min_version: '140.0',
+                  data_collection_permissions: { required: ['none'] },
+                },
+                gecko_android: { strict_min_version: '142.0' },
+              },
+            }
+          : { minimum_chrome_version: '116' }),
         icons: { '16': 'icons/16.png', '48': 'icons/48.png', '128': 'icons/128.png' },
         action: {
           default_popup: 'popup.html',
           default_title: 'Arklock',
           default_icon: { '16': 'icons/16.png', '48': 'icons/48.png' },
         },
-        background: { service_worker: 'background.js', type: 'module' },
+        // Firefox запускает фоновую часть как страницу событий (scripts), Chromium — как сервис-воркер
+        background: FIREFOX
+          ? { scripts: ['background.js'], type: 'module' }
+          : { service_worker: 'background.js', type: 'module' },
         permissions: ['activeTab', 'scripting', 'storage', 'alarms', 'clipboardWrite'],
         optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
         ...(testHosts.length ? { host_permissions: testHosts } : {}),
@@ -96,7 +115,7 @@ export default defineConfig({
   plugins: [manifestPlugin()],
   base: './',
   build: {
-    outDir: 'dist',
+    outDir: OUT_DIR,
     emptyOutDir: true,
     sourcemap: false,
     target: 'es2023',

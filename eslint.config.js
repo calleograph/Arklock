@@ -5,6 +5,7 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      '**/dist-firefox/**',
       '**/node_modules/**',
       '.local/**',
       'apps/api/drizzle/**',
@@ -16,7 +17,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['scripts/**/*.mjs', 'e2e/**/*.mjs', 'tests/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'e2e/**/*.mjs', 'tests/**/*.mjs', 'apps/*/build.mjs'],
     languageOptions: {
       globals: {
         process: 'readonly',
