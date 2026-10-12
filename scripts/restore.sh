@@ -30,7 +30,7 @@ if [ -n "$REMOTE" ]; then
   [ -z "$FILE" ] || die "Укажите либо файл копии, либо --remote ИМЯ"
   [[ "$REMOTE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] || die "--remote: имя копии вида *.bak.gpg"
   info "Загрузка копии $REMOTE с удалённого хранилища…"
-  "$REPO_ROOT/scripts/remote.sh" pull "$REMOTE" "$BACKUP_DIR" >/dev/null || die "Копия не загружена с удалённого хранилища (или повреждена при передаче)"
+  "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" pull "$REMOTE" "$BACKUP_DIR" >/dev/null || die "Копия не загружена с удалённого хранилища (или повреждена при передаче)"
   FILE="$BACKUP_DIR/$REMOTE"
 fi
 [ -n "$FILE" ] && [ -f "$FILE" ] || die "Укажите существующий файл копии"

@@ -576,6 +576,12 @@ export default {
     user: 'User',
     circle: 'Circle',
     expires: 'Expires',
+    transferTitle: 'Transfer ownership',
+    transferHint:
+      'The new owner must already be a member and hold the vault key. You become an administrator. Only the owner can delete the vault or hand it over.',
+    transferConfirm: 'Type the vault name: {name}',
+    transfer: 'Transfer ownership',
+    transferred: 'Ownership transferred',
     grant: 'Grant',
     revoke: 'Revoke',
     signals: 'Security events',

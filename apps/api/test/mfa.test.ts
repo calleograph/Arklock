@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { parseTotpInput, toBase64Url, totp } from '@arklock/crypto';
 import { eq } from 'drizzle-orm';
-import { mfaFactors, settings, users } from '../src/db/schema.js';
+import { mfaFactors, settings, users, webauthnCredentials } from '../src/db/schema.js';
 import { TestClient, createTestApp } from './helpers.js';
 
 let app: FastifyInstance;
@@ -220,7 +220,15 @@ describe('two-factor authentication', () => {
 
   it('an administrator can reset a lost factor; others cannot', async () => {
     expect((await bob.req('POST', `/admin/users/${admin.userId}/mfa-reset`)).statusCode).toBe(403);
+    // ключ доступа — тоже второй фактор: сброс снимает и его, иначе вход по-прежнему требовал бы подтверждения
+    await database.db.insert(webauthnCredentials).values({
+      id: 'cred-reset-test',
+      userId: bob.userId,
+      name: 'Key',
+      publicKey: 'AAAA',
+    });
     expect((await admin.req('POST', `/admin/users/${bob.userId}/mfa-reset`)).statusCode).toBe(204);
+    expect(await database.db.select().from(webauthnCredentials)).toEqual([]);
     const left = await database.db.select().from(mfaFactors);
     expect(left.map((r) => r.userId)).toEqual([admin.userId]);
     // политика по-прежнему обязывает настроить заново

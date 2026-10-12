@@ -258,13 +258,13 @@ run_ops_action() {
       # перенос во внутренний каталог: файл с секретами не остаётся в общем каталоге обмена
       install -d -m 0700 "$STATE_DIR/offsite"
       mv -f -- "$CH/offsite-config.in" "$STATE_DIR/offsite/config.in" && chmod 600 "$STATE_DIR/offsite/config.in"
-      run_logged "$REPO_ROOT/scripts/remote.sh" import "$STATE_DIR/offsite/config.in" || rc=$?
+      run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" import "$STATE_DIR/offsite/config.in" || rc=$?
       rm -f -- "$STATE_DIR/offsite/config.in"
       ST_MSG="$([ "$rc" -eq 0 ] && echo 'Настройка удалённого хранилища сохранена' || echo 'Настройка отклонена, см. журнал')"
       offsite_publish 1 ;;
     offsite_test)
       ST_NAME="Удалённое хранилище: проверка соединения"; write_status
-      run_logged "$REPO_ROOT/scripts/remote.sh" test || rc=$?
+      run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" test || rc=$?
       ST_MSG="$([ "$rc" -eq 0 ] && echo 'Соединение проверено: запись, чтение и удаление работают' || echo 'Соединение не проверено, см. журнал')" ;;
     offsite_push)
       ST_NAME="Отправка копии на удалённое хранилище"; write_status
@@ -275,16 +275,16 @@ run_ops_action() {
     offsite_pull)
       ST_NAME="Загрузка копии с удалённого хранилища"; write_status
       [[ "$REQ_FILE" == "${COMPOSE_PROJECT_NAME}"-* ]] || { ST_MSG="Копия другого проекта"; return 1; }
-      run_logged "$REPO_ROOT/scripts/remote.sh" pull "$REQ_FILE" "$BACKUP_DIR" || rc=$?
+      run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" pull "$REQ_FILE" "$BACKUP_DIR" || rc=$?
       ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE загружена и проверена" || echo 'Загрузка не удалась, см. журнал')"
       publish_backups ;;
     offsite_verify)
       ST_NAME="Проверка копии на удалённом хранилище"; write_status
-      run_logged "$REPO_ROOT/scripts/remote.sh" verify "$REQ_FILE" || rc=$?
+      run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" verify "$REQ_FILE" || rc=$?
       ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE на хранилище цела" || echo "Копия $REQ_FILE на хранилище НЕ прошла проверку")" ;;
     offsite_delete)
       ST_NAME="Удаление копии на удалённом хранилище"; write_status
-      run_logged "$REPO_ROOT/scripts/remote.sh" delete "$REQ_FILE" || rc=$?
+      run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" delete "$REQ_FILE" || rc=$?
       ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE удалена с хранилища" || echo 'Удаление не удалось, см. журнал')"
       offsite_publish 1 ;;
     offsite_refresh)
@@ -293,7 +293,7 @@ run_ops_action() {
       ST_MSG="Список обновлён" ;;
     offsite_clear)
       ST_NAME="Удалённое хранилище: удаление настройки"; write_status
-      run_logged "$REPO_ROOT/scripts/remote.sh" clear || rc=$?
+      run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" clear || rc=$?
       offsite_publish 1
       ST_MSG="Настройка и секреты удалены с этого сервера" ;;
     schedule)
@@ -309,16 +309,16 @@ run_ops_action() {
 offsite_conf() { printf '%s' "${ARKLOCK_REMOTE_CONF:-$(dirname "$ENV_FILE")/remote.conf}"; }
 offsite_configured() { [ -s "$(offsite_conf)" ]; }
 offsite_setting() { # offsite_setting КЛЮЧ — значение без секретов из «remote.sh show»
-  "$REPO_ROOT/scripts/remote.sh" show 2>/dev/null | sed -n "s/^$1=//p" | head -n1
+  "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" show 2>/dev/null | sed -n "s/^$1=//p" | head -n1
 }
 
 # Отправляет копию, затем применяет ротацию на хранилище; итог фиксируется в состоянии.
 offsite_push_file() { # offsite_push_file ИМЯ
   local name="$1" rc=0 keep
-  run_logged "$REPO_ROOT/scripts/remote.sh" push "$(backup_path "$name")" || rc=$?
+  run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" push "$(backup_path "$name")" || rc=$?
   if [ "$rc" -eq 0 ]; then
     keep="$(offsite_setting keep)"; keep="${keep:-14}"
-    run_logged "$REPO_ROOT/scripts/remote.sh" prune "$keep" || true
+    run_logged "$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" prune "$keep" || true
     state_set offsite last_result ok; state_set offsite last_error ""
   else
     state_set offsite last_result failed; state_set offsite last_error "отправка не удалась"
@@ -350,11 +350,11 @@ offsite_publish() { # offsite_publish [1 — обновить список]
     while IFS= read -r line; do
       k="${line%%=*}"; v="${line#*=}"
       case "$k" in type) typ="$v" ;; endpoint) ep="$v" ;; region) region="$v" ;; bucket) bucket="$v" ;; prefix) prefix="$v" ;; host) host="$v" ;; share) share="$v" ;; user) user="$v" ;; auto) auto="$v" ;; keep) keep="$v" ;; esac
-    done < <("$REPO_ROOT/scripts/remote.sh" show 2>/dev/null)
+    done < <("$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" show 2>/dev/null)
     if [ "$force" = 1 ] || [ $((now - OFFSITE_LISTED_AT)) -ge 1800 ]; then
       OFFSITE_LISTED_AT="$now"
       local out first=1
-      if out="$("$REPO_ROOT/scripts/remote.sh" list 2>"$STATE_DIR/offsite/list.err")"; then
+      if out="$("$REPO_ROOT/scripts/remote.sh" --env "$ENV_FILE" list 2>"$STATE_DIR/offsite/list.err")"; then
         items="["
         while read -r name size _; do
           [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] || continue

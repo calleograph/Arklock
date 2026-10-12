@@ -229,6 +229,63 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     return { id: vaultId, name };
   });
 
+  /**
+   * Передача владения общим хранилищем. Только владелец; новый владелец — участник хранилища с выданным ключом;
+   * прежний владелец становится администратором. Владелец всегда один; личный сейф передать нельзя.
+   */
+  app.post('/vaults/:vaultId/transfer-ownership', async (req) => {
+    const { user } = authOf(req);
+    const { vaultId } = parse(vaultParams, req.params);
+    const body = parse(z.object({ userId: uuid }), req.body);
+    const access = await requireVault(db, vaultId, user.id);
+    const v = await getVault(vaultId);
+    if (v.kind === 'locker' || !access.can('vault.delete')) throw forbidden();
+    if (body.userId === user.id)
+      throw new AppError(400, 'validation_error', 'You already own this vault');
+    const [me] = await db
+      .select({ role: vaultMembers.role })
+      .from(vaultMembers)
+      .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, user.id)));
+    if (me?.role !== 'owner') throw forbidden();
+    const [target] = await db.select().from(users).where(eq(users.id, body.userId));
+    if (!target || target.disabledAt) throw notFound();
+    const [member] = await db
+      .select({ userId: vaultMembers.userId })
+      .from(vaultMembers)
+      .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, body.userId)));
+    if (!member)
+      throw new AppError(
+        409,
+        'not_a_member',
+        'The new owner must already be a member of the vault',
+      );
+    const [key] = await db
+      .select({ userId: vaultKeys.userId })
+      .from(vaultKeys)
+      .where(
+        and(
+          eq(vaultKeys.vaultId, vaultId),
+          eq(vaultKeys.userId, body.userId),
+          eq(vaultKeys.keyVersion, v.keyVersion),
+        ),
+      );
+    if (!key) throw new AppError(409, 'key_missing', 'Give the new owner the vault key first');
+    await db.transaction(async (tx) => {
+      await tx
+        .update(vaultMembers)
+        .set({ role: 'admin', customRoleId: null, expiresAt: null })
+        .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, user.id)));
+      await tx
+        .update(vaultMembers)
+        .set({ role: 'owner', customRoleId: null, expiresAt: null })
+        .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, body.userId)));
+    });
+    await audit(db, `user:${user.id}`, 'vault.owner.transfer', `vault:${vaultId}`, {
+      to: body.userId,
+    });
+    return { ok: true };
+  });
+
   app.delete('/vaults/:vaultId', async (req, reply) => {
     const { user } = authOf(req);
     const { vaultId } = parse(vaultParams, req.params);

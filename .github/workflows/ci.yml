@@ -250,9 +250,9 @@ jobs:
           name="$(basename "$BACKUP")"
           sudo -E ./scripts/remote.sh list | grep -q "$name"
           sudo -E ./scripts/remote.sh verify "$name"
-          # многочастная отправка большого файла (части по 1 МиБ)
-          head -c 5000000 /dev/urandom > /tmp/arklock-ci-big.bak.gpg
-          sudo -E env ARKLOCK_REMOTE_PART_MIB=1 ARKLOCK_REMOTE_SINGLE_MAX_MIB=1 ./scripts/remote.sh push /tmp/arklock-ci-big.bak.gpg
+          # многочастная отправка большого файла (части по 5 МиБ — минимум, который требует S3)
+          head -c 12000000 /dev/urandom > /tmp/arklock-ci-big.bak.gpg
+          sudo -E env ARKLOCK_REMOTE_PART_MIB=5 ARKLOCK_REMOTE_SINGLE_MAX_MIB=5 ./scripts/remote.sh push /tmp/arklock-ci-big.bak.gpg
           sudo -E ./scripts/remote.sh verify arklock-ci-big.bak.gpg
           sudo -E ./scripts/remote.sh delete arklock-ci-big.bak.gpg
           # повреждение на стороне хранилища обнаруживается
@@ -319,6 +319,19 @@ jobs:
         run: node scripts/smoke-container.mjs verify
       - name: Repair is safe on a healthy system
         run: sudo ./scripts/repair.sh --env "$CFG/arklock.env"
+      - name: Operator recovery of administrator access (admin-reset)
+        run: |
+          user="$(node -p "require('./smoke-state.json').email")"
+          sudo ./scripts/admin-reset.sh list --env "$CFG/arklock.env" | grep -q "$user"
+          sudo ./scripts/admin-reset.sh end-sessions "$user" --env "$CFG/arklock.env"
+          sudo ./scripts/admin-reset.sh reset-mfa "$user" --yes --env "$CFG/arklock.env"
+          sudo ./scripts/admin-reset.sh enable "$user" --env "$CFG/arklock.env"
+          # внедрение в адрес отвергается до обращения к базе; новый код настройки при наличии пользователей не выдаётся
+          if sudo ./scripts/admin-reset.sh reset-mfa "x'; drop table users; --@example.com" --yes --env "$CFG/arklock.env"; then echo "injection accepted"; exit 1; fi
+          if sudo ./scripts/admin-reset.sh new-setup-token --env "$CFG/arklock.env"; then echo "setup token issued although users exist"; exit 1; fi
+          if sudo ./scripts/admin-reset.sh reset-mfa nobody@example.com --yes --env "$CFG/arklock.env"; then echo "unknown user accepted"; exit 1; fi
+          n="$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d arklock -qtA -c "select count(*) from ledger where actor = 'operator'")"
+          test "$n" -ge 3
       - name: Low disk space - backup is refused with a clear message and nothing changes
         run: |
           before="$(curl -fsS "http://127.0.0.1:$PORT/api/v1/version")"

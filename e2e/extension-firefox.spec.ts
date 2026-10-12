@@ -106,9 +106,14 @@ test.afterAll(async () => {
 /** Открывает окно расширения вкладкой, привязанной к вкладке с формой. */
 async function openPopup(): Promise<void> {
   await driver.switchTo().newWindow('tab');
-  await driver.get(
+  // WebDriver не открывает адреса moz-extension:// напрямую, а страница — открывает (окно расширения объявлено
+  // доступным для страниц только в проверочной сборке)
+  await driver.get(`http://127.0.0.1:${sitePort}/blank`);
+  await driver.executeScript(
+    'location.href = arguments[0]',
     `${BASE}/popup.html?targetUrl=${encodeURIComponent(`http://127.0.0.1:${sitePort}/login`)}`,
   );
+  await driver.wait(until.urlContains('moz-extension://'), 30_000);
 }
 
 async function signInPopup(): Promise<void> {

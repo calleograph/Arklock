@@ -18,7 +18,7 @@ import {
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { mfaBackupCodes, mfaFactors, users } from '../db/schema.js';
+import { mfaBackupCodes, mfaFactors, users, webauthnCredentials } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { verifyProof } from '../security.js';
 import { bundle } from './auth.js';
@@ -215,6 +215,8 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     if (target.role === 'admin' && user.role !== 'admin') throw forbidden();
     await db.delete(mfaFactors).where(eq(mfaFactors.userId, id));
     await db.delete(mfaBackupCodes).where(eq(mfaBackupCodes.userId, id));
+    // ключи доступа — такой же второй фактор: без их удаления сброс не снял бы требование кода при входе
+    await db.delete(webauthnCredentials).where(eq(webauthnCredentials.userId, id));
     await audit(db, `user:${user.id}`, 'admin.mfa.reset', `user:${id}`);
     void notifySecurity(
       ctx,

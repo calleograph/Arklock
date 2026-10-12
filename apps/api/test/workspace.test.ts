@@ -132,6 +132,43 @@ describe('shared vaults and keys', () => {
     expect((await dave.vaults()).some((v) => v.id === vaultId)).toBe(false);
   });
 
+  it('ownership moves to a member who already holds the key; there is always exactly one owner', async () => {
+    // отдельное хранилище: остальные проверки файла его не видят
+    const t = await admin.createSharedVault('Transfer');
+    const tid = t.id;
+    const url = `/vaults/${tid}/transfer-ownership`;
+    // посторонний и сам владелец (на себя) не могут
+    expect((await carol.req('POST', url, { userId: carol.userId })).statusCode).toBe(404); // не участник: хранилища для него нет
+    expect((await admin.req('POST', url, { userId: admin.userId })).statusCode).toBe(400);
+    // не участник
+    expect((await admin.req('POST', url, { userId: bob.userId })).json().error.code).toBe(
+      'not_a_member',
+    );
+    // участник, которому ключ ещё не выдан
+    expect((await admin.addMember(tid, carol, 'editor')).statusCode).toBe(204);
+    expect((await admin.req('POST', url, { userId: carol.userId })).json().error.code).toBe(
+      'key_missing',
+    );
+    // участник с ключом становится владельцем, прежний владелец — администратором
+    expect((await admin.addMember(tid, dave, 'admin', t.key)).statusCode).toBe(204);
+    const done = await admin.req('POST', url, { userId: dave.userId });
+    expect(done.statusCode, done.body).toBe(200);
+    expect((await dave.vaults()).find((v) => v.id === tid)!.role).toBe('owner');
+    expect((await admin.vaults()).find((v) => v.id === tid)!.role).toBe('admin');
+    // прежний владелец больше не передаёт владение и не удаляет хранилище
+    expect((await admin.req('POST', url, { userId: dave.userId })).statusCode).toBe(403);
+    expect((await admin.req('DELETE', `/vaults/${tid}`)).statusCode).toBe(403);
+    // новый владелец передаёт обратно
+    expect((await dave.req('POST', url, { userId: admin.userId })).statusCode).toBe(200);
+    expect((await admin.vaults()).find((v) => v.id === tid)!.role).toBe('owner');
+    // личный сейф передать нельзя
+    const locker = (await admin.vaults()).find((v) => v.kind === 'locker')!;
+    expect(
+      (await admin.req('POST', `/vaults/${locker.id}/transfer-ownership`, { userId: dave.userId }))
+        .statusCode,
+    ).toBe(403);
+  });
+
   it('the personal locker cannot be shared or renamed', async () => {
     const locker = (await admin.vaults()).find((v) => v.kind === 'locker')!;
     expect((await admin.addMember(locker.id, bob, 'reader')).statusCode).toBe(403);

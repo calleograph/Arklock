@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # remote.sh — удалённое хранилище резервных копий Arklock: S3-совместимое (AWS S3, MinIO, Ceph, Yandex Object Storage…)
 # и SMB/CIFS. Копии уже зашифрованы (GnuPG, AES-256) до отправки; сюда уходит только шифртекст.
+#   scripts/remote.sh [--env ФАЙЛ] КОМАНДА…   (файл окружения нужен, чтобы найти remote.conf и имя проекта)
 #   scripts/remote.sh configure [--from-env]  записать параметры (интерактивно или из переменных ARKLOCK_REMOTE_*)
 #   scripts/remote.sh show                    показать настройку без секретов
 #   scripts/remote.sh import ФАЙЛ             принять настройку из веб-интерфейса (файл удаляется; пустой секрет — прежний)
@@ -20,11 +21,13 @@ set -euo pipefail
 # shellcheck source=lib/common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
+# Файл окружения экземпляра задаётся первым параметром: remote.sh --env ФАЙЛ команда… (помощник и restore.sh вызывают так)
+if [ "${1:-}" = "--env" ]; then ENV_FILE="${2:-}"; export ENV_FILE; shift 2; fi
 # Файл настройки лежит рядом с файлом окружения экземпляра (несколько экземпляров на одном хосте не делят секреты).
 if [ -n "${ARKLOCK_REMOTE_CONF:-}" ]; then CONF="$ARKLOCK_REMOTE_CONF"
 elif [ -n "${ENV_FILE:-}" ] && [ -f "$ENV_FILE" ]; then CONF="$(dirname "$ENV_FILE")/remote.conf"
 else CONF="$DEFAULT_CONFIG_DIR/remote.conf"; fi
-PART_MIB="${ARKLOCK_REMOTE_PART_MIB:-64}"      # размер части многочастной загрузки S3
+PART_MIB="${ARKLOCK_REMOTE_PART_MIB:-64}"      # размер части многочастной загрузки S3 (S3 требует не менее 5 МиБ, кроме последней)
 SINGLE_MAX_MIB="${ARKLOCK_REMOTE_SINGLE_MAX_MIB:-100}"  # до этого размера — один запрос
 CURL_TIMEOUT="${ARKLOCK_REMOTE_TIMEOUT:-3600}"
 

@@ -168,6 +168,20 @@ const rotate = () => {
 };
 const rename = () =>
   run(() => api('PATCH', `/vaults/${id}`, { name: newName.value }).then(() => ws.loadVaults()));
+/** Новый владелец выбирается среди участников, у которых уже есть ключ; подтверждение — вводом названия хранилища. */
+const heirs = computed(() =>
+  (info.value?.members ?? []).filter((m) => m.hasKey && m.directRole && m.directRole !== 'owner'),
+);
+const heir = ref('');
+const heirConfirm = ref('');
+const transfer = () =>
+  run(async () => {
+    await api('POST', `/vaults/${id}/transfer-ownership`, { userId: heir.value });
+    heir.value = '';
+    heirConfirm.value = '';
+    await ws.loadVaults();
+    await load();
+  }, t('settings.transferred'));
 async function removeVault(): Promise<void> {
   if (!window.confirm(t('settings.confirmDeleteVault'))) return;
   await run(async () => {
@@ -576,6 +590,31 @@ void decryptEntry;
       <button type="button" class="btn" :disabled="busy" data-testid="btn-rotate" @click="rotate">
         {{ t('settings.rotate') }}
       </button>
+      <div v-if="isOwner && heirs.length" class="card max-w-xl space-y-2 p-3 text-sm">
+        <h3 class="font-medium">{{ t('settings.transferTitle') }}</h3>
+        <p class="text-xs text-slate-500">{{ t('settings.transferHint') }}</p>
+        <select v-model="heir" class="input" data-testid="heir">
+          <option value="">—</option>
+          <option v-for="m in heirs" :key="m.userId" :value="m.userId">
+            {{ m.name }} · {{ m.email }}
+          </option>
+        </select>
+        <input
+          v-model="heirConfirm"
+          class="input"
+          :placeholder="t('settings.transferConfirm', { name: vault.name })"
+          data-testid="heir-confirm"
+        />
+        <button
+          type="button"
+          class="btn-danger"
+          :disabled="busy || !heir || heirConfirm !== vault.name"
+          data-testid="heir-go"
+          @click="transfer"
+        >
+          {{ t('settings.transfer') }}
+        </button>
+      </div>
       <div class="flex flex-wrap gap-2 pt-4">
         <input v-model="newName" class="input max-w-xs" maxlength="100" />
         <button type="button" class="btn" :disabled="busy || !newName.trim()" @click="rename">
