@@ -53,6 +53,7 @@ export async function createAccount(
   signal?: AbortSignal,
   /** Вход через каталог: адрес и имя задаёт сервер по данным каталога, запись создаётся по токену. */
   directory?: { enrollToken: string },
+  inviteToken?: string,
 ): Promise<{ recoveryCode: string; session?: SessionResponse }> {
   const userId = crypto.randomUUID();
   const salt = generateSalt();
@@ -72,6 +73,7 @@ export async function createAccount(
         userId,
         ...(directory ? { enrollToken: directory.enrollToken } : { email, displayName }),
         setupToken: directory ? undefined : setupToken || undefined,
+        inviteToken: directory ? undefined : inviteToken || undefined,
         kdf: DEFAULT_KDF,
         salt: toBase64Url(salt),
         authKey: toBase64Url(keys.authKey),

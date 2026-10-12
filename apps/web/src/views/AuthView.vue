@@ -14,6 +14,9 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
+const inviteToken = typeof route.query.invite === 'string' ? route.query.invite : '';
+const inviteEmail = ref('');
+const inviteBad = ref(false);
 const ldapAvailable = ref(false);
 const sso = ref<{ enabled: boolean; buttonText: string }>({ enabled: false, buttonText: 'SSO' });
 const ldapMode = ref(false);
@@ -57,6 +60,22 @@ onMounted(async () => {
     firstUser.value = status.firstUser;
     setupRequired.value = status.setupTokenRequired;
     if (status.firstUser && mode.value === 'signin') mode.value = 'register';
+    if (inviteToken) {
+      try {
+        const inv = await api<{ email: string }>(
+          'GET',
+          `/auth/invitation?token=${encodeURIComponent(inviteToken)}`,
+          undefined,
+          { auth: false },
+        );
+        inviteEmail.value = inv.email;
+        email.value = inv.email;
+        mode.value = 'register';
+        registrationOpen.value = true;
+      } catch {
+        inviteBad.value = true;
+      }
+    }
     sso.value = await api<{ enabled: boolean; buttonText: string }>('GET', '/auth/sso', undefined, {
       auth: false,
     });
@@ -165,6 +184,9 @@ async function submit(): Promise<void> {
         displayName.value.trim(),
         password.value,
         setupToken.value.trim(),
+        undefined,
+        undefined,
+        inviteEmail.value ? inviteToken : undefined,
       );
       recoveryContext.value = 'register';
       shownRecovery.value = recoveryCode;
@@ -323,6 +345,21 @@ async function copyRecovery(): Promise<void> {
       <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
         {{ t('auth.unlockHint') }}
       </p>
+      <p
+        v-if="inviteEmail"
+        class="rounded-md bg-emerald-50 p-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+        data-testid="invite-banner"
+      >
+        {{ t('invite.banner') }}
+      </p>
+      <p
+        v-if="inviteBad"
+        class="rounded-md bg-red-50 p-2 text-sm text-red-700"
+        role="alert"
+        data-testid="invite-bad"
+      >
+        {{ t('invite.badLink') }}
+      </p>
       <p v-if="mode === 'register' && firstUser" class="text-sm text-slate-500 dark:text-slate-400">
         {{ t('auth.firstUser') }}
       </p>
@@ -340,6 +377,7 @@ async function copyRecovery(): Promise<void> {
           type="email"
           required
           autocomplete="username"
+          :readonly="!!inviteEmail"
           class="field"
           data-testid="email"
         />

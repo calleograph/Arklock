@@ -172,7 +172,7 @@ describe('forwarding of ledger events', () => {
     tcpMessages.length = 0;
     await admin.req('PUT', '/admin/settings', { 'trash.retentionDays': 41 });
     await admin.login();
-    expect(await until(() => tcpMessages.length >= 2)).toBe(true);
+    expect(await until(() => tcpMessages.some((m) => m.includes('auth.login')))).toBe(true);
     expect(tcpMessages.every((m) => m.startsWith('<'))).toBe(true);
     expect(tcpMessages.some((m) => m.includes('auth.login'))).toBe(true);
     const st = (await admin.req('GET', '/admin/syslog')).json().status;

@@ -12,6 +12,7 @@ import {
 import { authKey, mfaVerifyRequest } from '@arklock/contracts';
 import type { SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { notifySecurity } from '../mail/send.js';
 import { hasTotp, mfaPolicy } from '../auth/mfa.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -159,6 +160,12 @@ export const registerWebauthnRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
       backedUp: verified.registrationInfo.credentialBackedUp,
     });
     await audit(db, `user:${user.id}`, 'auth.webauthn.add', `user:${user.id}`);
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: добавлен ключ доступа',
+      'В вашу учётную запись добавлен ключ доступа. Если это были не вы — срочно обратитесь к администратору.\n\nA security key was added to your account. If this was not you, contact your administrator immediately.',
+    );
     return reply.status(201).send({ id: cred.id });
   });
 
@@ -181,6 +188,12 @@ export const registerWebauthnRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
       .delete(webauthnCredentials)
       .where(and(eq(webauthnCredentials.id, id), eq(webauthnCredentials.userId, user.id)));
     await audit(db, `user:${user.id}`, 'auth.webauthn.remove', `user:${user.id}`);
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: удалён ключ доступа',
+      'Из вашей учётной записи удалён ключ доступа.\n\nA security key was removed from your account.',
+    );
     return reply.status(204).send();
   });
 

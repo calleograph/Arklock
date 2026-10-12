@@ -5,6 +5,7 @@ import { generateTotpSecret, otpauthUri } from '@arklock/crypto';
 import { authKey, mfaVerifyRequest, uuid } from '@arklock/contracts';
 import type { SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { notifySecurity } from '../mail/send.js';
 import {
   backupHash,
   checkSecondFactor,
@@ -123,6 +124,12 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       .where(eq(mfaFactors.userId, user.id));
     const backupCodes = await issueBackupCodes(user.id);
     await audit(db, `user:${user.id}`, 'auth.mfa.enable', `user:${user.id}`);
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: включена двухфакторная аутентификация',
+      'К вашей учётной записи подключено приложение-аутентификатор. Если это были не вы — срочно обратитесь к администратору.\n\nAn authenticator app was added to your account. If this was not you, contact your administrator immediately.',
+    );
     return { backupCodes };
   });
 
@@ -138,6 +145,12 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     await db.delete(mfaFactors).where(eq(mfaFactors.userId, user.id));
     await db.delete(mfaBackupCodes).where(eq(mfaBackupCodes.userId, user.id));
     await audit(db, `user:${user.id}`, 'auth.mfa.disable', `user:${user.id}`);
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: отключена двухфакторная аутентификация',
+      'Приложение-аутентификатор отключено в вашей учётной записи. Если это были не вы — срочно обратитесь к администратору.\n\nThe authenticator app was removed from your account. If this was not you, contact your administrator immediately.',
+    );
     return reply.status(204).send();
   });
 
@@ -151,6 +164,12 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     await checkCode(user.id, body.code);
     const backupCodes = await issueBackupCodes(user.id);
     await audit(db, `user:${user.id}`, 'auth.mfa.backup-codes', `user:${user.id}`);
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: выпущены новые резервные коды',
+      'Для вашей учётной записи выпущены новые резервные коды, прежние недействительны.\n\nNew backup codes were issued for your account; the old ones no longer work.',
+    );
     return { backupCodes };
   });
 
@@ -192,6 +211,12 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     await db.delete(mfaFactors).where(eq(mfaFactors.userId, id));
     await db.delete(mfaBackupCodes).where(eq(mfaBackupCodes.userId, id));
     await audit(db, `user:${user.id}`, 'admin.mfa.reset', `user:${id}`);
+    void notifySecurity(
+      ctx,
+      id,
+      'Arklock: сброшен второй фактор',
+      'Администратор сбросил второй фактор вашей учётной записи. Настройте его заново.\n\nAn administrator reset the second factor of your account. Set it up again.',
+    );
     return reply.status(204).send();
   });
 };

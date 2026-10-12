@@ -23,9 +23,12 @@ import type {
 } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
+import { notifySecurity } from '../mail/send.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
+  circleMembers,
+  invitations,
   keyLog,
   sessions,
   settings,
@@ -37,7 +40,14 @@ import {
 import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
 import { AppError, notFound, parse } from '../errors.js';
-import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
+import {
+  fakeBytes,
+  fakeUuid,
+  hashProof,
+  randomB64url,
+  sha256Hex,
+  verifyProof,
+} from '../security.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
 
@@ -230,6 +240,21 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     return { open: mode?.value === 'open', firstUser: false, setupTokenRequired: false };
   });
 
+  /** Сведения о приглашении по токену (для предзаполнения формы регистрации). Недействительный токен — 404. */
+  app.get('/auth/invitation', async (req) => {
+    const token = String((req.query as { token?: string }).token ?? '');
+    const [inv] =
+      token.length >= 10
+        ? await db
+            .select()
+            .from(invitations)
+            .where(eq(invitations.tokenHash, sha256Hex(token)))
+        : [];
+    if (!inv || inv.usedAt || inv.revokedAt || inv.expiresAt.getTime() <= Date.now())
+      throw notFound();
+    return { email: inv.email };
+  });
+
   app.post('/auth/register', async (req, reply) => {
     const body = parse(registerRequest, req.body);
     checkKdf(ctx, body.kdf);
@@ -239,7 +264,26 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       await tx.execute(sql`select pg_advisory_xact_lock(7001)`);
       const [{ n } = { n: 0 }] = await tx.select({ n: count() }).from(users);
       if (n === 0) checkSetupToken(req, body.setupToken);
-      if (n > 0) {
+      let invite: typeof invitations.$inferSelect | undefined;
+      if (n > 0 && body.inviteToken) {
+        [invite] = await tx
+          .select()
+          .from(invitations)
+          .where(eq(invitations.tokenHash, sha256Hex(body.inviteToken)));
+        if (
+          !invite ||
+          invite.usedAt ||
+          invite.revokedAt ||
+          invite.expiresAt.getTime() <= Date.now() ||
+          invite.email !== body.email
+        )
+          throw new AppError(
+            403,
+            'invalid_invitation',
+            'The invitation is invalid, used or expired',
+          );
+      }
+      if (n > 0 && !invite) {
         const [mode] = await tx
           .select()
           .from(settings)
@@ -260,6 +304,17 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         authSource: 'local',
         externalId: null,
       });
+      if (invite) {
+        await tx
+          .update(invitations)
+          .set({ usedAt: new Date() })
+          .where(eq(invitations.id, invite.id));
+        for (const cid of invite.circleIds as string[])
+          await tx
+            .insert(circleMembers)
+            .values({ circleId: cid, userId: body.userId })
+            .onConflictDoNothing();
+      }
       return body.userId;
     });
     await audit(db, `user:${userId}`, 'auth.register', `user:${userId}`);
@@ -389,6 +444,12 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         and(eq(sessions.userId, user.id), ne(sessions.id, session.id), isNull(sessions.revokedAt)),
       );
     await audit(db, `user:${user.id}`, 'auth.password.change');
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: изменён мастер-пароль',
+      'Мастер-пароль вашей учётной записи изменён, остальные сеансы завершены. Если это были не вы — срочно обратитесь к администратору.\n\nThe master password of your account was changed and other sessions were ended. If this was not you, contact your administrator immediately.',
+    );
     return reply.status(204).send();
   });
 

@@ -390,3 +390,40 @@ test('SSO: configure the provider, first sign-in creates the account, later sign
     idp.close();
   }
 });
+
+// ---------------------------------------------------------------- приглашения
+test('an invitation lets a person register although registration is closed; the link works once', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await page.getByTestId('email').fill(ADMIN.email);
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('nav-admin').click();
+  await tab(page, 'invitations');
+  await page.getByTestId('invite-email').fill('invited.person@example.com');
+  await page.getByTestId('invite-create').click();
+  const link = (await page.getByTestId('invite-link').innerText()).trim();
+  expect(link).toContain('/login?invite=inv_');
+  await expect(page.getByTestId('invite-row')).toContainText('invited.person@example.com');
+
+  const guest = await (await browser.newContext()).newPage();
+  await guest.goto(link.replace(/^https?:\/\/[^/]+/, ''));
+  await expect(guest.getByTestId('invite-banner')).toBeVisible({ timeout: 30_000 });
+  await expect(guest.getByTestId('email')).toHaveValue('invited.person@example.com');
+  await expect(guest.getByTestId('email')).toHaveAttribute('readonly', '');
+  await guest.getByTestId('name').fill('Приглашённый');
+  await guest.getByTestId('password').fill('invited-master-password-e2e-1');
+  await guest.getByTestId('repeat').fill('invited-master-password-e2e-1');
+  await guest.getByTestId('submit').click();
+  await guest.getByTestId('recovery-saved').check({ timeout: 90_000 });
+  await guest.getByTestId('recovery-continue').click();
+  await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+
+  // повторное открытие той же ссылки
+  const again = await (await browser.newContext()).newPage();
+  await again.goto(link.replace(/^https?:\/\/[^/]+/, ''));
+  await expect(again.getByTestId('invite-bad')).toBeVisible({ timeout: 30_000 });
+});

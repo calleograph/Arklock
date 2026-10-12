@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { tokenCreate, uuid } from '@arklock/contracts';
 import type { ApiTokenInfo } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { notifySecurity } from '../mail/send.js';
 import { checkSecondFactor, hasPasskey, hasTotp } from '../auth/mfa.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -84,6 +85,12 @@ export const registerTokenRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       })
       .returning();
     await audit(db, `user:${user.id}`, 'auth.token.create', `token:${id}`, { scope: body.scope });
+    void notifySecurity(
+      ctx,
+      user.id,
+      'Arklock: создан токен API',
+      `Создан токен API «${body.name}» (${body.scope === 'write' ? 'чтение и запись' : 'только чтение'}). Если это были не вы — отзовите его в разделе «Безопасность».\n\nAn API token "${body.name}" (${body.scope}) was created. If this was not you, revoke it under Security.`,
+    );
     return reply.status(201).send({ token, info: info(row!) });
   });
 

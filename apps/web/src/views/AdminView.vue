@@ -9,6 +9,7 @@ import AdminSystem from '../components/AdminSystem.vue';
 import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
+import InvitationsPanel from '../components/InvitationsPanel.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -25,7 +26,8 @@ type SysTab =
   | 'diagnostics'
   | 'certificates'
   | 'smtp';
-type Tab = 'users' | 'circles' | 'settings' | 'ledger' | 'ldap' | 'sso' | 'syslog' | SysTab;
+type Tab =
+  'users' | 'circles' | 'settings' | 'ledger' | 'ldap' | 'sso' | 'syslog' | 'invitations' | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
   'resources',
@@ -215,6 +217,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
           'ldap',
           'sso',
           'syslog',
+          'invitations',
         ] as Tab[]"
         :key="x"
         type="button"
@@ -243,7 +246,8 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
       {{ notice }}
     </p>
 
-    <SyslogSettings v-if="tab === 'syslog'" />
+    <InvitationsPanel v-if="tab === 'invitations'" />
+    <SyslogSettings v-else-if="tab === 'syslog'" />
     <SsoSettings v-else-if="tab === 'sso'" />
     <LdapSettings v-else-if="tab === 'ldap'" />
     <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
@@ -439,6 +443,16 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
             <option value="all">{{ t('adminx.mfaAll') }}</option>
           </select></label
         >
+        <label class="flex items-center justify-between gap-3"
+          >{{ t('invite.notify')
+          }}<input
+            type="checkbox"
+            :checked="settings['notifications.security'] !== false"
+            data-testid="set-notify"
+            @change="
+              saveSetting('notifications.security', ($event.target as HTMLInputElement).checked)
+            "
+        /></label>
         <label class="flex items-center justify-between gap-3"
           >{{ t('adminx.attachMax')
           }}<input

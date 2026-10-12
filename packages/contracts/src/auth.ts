@@ -32,6 +32,8 @@ export const registerRequest = z.object({
   displayName: z.string().trim().min(1).max(100),
   /** Код первоначальной настройки (нужен только для первой, администраторской записи). */
   setupToken: z.string().max(200).optional(),
+  /** Токен приглашения: позволяет зарегистрироваться при закрытой регистрации (адрес должен совпасть с приглашённым). */
+  inviteToken: z.string().min(10).max(100).optional(),
   kdf: kdfParams,
   salt: b64url(22, 22),
   authKey,

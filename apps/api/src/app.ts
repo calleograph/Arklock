@@ -8,6 +8,7 @@ import { createContext } from './context.js';
 import type { Database } from './db/connect.js';
 import { AppError } from './errors.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerInvitationRoutes } from './routes/admin-invitations.js';
 import { registerAdminSyslogRoutes } from './routes/admin-syslog.js';
 import { registerAdminOpsRoutes } from './routes/admin-ops.js';
 import { registerAdminSystemRoutes } from './routes/admin-system.js';
@@ -134,6 +135,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerSharingRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSecurityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerInvitationRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSyslogRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminOpsRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });

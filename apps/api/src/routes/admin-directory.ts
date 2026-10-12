@@ -19,6 +19,7 @@ const SETTINGS: Record<string, z.ZodType> = {
   'security.mfaRequired': z.enum(['off', 'admins', 'all']),
   'storage.attachmentMaxMiB': z.number().int().min(0).max(512),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
+  'notifications.security': z.boolean(),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
@@ -29,6 +30,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'security.mfaRequired': 'off',
   'storage.attachmentMaxMiB': 25,
   'storage.vaultQuotaMiB': 0,
+  'notifications.security': true,
 };
 
 /** Пользователи, круги, настройки и журнал — только для администратора. */

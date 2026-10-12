@@ -451,3 +451,23 @@ export const webauthnCredentials = pgTable(
   },
   (t) => [index('webauthn_user_idx').on(t.userId)],
 );
+
+/** Приглашения: одноразовая ссылка на регистрацию по закрытому режиму; хранится только SHA-256 токена. */
+export const invitations = pgTable(
+  'invitations',
+  {
+    id: uuid('id').primaryKey(),
+    email: text('email').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    /** Круги, в которые пользователь будет добавлен при регистрации. */
+    circleIds: jsonb('circle_ids').notNull().default([]),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    expiresAt: ts('expires_at').notNull(),
+    usedAt: ts('used_at'),
+    revokedAt: ts('revoked_at'),
+  },
+  (t) => [index('invitations_email_idx').on(t.email)],
+);
