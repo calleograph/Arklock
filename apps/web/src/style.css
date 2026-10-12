@@ -117,7 +117,7 @@
   --color-slate-200: #cbe9df;
   --color-slate-300: #a6d6c7;
   --color-slate-400: #6fa899;
-  --color-slate-500: #4b7d70;
+  --color-slate-500: #437466;
   --color-slate-600: #3a6a5e;
   --color-slate-700: #2c5a50;
   --color-slate-800: #1f4a41;
@@ -125,7 +125,7 @@
   --color-slate-950: #0b2b26;
   --color-brand-50: #e4f5ef;
   --color-brand-100: #c9ebe0;
-  --color-brand-500: #00806a;
+  --color-brand-500: #007a64;
   --color-brand-600: #00695a;
   --color-brand-700: #00544a;
   --on-brand: #ffffff;
@@ -140,7 +140,7 @@
   --color-slate-200: #f6d9c6;
   --color-slate-300: #e8bfa5;
   --color-slate-400: #b58470;
-  --color-slate-500: #8f6552;
+  --color-slate-500: #8a5f4c;
   --color-slate-600: #7a4c3b;
   --color-slate-700: #61392c;
   --color-slate-800: #4a2b20;
@@ -154,6 +154,18 @@
   --on-brand: #ffffff;
   --header-bg: rgb(255 246 240 / 0.85);
   color-scheme: light;
+}
+
+/* Цвета состояний (успех, предупреждение, ошибка) в тексте: достаточный контраст (≥ 4.5:1) на светлых и тёмных темах. */
+:root {
+  --color-emerald-600: #047857;
+  --color-amber-600: #b45309;
+  --color-red-600: #c81e1e;
+}
+:root.dark {
+  --color-emerald-600: #34d399;
+  --color-amber-600: #fbbf24;
+  --color-red-600: #f87171;
 }
 
 html {
