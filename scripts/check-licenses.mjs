@@ -2,10 +2,10 @@
 /**
  * Инвентаризация лицензий продуктивных зависимостей (то, что попадает в образ и в веб-клиент).
  * Код возврата 1, если найдена лицензия, требующая отдельного решения (copyleft, неизвестная, несвободная).
- * Запуск: node scripts/check-licenses.mjs [--list]
+ * Запуск: node scripts/check-licenses.mjs [--list] [--write-notices]  (последнее обновляет THIRD-PARTY-NOTICES.md)
  */
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const ALLOWED =
@@ -23,6 +23,7 @@ const found = new Map();
 })(tree.dependencies);
 
 const byLicense = new Map();
+const rows = [];
 for (const name of found.keys()) {
   const file = path.join('node_modules', name, 'package.json');
   if (!existsSync(file)) continue;
@@ -31,7 +32,32 @@ for (const name of found.keys()) {
   if (typeof lic === 'object') lic = lic.type;
   const list = byLicense.get(lic) ?? [];
   list.push(`${name}@${pkg.version}`);
+  const repo =
+    typeof pkg.repository === 'string'
+      ? pkg.repository
+      : (pkg.repository?.url ?? pkg.homepage ?? '');
+  rows.push(
+    `| ${name} | ${pkg.version} | ${lic} | ${repo.replace(/^git\+/, '').replace(/\.git$/, '')} |`,
+  );
   byLicense.set(lic, list);
+}
+
+if (process.argv.includes('--write-notices')) {
+  writeFileSync(
+    'THIRD-PARTY-NOTICES.md',
+    [
+      '# Сторонние компоненты',
+      '',
+      'Arklock использует перечисленные ниже библиотеки (продуктивные зависимости, попадающие в образ и веб-клиент). Каждая распространяется на условиях своей лицензии; тексты лицензий — в каталогах пакетов (node_modules/ИМЯ/LICENSE) и в образе приложения. Файл создаётся командой `node scripts/check-licenses.mjs --write-notices`.',
+      'Прочие материалы (список слов EFF и др.) — в файле [NOTICE](NOTICE).',
+      '',
+      '| Пакет | Версия | Лицензия | Источник |',
+      '| --- | --- | --- | --- |',
+      ...rows.sort(),
+      '',
+    ].join(String.fromCharCode(10)),
+  );
+  console.log('Обновлён THIRD-PARTY-NOTICES.md');
 }
 
 let bad = 0;

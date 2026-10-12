@@ -120,6 +120,20 @@ export_build_info() {
   APP_BUILT_AT="$(date -u +%FT%TZ)"
 }
 
+# Готовый образ релиза из реестра ускоряет установку и обновление. Принимается только образ, собранный из ТОЧНО этого
+# коммита (метка org.opencontainers.image.revision); при любой неудаче (нет сети, нет образа, другой коммит) вызывающий
+# сценарий собирает образ из исходников. ARKLOCK_PULL_RELEASE_IMAGE=0 отключает загрузку.
+fetch_release_image() { # fetch_release_image ВЕРСИЯ КОММИТ → 0: образ загружен и помечен тегом $ARKLOCK_IMAGE
+  local ver="$1" commit="$2" ref rev
+  [ "${ARKLOCK_PULL_RELEASE_IMAGE:-1}" = 1 ] || return 1
+  [ -n "$commit" ] && [ "$commit" != unknown ] || return 1
+  ref="${ARKLOCK_REGISTRY_IMAGE:-ghcr.io/calleograph/arklock}:$ver"
+  timeout 900 docker pull --quiet "$ref" >/dev/null 2>&1 || return 1
+  rev="$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ref" 2>/dev/null)"
+  [ "$rev" = "$commit" ] || return 1
+  docker tag "$ref" "$ARKLOCK_IMAGE"
+}
+
 # ------------------------------------------------------------------ блокировка и состояние
 # Одновременно выполняется только одна изменяющая операция (установка, обновление, восстановление…).
 acquire_lock() {

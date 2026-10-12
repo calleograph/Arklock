@@ -77,7 +77,7 @@ async function folder(page, name) {
 }
 
 async function shot(page, name) {
-  await page.waitForTimeout(250);
+  await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(OUT, `${name}.png`) });
   console.log('снимок:', name);
 }

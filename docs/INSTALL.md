@@ -10,17 +10,23 @@
 
 ## Установка одной командой
 
-Рекомендуемый способ — скачать установщик релиза, проверить его и запустить:
+Одна команда (последний релиз):
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/calleograph/arklock/v0.1.0/install.sh   # подставьте тег релиза
-less install.sh                                                                          # просмотрите, что будет выполнено
-sudo bash install.sh --ref v0.1.0
+curl -fsSL https://github.com/calleograph/arklock/releases/latest/download/install.sh | sudo bash
 ```
 
-Установщик не исполняет содержимое ветки `main`: по умолчанию берётся последний релизный тег, а установка непомеченной ветки требует явного `--allow-unreleased`.
+Если сначала хотите прочитать и проверить установщик:
 
-> Пока релизов нет, а репозиторий закрыт, установка выполняется из клона: `git clone … && sudo ./install.sh`.
+```bash
+curl -fsSLO https://github.com/calleograph/arklock/releases/latest/download/install.sh
+curl -fsSLO https://github.com/calleograph/arklock/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS      # контрольная сумма install.sh
+less install.sh                               # просмотрите, что будет выполнено
+sudo bash install.sh                          # либо: sudo bash install.sh --ref vX.Y.Z
+```
+
+Установщик не исполняет содержимое ветки `main`: по умолчанию берётся последний релизный тег, а установка непомеченной ветки требует явного `--allow-unreleased`. Код релиза загружается из репозитория, готовый образ — из GHCR (`ghcr.io/calleograph/arklock:<версия>`), если его метка коммита совпадает с загруженным кодом; иначе образ собирается на сервере. Отключить загрузку образа: `ARKLOCK_PULL_RELEASE_IMAGE=0`.
 
 ## Что делает установщик
 

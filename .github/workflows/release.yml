@@ -1,0 +1,138 @@
+name: Release
+# Выпуск версии по тегу vX.Y.Z: проверка тега, образ в GHCR (linux/amd64 и linux/arm64), GitHub Release с установщиком и
+# контрольными суммами, затем проверка установки ОПУБЛИКОВАННОЙ версии на чистой машине.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/calleograph/arklock
+
+jobs:
+  verify-tag:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        name: Tag, VERSION and CHANGELOG agree
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag must look like vX.Y.Z"; exit 1; }
+          ver="${tag#v}"
+          test "$(tr -d '[:space:]' < VERSION)" = "$ver"
+          for f in package.json apps/*/package.json packages/*/package.json; do
+            test "$(node -p "require('./$f').version")" = "$ver" || { echo "$f has a different version"; exit 1; }
+          done
+          grep -q "^## \[$ver\]" CHANGELOG.md || { echo "CHANGELOG.md has no section for $ver"; exit 1; }
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: verify-tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: now
+        run: echo "ts=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.verify-tag.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          build-args: |
+            APP_VERSION=${{ needs.verify-tag.outputs.version }}
+            APP_GIT_COMMIT=${{ github.sha }}
+            APP_BUILT_AT=${{ steps.now.outputs.ts }}
+          labels: |
+            org.opencontainers.image.title=Arklock
+            org.opencontainers.image.description=Arklock — self-hosted password manager with end-to-end encryption
+            org.opencontainers.image.source=https://github.com/calleograph/arklock
+            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  release:
+    needs: [verify-tag, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Release notes from CHANGELOG
+        run: |
+          ver="${{ needs.verify-tag.outputs.version }}"
+          awk -v v="$ver" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "## Установка"
+            echo
+            echo '```bash'
+            echo "curl -fsSL https://github.com/calleograph/arklock/releases/download/v$ver/install.sh | sudo bash -s -- --ref v$ver"
+            echo '```'
+            echo
+            echo "Образ: \`${IMAGE}:$ver\` (digest \`${{ needs.image.outputs.digest }}\`). Контрольные суммы — в \`SHA256SUMS\`."
+            echo "Криптография Arklock не проходила независимый аудит; материалы для проверки — docs/security/audit-package.md."
+          } >> notes.md
+      - name: Release assets
+        run: |
+          ver="${{ needs.verify-tag.outputs.version }}"
+          mkdir dist
+          cp install.sh dist/install.sh
+          jq -n --arg v "$ver" --arg c "${GITHUB_SHA}" --arg i "${IMAGE}:$ver" --arg d "${{ needs.image.outputs.digest }}" \
+            '{version:$v, commit:$c, image:$i, digest:$d}' > dist/release.json
+          git archive --format=tar.gz --prefix="arklock-$ver/" -o "dist/arklock-$ver-source.tar.gz" "$GITHUB_SHA"
+          (cd dist && sha256sum install.sh release.json "arklock-$ver-source.tar.gz" > SHA256SUMS)
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${{ needs.verify-tag.outputs.version }}"
+          gh release create "v$ver" dist/* --title "Arklock $ver" --notes-file notes.md --verify-tag
+
+  verify-published:
+    name: published release installs on a clean machine
+    needs: [verify-tag, release]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: One-command install of the published release
+        run: |
+          ver="${{ needs.verify-tag.outputs.version }}"
+          curl -fsSL "https://github.com/calleograph/arklock/releases/download/v$ver/install.sh" -o install.sh
+          curl -fsSL "https://github.com/calleograph/arklock/releases/download/v$ver/SHA256SUMS" -o SHA256SUMS
+          grep ' install.sh$' SHA256SUMS | sha256sum -c -
+          sudo bash install.sh --yes --ref "v$ver" --project arklock-rel --config /etc/arklock-rel --data /var/lib/arklock-rel 2>&1 | tee install.log
+          grep -q "УСТАНОВКА ЗАВЕРШЕНА" install.log
+          grep -q "готовый образ релиза" install.log
+      - name: Installed version is the published one
+        run: |
+          ver="${{ needs.verify-tag.outputs.version }}"
+          port="$(sudo sed -n 's/^APP_PORT=//p' /etc/arklock-rel/arklock.env)"
+          curl -fsS "http://127.0.0.1:$port/api/v1/ready"
+          curl -fsS "http://127.0.0.1:$port/api/v1/version" | tee version.json
+          grep -q "\"$ver\"" version.json
+          sudo docker image inspect "ghcr.io/calleograph/arklock:$ver" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' | grep -qx "$GITHUB_SHA"
+      - name: The updater sees the published release
+        run: |
+          sudo /opt/arklock/scripts/check-updates.sh --env /etc/arklock-rel/arklock.env
+          sudo grep -q "^latest_known=v${{ needs.verify-tag.outputs.version }}$" /var/lib/arklock-rel/state/update.state

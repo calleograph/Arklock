@@ -120,7 +120,9 @@ git -C "$REPO_ROOT" checkout --quiet --detach "$TARGET_COMMIT" || { state_set up
 upd_step 3 7 "Получение и сборка новой версии"
 upd_log "Сборка образа версии $TARGET_VERSION"
 export_build_info
-if ! dc build app >"$DATA_ROOT/logs/update-build.log" 2>&1; then
+if fetch_release_image "$TARGET_VERSION" "$TARGET_COMMIT"; then
+  upd_log "Загружен готовый образ релиза $TARGET_VERSION"
+elif ! dc build app >"$DATA_ROOT/logs/update-build.log" 2>&1; then
   git -C "$REPO_ROOT" checkout --quiet --detach "$CUR_COMMIT"
   state_set update status failed_build; state_set update finished_at "$(date -u +%FT%TZ)"
   tail -n 15 "$DATA_ROOT/logs/update-build.log" | mask_text_stream >&2

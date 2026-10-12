@@ -269,8 +269,14 @@ set_default BACKUP_KEY_FILE "$KEY_FILE"
 init_instance
 acquire_lock
 export_build_info
-say "Сборка образа и запуск контейнеров (проект «$COMPOSE_PROJECT_NAME»)"
-dc up -d --build --wait --wait-timeout 300 || { fail "Контейнеры не стали готовыми. Журналы: scripts/logs.sh"; dc ps || true; exit 1; }
+if fetch_release_image "$(app_version)" "$(git_commit)"; then
+  say "Запуск контейнеров (проект «$COMPOSE_PROJECT_NAME»): загружен готовый образ релиза"
+  build_flag=--no-build
+else
+  say "Сборка образа и запуск контейнеров (проект «$COMPOSE_PROJECT_NAME»)"
+  build_flag=--build
+fi
+dc up -d "$build_flag" --wait --wait-timeout 300 || { fail "Контейнеры не стали готовыми. Журналы: scripts/logs.sh"; dc ps || true; exit 1; }
 wait_ready 120 || bail "API не отвечает на проверку готовности"
 state_set install installed_at "$(date -u +%FT%TZ)"
 state_set install version "$(app_version)"
