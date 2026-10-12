@@ -348,6 +348,19 @@ function addLink(): void {
 const removeLink = (id: string) =>
   (form.value.links = (form.value.links ?? []).filter((x) => x !== id));
 
+async function toggleArchive(): Promise<void> {
+  if (!props.item) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    await ws.saveEntry({ ...props.item.data, archived: !props.item.data.archived }, props.item);
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
+
 const fmt = (iso: string) => new Date(iso).toLocaleString();
 void api;
 </script>
@@ -375,6 +388,15 @@ void api;
             @click="editing = true"
           >
             {{ t('vault.edit') }}
+          </button>
+          <button
+            v-if="canEdit"
+            type="button"
+            class="btn"
+            data-testid="btn-archive"
+            @click="toggleArchive"
+          >
+            {{ item.data.archived ? t('vault.unarchive') : t('vault.archiveEntry') }}
           </button>
           <button
             type="button"

@@ -545,7 +545,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * Ротация ключа хранилища: новый ключ, перешифрование ключей записей, ревизий и названий ветвей, выдача оставшимся.
    * После отзыва доступа это единственный способ закрыть дальнейший доступ по ранее полученному ключу.
    */
-  async function rotate(vaultId: string): Promise<void> {
+  async function rotateRaw(vaultId: string): Promise<void> {
     const v = vaults.value.find((x) => x.id === vaultId)!;
     const oldKey = keyOf(vaultId, v.keyVersion)!;
     const newVersion = v.keyVersion + 1;
@@ -647,6 +647,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     problem?: boolean;
   }
 
+  /** Длинные операции с ключами не прерываются автоблокировкой (иначе ключи стёрлись бы посреди передачи или ротации). */
+  async function held<T>(fn: () => Promise<T>): Promise<T> {
+    const release = useAuthStore().hold();
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+  const rotate = (...a: Parameters<typeof rotateRaw>) => held(() => rotateRaw(...a));
+  const attachmentAdd = (...a: Parameters<typeof attachmentAdd_>) =>
+    held(() => attachmentAdd_(...a));
+  const attachmentDownload = (...a: Parameters<typeof attachmentDownload_>) =>
+    held(() => attachmentDownload_(...a));
+
   async function attachmentList(item: EntryItem): Promise<AttachmentItem[]> {
     const key = keyOf(item.vaultId, item.keyVersion);
     if (!key) return [];
@@ -705,7 +720,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * Шифрует файл в браузере по кускам (по 1 МиБ) и загружает частями: в памяти одновременно только один кусок,
    * размер файла ограничен лишь квотой. Сервер получает только шифртекст.
    */
-  async function attachmentAdd(
+  async function attachmentAdd_(
     item: EntryItem,
     file: File,
     onProgress?: (done: number, total: number) => void,
@@ -749,7 +764,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /** Расшифровывает вложение потоком: каждый кусок сразу уходит в приёмник (файл на диске или потоковая загрузка). */
-  async function attachmentDownload(
+  async function attachmentDownload_(
     item: EntryItem,
     id: string,
     sink: { write: (chunk: Uint8Array) => Promise<void> },

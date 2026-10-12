@@ -247,6 +247,8 @@ export async function loadEntries(o: Opened, v: Opened['vaults'][number]): Promi
         fields?: Entry['fields'];
         tags?: string[];
       };
+      // архивные записи не предлагаются расширению, консольному клиенту и заполнению
+      if ((d as { archived?: boolean }).archived === true) continue;
       out.push({
         id: e.id,
         vaultId: v.info.id,

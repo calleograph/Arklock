@@ -17,7 +17,7 @@ const ws = useWorkspaceStore();
 const auth = useAuthStore();
 const router = useRouter();
 
-type Scope = 'all' | 'favorites' | 'trash';
+type Scope = 'all' | 'favorites' | 'trash' | 'archive';
 const scope = ref<Scope>('all');
 const branchSel = ref<string | null>(null);
 const query = ref('');
@@ -109,11 +109,13 @@ function descendants(id: string): Set<string> {
 const list = computed<EntryItem[]>(() => {
   let base: EntryItem[];
   if (scope.value === 'trash') base = ws.trash.entries;
-  else if (scope.value === 'favorites') base = ws.entries.filter((e) => e.pinned);
+  else if (scope.value === 'archive') base = ws.entries.filter((e) => e.data.archived);
+  else if (scope.value === 'favorites')
+    base = ws.entries.filter((e) => e.pinned && !e.data.archived);
   else if (branchSel.value) {
     const ids = descendants(branchSel.value);
-    base = ws.entries.filter((e) => e.branchId && ids.has(e.branchId));
-  } else base = ws.entries;
+    base = ws.entries.filter((e) => !e.data.archived && e.branchId && ids.has(e.branchId));
+  } else base = ws.entries.filter((e) => !e.data.archived);
   const q = query.value.trim().toLowerCase();
   const out = base.filter(
     (e) =>
@@ -326,6 +328,17 @@ void router;
               @click="scope = 'favorites'"
             >
               ★ {{ t('vault.favorites') }}
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              class="w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+              :class="scope === 'archive' ? 'bg-slate-100 font-medium dark:bg-slate-800' : ''"
+              data-testid="scope-archive"
+              @click="scope = 'archive'"
+            >
+              🗄 {{ t('vault.archive') }}
             </button>
           </li>
           <li>

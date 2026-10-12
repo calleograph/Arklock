@@ -36,10 +36,23 @@ export const useAuthStore = defineStore('auth', () => {
     return { privateKey, publicKey, signPrivateKey, signPublicKey };
   }
 
+  /** Пока идёт длительная операция с ключами (передача большого файла, ротация), автоблокировка откладывается. */
+  let holds = 0;
+  function hold(): () => void {
+    holds++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      holds = Math.max(0, holds - 1);
+      touch();
+    };
+  }
+
   function touch(): void {
     if (!unlocked.value) return;
     if (lockTimer) clearTimeout(lockTimer);
-    lockTimer = setTimeout(lock, AUTO_LOCK_MS);
+    lockTimer = setTimeout(() => (holds > 0 ? touch() : lock()), AUTO_LOCK_MS);
   }
 
   function wipe(): void {
@@ -272,6 +285,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
+    hold,
     user,
     unlocked,
     ready,

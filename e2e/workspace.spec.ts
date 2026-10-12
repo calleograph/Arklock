@@ -222,6 +222,17 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('link-open').click();
   await expect(page.getByTestId('view-title')).not.toHaveText(firstTitle);
 
+  // архив: запись уходит из обычного списка и возвращается
+  await page.getByTestId('btn-archive').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(1);
+  await page.getByTestId('scope-archive').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(1);
+  await page.getByTestId('entry-row').click();
+  await page.getByTestId('btn-archive').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(0);
+  await page.getByTestId('scope-all').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(2);
+
   // массовое перемещение
   await page.getByTestId('select-all').check();
   await page.getByTestId('bulk-target').selectOption({ label: 'Финансы' });

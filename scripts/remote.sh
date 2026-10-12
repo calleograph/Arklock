@@ -139,7 +139,7 @@ cmd_show() {
   conf_load
   local k
   for k in type endpoint region bucket prefix access_key host port share user domain path_style encrypt insecure_tls allow_http auto keep; do
-    [ -n "${R[$k]:-}" ] && printf '%s=%s\n' "$k" "${R[$k]}"
+    if [ -n "${R[$k]:-}" ]; then printf '%s=%s\n' "$k" "${R[$k]}"; fi
   done
   [ -n "${R[secret_key]:-}${R[password]:-}" ] && echo "секрет=задан (скрыт)"
   return 0
@@ -364,7 +364,9 @@ smb_prepare() {
   need_cmd smbclient
   SMB_AUTH="$WORK/smb.auth"; : > "$SMB_AUTH"; chmod 600 "$SMB_AUTH"
   { printf 'username = %s\n' "${R[user]}"; printf 'password = %s\n' "${R[password]}"
-    [ -n "${R[domain]:-}" ] && printf 'domain = %s\n' "${R[domain]}"; } > "$SMB_AUTH"
+    # if, а не «&&»: при пустом домене последняя команда группы вернула бы 1, и set -e завершил бы сценарий молча
+    if [ -n "${R[domain]:-}" ]; then printf 'domain = %s\n' "${R[domain]}"; fi
+  } > "$SMB_AUTH"
 }
 smb_run() { # smb_run КОМАНДЫ — выполняет команды smbclient в общей папке; вывод — в stdout
   local enc=(); [ "${R[encrypt]:-1}" = 1 ] && enc=(-e)
