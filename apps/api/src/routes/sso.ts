@@ -19,6 +19,7 @@ import {
 } from '../auth/oidc.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { adminGate } from '../auth/adminperm.js';
+import { CHALLENGE_RE, type LoginOutcome } from '../auth/tickets.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { settings, users } from '../db/schema.js';
@@ -27,8 +28,14 @@ import { openSetting, sealSetting } from '../secretbox.js';
 import { bundle, insertAccount } from './auth.js';
 import { LDAP_SETTING_KEY, syncCirclesFor } from './ldap.js';
 import type { LdapConfig } from '../auth/ldap.js';
+import { SAML_SETTING_KEY, samlGroupMap, type SamlConfig } from '../auth/saml.js';
 
 const KEY = 'sso.oidc';
+const SETTING_KEY_BY_SOURCE = {
+  ldap: LDAP_SETTING_KEY,
+  oidc: KEY,
+  saml: SAML_SETTING_KEY,
+} as const;
 const PURPOSE = 'oidc-client-secret';
 
 interface Stored extends OidcConfig {
@@ -54,21 +61,19 @@ const enrollSchema = registerRequest
   .omit({ email: true, displayName: true, setupToken: true })
   .extend({ enrollToken: z.string().min(10).max(100) });
 
-type Outcome =
-  { kind: 'user'; userId: string } | { kind: 'enroll'; sub: string; email: string; name: string };
-
 const ipOf = (req: FastifyRequest) => req.ip ?? null;
 
 export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (app, { ctx }) => {
   const { db, config } = ctx;
   const auth = requireAuth(ctx);
   // Состояние входа (state → nonce и PKCE) и одноразовые билеты возврата в приложение: в памяти, коротко
-  const pending = new Map<string, { nonce: string; verifier: string; expiresAt: number }>();
-  const tickets = new Map<string, { out: Outcome; expiresAt: number }>();
+  const pending = new Map<
+    string,
+    { nonce: string; verifier: string; challenge: string; expiresAt: number }
+  >();
   const sweep = () => {
     const now = Date.now();
     for (const [k, v] of pending) if (v.expiresAt <= now) pending.delete(k);
-    for (const [k, v] of tickets) if (v.expiresAt <= now) tickets.delete(k);
   };
 
   async function stored(): Promise<Stored | null> {
@@ -164,6 +169,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
   });
 
   app.get('/auth/sso/start', async (req, reply) => {
+    const { c: browserBinding } = parse(z.object({ c: z.string().regex(CHALLENGE_RE) }), req.query);
     const s = await stored();
     if (!s?.enabled || !redirectUri())
       throw new AppError(404, 'sso_disabled', 'SSO is not enabled');
@@ -183,7 +189,12 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       req.log.warn({ err: String(e) }, 'sso start failed');
       return reply.redirect('/sso/done#error=sso_unavailable');
     }
-    pending.set(state, { nonce, verifier, expiresAt: Date.now() + 10 * 60_000 });
+    pending.set(state, {
+      nonce,
+      verifier,
+      challenge: browserBinding,
+      expiresAt: Date.now() + 10 * 60_000,
+    });
     return reply.redirect(url);
   });
 
@@ -219,10 +230,10 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       .select()
       .from(users)
       .where(and(eq(users.authSource, 'oidc'), eq(users.externalId, externalId)));
-    let out: Outcome;
+    let out: LoginOutcome;
     if (linked) {
       if (linked.disabledAt) return fail('disabled');
-      out = { kind: 'user', userId: linked.id };
+      out = { kind: 'user', userId: linked.id, via: 'oidc' };
     } else {
       const [clash] = await db
         .select({ id: users.id })
@@ -230,10 +241,18 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         .where(eq(users.email, ident.email));
       if (clash) return fail('account_exists');
       if (!s.autoProvision) return fail('not_provisioned');
-      out = { kind: 'enroll', sub: ident.sub, email: ident.email, name: ident.name };
+      out = {
+        kind: 'enroll',
+        identity: {
+          source: 'oidc',
+          externalId,
+          email: ident.email,
+          name: ident.name,
+          groups: [],
+        },
+      };
     }
-    const ticket = randomBytes(24).toString('base64url');
-    tickets.set(ticket, { out, expiresAt: Date.now() + 2 * 60_000 });
+    const ticket = ctx.tickets.issue(out, p.challenge);
     return reply.redirect(`/sso/done#ticket=${ticket}`);
   });
 
@@ -248,24 +267,25 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       | MfaChallengeResponse
       | { enroll: true; enrollToken: string; email: string; name: string }
     > => {
-      const body = parse(z.object({ ticket: z.string().min(10).max(100) }), req.body);
-      const t = tickets.get(body.ticket);
-      tickets.delete(body.ticket);
-      if (!t || t.expiresAt <= Date.now())
-        throw new AppError(401, 'invalid_ticket', 'The sign-in step expired, start again');
-      const s = await stored();
-      if (!s?.enabled) throw new AppError(404, 'sso_disabled', 'SSO is not enabled');
-      if (t.out.kind === 'enroll') {
-        const token = ctx.enroll.issue({
-          source: 'oidc',
-          externalId: `${s.issuer.replace(/\/$/, '')}|${t.out.sub}`,
-          email: t.out.email,
-          name: t.out.name,
-          groups: [],
-        });
-        return { enroll: true, enrollToken: token, email: t.out.email, name: t.out.name };
+      const body = parse(
+        z.object({
+          ticket: z.string().min(10).max(100),
+          verifier: z.string().max(200).optional(),
+        }),
+        req.body,
+      );
+      const out = ctx.tickets.take(body.ticket, body.verifier);
+      if (!out) throw new AppError(401, 'invalid_ticket', 'The sign-in step expired, start again');
+      if (out.kind === 'enroll') {
+        const token = ctx.enroll.issue(out.identity);
+        return {
+          enroll: true,
+          enrollToken: token,
+          email: out.identity.email,
+          name: out.identity.name,
+        };
       }
-      const [u] = await db.select().from(users).where(eq(users.id, t.out.userId));
+      const [u] = await db.select().from(users).where(eq(users.id, out.userId));
       if (!u || u.disabledAt) throw new AppError(401, 'invalid_ticket', 'The sign-in step expired');
       if (await isEnrolled(ctx, u.id)) {
         reply.status(200);
@@ -274,7 +294,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       const sess = await createSession(ctx, u.id, ipOf(req), req.headers['user-agent'] ?? null);
       await audit(db, `user:${u.id}`, 'auth.login', `session:${sess.id}`, {
         ip: ipOf(req),
-        via: 'oidc',
+        via: out.via,
       });
       reply.status(200);
       return { token: sess.token, expiresAt: sess.expiresAt.toISOString(), user: bundle(u) };
@@ -296,7 +316,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     const [row] = await db
       .select()
       .from(settings)
-      .where(eq(settings.key, ident.source === 'ldap' ? LDAP_SETTING_KEY : KEY));
+      .where(eq(settings.key, SETTING_KEY_BY_SOURCE[ident.source]));
     const cfg = row?.value as { enabled?: boolean; autoProvision?: boolean } | undefined;
     if (!cfg?.enabled || !cfg.autoProvision)
       throw new AppError(403, 'not_provisioned', 'Account creation is disabled');
@@ -317,6 +337,13 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     });
     if (ident.source === 'ldap')
       await syncCirclesFor(db, body.userId, cfg as unknown as LdapConfig, ident.groups);
+    else if (ident.source === 'saml')
+      await syncCirclesFor(
+        db,
+        body.userId,
+        samlGroupMap(cfg as unknown as SamlConfig),
+        ident.groups,
+      );
     const [u] = await db.select().from(users).where(eq(users.id, body.userId));
     const sess = await createSession(
       ctx,

@@ -68,7 +68,7 @@ export async function insertAccount(
   body: RegisterRequest,
   opts: {
     role: 'admin' | 'member';
-    authSource: 'local' | 'ldap' | 'oidc';
+    authSource: 'local' | 'ldap' | 'oidc' | 'saml';
     externalId: string | null;
   },
 ): Promise<void> {

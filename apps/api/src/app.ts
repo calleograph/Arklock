@@ -18,6 +18,7 @@ import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerTokenRoutes } from './routes/tokens.js';
 import { registerWebauthnRoutes } from './routes/webauthn.js';
 import { registerSsoRoutes } from './routes/sso.js';
+import { registerSamlRoutes } from './routes/saml.js';
 import { registerLdapRoutes } from './routes/ldap.js';
 import { registerMfaRoutes } from './routes/mfa.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -128,6 +129,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerTokenRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerWebauthnRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSsoRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerSamlRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerLdapRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerMfaRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });

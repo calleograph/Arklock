@@ -9,6 +9,9 @@ import { settings, users } from '../src/db/schema.js';
 import { TestClient, createTestApp } from './helpers.js';
 
 const PUBLIC = 'https://arklock.example.com';
+// Привязка входа к браузеру: приложение хранит verifier, серверу уходит только его хэш
+const VERIFIER = randomBytes(32).toString('base64url');
+const START = `/api/v1/auth/sso/start?c=${createHash('sha256').update(VERIFIER).digest('base64url')}`;
 const CLIENT = 'arklock-web';
 const SECRET = 'idp-client-secret-for-tests';
 
@@ -133,7 +136,7 @@ let admin: TestClient;
 
 /** «Браузер»: открывает /start, идёт к IdP, возвращается в /callback. Возвращает билет или код ошибки. */
 async function browserLogin(): Promise<{ ticket?: string; error?: string }> {
-  const start = await app.inject({ url: '/api/v1/auth/sso/start' });
+  const start = await app.inject({ url: START });
   expect(start.statusCode).toBe(302);
   const authz = await fetch(start.headers.location as string, { redirect: 'manual' });
   const back = new URL(authz.headers.get('location')!);
@@ -143,7 +146,11 @@ async function browserLogin(): Promise<{ ticket?: string; error?: string }> {
   return { ticket: frag.get('ticket') ?? undefined, error: frag.get('error') ?? undefined };
 }
 const exchange = (ticket: string) =>
-  app.inject({ method: 'POST', url: '/api/v1/auth/sso/exchange', payload: { ticket } });
+  app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/sso/exchange',
+    payload: { ticket, verifier: VERIFIER },
+  });
 
 beforeAll(async () => {
   await startIdp();
@@ -251,8 +258,29 @@ describe('sign-in through OIDC', () => {
     expect(viaMaster.json().error.code).toBe('external_login_required');
   });
 
+  it('a ticket works only in the browser that started the sign-in', async () => {
+    expect((await app.inject({ url: '/api/v1/auth/sso/start' })).statusCode).toBe(400);
+    const r = await browserLogin();
+    const other = randomBytes(32).toString('base64url');
+    const stolen = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/sso/exchange',
+      payload: { ticket: r.ticket, verifier: other },
+    });
+    expect(stolen.statusCode).toBe(401);
+    // билет уничтожен неудачной попыткой
+    expect((await exchange(r.ticket!)).statusCode).toBe(401);
+    const r2 = await browserLogin();
+    const noVerifier = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/sso/exchange',
+      payload: { ticket: r2.ticket },
+    });
+    expect(noVerifier.statusCode).toBe(401);
+  });
+
   it('state is single-use and unknown states are rejected', async () => {
-    const start = await app.inject({ url: '/api/v1/auth/sso/start' });
+    const start = await app.inject({ url: START });
     const authz = await fetch(start.headers.location as string, { redirect: 'manual' });
     const back = new URL(authz.headers.get('location')!);
     const first = await app.inject({ url: `${back.pathname}${back.search}` });

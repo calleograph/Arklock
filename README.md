@@ -16,7 +16,7 @@
 | Ссылки передачи секрета (временные и одноразовые), импорт (CSV, Bitwarden, KeePass) и экспорт (в том числе шифрованный)       | реализовано                                          |
 | Инспектор безопасности паролей, проверка утечек (k-анонимность), политика паролей организации                                  | реализовано                                          |
 | Второй фактор: TOTP, резервные коды, ключи доступа (WebAuthn); политика обязательности                                         | реализовано                                          |
-| Вход через каталог (LDAP / LDAPS / Active Directory) и единый вход OpenID Connect                                              | реализовано (SAML — нет)                             |
+| Вход через каталог (LDAP / LDAPS / Active Directory) и единый вход OpenID Connect и SAML 2.0                                  | реализовано                                          |
 | Приглашения, почтовые уведомления о событиях безопасности, экспорт журнала в syslog                                            | реализовано                                          |
 | Токены API и консольный клиент `arklock`                                                                                      | реализовано                                          |
 | Расширение для браузера (Manifest V3): поиск, заполнение, TOTP, генератор; установка на телефон (PWA)                          | реализовано (магазины расширений — нет)              |
@@ -53,7 +53,7 @@ sudo scripts/rollback.sh            # откат (отказывает, если
 sudo scripts/diag.sh                # диагностический пакет без секретов
 ```
 
-Документация: [установка](docs/INSTALL.md) · [обновление](docs/UPDATE.md) · [резервное копирование](docs/BACKUP_AND_RESTORE.md) · [диагностика](docs/DIAGNOSTICS.md) · [командная строка и токены](docs/CLI.md) · [каталог и SSO](docs/DIRECTORY.md) · [расширение и телефон](docs/EXTENSION.md) · [криптография](docs/security/cryptography.md) · [модель угроз](docs/security/threat-model.md) · [API](docs/api/README.md) · [архитектура](docs/architecture/overview.md)
+Документация: [установка](docs/INSTALL.md) · [обновление](docs/UPDATE.md) · [резервное копирование](docs/BACKUP_AND_RESTORE.md) · [диагностика](docs/DIAGNOSTICS.md) · [командная строка и токены](docs/CLI.md) · [каталог и SSO](docs/DIRECTORY.md) · [SAML](docs/SAML.md) · [роли](docs/administration/README.md) · [расширение и телефон](docs/EXTENSION.md) · [криптография](docs/security/cryptography.md) · [модель угроз](docs/security/threat-model.md) · [API](docs/api/README.md) · [архитектура](docs/architecture/overview.md)
 
 ## Безопасность
 
@@ -69,7 +69,7 @@ Node.js 24+. `npm ci && npm run build`, проверки: `npm run format:check 
 - Образ собирается на сервере; публикация образов в GHCR и проверка digest — запланированы.
 - Каталог LDAP проверен на тестовом сервере, SSO — на тестовом провайдере; проверка на настоящих OpenLDAP/AD и промышленных провайдерах не проводилась.
 - 
-- Нет: SAML, нативных мобильных приложений, публикации расширения в магазинах, пользовательских ролей.
+- Нет: нативных мобильных приложений, публикации расширения в магазинах.
 
 ## Лицензия
 

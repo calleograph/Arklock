@@ -141,12 +141,15 @@ export const useAuthStore = defineStore('auth', () => {
   const ldapIdentity = () => ldapEnroll;
 
   /** Возврат от SSO: билет обменивается на сессию / шаг второго фактора / создание учётной записи. */
-  async function exchangeSso(ticket: string): Promise<'unlock' | 'mfa' | 'enroll'> {
+  async function exchangeSso(
+    ticket: string,
+    verifier?: string,
+  ): Promise<'unlock' | 'mfa' | 'enroll'> {
     const res = await api<
       | SessionResponse
       | MfaChallengeResponse
       | { enroll: true; enrollToken: string; email: string; name: string }
-    >('POST', '/auth/sso/exchange', { ticket }, { auth: false });
+    >('POST', '/auth/sso/exchange', { ticket, verifier }, { auth: false });
     if ('enroll' in res) {
       ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
       return 'enroll';

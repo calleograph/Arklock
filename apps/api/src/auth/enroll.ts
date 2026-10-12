@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto';
 
 /** Внешняя идентичность (каталог, SSO), прошедшая проверку, но ещё не имеющая учётной записи Arklock. */
 export interface ExternalIdentity {
-  source: 'ldap' | 'oidc';
-  /** DN в каталоге или «издатель|sub» в OIDC. */
+  source: 'ldap' | 'oidc' | 'saml';
+  /** DN в каталоге, «издатель|sub» в OIDC, «издатель|идентификатор» в SAML. */
   externalId: string;
   email: string;
   name: string;

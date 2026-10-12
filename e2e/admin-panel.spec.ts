@@ -480,3 +480,110 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('role-delete-Аудитор журнала').click();
   await expect(page.getByTestId('roles-error')).toBeVisible();
 });
+
+// ---------------------------------------------------------------- SAML
+test('SAML: provider metadata, first sign-in creates the account, later ones unlock it, forged responses are refused', async ({
+  page,
+  browser,
+}) => {
+  const { createIdp, buildResponse, autoPost, parseAuthnRequest, idpMetadata } =
+    await import('./saml-idp.mjs');
+  const http = await import('node:http');
+  const idp = await createIdp('https://idp.e2e.example/entity');
+  const rogue = await createIdp('https://idp.e2e.example/entity');
+  let mode: 'ok' | 'forged' = 'ok';
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://x');
+    if (url.pathname === '/metadata') {
+      res.setHeader('content-type', 'application/xml');
+      res.end(idpMetadata(idp, { sso: `http://127.0.0.1:${port()}/sso` }));
+      return;
+    }
+    if (url.pathname === '/sso' && !url.searchParams.has('SAMLRequest')) {
+      res.end('IdP'); // проверка доступности из панели
+      return;
+    }
+    if (url.pathname === '/sso') {
+      const ar = parseAuthnRequest(url.searchParams.get('SAMLRequest') ?? '');
+      const xml = buildResponse({
+        idp,
+        signingIdp: mode === 'forged' ? rogue : undefined,
+        acs: ar.acs,
+        audience: ar.issuer,
+        inResponseTo: ar.id,
+        nameId: 'carol-1',
+        attributes: { email: 'carol@example.com', displayName: 'Carol Saml' },
+      });
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.end(autoPost(ar.acs, xml, url.searchParams.get('RelayState') ?? ''));
+      return;
+    }
+    res.statusCode = 404;
+    res.end();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = () => (server.address() as { port: number }).port;
+  try {
+    await page.goto('/login');
+    await page.getByTestId('email').fill(ADMIN.email);
+    await page.getByTestId('password').fill(ADMIN.password);
+    await page.getByTestId('submit').click();
+    await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+    await page.getByTestId('nav-admin').click();
+    await tab(page, 'saml');
+    await expect(page.getByTestId('saml-acs')).toContainText('/api/v1/auth/saml/acs');
+
+    // настройки из метаданных провайдера
+    await page.getByTestId('saml-insecure').check();
+    await page.getByTestId('saml-meta-url').fill(`http://127.0.0.1:${port()}/metadata`);
+    await page.getByTestId('saml-import').click();
+    await expect(page.getByTestId('saml-idp-entity')).toHaveValue(idp.entityId);
+    await expect(page.getByTestId('saml-entry-point')).toHaveValue(
+      `http://127.0.0.1:${port()}/sso`,
+    );
+    await page.getByTestId('saml-enabled').check();
+    await page.getByTestId('saml-save').click();
+    await expect(page.getByTestId('saml-notice')).toBeVisible();
+    await expect(page.getByTestId('saml-cert-info')).toContainText(/Действует|Valid/);
+    await page.getByTestId('saml-test').click();
+    await expect(page.getByTestId('saml-checks').locator('[data-level="error"]')).toHaveCount(0);
+    await expect(page.getByTestId('saml-checks').locator('[data-level="ok"]')).not.toHaveCount(0);
+
+    // первый вход: учётная запись создаётся, мастер-пароль задаёт сам пользователь
+    const carol = await (await browser.newContext()).newPage();
+    await carol.goto('/login');
+    await carol.getByTestId('to-saml').click();
+    await expect(carol.getByTestId('ldap-enroll-hint')).toBeVisible({ timeout: 30_000 });
+    await carol.getByTestId('password').fill('carol-master-password-e2e-1');
+    await carol.getByTestId('repeat').fill('carol-master-password-e2e-1');
+    await carol.getByTestId('submit').click();
+    await carol.getByTestId('recovery-saved').check({ timeout: 90_000 });
+    await carol.getByTestId('recovery-continue').click();
+    await expect(carol.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+    await carol.getByTestId('add-entry').click();
+    await carol.getByTestId('f-title').fill('SAML: запись');
+    await carol.getByTestId('f-save').click();
+    await expect(carol.getByTestId('view-title')).toHaveText('SAML: запись');
+
+    // повторный вход открывает существующую учётную запись
+    const again = await (await browser.newContext()).newPage();
+    await again.goto('/login');
+    await again.getByTestId('to-saml').click();
+    await again.waitForURL('**/unlock');
+    await again.getByTestId('password').fill('carol-master-password-e2e-1');
+    await again.getByTestId('submit').click();
+    await expect(again.getByTestId('entry-row').first()).toContainText('SAML: запись', {
+      timeout: 90_000,
+    });
+
+    // ответ, подписанный чужим ключом, не открывает ничего
+    mode = 'forged';
+    const evil = await (await browser.newContext()).newPage();
+    await evil.goto('/login');
+    await evil.getByTestId('to-saml').click();
+    await expect(evil.getByTestId('sso-error')).toBeVisible({ timeout: 30_000 });
+    await expect(evil.getByTestId('sso-error')).toContainText(/подпис|signature/i);
+  } finally {
+    server.close();
+  }
+});

@@ -1,10 +1,22 @@
 import { and, eq } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../context.js';
-import { apiTokens, sessions, users } from '../db/schema.js';
+import { apiTokens, sessions, settings, users } from '../db/schema.js';
 import { AppError, unauthorized } from '../errors.js';
 import { isEnrolled, mfaPolicy } from './mfa.js';
 import { randomB64url, sha256Hex } from '../security.js';
+
+/** Предельная длительность сеанса для вошедших через SAML (часы; 0 — не ограничена). Значение кэшируется на полминуты. */
+export async function samlSessionHours(ctx: AppContext): Promise<number> {
+  const now = Date.now();
+  if (ctx.samlPolicy && ctx.samlPolicy.until > now) return ctx.samlPolicy.hours;
+  const [row] = await ctx.db.select().from(settings).where(eq(settings.key, 'sso.saml'));
+  const hours = Number(
+    (row?.value as { maxSessionHours?: number } | undefined)?.maxSessionHours ?? 0,
+  );
+  ctx.samlPolicy = { hours: Number.isFinite(hours) ? hours : 0, until: now + 30_000 };
+  return ctx.samlPolicy.hours;
+}
 
 export interface AuthInfo {
   user: typeof users.$inferSelect;
@@ -135,6 +147,12 @@ export function requireAuth(ctx: AppContext) {
       row.session.lastSeenAt.getTime() + idleMs <= now
     ) {
       throw unauthorized();
+    }
+    if (row.user.authSource === 'saml') {
+      // Повторная проверка у провайдера идентификации не реже заданного срока
+      const hours = await samlSessionHours(ctx);
+      if (hours > 0 && row.session.createdAt.getTime() + hours * 3_600_000 <= now)
+        throw unauthorized();
     }
     if (now - row.session.lastSeenAt.getTime() > 60_000) {
       await ctx.db

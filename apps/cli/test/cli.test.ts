@@ -172,8 +172,10 @@ describe('command-line client', () => {
       code: await totp(parseTotpInput(setup.secret), Date.now() - 30_000),
     });
     config = {};
+    // один и тот же код для обоих входов: на границе шага времени новый код был бы принят
+    const code = await totp(parseTotpInput(setup.secret));
     const ok = await cli(['login', '--server', server, '--email', 'cli@example.com'], {
-      ARKLOCK_MFA_CODE: await totp(parseTotpInput(setup.secret)),
+      ARKLOCK_MFA_CODE: code,
     });
     expect(ok.code).toBe(0);
     expect(config.token).toMatch(/^aks_/);
@@ -181,7 +183,7 @@ describe('command-line client', () => {
     // тот же код повторно не принимается
     config = {};
     const replay = await cli(['login', '--server', server, '--email', 'cli@example.com'], {
-      ARKLOCK_MFA_CODE: await totp(parseTotpInput(setup.secret)),
+      ARKLOCK_MFA_CODE: code,
     });
     expect(replay.code).toBe(1);
   });

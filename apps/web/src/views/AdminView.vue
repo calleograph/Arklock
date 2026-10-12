@@ -11,6 +11,7 @@ import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import RolesPanel from '../components/RolesPanel.vue';
+import SamlSettings from '../components/SamlSettings.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -37,6 +38,7 @@ type Tab =
   | 'syslog'
   | 'invitations'
   | 'roles'
+  | 'saml'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -66,6 +68,7 @@ const TAB_PERM: Record<Tab, string> = {
   smtp: 'admin.integrations',
   ldap: 'admin.integrations',
   sso: 'admin.integrations',
+  saml: 'admin.integrations',
   syslog: 'admin.integrations',
   invitations: 'admin.invitations',
   roles: 'admin.roles',
@@ -253,6 +256,7 @@ const ALL_TABS: Tab[] = [
   ...SYS_TABS,
   'ldap',
   'sso',
+  'saml',
   'syslog',
   'invitations',
   'roles',
@@ -307,6 +311,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
     <InvitationsPanel v-else-if="tab === 'invitations'" />
     <SyslogSettings v-else-if="tab === 'syslog'" />
     <SsoSettings v-else-if="tab === 'sso'" />
+    <SamlSettings v-else-if="tab === 'saml'" />
     <LdapSettings v-else-if="tab === 'ldap'" />
     <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
 

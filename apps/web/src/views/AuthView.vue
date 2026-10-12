@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
+import { externalStartUrl } from '../services/ssoBinding';
 import * as account from '../services/account';
 import { errorMessage } from '../services/helpers';
 import { api, ApiError } from '../services/api';
@@ -19,6 +20,11 @@ const inviteEmail = ref('');
 const inviteBad = ref(false);
 const ldapAvailable = ref(false);
 const sso = ref<{ enabled: boolean; buttonText: string }>({ enabled: false, buttonText: 'SSO' });
+const saml = ref<{ enabled: boolean; buttonText: string }>({ enabled: false, buttonText: 'SSO' });
+/** Уход к провайдеру: проверочное значение остаётся во вкладке, серверу уходит его хэш. */
+async function goExternal(path: string): Promise<void> {
+  location.href = await externalStartUrl(path);
+}
 const ldapMode = ref(false);
 const ldapEnrollStep = ref(false);
 const ldapUser = ref('');
@@ -79,6 +85,12 @@ onMounted(async () => {
     sso.value = await api<{ enabled: boolean; buttonText: string }>('GET', '/auth/sso', undefined, {
       auth: false,
     });
+    saml.value = await api<{ enabled: boolean; buttonText: string }>(
+      'GET',
+      '/auth/saml',
+      undefined,
+      { auth: false },
+    ).catch(() => saml.value);
     // возврат со страницы SSO: продолжаем начатый внешний вход
     if (route.query.external === 'enroll' && auth.ldapIdentity()) {
       ldapMode.value = true;
@@ -520,14 +532,24 @@ async function copyRecovery(): Promise<void> {
         {{ t('mfa.cancel') }}
       </button>
 
-      <a
+      <button
         v-if="sso.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
-        href="/api/v1/auth/sso/start"
+        type="button"
         class="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
         data-testid="to-sso"
+        @click="goExternal('/api/v1/auth/sso/start')"
       >
         {{ sso.buttonText }}
-      </a>
+      </button>
+      <button
+        v-if="saml.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
+        type="button"
+        class="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+        data-testid="to-saml"
+        @click="goExternal('/api/v1/auth/saml/start')"
+      >
+        {{ saml.buttonText }}
+      </button>
 
       <button
         v-if="ldapAvailable && mode === 'signin' && !mfaStep && !ldapEnrollStep"
