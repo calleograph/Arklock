@@ -163,6 +163,27 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
   }
 }
 
+/** Сейф, в который переносится открытая запись (только открытые ключом и не текущий). */
+const moveTo = ref('');
+const moveTargets = computed(() =>
+  ws.vaults.filter((v) => v.unlocked && !v.problem && v.id !== ws.currentId),
+);
+async function moveNow(): Promise<void> {
+  error.value = '';
+  try {
+    await ws.moveEntry(opened.value!, moveTo.value);
+    moveTo.value = '';
+  } catch (e) {
+    const code = e instanceof Error ? e.message : '';
+    error.value =
+      code === 'has_attachments'
+        ? t('vault.entryMoveHasFiles')
+        : code === 'target vault is locked'
+          ? t('vault.entryMoveLocked')
+          : errorMessage(e, t);
+  }
+}
+
 const bulk = (action: 'move' | 'trash' | 'restore' | 'purge', branchId?: string | null) =>
   run(async () => {
     await ws.bulk([...selected.value], action, branchId);
@@ -643,6 +664,32 @@ void router;
             @click="run(() => ws.trashEntry(opened!))"
           >
             <Icon name="trash" /> {{ t('vault.toTrash') }}
+          </button>
+        </div>
+        <div
+          v-if="opened && canWrite && opened.access !== 'reader' && moveTargets.length"
+          class="flex flex-wrap items-center gap-2"
+          data-testid="move-entry"
+        >
+          <select
+            v-model="moveTo"
+            class="input min-w-0 flex-1"
+            data-testid="move-target"
+            :aria-label="t('vault.entryMoveTarget')"
+          >
+            <option value="">{{ t('vault.entryMoveChoose') }}</option>
+            <option v-for="v in moveTargets" :key="v.id" :value="v.id">
+              {{ v.kind === 'locker' ? t('vault.locker') : v.name }}
+            </option>
+          </select>
+          <button
+            type="button"
+            class="btn"
+            :disabled="!moveTo"
+            data-testid="btn-move"
+            @click="moveNow"
+          >
+            {{ t('vault.entryMoveAction') }}
           </button>
         </div>
       </div>

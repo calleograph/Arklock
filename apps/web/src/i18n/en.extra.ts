@@ -498,6 +498,11 @@ export default {
     restore: 'Restore',
     purge: 'Delete forever',
     toTrash: 'Move to trash',
+    entryMoveTarget: 'Destination vault',
+    entryMoveChoose: 'Move to vault…',
+    entryMoveAction: 'Move',
+    entryMoveHasFiles:
+      'An entry with attachments cannot be moved: attachments belong to the source vault. Remove them first or keep the files separately.',
     move: 'Move',
     selected: 'Selected: {n}',
     selectAll: 'Select all',

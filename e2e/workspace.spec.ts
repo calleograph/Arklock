@@ -251,6 +251,8 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
   await page.getByTestId('entry-row').filter({ hasText: 'Почта' }).click();
   await page.getByTestId('tab-share').click();
   await page.getByTestId('share-views').selectOption('1');
+  // кнопка включается, когда форма готова; без ожидания клик мог попасть в отрисовку вкладки
+  await expect(page.getByTestId('btn-create-link')).toBeEnabled();
   await page.getByTestId('btn-create-link').click();
   sharedLink = (await page.getByTestId('share-link').textContent())!.trim();
   expect(sharedLink).toMatch(/\/h\/[0-9a-f-]{36}#[A-Za-z0-9_-]{43}$/);
@@ -402,6 +404,61 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   for (const f of storedFiles())
     expect(readFileSync(f).includes(Buffer.from(FILE_TEXT))).toBe(false);
   void login;
+});
+
+test('an entry moves to another vault: re-encrypted for the target, the source copy goes to the trash', async ({
+  browser,
+}) => {
+  // самостоятельный сценарий: первая запись создаёт администратора, иначе выполняется вход
+  const page = await (await browser.newContext({ locale: 'ru-RU' })).newPage();
+  await page.goto('/');
+  if (
+    await page
+      .getByTestId('name')
+      .waitFor({ timeout: 4000 })
+      .then(
+        () => true,
+        () => false,
+      )
+  ) {
+    await register(page, ADMIN, SETUP);
+  } else {
+    await login(page, ADMIN);
+  }
+  await page
+    .getByRole('link', { name: /Сейф|Locker/ })
+    .first()
+    .click();
+  await expect(page.getByTestId('vault-select')).toBeVisible();
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Перенос');
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText('Перенос');
+  await addEntry(page, {
+    title: 'Переносимая запись',
+    username: 'mover',
+    password: 'Move-Secret-42!bb',
+  });
+
+  await page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' }).click();
+  await page.getByTestId('move-target').selectOption({ label: 'Личный сейф' });
+  await page.getByTestId('btn-move').click();
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' })).toHaveCount(
+    0,
+  );
+
+  // исходная копия в корзине сейфа «Перенос»
+  await page.getByTestId('scope-trash').click();
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' })).toHaveCount(
+    1,
+  );
+  await page.getByTestId('scope-all').click();
+
+  // в личном сейфе запись открывается тем же паролем: её перешифровали ключом целевого сейфа
+  await page.getByTestId('vault-select').selectOption({ label: 'Личный сейф' });
+  await page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' }).click();
+  await page.getByTestId('btn-reveal').click();
+  await expect(page.getByTestId('view-password')).toHaveText('Move-Secret-42!bb');
 });
 
 test('two-factor sign-in: enrol, sign out, password alone is not enough, code completes', async ({

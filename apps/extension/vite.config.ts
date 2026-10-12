@@ -74,7 +74,7 @@ function manifestPlugin(): Plugin {
         short_name: 'Arklock',
         description:
           'Arklock: search, autofill, TOTP and password generator. Secrets are decrypted only in your browser.',
-        version: process.env.EXT_VERSION ?? '1.1.0',
+        version: process.env.EXT_VERSION ?? '1.2.0',
         ...(FIREFOX
           ? {
               // Идентификатор нужен Firefox для хранилища и подписи; для публикации задайте свой: EXT_GECKO_ID

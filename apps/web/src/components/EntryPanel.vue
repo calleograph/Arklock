@@ -53,8 +53,10 @@ const busy = ref(false);
 const tab = ref<'details' | 'history' | 'files' | 'share'>('details');
 const branchChoice = ref<string | null>(props.item?.branchId ?? props.branchId);
 
+// Сброс вкладок и состояния только при смене записи или режима. Строковый ключ: массив в геттере
+// считался бы изменённым при каждом обновлении объекта записи (фоновая перезагрузка) и сбрасывал бы вкладку.
 watch(
-  () => [props.item?.id, props.creating],
+  () => `${props.item?.id ?? ''}|${props.creating}`,
   () => {
     editing.value = props.creating;
     form.value = props.item ? clone(normalizeEntry(props.item.data)) : blankEntry();
@@ -68,6 +70,16 @@ watch(
     files.value = null;
     confirmFile.value = '';
     link.value = '';
+  },
+);
+// Обновлённые данные той же записи подставляются в форму, если её не редактируют.
+watch(
+  () => props.item,
+  (item) => {
+    if (item && !editing.value) {
+      form.value = clone(normalizeEntry(item.data));
+      tagsText.value = form.value.tags.join(', ');
+    }
   },
 );
 

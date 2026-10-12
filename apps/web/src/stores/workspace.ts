@@ -340,6 +340,44 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await loadTree();
   }
 
+  /**
+   * Перенос записи в другой сейф. Запись перешифровывается ключом целевого сейфа (шифртекст привязан к сейфу
+   * и идентификатору), создаётся в целевом сейфе, исходная отправляется в корзину. Права проверяет сервер:
+   * создание в целевом сейфе требует права редактирования, удаление исходной записи — тоже.
+   * Записи с вложениями не переносятся: вложения хранятся по сейфу записи. История изменений остаётся в исходном сейфе.
+   */
+  async function moveEntry(
+    item: EntryItem,
+    targetVaultId: string,
+    targetBranchId: string | null = null,
+  ): Promise<void> {
+    if (targetVaultId === item.vaultId) throw new Error('same_vault');
+    const target = vaults.value.find((v) => v.id === targetVaultId);
+    if (!target) throw new Error('vault is not available');
+    const targetKey = keyOf(target.id, target.keyVersion);
+    if (!targetKey) throw new Error('target vault is locked');
+    if ((await attachmentList(item)).length) throw new Error('has_attachments');
+
+    const id = crypto.randomUUID();
+    const enc = await encryptEntry(item.data, targetKey, target.id, id, target.keyVersion);
+    await api<EntryRecord>('POST', `/vaults/${target.id}/entries`, {
+      id,
+      branchId: targetBranchId,
+      ...enc,
+    });
+    try {
+      await api(
+        'DELETE',
+        `/vaults/${item.vaultId}/entries/${item.id}?expectedVersion=${item.version}`,
+      );
+    } catch (e) {
+      // исходная запись не удалена: копию в целевом сейфе убираем, чтобы не было двух экземпляров
+      await api('DELETE', `/vaults/${target.id}/entries/${id}?purge=1`).catch(() => undefined);
+      throw e;
+    }
+    await loadTree();
+  }
+
   async function bulk(
     ids: string[],
     action: 'move' | 'trash' | 'restore' | 'purge',
@@ -861,6 +899,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     audit,
     renameBranch,
     moveBranch,
+    moveEntry,
     deleteBranch,
     restoreBranch,
     createVault,
