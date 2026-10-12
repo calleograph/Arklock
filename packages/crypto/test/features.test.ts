@@ -18,6 +18,9 @@ import {
   generateSigningKeyPair,
   generateTotpSecret,
   keyLogHash,
+  AttachmentDecryptor,
+  chunkCount,
+  encryptStream,
   openAttachmentFile,
   openAttachmentMeta,
   openHandoff,
@@ -291,5 +294,65 @@ describe('sealed attachments', () => {
     await expect(openAttachmentFile(oldKey, vaultId, moved, moved.file)).rejects.toBeInstanceOf(
       CryptoAuthError,
     );
+  });
+});
+
+describe('streaming attachments', () => {
+  it('decrypts input delivered in arbitrary pieces and matches whole-buffer results', async () => {
+    const key = generateKey();
+    const id = crypto.randomUUID();
+    const data = new Uint8Array(2_500_000).map((_, i) => (i * 7) % 253);
+    const enc = await encryptAttachment(key, id, data);
+    const dec = new AttachmentDecryptor(key, id);
+    const parts: Uint8Array[] = [];
+    for (let off = 0; off < enc.length; off += 70_001)
+      parts.push(...(await dec.push(enc.subarray(off, off + 70_001))));
+    parts.push(...(await dec.finish()));
+    expect(Buffer.from(concat(...parts)).equals(Buffer.from(data))).toBe(true);
+  });
+
+  it('rejects truncation, reordering and trailing garbage', async () => {
+    const key = generateKey();
+    const id = crypto.randomUUID();
+    const enc = await encryptAttachment(key, id, new Uint8Array(3_000_000).fill(5));
+    // усечение: потеряна часть последнего кадра
+    const t = new AttachmentDecryptor(key, id);
+    await t.push(enc.subarray(0, enc.length - 10));
+    await expect(t.finish()).rejects.toBeDefined();
+    // отрезан целый последний кадр: оставшийся последний кадр помечен как «не последний»
+    const frames: Uint8Array[] = [];
+    for (let off = 0; off < enc.length;) {
+      const len = new DataView(enc.buffer, enc.byteOffset + off, 4).getUint32(0);
+      frames.push(enc.subarray(off, off + 4 + 12 + len));
+      off += 4 + 12 + len;
+    }
+    expect(frames.length).toBe(3);
+    const cut = new AttachmentDecryptor(key, id);
+    await cut.push(concat(frames[0]!, frames[1]!));
+    await expect(cut.finish()).rejects.toBeInstanceOf(CryptoAuthError);
+    // перестановка
+    const sw = new AttachmentDecryptor(key, id);
+    await expect(
+      sw.push(concat(frames[1]!, frames[0]!, frames[2]!)).then(() => sw.finish()),
+    ).rejects.toBeInstanceOf(CryptoAuthError);
+  });
+
+  it('encryptStream reads slices lazily and produces the same plaintext', async () => {
+    const key = generateKey();
+    const id = crypto.randomUUID();
+    const data = new Uint8Array(1_100_000).map((_, i) => i % 199);
+    let maxSlice = 0;
+    const enc: Uint8Array[] = [];
+    for await (const f of encryptStream(key, id, data.length, async (s, e) => {
+      maxSlice = Math.max(maxSlice, e - s);
+      return data.slice(s, e);
+    }))
+      enc.push(f);
+    expect(maxSlice).toBeLessThanOrEqual(1024 * 1024);
+    expect(
+      Buffer.from(await decryptAttachment(key, id, concat(...enc))).equals(Buffer.from(data)),
+    ).toBe(true);
+    expect(chunkCount(0)).toBe(1);
+    expect(chunkCount(1024 * 1024 + 1)).toBe(2);
   });
 });

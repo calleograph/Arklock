@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, truncate } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -7,6 +7,12 @@ import { pipeline } from 'node:stream/promises';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const OVERRUN_LIMIT = 1024 * 1024;
+
+export class BlobOffsetError extends Error {
+  constructor(public readonly actual: number) {
+    super('blob offset mismatch');
+  }
+}
 
 export class BlobSizeError extends Error {
   constructor(public readonly got: number) {
@@ -54,6 +60,62 @@ export class BlobStore {
       await rm(tmp, { force: true });
       throw e;
     }
+  }
+
+  /**
+   * Дописывает часть файла (кадр) в файл незавершённой загрузки. Смещение должно совпадать с текущим размером:
+   * повтор уже принятой части и пропуск отвергаются; при сбое файл возвращается к прежнему размеру.
+   */
+  async appendPart(
+    id: string,
+    suffix: string,
+    input: Readable,
+    offset: number,
+    maxBytes: number,
+  ): Promise<number> {
+    const target = `${this.file(id, suffix)}.up`;
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o750 });
+    const current = await stat(target).then(
+      (s) => s.size,
+      () => 0,
+    );
+    if (current !== offset) throw new BlobOffsetError(current);
+    let seen = 0;
+    // Лишнее отбрасывается без обрыва соединения (клиент получает ответ); заведомо чрезмерная отправка обрывается
+    const counter = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        seen += chunk.length;
+        if (seen > maxBytes + OVERRUN_LIMIT) return cb(new BlobSizeError(seen));
+        if (seen > maxBytes) return cb();
+        cb(null, chunk);
+      },
+    });
+    try {
+      await pipeline(input, counter, createWriteStream(target, { flags: 'a', mode: 0o640 }));
+      if (seen > maxBytes) throw new BlobSizeError(seen);
+    } catch (e) {
+      await truncate(target, current).catch(() => undefined);
+      throw e;
+    }
+    return current + seen;
+  }
+
+  async uploadedSize(id: string, suffix: string): Promise<number> {
+    return stat(`${this.file(id, suffix)}.up`).then(
+      (s) => s.size,
+      () => 0,
+    );
+  }
+
+  /** Завершает ступенчатую загрузку: размер должен совпасть с объявленным. */
+  async finalizeUpload(id: string, suffix: string, expected: number): Promise<void> {
+    const up = `${this.file(id, suffix)}.up`;
+    const size = await stat(up).then(
+      (s) => s.size,
+      () => -1,
+    );
+    if (size !== expected) throw new BlobSizeError(size);
+    await rename(up, this.file(id, suffix));
   }
 
   read(id: string, suffix = ''): Readable {

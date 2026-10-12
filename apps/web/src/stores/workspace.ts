@@ -8,13 +8,16 @@ import {
   encryptBranchName,
   encryptEntry,
   fromBase64Url,
-  openAttachmentFile,
+  AttachmentDecryptor,
+  AttachmentReencryptor,
+  beginAttachment,
+  encryptStream,
+  encryptedSize,
+  openAttachmentKey,
   openAttachmentMeta,
   openVaultKey,
-  rewrapAttachment,
   rewrapBranchName,
   rewrapEntry,
-  sealAttachment,
   sealVaultKeyFor,
   signKeyGrant,
   verifyKeyGrant,
@@ -27,7 +30,7 @@ import type {
   RevisionRecord,
   VaultInfo,
 } from '@arklock/contracts';
-import { api, apiBinary } from '../services/api';
+import { api, ApiError, apiBinary, apiStream } from '../services/api';
 import {
   blankEntry,
   normalizeEntry,
@@ -586,10 +589,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     // Вложения: файлы перешифровываются новыми ключами и загружаются заранее; метаданные уходят в запрос ротации
     const attOut = [];
     for (const att of await api<AttachmentRecord[]>('GET', `/vaults/${vaultId}/attachments`)) {
-      const encrypted = await apiBinary('GET', `/vaults/${vaultId}/attachments/${att.id}/content`);
-      const re = await rewrapAttachment(oldKey, newKey, vaultId, att, encrypted, newVersion);
-      await apiBinary('PUT', `/vaults/${vaultId}/attachments/${att.id}/rotation`, re.file);
-      attOut.push({ id: att.id, wrappedKey: re.wrappedKey, metaCipher: re.metaCipher });
+      // Файл перешифровывается потоком: старые кадры читаются порциями, новые уходят по мере готовности
+      const oldAk = await openAttachmentKey(oldKey, vaultId, att);
+      const meta = await openAttachmentMeta(oldKey, vaultId, att);
+      const fresh = await beginAttachment(newKey, vaultId, newVersion, meta, att.id);
+      try {
+        const base = `/vaults/${vaultId}/attachments/${att.id}`;
+        const re = new AttachmentReencryptor(oldAk, fresh.ak, att.id);
+        const res = await apiStream(`${base}/content`);
+        const reader = res.body!.getReader();
+        let off = 0;
+        const send = async (frames: Uint8Array[]) => {
+          for (const f of frames) off = await putPart(`${base}/parts?rotation=1&offset=${off}`, f);
+        };
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await send(await re.push(value));
+        }
+        await send(await re.finish());
+        await api('POST', `${base}/complete?rotation=1`);
+      } finally {
+        oldAk.fill(0);
+        fresh.ak.fill(0);
+      }
+      attOut.push({ id: att.id, wrappedKey: fresh.wrappedKey, metaCipher: fresh.metaCipher });
     }
     const m = await members(vaultId);
     const holders = m.members;
@@ -651,38 +675,107 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return out;
   }
 
-  /** Шифрует файл в браузере и загружает; сервер получает только шифртекст. */
-  async function attachmentAdd(item: EntryItem, file: File): Promise<void> {
+  /** Отправка одной части; при сетевом сбое повтор с уточнением принятого смещения у сервера. */
+  async function putPart(path: string, frame: Uint8Array): Promise<number> {
+    const url = new URL(path, 'http://x');
+    const base = url.pathname;
+    const rotation = url.searchParams.get('rotation') === '1' ? '&rotation=1' : '';
+    let offset = Number(url.searchParams.get('offset'));
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const out = await apiBinary('PUT', `${base}?offset=${offset}${rotation}`, frame);
+        return (JSON.parse(new TextDecoder().decode(out)) as { received: number }).received;
+      } catch (e) {
+        if (attempt >= 4 || !(e instanceof ApiError) || (e.status !== 0 && e.status < 500)) throw e;
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        const p = await api<{ received: number }>(
+          'GET',
+          `${base.replace('/parts', '/progress')}?${rotation.slice(1)}`,
+        );
+        if (p.received === offset + frame.length) return p.received; // часть успела дойти
+        offset = p.received;
+      }
+    }
+  }
+
+  /**
+   * Шифрует файл в браузере по кускам (по 1 МиБ) и загружает частями: в памяти одновременно только один кусок,
+   * размер файла ограничен лишь квотой. Сервер получает только шифртекст.
+   */
+  async function attachmentAdd(
+    item: EntryItem,
+    file: File,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
     const v = vaults.value.find((x) => x.id === item.vaultId)!;
     const key = keyOf(item.vaultId, v.keyVersion);
     if (!key) throw new Error('vault is locked');
-    const sealed = await sealAttachment(
-      key,
-      item.vaultId,
-      v.keyVersion,
-      { name: file.name, type: file.type, size: file.size },
-      new Uint8Array(await file.arrayBuffer()),
-    );
-    await api('POST', `/vaults/${item.vaultId}/entries/${item.id}/attachments`, {
-      id: sealed.id,
-      wrappedKey: sealed.wrappedKey,
-      metaCipher: sealed.metaCipher,
-      keyVersion: sealed.keyVersion,
-      size: sealed.file.length,
+    const head = await beginAttachment(key, item.vaultId, v.keyVersion, {
+      name: file.name,
+      type: file.type,
+      size: file.size,
     });
-    await apiBinary('PUT', `/vaults/${item.vaultId}/attachments/${sealed.id}/content`, sealed.file);
+    const total = encryptedSize(file.size);
+    const base = `/vaults/${item.vaultId}/attachments/${head.id}`;
+    try {
+      await api('POST', `/vaults/${item.vaultId}/entries/${item.id}/attachments`, {
+        id: head.id,
+        wrappedKey: head.wrappedKey,
+        metaCipher: head.metaCipher,
+        keyVersion: v.keyVersion,
+        size: total,
+      });
+      let off = 0;
+      for await (const frame of encryptStream(
+        head.ak,
+        head.id,
+        file.size,
+        async (s, e) => new Uint8Array(await file.slice(s, e).arrayBuffer()),
+      )) {
+        off = await putPart(`${base}/parts?offset=${off}`, frame);
+        onProgress?.(off, total);
+      }
+      await api('POST', `${base}/complete`);
+    } catch (e) {
+      // незавершённая загрузка не оставляет ни записи, ни файла
+      await api('DELETE', base).catch(() => undefined);
+      throw e;
+    } finally {
+      head.ak.fill(0);
+    }
   }
 
-  async function attachmentOpen(item: EntryItem, id: string): Promise<Uint8Array> {
+  /** Расшифровывает вложение потоком: каждый кусок сразу уходит в приёмник (файл на диске или потоковая загрузка). */
+  async function attachmentDownload(
+    item: EntryItem,
+    id: string,
+    sink: { write: (chunk: Uint8Array) => Promise<void> },
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
     const rows = await api<AttachmentRecord[]>(
       'GET',
       `/vaults/${item.vaultId}/entries/${item.id}/attachments`,
     );
     const rec = rows.find((r) => r.id === id);
-    const key = rec && keyOf(item.vaultId, rec.keyVersion);
-    if (!rec || !key) throw new Error('attachment is not available');
-    const encrypted = await apiBinary('GET', `/vaults/${item.vaultId}/attachments/${id}/content`);
-    return openAttachmentFile(key, item.vaultId, rec, encrypted);
+    const vk = rec && keyOf(item.vaultId, rec.keyVersion);
+    if (!rec || !vk) throw new Error('attachment is not available');
+    const ak = await openAttachmentKey(vk, item.vaultId, rec);
+    try {
+      const dec = new AttachmentDecryptor(ak, id);
+      const res = await apiStream(`/vaults/${item.vaultId}/attachments/${id}/content`);
+      const reader = res.body!.getReader();
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        got += value.length;
+        for (const p of await dec.push(value)) await sink.write(p);
+        onProgress?.(got, rec.size);
+      }
+      for (const p of await dec.finish()) await sink.write(p);
+    } finally {
+      ak.fill(0);
+    }
   }
 
   async function attachmentRemove(item: EntryItem, id: string): Promise<void> {
@@ -759,7 +852,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     rotate,
     attachmentList,
     attachmentAdd,
-    attachmentOpen,
+    attachmentDownload,
     attachmentRemove,
     createLink,
     blankEntry,

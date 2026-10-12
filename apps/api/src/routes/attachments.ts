@@ -1,18 +1,18 @@
 import type { Readable } from 'node:stream';
 import { and, eq, inArray, lt, isNotNull, sql, type SQL } from 'drizzle-orm';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { attachmentCreate, uuid } from '@arklock/contracts';
 import type { AttachmentRecord } from '@arklock/contracts';
 import { requireVault, type VaultAccess } from '../access.js';
 import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
-import { BlobSizeError } from '../blobs.js';
+import { BlobOffsetError, BlobSizeError } from '../blobs.js';
 import type { AppContext } from '../context.js';
 import { attachments, entries, settings, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 
-export const DEFAULT_MAX_MIB = 25;
+export const DEFAULT_MAX_MIB = 1024;
 const MIB = 1024 * 1024;
 export const blobSuffix = (keyVersion: number) => `.k${keyVersion}`;
 
@@ -231,6 +231,96 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       if (e instanceof BlobSizeError)
         throw new AppError(400, 'size_mismatch', 'Uploaded size differs from the original size');
       throw e;
+    }
+    return reply.status(204).send();
+  });
+
+  // ------------------------------------------------------------------ ступенчатая загрузка (файл любого размера, постоянная память)
+
+  /** Кадр на часть: запас сверх размера куска шифрования (1 МиБ + заголовок, nonce и тег). */
+  const MAX_PART = 1024 * 1024 + 64;
+  const stepQuery = z.object({
+    offset: z.coerce.number().int().min(0),
+    rotation: z.enum(['0', '1']).default('0'),
+  });
+
+  /** Куда писать: обычная загрузка — в ожидающее вложение редактора; ротация — в новую версию готового вложения администратором. */
+  async function stepTarget(req: FastifyRequest, rotation: boolean) {
+    requireStorage();
+    const { user } = authOf(req);
+    const { vaultId, attachmentId } = parse(attParams, req.params);
+    const access = await requireVault(db, vaultId, user.id);
+    const a = await attachmentFor(vaultId, attachmentId);
+    if (rotation) {
+      if (!access.isAdmin) throw forbidden();
+      if (a.status !== 'ready') throw notFound();
+    } else {
+      await entryFor(vaultId, a.entryId, access, 'editor');
+      if (a.status !== 'pending')
+        throw new AppError(409, 'conflict', 'Content is already uploaded');
+    }
+    return { user, a, suffix: blobSuffix(a.keyVersion + (rotation ? 1 : 0)) };
+  }
+
+  /** Состояние незавершённой загрузки (для возобновления после обрыва). */
+  app.get('/vaults/:vaultId/attachments/:attachmentId/progress', async (req) => {
+    const q = parse(z.object({ rotation: z.enum(['0', '1']).default('0') }), req.query);
+    const { a, suffix } = await stepTarget(req, q.rotation === '1');
+    return { received: await blobs.uploadedSize(a.id, suffix), size: a.size };
+  });
+
+  app.put('/vaults/:vaultId/attachments/:attachmentId/parts', async (req, reply) => {
+    const q = parse(stepQuery, req.query);
+    const { a, suffix } = await stepTarget(req, q.rotation === '1');
+    const room = a.size - q.offset;
+    if (room <= 0) throw new AppError(409, 'offset_mismatch', 'All parts are already received');
+    try {
+      const received = await blobs.appendPart(
+        a.id,
+        suffix,
+        req.body as Readable,
+        q.offset,
+        Math.min(MAX_PART, room),
+      );
+      return reply.status(200).send({ received });
+    } catch (e) {
+      if (e instanceof BlobOffsetError)
+        throw new AppError(409, 'offset_mismatch', 'The offset does not match what was received', {
+          received: e.actual,
+        });
+      if (e instanceof BlobSizeError)
+        throw new AppError(400, 'size_mismatch', 'The part is larger than allowed');
+      throw e;
+    }
+  });
+
+  app.post('/vaults/:vaultId/attachments/:attachmentId/complete', async (req, reply) => {
+    const q = parse(z.object({ rotation: z.enum(['0', '1']).default('0') }), req.query);
+    const rotation = q.rotation === '1';
+    const { user, a, suffix } = await stepTarget(req, rotation);
+    try {
+      await blobs.finalizeUpload(a.id, suffix, a.size);
+    } catch (e) {
+      if (e instanceof BlobSizeError)
+        throw new AppError(
+          400,
+          'size_mismatch',
+          'The uploaded size differs from the declared size',
+        );
+      throw e;
+    }
+    if (!rotation) {
+      const [v] = await db.select().from(vaults).where(eq(vaults.id, a.vaultId));
+      if (!v || v.keyVersion !== a.keyVersion) {
+        await blobs.remove([a.id]);
+        await db.delete(attachments).where(eq(attachments.id, a.id));
+        throw new AppError(409, 'stale_key_version', 'Vault key was rotated during upload');
+      }
+      await db.update(attachments).set({ status: 'ready' }).where(eq(attachments.id, a.id));
+      await audit(db, `user:${user.id}`, 'attachment.add', `entry:${a.entryId}`, {
+        vault: a.vaultId,
+        size: a.size,
+      });
     }
     return reply.status(204).send();
   });

@@ -20,6 +20,7 @@ import {
 import { useWorkspaceStore } from '../stores/workspace';
 import { errorMessage } from '../services/helpers';
 import { api } from '../services/api';
+import { openSink } from '../services/download';
 import { NO_POLICY, checkPolicy, policyFrom, type PasswordPolicy } from '../services/policy';
 import type { VaultView } from '../stores/workspace';
 
@@ -230,6 +231,8 @@ async function openFiles(): Promise<void> {
     files.value = [];
   }
 }
+const progress = ref<{ label: string; done: number; total: number } | null>(null);
+
 async function addFile(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement;
   const picked = Array.from(input.files ?? []);
@@ -243,34 +246,38 @@ async function addFile(ev: Event): Promise<void> {
         error.value = t('files.tooLarge');
         continue;
       }
-      await ws.attachmentAdd(props.item, f);
+      progress.value = { label: f.name, done: 0, total: f.size || 1 };
+      await ws.attachmentAdd(props.item, f, (done, total) => {
+        progress.value = { label: f.name, done, total };
+      });
     }
     files.value = await ws.attachmentList(props.item);
   } catch (e) {
     error.value = errorMessage(e, t);
   } finally {
+    progress.value = null;
     busy.value = false;
   }
 }
+
 async function downloadFile(f: FileRow): Promise<void> {
   if (!props.item) return;
   busy.value = true;
   error.value = '';
+  let sink: Awaited<ReturnType<typeof openSink>> | null = null;
   try {
-    const bytes = await ws.attachmentOpen(props.item, f.id);
-    const url = URL.createObjectURL(
-      new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/octet-stream' }),
-    );
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = f.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  } catch {
-    error.value = t('files.broken');
+    sink = await openSink(f.name, f.size);
+    progress.value = { label: f.name, done: 0, total: f.size || 1 };
+    await ws.attachmentDownload(props.item, f.id, sink, (done, total) => {
+      progress.value = { label: f.name, done, total };
+    });
+    await sink.close();
+  } catch (e) {
+    await sink?.abort().catch(() => undefined);
+    // отмена выбора файла пользователем — не ошибка
+    if (!(e instanceof DOMException && e.name === 'AbortError')) error.value = t('files.broken');
   } finally {
+    progress.value = null;
     busy.value = false;
   }
 }
@@ -545,6 +552,10 @@ void api;
             </span>
           </li>
         </ul>
+        <div v-if="progress" class="space-y-1" data-testid="file-progress">
+          <div class="truncate text-xs text-slate-500">{{ progress.label }}</div>
+          <progress class="w-full" :max="progress.total" :value="progress.done"></progress>
+        </div>
         <div v-if="canEdit && storage.enabled">
           <input
             ref="fileInput"

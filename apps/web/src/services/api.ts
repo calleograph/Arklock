@@ -122,3 +122,30 @@ export async function apiBinary(
   }
   return new Uint8Array(await res.arrayBuffer());
 }
+
+/** Ответ как поток (скачивание вложений порциями). Ошибки приводятся к ApiError. */
+export async function apiStream(
+  path: string,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  const h: Record<string, string> = { ...headers };
+  if (token) h.Authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${API_PREFIX}${path}`, { headers: h, cache: 'no-store' });
+  } catch {
+    throw new ApiError(0, 'network_error', 'Network error');
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    if (res.status === 401 && token && data?.error?.code === 'unauthorized') onUnauthorized?.();
+    throw new ApiError(
+      res.status,
+      data?.error?.code ?? 'http_error',
+      data?.error?.message ?? res.statusText,
+    );
+  }
+  return res;
+}

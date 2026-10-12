@@ -3,7 +3,7 @@
  * ставилось на главный экран. Запросы к API (/api/), страницы получения секрета (/h/) и любые не-GET запросы не кэшируются
  * никогда: ни шифртекст, ни ответы сервера в кэш не попадают. Обновление версии интерфейса подхватывается при следующей загрузке.
  */
-const CACHE = 'arklock-shell-v1';
+const CACHE = 'arklock-shell-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -16,11 +16,47 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/* Потоковое скачивание вложений: страница шлёт расшифрованные куски через MessagePort, ответ на /sw-download/<id> собирается из них. */
+const downloads = new Map();
+self.addEventListener('message', (event) => {
+  const d = event.data;
+  if (d && d.type === 'download' && event.ports[0])
+    downloads.set(d.id, { name: String(d.name || 'file'), port: event.ports[0] });
+});
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/sw-download/')) {
+    const id = url.pathname.slice('/sw-download/'.length);
+    const d = downloads.get(id);
+    if (!d) {
+      event.respondWith(new Response('Not found', { status: 404 }));
+      return;
+    }
+    downloads.delete(id);
+    const stream = new ReadableStream({
+      start(controller) {
+        d.port.onmessage = (m) => {
+          if (m.data === null) controller.close();
+          else if (m.data === 'abort') controller.error(new Error('aborted'));
+          else controller.enqueue(new Uint8Array(m.data));
+        };
+      },
+    });
+    event.respondWith(
+      new Response(stream, {
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(d.name),
+          'cache-control': 'no-store',
+        },
+      }),
+    );
+    return;
+  }
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/h/')) return;
 
   // Хешированные файлы сборки неизменяемы: сначала кэш

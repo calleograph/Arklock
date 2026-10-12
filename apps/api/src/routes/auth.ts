@@ -213,7 +213,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'policy.password.minLength': get('policy.password.minLength', 0),
       'policy.password.classes': get('policy.password.classes', 0),
       'storage.enabled': config.BLOB_DIR !== '',
-      'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 25),
+      'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 1024),
     };
   });
 

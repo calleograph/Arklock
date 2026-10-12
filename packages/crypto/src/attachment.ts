@@ -235,3 +235,123 @@ export async function rewrapAttachment(
     plain.fill(0);
   }
 }
+
+// ------------------------------------------------------------------ потоковая обработка (постоянная память)
+
+/** Число кусков шифрования для файла данного размера (пустой файл — один пустой кусок). */
+export const chunkCount = (plainSize: number, chunkSize = CHUNK_SIZE): number =>
+  Math.max(1, Math.ceil(plainSize / chunkSize));
+
+/**
+ * Потоковое расшифрование: принимает байты из сети порциями любого размера и отдаёт открытые куски по мере готовности.
+ * Последний кадр заранее неизвестен, поэтому кадр обрабатывается, когда пришёл следующий или поток закончился (finish).
+ * Подмена, перестановка, удаление и усечение обнаруживаются так же, как при расшифровании целиком.
+ */
+export class AttachmentDecryptor {
+  private buf = new Uint8Array(0);
+  private held: Uint8Array | null = null;
+  private index = 0;
+
+  constructor(
+    private readonly attKey: Uint8Array,
+    private readonly attachmentId: string,
+  ) {}
+
+  private frames(): Uint8Array[] {
+    const out: Uint8Array[] = [];
+    for (;;) {
+      if (this.buf.length < 4) break;
+      const len = new DataView(this.buf.buffer, this.buf.byteOffset, 4).getUint32(0);
+      if (len > CHUNK_SIZE + TAG) throw new CryptoFormatError('attachment frame is too large');
+      const total = 4 + NONCE + len;
+      if (this.buf.length < total) break;
+      out.push(this.buf.slice(4, total));
+      this.buf = this.buf.subarray(total);
+    }
+    return out;
+  }
+
+  async push(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>[]> {
+    this.buf = this.buf.length ? concat(this.buf, bytes) : bytes.slice();
+    const out: Uint8Array<ArrayBuffer>[] = [];
+    for (const frame of this.frames()) {
+      if (this.held)
+        out.push(
+          await decryptChunk(this.attKey, this.attachmentId, this.index++, false, this.held),
+        );
+      this.held = frame;
+    }
+    return out;
+  }
+
+  async finish(): Promise<Uint8Array<ArrayBuffer>[]> {
+    if (this.buf.length) throw new CryptoFormatError('truncated attachment');
+    if (!this.held) throw new CryptoFormatError('empty attachment');
+    const last = await decryptChunk(this.attKey, this.attachmentId, this.index++, true, this.held);
+    this.held = null;
+    return [last];
+  }
+}
+
+/** Файл → кадры по одному, не загружая его целиком: куски читаются через slice. */
+export async function* encryptStream(
+  attKey: Uint8Array,
+  attachmentId: string,
+  size: number,
+  readSlice: (start: number, end: number) => Promise<Uint8Array>,
+  chunkSize = CHUNK_SIZE,
+): AsyncGenerator<Uint8Array<ArrayBuffer>> {
+  const total = chunkCount(size, chunkSize);
+  for (let i = 0; i < total; i++) {
+    const plain = await readSlice(i * chunkSize, Math.min(size, (i + 1) * chunkSize));
+    yield await encryptChunk(attKey, attachmentId, i, i === total - 1, plain);
+  }
+}
+
+/** Заголовок вложения для ступенчатой загрузки: новый ключ вложения, обёрнутый ключом хранилища, и зашифрованные метаданные. */
+export async function beginAttachment(
+  vaultKey: Uint8Array,
+  vaultId: string,
+  keyVersion: number,
+  meta: AttachmentMeta,
+  id: string = globalThis.crypto.randomUUID(),
+): Promise<{ id: string; ak: Uint8Array<ArrayBuffer>; wrappedKey: string; metaCipher: string }> {
+  const ak = generateKey();
+  return {
+    id,
+    ak,
+    wrappedKey: await encrypt(vaultKey, ak, ctx('att-key', vaultId, id, keyVersion)),
+    metaCipher: await encrypt(ak, utf8(JSON.stringify(meta)), ctx('att-meta', vaultId, id)),
+  };
+}
+
+/**
+ * Потоковое перешифрование файла под другой ключ вложения (ротация ключа хранилища) с постоянным расходом памяти:
+ * кадры старого файла поступают порциями, кадры нового отдаются по мере готовности.
+ */
+export class AttachmentReencryptor {
+  private readonly dec: AttachmentDecryptor;
+  private index = 0;
+
+  constructor(
+    oldKey: Uint8Array,
+    private readonly newKey: Uint8Array,
+    private readonly attachmentId: string,
+  ) {
+    this.dec = new AttachmentDecryptor(oldKey, attachmentId);
+  }
+
+  async push(bytes: Uint8Array): Promise<Uint8Array<ArrayBuffer>[]> {
+    const out: Uint8Array<ArrayBuffer>[] = [];
+    for (const plain of await this.dec.push(bytes))
+      out.push(await encryptChunk(this.newKey, this.attachmentId, this.index++, false, plain));
+    return out;
+  }
+
+  async finish(): Promise<Uint8Array<ArrayBuffer>[]> {
+    const out: Uint8Array<ArrayBuffer>[] = [];
+    for (const plain of await this.dec.finish())
+      out.push(await encryptChunk(this.newKey, this.attachmentId, this.index++, true, plain));
+    return out;
+  }
+}

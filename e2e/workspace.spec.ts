@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Browser, type Page } from '@playwright/test';
@@ -85,6 +86,34 @@ async function downloadText(page: Page): Promise<string> {
   ]);
   expect(download.suggestedFilename()).toBe('договор.txt');
   return readFileSync((await download.path())!, 'utf8');
+}
+
+/** Крупный файл: загрузка и скачивание порциями, содержимое совпадает побайтно (проверка SHA-256). */
+async function bigFileRoundTrip(page: Page): Promise<void> {
+  const size = 40 * 1024 * 1024 + 320;
+  const buf = Buffer.alloc(size);
+  for (let i = 0; i < size; i += 4) buf.writeUInt32LE((i * 2654435761) >>> 0, i);
+  const want = createHash('sha256').update(buf).digest('hex');
+  await page.getByTestId('tab-files').click();
+  await page
+    .getByTestId('file-input')
+    .setInputFiles({ name: 'big.bin', mimeType: 'application/octet-stream', buffer: buf });
+  await expect(page.getByTestId('file-row').filter({ hasText: 'big.bin' })).toBeVisible({
+    timeout: 180_000,
+  });
+  const row = page.getByTestId('file-row').filter({ hasText: 'big.bin' });
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 180_000 }),
+    row.getByTestId('file-download').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('big.bin');
+  const got = readFileSync((await download.path())!);
+  expect(got.length).toBe(size);
+  expect(createHash('sha256').update(got).digest('hex')).toBe(want);
+  // удалить, чтобы не мешать дальнейшим шагам (ротация перешифровывает все файлы)
+  await row.getByTestId('file-remove').click();
+  await row.getByTestId('file-remove').click();
+  await expect(page.getByTestId('file-row').filter({ hasText: 'big.bin' })).toHaveCount(0);
 }
 
 let adminPage: Page;
@@ -301,6 +330,7 @@ test('a second user joins a shared vault; revoking access and rotating the key',
     expect(raw.includes(Buffer.from('договор'))).toBe(false);
   }
   expect(await downloadText(page)).toBe(FILE_TEXT);
+  await bigFileRoundTrip(page);
 
   // добавление участника
   await page.getByTestId('btn-vault-settings').click();
