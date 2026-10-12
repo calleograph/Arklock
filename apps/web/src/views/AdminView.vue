@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
+import SyslogSettings from '../components/SyslogSettings.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -24,7 +25,7 @@ type SysTab =
   | 'diagnostics'
   | 'certificates'
   | 'smtp';
-type Tab = 'users' | 'circles' | 'settings' | 'ledger' | 'ldap' | 'sso' | SysTab;
+type Tab = 'users' | 'circles' | 'settings' | 'ledger' | 'ldap' | 'sso' | 'syslog' | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
   'resources',
@@ -205,7 +206,16 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
     <h1 class="text-xl font-semibold">{{ t('admin.title') }}</h1>
     <nav class="flex flex-wrap gap-1 border-b border-slate-200 text-sm dark:border-slate-800">
       <button
-        v-for="x in ['users', 'circles', 'settings', 'ledger', ...SYS_TABS, 'ldap', 'sso'] as Tab[]"
+        v-for="x in [
+          'users',
+          'circles',
+          'settings',
+          'ledger',
+          ...SYS_TABS,
+          'ldap',
+          'sso',
+          'syslog',
+        ] as Tab[]"
         :key="x"
         type="button"
         class="px-3 py-1.5"
@@ -233,7 +243,8 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
       {{ notice }}
     </p>
 
-    <SsoSettings v-if="tab === 'sso'" />
+    <SyslogSettings v-if="tab === 'syslog'" />
+    <SsoSettings v-else-if="tab === 'sso'" />
     <LdapSettings v-else-if="tab === 'ldap'" />
     <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
 

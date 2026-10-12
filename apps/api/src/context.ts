@@ -1,7 +1,9 @@
 import type { Config } from './config.js';
 import type { Database, Db } from './db/connect.js';
 import { ReauthStore } from './auth/reauth.js';
+import { setAuditSink } from './audit.js';
 import { BlobStore } from './blobs.js';
+import { SyslogSink } from './syslog.js';
 import { EnrollStore } from './auth/enroll.js';
 import { MfaChallenges, type MfaPolicy } from './auth/mfa.js';
 import { AttemptLimiter } from './rateLimit.js';
@@ -19,11 +21,14 @@ export interface AppContext {
   blobs: BlobStore;
   mfa: MfaChallenges;
   enroll: EnrollStore;
+  syslog: SyslogSink;
   mfaPolicyCache?: { value: MfaPolicy; until: number };
 }
 
 export function createContext(config: Config, database: Database): AppContext {
   const windowMs = config.LOGIN_WINDOW_MINUTES * 60_000;
+  const syslog = new SyslogSink(database.db);
+  setAuditSink(database.db, (ev) => void syslog.forward(ev));
   return {
     config,
     database,
@@ -33,6 +38,7 @@ export function createContext(config: Config, database: Database): AppContext {
     blobs: new BlobStore(config.BLOB_DIR),
     mfa: new MfaChallenges(),
     enroll: new EnrollStore(),
+    syslog,
     attempts: {
       byEmail: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS, windowMs),
       byIp: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS * 5, windowMs),

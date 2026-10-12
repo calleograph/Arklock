@@ -12,7 +12,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @arklock/crypto -w @arklock/contracts && npm run build -w @arklock/cli -w @arklock/extensionent && npm run build -w @arklock/api -w @arklock/web -w @arklock/cli",
+    "build": "npm run build -w @arklock/crypto -w @arklock/contracts && npm run build -w @arklock/client && npm run build -w @arklock/api -w @arklock/web -w @arklock/cli -w @arklock/extension",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "format:check": "prettier --check .",
