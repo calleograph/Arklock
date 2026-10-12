@@ -432,6 +432,49 @@ jobs:
           sudo docker compose --project-name arklock-sh down -v || true
           docker rm -f foreign-app foreign-db || true
 
+  installer-piped:
+    name: installer started with curl-style pipe, reachable on the LAN address
+    runs-on: ubuntu-24.04
+    env:
+      CFG: /etc/arklock-pipe
+      DATA: /var/lib/arklock-pipe
+      APPDIR: /opt/arklock-pipe
+      PROJ: arklock-pipe
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: A local origin with a tag that points to this commit
+        run: |
+          git tag v1.0.1-ci
+          git clone --bare --quiet "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin-ci.git"
+      - name: Install from stdin (как curl … | bash), bound to the LAN address
+        run: |
+          dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
+          lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
+          echo "LAN=$lan" >> "$GITHUB_ENV"
+          cat install.sh | sudo bash -s -- --yes --profile standalone --bind "$lan" \
+            --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v1.0.1-ci \
+            --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log
+          grep -q "УСТАНОВКА ЗАВЕРШЕНА" install.log
+          grep -q "Адрес прослушивания: $lan:" install.log
+      - name: The app answers on the LAN address and only there
+        run: |
+          port="$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")"
+          test "$(sudo sed -n 's/^APP_BIND=//p' "$CFG/arklock.env")" = "$LAN"
+          curl -fsS "http://$LAN:$port/api/v1/ready"
+          curl -fsS "http://$LAN:$port/api/v1/auth/registration" | grep -q '"setupTokenRequired":true'
+          curl -fsS "http://$LAN:$port/api/v1/version" | grep -q '"version":"1.0.1"'
+      - name: Re-running the piped installer keeps the bind address
+        run: |
+          cat install.sh | sudo bash -s -- --yes --profile standalone \
+            --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v1.0.1-ci \
+            --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" > install2.log 2>&1
+          grep -q "Адрес прослушивания: $LAN:" install2.log
+      - name: Logs on failure
+        if: failure()
+        run: sudo docker compose -p "$PROJ" logs --tail 80 || true
+
   update-flow:
     name: update, failed update recovery and rollback
     runs-on: ubuntu-24.04

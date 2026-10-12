@@ -48,7 +48,10 @@ valid_domain() { [[ "$1" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-
 
 # Конфигурация Nginx. Аргументы: домен порт_приложения сертификат ключ [только_http]
 render_conf() {
-  local domain="$1" port="$2" cert="$3" key="$4" http_only="${5:-0}" v6_80="" v6_443=""
+  local domain="$1" port="$2" cert="$3" key="$4" http_only="${5:-0}" v6_80="" v6_443="" upstream
+  # приложение слушает APP_BIND (по умолчанию loopback); при 0.0.0.0 подключаемся к loopback
+  upstream="${APP_BIND:-127.0.0.1}"
+  [ "$upstream" != 0.0.0.0 ] || upstream=127.0.0.1
   # IPv6 включается только там, где он есть: иначе Nginx не запустится
   if [ -s /proc/net/if_inet6 ]; then v6_80=$'    listen [::]:80;
 '; v6_443=$'    listen [::]:443 ssl http2;
@@ -97,7 +100,7 @@ ${v6_443}    server_name $domain;
     client_body_timeout 120s;
 
     location / {
-        proxy_pass http://127.0.0.1:$port;
+        proxy_pass http://$upstream:$port;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         # реальный адрес клиента: заголовок перезаписывается, а не дополняется (приложение доверяет одному прокси)

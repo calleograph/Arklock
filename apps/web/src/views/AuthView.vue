@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import { externalStartUrl } from '../services/ssoBinding';
 import * as account from '../services/account';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, hasWebCrypto } from '../services/helpers';
 import { api, ApiError } from '../services/api';
 
 type Mode = 'signin' | 'register' | 'recover' | 'unlock';
@@ -146,6 +146,10 @@ async function useKey(): Promise<void> {
 
 async function submit(): Promise<void> {
   error.value = '';
+  if (!hasWebCrypto()) {
+    error.value = t('error.insecure');
+    return;
+  }
   busy.value = true;
   try {
     if (mfaStep.value) {

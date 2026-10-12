@@ -14,7 +14,10 @@
 #   --data ПУТЬ       каталог данных DATA_ROOT (по умолчанию /var/lib/arklock): резервные копии, состояние, журналы
 #   --config ПУТЬ     каталог конфигурации (по умолчанию /etc/arklock)
 #   --project ИМЯ     имя compose-проекта (по умолчанию arklock)
-#   --port ПОРТ       порт на 127.0.0.1 (по умолчанию подбирается свободный: 8080 или выше)
+#   --port ПОРТ       порт приложения (по умолчанию подбирается свободный: 8080 или выше)
+#   --bind local|lan|all|АДРЕС   где слушать: local — 127.0.0.1 (по умолчанию, для reverse proxy на этом же сервере),
+#                     lan — IP сервера в локальной сети, all — все адреса, либо конкретный адрес сервера.
+#                     Без --yes адрес выбирается в диалоге. Значение сохраняется при повторной установке.
 #   --url АДРЕС       публичный адрес (https://…), по которому пользователи откроют Arklock
 #   --https РЕЖИМ     автоматическая настройка Nginx и HTTPS: letsencrypt | self-signed | existing (нужен --domain);
 #                     в профиле shared-host Nginx не меняется — создаётся только пример конфигурации
@@ -34,7 +37,7 @@ set -euo pipefail
 REPO_URL_DEFAULT="https://github.com/calleograph/arklock.git"
 PROFILE=""; INSTALL_DIR=""; DATA_ROOT=""; CONFIG_DIR="/etc/arklock"; PROJECT="arklock"; PORT=""; PUBLIC_URL=""
 HTTPS_MODE=""; DOMAIN=""; ACME_EMAIL=""; TLS_CERT=""; TLS_KEY=""
-REF=""; REPO_URL="$REPO_URL_DEFAULT"; ALLOW_UNRELEASED=0; YES=0; DRY=0; BOOTSTRAPPED=0
+REF=""; REPO_URL="$REPO_URL_DEFAULT"; ALLOW_UNRELEASED=0; YES=0; DRY=0; BOOTSTRAPPED=0; BIND=""
 
 usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -46,6 +49,7 @@ while [ $# -gt 0 ]; do
     --config) CONFIG_DIR="${2:-}"; shift 2 ;;
     --project) PROJECT="${2:-}"; shift 2 ;;
     --port) PORT="${2:-}"; shift 2 ;;
+    --bind) BIND="${2:-}"; shift 2 ;;
     --url) PUBLIC_URL="${2:-}"; shift 2 ;;
     --https) HTTPS_MODE="${2:-}"; shift 2 ;;
     --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -63,7 +67,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# При запуске через конвейер (curl … | bash) BASH_SOURCE не задан: HERE пустой, и установщик загрузит программу сам.
+SELF_PATH="${BASH_SOURCE[0]:-}"
+if [ -n "$SELF_PATH" ]; then HERE="$(cd "$(dirname "$SELF_PATH")" && pwd)"; else HERE=""; fi
+
+# Вопросы задаются через терминал, даже если стандартный ввод занят скриптом (конвейер).
+tty_ok() { (exec </dev/tty) 2>/dev/null; }
+ask() { # ask ПОДСКАЗКА → ответ в ANSWER
+  if [ -t 0 ]; then read -r -p "$1" ANSWER
+  elif tty_ok; then read -r -p "$1" ANSWER </dev/tty
+  else ANSWER=""; fi
+}
 
 case "$HTTPS_MODE" in
   ''|letsencrypt|self-signed|existing) ;;
@@ -119,9 +133,15 @@ if [ ! -f "$HERE/scripts/lib/common.sh" ] || [ ! -f "$HERE/compose.yaml" ]; then
   [ "$DRY" -eq 0 ] || exit 0
   args=(--bootstrapped --profile "${PROFILE:-}" --dir "$INSTALL_DIR" --data "${DATA_ROOT:-}" --config "$CONFIG_DIR"
     --project "$PROJECT" --port "${PORT:-}" --url "${PUBLIC_URL:-}" --repo "$REPO_URL")
+  # все параметры передаются дальше: иначе переустановка из клона их бы не учла
+  [ -z "$BIND" ] || args+=(--bind "$BIND")
+  [ -z "$HTTPS_MODE" ] || args+=(--https "$HTTPS_MODE" --domain "$DOMAIN")
+  [ -z "$ACME_EMAIL" ] || args+=(--email "$ACME_EMAIL")
+  [ -z "$TLS_CERT" ] || args+=(--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY")
   [ "$YES" -eq 1 ] && args+=(--yes)
   [ "$ALLOW_UNRELEASED" -eq 1 ] && args+=(--allow-unreleased)
-  exec "$INSTALL_DIR/install.sh" "${args[@]}"
+  # стандартный ввод при конвейере — текст самого скрипта: вопросы задаются через /dev/tty
+  exec "$INSTALL_DIR/install.sh" "${args[@]}" </dev/null
 fi
 
 # ------------------------------------------------------------------ далее — из каталога программы
@@ -147,10 +167,10 @@ for svc in nginx apache2 httpd caddy; do systemctl is-active --quiet "$svc" 2>/d
 SUGGEST="standalone"
 if [ "$OTHER_CONTAINERS" -gt 0 ] || [ -n "$WEB_SERVERS" ]; then SUGGEST="shared-host"; fi
 if [ -z "$PROFILE" ]; then
-  if [ "$YES" -eq 0 ] && [ -t 0 ]; then
+  if [ "$YES" -eq 0 ] && { [ -t 0 ] || tty_ok; }; then
     echo "Обнаружено: чужих compose-контейнеров — $OTHER_CONTAINERS; веб-серверы:${WEB_SERVERS:- нет}."
-    read -r -p "Профиль установки [standalone/shared-host] (рекомендуется: $SUGGEST): " PROFILE
-    PROFILE="${PROFILE:-$SUGGEST}"
+    ask "Профиль установки [standalone/shared-host] (рекомендуется: $SUGGEST): "
+    PROFILE="${ANSWER:-$SUGGEST}"
   else
     PROFILE="$SUGGEST"
   fi
@@ -211,7 +231,52 @@ if [ -z "$PORT" ]; then
 fi
 [[ "$PORT" =~ ^[0-9]+$ ]] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || bail "Некорректный порт: $PORT"
 if [ "$PORT" != "$EXISTING_PORT" ] && port_in_use "$PORT"; then bail "Порт $PORT уже занят другим сервисом. Укажите другой: --port ПОРТ"; fi
-okk "Порт приложения: 127.0.0.1:$PORT"
+
+# ------------------------------------------------------------------ 5а. Адрес прослушивания
+EXISTING_BIND=""
+[ -f "$ENV_FILE" ] && EXISTING_BIND="$(env_get "$ENV_FILE" APP_BIND)"
+lan_ip() { # адрес основного сетевого интерфейса (того, что с маршрутом по умолчанию)
+  local dev
+  dev="$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
+  [ -n "$dev" ] || return 1
+  ip -4 -o addr show dev "$dev" 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }'
+}
+if [ -z "$BIND" ]; then
+  if [ -n "$EXISTING_BIND" ]; then
+    BIND="$EXISTING_BIND"
+  elif [ "$YES" -eq 0 ] && tty_ok; then
+    echo "Откуда будут открывать Arklock:"
+    echo "  1) только с этого сервера (127.0.0.1) — за reverse proxy на этом же сервере [по умолчанию]"
+    echo "  2) из локальной сети по адресу $(lan_ip || true) — браузер потребует HTTPS"
+    echo "  3) со всех адресов сервера (0.0.0.0) — например, Nginx Proxy Manager в Docker"
+    echo "  4) по другому адресу этого сервера"
+    ask "Выберите 1–4 [1]: "
+    case "${ANSWER:-1}" in
+      2) BIND=lan ;;
+      3) BIND=all ;;
+      4) ask "Адрес сервера: "; BIND="$ANSWER" ;;
+      *) BIND=local ;;
+    esac
+  else
+    BIND=local
+  fi
+fi
+case "$BIND" in
+  local) BIND=127.0.0.1 ;;
+  lan) BIND="$(lan_ip || true)"; [ -n "$BIND" ] || bail "Не удалось определить адрес сервера в локальной сети: укажите --bind АДРЕС" ;;
+  all) BIND=0.0.0.0 ;;
+esac
+[[ "$BIND" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || bail "Некорректный адрес прослушивания: $BIND (допустимы local, lan, all или IPv4-адрес сервера)"
+if [ "$BIND" != 0.0.0.0 ] && [ "$BIND" != 127.0.0.1 ] && ! ip -4 addr show | grep -qw "$BIND"; then
+  bail "Адрес $BIND не назначен этому серверу"
+fi
+okk "Адрес прослушивания: $BIND:$PORT"
+if [ "$BIND" = 0.0.0.0 ]; then
+  warnn "Приложение слушает все адреса сервера. Ограничьте порт $PORT фаерволом, если сервер доступен из интернета."
+fi
+if [ "$BIND" != 127.0.0.1 ] && [ -z "$HTTPS_MODE" ]; then
+  warnn "Браузеры разрешают шифрование только по HTTPS или на localhost: по http://$BIND:$PORT вход не заработает. Настройте HTTPS (reverse proxy или --https), см. docs/INSTALL.md."
+fi
 
 FREE="$(free_gib "$DATA_ROOT")"
 [ "${FREE:-0}" -ge 3 ] || bail "Мало свободного места в ${DATA_ROOT}: ${FREE} ГиБ (нужно не менее 3)"
@@ -250,6 +315,8 @@ set_default TRUSTED_PROXY_HOPS 1
 set_default UPDATE_CHANNEL stable
 set_default LOG_LEVEL info
 env_set "$ENV_FILE" APP_PORT "$PORT"
+env_set "$ENV_FILE" APP_BIND "$BIND"
+export APP_BIND
 [ -z "$PUBLIC_URL" ] || env_set "$ENV_FILE" APP_PUBLIC_URL "$PUBLIC_URL"
 chmod 600 "$ENV_FILE"
 okk "Конфигурация: $ENV_FILE (права 600)"
@@ -317,7 +384,7 @@ cat <<EOF
  Профиль:          $PROFILE
  Версия:           $(app_version) ($(git_commit | cut -c1-12))
  Адрес (локально): $(app_url_local)
- Адрес (публичный): ${APP_PUBLIC_URL:-не задан — настройте reverse proxy с HTTPS на 127.0.0.1:$PORT}
+ Адрес (для пользователей): ${APP_PUBLIC_URL:-$(app_url_local) — за reverse proxy с HTTPS укажите его адрес: --url https://…}
  Помощник обновлений: $HELPER_STATE
  HTTPS / Nginx:    $PROXY_STATE
  Конфигурация:     $ENV_FILE

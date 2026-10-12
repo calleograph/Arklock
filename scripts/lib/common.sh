@@ -106,7 +106,12 @@ dc() {
     --env-file "$ENV_FILE" -f "$REPO_ROOT/compose.yaml" "$@"
 }
 
-app_url_local() { printf 'http://127.0.0.1:%s' "${APP_PORT:-8080}"; }
+# Адрес для проверок на этом сервере: при привязке к конкретному адресу — он, иначе loopback.
+app_url_local() {
+  local host="${APP_BIND:-127.0.0.1}"
+  [ "$host" != 0.0.0.0 ] || host=127.0.0.1
+  printf 'http://%s:%s' "$host" "${APP_PORT:-8080}"
+}
 
 # ------------------------------------------------------------------ версии
 app_version() { tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || echo 0.0.0; }

@@ -42,9 +42,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
       UPDATE_CHANNEL: ${UPDATE_CHANNEL:-stable}
-    # Порт публикуется только на loopback: наружу смотрит reverse proxy с HTTPS.
+    # По умолчанию порт публикуется только на loopback (наружу смотрит reverse proxy с HTTPS).
+    # Адрес выбирается установщиком (--bind) и хранится в APP_BIND.
     ports:
-      - '127.0.0.1:${APP_PORT:-8080}:8080'
+      - '${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080'
     volumes:
       # Каталог обмена с помощником обновлений: приложение пишет туда только запросы, Docker-сокет не передаётся.
       - ${DATA_ROOT:-/var/lib/arklock}/updater:/updater

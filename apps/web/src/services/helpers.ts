@@ -1,5 +1,13 @@
 import { ApiError } from './api';
 
+/**
+ * Шифрование в браузере требует защищённого контекста (HTTPS или localhost): без него Web Crypto API недоступен.
+ * Проверяется заранее, чтобы показать причину, а не общую ошибку.
+ */
+export function hasWebCrypto(): boolean {
+  return globalThis.isSecureContext === true && typeof globalThis.crypto?.subtle !== 'undefined';
+}
+
 type T = (key: string) => string;
 
 /** Понятное пользователю сообщение. Технические детали и тексты сервера не показываются. */
@@ -36,7 +44,7 @@ export function errorMessage(e: unknown, t: T): string {
         return t('error.network');
     }
   }
-  return t('error.generic');
+  return hasWebCrypto() ? t('error.generic') : t('error.insecure');
 }
 
 const LOWER = 'abcdefghijkmnopqrstuvwxyz';

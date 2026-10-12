@@ -128,5 +128,10 @@ export default {
     errPassword: 'Wrong master password',
   },
   ui: { theme: 'Theme', language: 'Language' },
-  error: { generic: 'Something went wrong. Try again', network: 'Cannot reach the server' },
+  error: {
+    generic: 'Something went wrong. Try again',
+    network: 'Cannot reach the server',
+    insecure:
+      'The browser does not allow encryption at this address. Open Arklock over HTTPS or via localhost (plain http://192.168.x.x does not work).',
+  },
 };
