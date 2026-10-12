@@ -285,6 +285,7 @@ jobs:
           # повреждение на стороне хранилища обнаруживается
           printf 'tampered' | sudo tee -a "/tmp/smbshare/ci/server1/$name" >/dev/null
           if sudo -E ./scripts/remote.sh verify "$name"; then echo "tampered object accepted"; exit 1; fi
+          sudo -E ./scripts/remote.sh delete "$name"
           sudo -E ./scripts/remote.sh push "$BACKUP"
           sudo -E ./scripts/remote.sh verify "$name"
           # ротация: оставляем одну, чужие копии не трогаем

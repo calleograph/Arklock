@@ -96,6 +96,8 @@ test.beforeAll(async () => {
   );
   const options = new firefox.Options();
   if (process.env.FIREFOX_HEADED !== '1') options.addArguments('-headless');
+  // нужен для чтения настроек браузера (действительный адрес расширения)
+  options.addArguments('-remote-allow-system-access');
   if (process.env.FIREFOX_BIN) options.setBinary(process.env.FIREFOX_BIN);
   // постоянный адрес окна расширения для проверок
   options.setPreference('extensions.webextensions.uuids', JSON.stringify({ [GECKO_ID]: UUID }));
