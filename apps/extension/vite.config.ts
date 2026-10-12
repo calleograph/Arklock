@@ -100,7 +100,16 @@ function manifestPlugin(): Plugin {
           : { service_worker: 'background.js', type: 'module' },
         permissions: ['activeTab', 'scripting', 'storage', 'alarms', 'clipboardWrite'],
         optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
-        ...(testHosts.length ? { host_permissions: testHosts } : {}),
+        // Только для проверочных сборок: WebDriver открывает окно расширения вкладкой, а Firefox пускает по адресу
+        // moz-extension:// лишь на страницы из web_accessible_resources. В боевой сборке этого раздела нет.
+        ...(testHosts.length
+          ? {
+              host_permissions: testHosts,
+              web_accessible_resources: [
+                { resources: ['popup.html', 'assets/*'], matches: ['<all_urls>'] },
+              ],
+            }
+          : {}),
         content_security_policy: {
           extension_pages:
             "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; base-uri 'none'; frame-ancestors 'none'",
