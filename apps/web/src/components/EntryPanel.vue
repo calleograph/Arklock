@@ -87,9 +87,29 @@ watch(
 
 const canEdit = computed(() => !props.item || props.item.access !== 'reader');
 const strength = computed(() => estimateStrength(form.value.password));
-const branchOptions = computed(() =>
-  [...props.branches].sort((a, b) => a.name.localeCompare(b.name)),
-);
+/** Папки деревом: вложенность показана отступом и значком ветки; порядок — по названию внутри уровня. */
+const branchOptions = computed(() => {
+  const byParent = new Map<string | null, BranchItem[]>();
+  for (const b of props.branches) {
+    const list = byParent.get(b.parentId) ?? [];
+    list.push(b);
+    byParent.set(b.parentId, list);
+  }
+  const out: { id: string; label: string }[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string | null, depth: number): void => {
+    for (const b of (byParent.get(parent) ?? []).sort((x, y) => x.name.localeCompare(y.name))) {
+      if (seen.has(b.id)) continue;
+      seen.add(b.id);
+      out.push({ id: b.id, label: ' '.repeat(depth) + (depth ? '└ ' : '') + b.name });
+      walk(b.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  // папки, чей родитель не загружен, показываем в корне, чтобы их нельзя было потерять
+  for (const b of props.branches) if (!seen.has(b.id)) out.push({ id: b.id, label: b.name });
+  return out;
+});
 
 // ---- TOTP
 const code = ref('');
@@ -779,7 +799,7 @@ void api;
             ><span class="mb-1 block">{{ t('vault.folder') }}</span>
             <select v-model="branchChoice" class="input" data-testid="f-folder">
               <option :value="null">{{ t('vault.root') }}</option>
-              <option v-for="b in branchOptions" :key="b.id" :value="b.id">{{ b.name }}</option>
+              <option v-for="b in branchOptions" :key="b.id" :value="b.id">{{ b.label }}</option>
             </select></label
           >
         </div>

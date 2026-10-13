@@ -244,10 +244,24 @@ void router;
         data-testid="vault-select"
         @change="ws.select(($event.target as HTMLSelectElement).value)"
       >
-        <option v-for="v in ws.vaults" :key="v.id" :value="v.id">
-          {{ v.kind === 'locker' ? t('vault.locker') : v.name
-          }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
-        </option>
+        <optgroup :label="t('vault.groupPersonal')">
+          <option
+            v-for="v in ws.vaults.filter((x) => x.kind === 'locker')"
+            :key="v.id"
+            :value="v.id"
+          >
+            {{ t('vault.locker') }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
+          </option>
+        </optgroup>
+        <optgroup :label="t('vault.groupShared')">
+          <option
+            v-for="v in ws.vaults.filter((x) => x.kind !== 'locker')"
+            :key="v.id"
+            :value="v.id"
+          >
+            {{ v.name }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
+          </option>
+        </optgroup>
       </select>
       <button
         v-if="canCreateVault"

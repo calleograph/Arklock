@@ -99,10 +99,10 @@ case "$PROFILE" in ''|standalone|shared-host) ;; *) bail "Профиль: standa
 . /etc/os-release 2>/dev/null || bail "Не удалось определить операционную систему"
 OS_ID="${ID:-unknown}"; OS_VER="${VERSION_ID:-0}"
 case "$OS_ID:$OS_VER" in
-  ubuntu:24.04|debian:12) okk "Операционная система: $PRETTY_NAME" ;;
+  ubuntu:22.04|ubuntu:24.04|debian:12) okk "Операционная система: $PRETTY_NAME" ;;
   *)
     if [ "${ARKLOCK_ALLOW_UNSUPPORTED_OS:-0}" = 1 ]; then warnn "ОС $PRETTY_NAME не входит в проверенный список (Ubuntu 24.04, Debian 12) — продолжаем по ARKLOCK_ALLOW_UNSUPPORTED_OS=1"
-    else bail "Поддерживаются Ubuntu 24.04 LTS и Debian 12 (обнаружено: $PRETTY_NAME). Для обхода: ARKLOCK_ALLOW_UNSUPPORTED_OS=1"; fi ;;
+    else bail "Поддерживаются Ubuntu 22.04 и 24.04 LTS, Debian 12 (обнаружено: $PRETTY_NAME). Для обхода: ARKLOCK_ALLOW_UNSUPPORTED_OS=1"; fi ;;
 esac
 case "$(uname -m)" in x86_64|aarch64) okk "Архитектура: $(uname -m)" ;; *) bail "Неподдерживаемая архитектура: $(uname -m)" ;; esac
 MEM_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)"

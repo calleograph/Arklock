@@ -432,6 +432,33 @@ jobs:
           sudo docker compose --project-name arklock-sh down -v || true
           docker rm -f foreign-app foreign-db || true
 
+  installer-ubuntu-2204:
+    name: installer on Ubuntu 22.04 (supported release)
+    runs-on: ubuntu-22.04
+    env:
+      CFG: /etc/arklock-2204
+      DATA: /var/lib/arklock-2204
+      PROJ: arklock-2204
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @arklock/crypto
+      - name: Install on Ubuntu 22.04
+        run: sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log
+      - name: Installed, ready and verified
+        run: |
+          grep -q "УСТАНОВКА ЗАВЕРШЕНА" install.log
+          sudo ./scripts/verify.sh --env "$CFG/arklock.env"
+          port="$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")"
+          curl -fsS "http://127.0.0.1:$port/api/v1/ready"
+      - name: Logs on failure
+        if: failure()
+        run: sudo docker compose -p "$PROJ" logs --tail 80 || true
+
   installer-piped:
     name: installer started with curl-style pipe, reachable on the LAN address
     runs-on: ubuntu-24.04

@@ -529,6 +529,8 @@ export default {
     restore: 'Восстановить',
     purge: 'Удалить навсегда',
     toTrash: 'В корзину',
+    groupPersonal: 'Личные сейфы',
+    groupShared: 'Корпоративные сейфы',
     entryMoveTarget: 'Сейф для переноса',
     entryMoveChoose: 'Перенести в сейф…',
     entryMoveAction: 'Перенести',

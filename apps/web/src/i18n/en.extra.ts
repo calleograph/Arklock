@@ -524,6 +524,8 @@ export default {
     restore: 'Restore',
     purge: 'Delete forever',
     toTrash: 'Move to trash',
+    groupPersonal: 'Personal vaults',
+    groupShared: 'Corporate vaults',
     entryMoveTarget: 'Destination vault',
     entryMoveChoose: 'Move to vault…',
     entryMoveAction: 'Move',
