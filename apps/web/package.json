@@ -1,6 +1,6 @@
 {
   "name": "@arklock/web",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,8 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@arklock/contracts": "1.2.0",
-    "@arklock/crypto": "1.2.0",
+    "@arklock/contracts": "1.3.0",
+    "@arklock/crypto": "1.3.0",
     "pinia": "^3.0.0",
     "qrcode-generator": "^1.4.4",
     "vue": "^3.5.0",

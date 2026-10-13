@@ -46,30 +46,3 @@ export function errorMessage(e: unknown, t: T): string {
   }
   return hasWebCrypto() ? t('error.generic') : t('error.insecure');
 }
-
-const LOWER = 'abcdefghijkmnopqrstuvwxyz';
-const UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const DIGITS = '23456789';
-const SYMBOLS = '!@#$%^&*-_=+?';
-
-function randomInt(max: number): number {
-  // Отбрасывание значений «хвоста» — без смещения распределения.
-  const limit = Math.floor(0x1_0000_0000 / max) * max;
-  const buf = new Uint32Array(1);
-  do crypto.getRandomValues(buf);
-  while (buf[0]! >= limit);
-  return buf[0]! % max;
-}
-
-/** Генератор паролей на CSPRNG; гарантирует хотя бы по одному символу каждого класса. */
-export function generatePassword(length = 20): string {
-  const classes = [LOWER, UPPER, DIGITS, SYMBOLS];
-  const all = classes.join('');
-  const chars = classes.map((c) => c[randomInt(c.length)]!);
-  while (chars.length < length) chars.push(all[randomInt(all.length)]!);
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1);
-    [chars[i], chars[j]] = [chars[j]!, chars[i]!];
-  }
-  return chars.join('');
-}

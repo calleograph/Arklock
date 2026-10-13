@@ -461,6 +461,27 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   await expect(page.getByTestId('view-password')).toHaveText('Move-Secret-42!bb');
 });
 
+test('the generator follows the chosen options; the generated password is saved and opens', async () => {
+  const page = adminPage;
+  await page.getByTestId('add-entry').click();
+  await page.getByTestId('f-title').fill('Генератор-проверка');
+  await page.getByTestId('btn-generator').click();
+  await page.getByTestId('gen-mode-password').click();
+  // без символов и без похожих знаков
+  await page.getByLabel(/символы|symbols/).uncheck();
+  await page.getByTestId('gen-avoid').check();
+  await page.getByTestId('gen-new').click();
+  const generated = (await page.getByTestId('generator-preview').textContent())!.trim();
+  expect(generated).toMatch(/^[A-Za-z0-9]{20,}$/);
+  expect(generated).not.toMatch(/[0O1lI]/);
+  await page.getByTestId('gen-use').click();
+  await expect(page.getByTestId('generator')).toHaveCount(0);
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Генератор-проверка');
+  await page.getByTestId('btn-reveal').click();
+  await expect(page.getByTestId('view-password')).toHaveText(generated);
+});
+
 test('two-factor sign-in: enrol, sign out, password alone is not enough, code completes', async ({
   browser,
 }) => {

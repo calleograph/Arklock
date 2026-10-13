@@ -194,6 +194,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!currentId.value || !out.some((v) => v.id === currentId.value)) {
       currentId.value = (out.find((v) => v.kind === 'locker') ?? out[0])?.id ?? null;
     }
+    void distributeAllPending();
   }
 
   async function select(id: string): Promise<void> {
@@ -561,6 +562,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     );
     const roleBody = typeof role === 'string' ? { role } : role;
     await api('PUT', `/vaults/${vaultId}/members/${user.id}`, { ...roleBody, key: grant });
+  }
+
+  /**
+   * Выдача ключей ожидающим участникам выполняется клиентом администратора, у которого открыт ключ сейфа.
+   * Сотрудникам ничего делать не нужно: после загрузки сейфов ключи выдаются сами, ошибки не мешают работе.
+   */
+  async function distributeAllPending(): Promise<void> {
+    for (const v of vaults.value) {
+      if (!v.unlocked || !['owner', 'admin'].includes(v.role)) continue;
+      try {
+        await distributePending(v.id);
+      } catch {
+        /* повторится при следующей загрузке сейфов */
+      }
+    }
   }
 
   /** Выдать ключи тем, у кого есть доступ (через круг или грант), но нет ключа. */
