@@ -527,8 +527,6 @@ export default {
     entryMoveTarget: 'Destination vault',
     entryMoveChoose: 'Move to vault…',
     entryMoveAction: 'Move',
-    entryMoveHasFiles:
-      'An entry with attachments cannot be moved: attachments belong to the source vault. Remove them first or keep the files separately.',
     move: 'Move',
     selected: 'Selected: {n}',
     selectAll: 'Select all',
@@ -596,7 +594,7 @@ export default {
     tooBig: 'The file is larger than 20 MB',
     badPassphrase: 'Wrong passphrase or damaged file',
     formats:
-      'CSV, JSON (Arklock, Bitwarden), XML (KeePass 2) and Arklock encrypted exports are supported. The file is processed in your browser.',
+      'CSV, JSON (Arklock, Bitwarden, Passwork), XML (KeePass 2) and Arklock encrypted exports are supported. The file is processed in your browser.',
     passphrase: 'Passphrase',
     decrypt: 'Decrypt',
     mapping: 'Column mapping',

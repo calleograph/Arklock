@@ -189,6 +189,63 @@ export function importBitwardenJson(text: string): ImportResult {
   return { items, errors };
 }
 
+// ------------------------------------------------------------------ Passwork JSON
+
+interface PassworkRecord {
+  vaultName?: string;
+  path?: { name?: string }[];
+  fields?: {
+    name?: string;
+    login?: string;
+    password?: string;
+    url?: string;
+    note?: string;
+    custom?: { type?: string; name?: string; value?: string }[];
+  };
+}
+
+/**
+ * Экспорт Passwork: { passwords: [...] }. Имя сейфа Passwork становится верхней папкой, цепочка папок — путём.
+ * Дополнительные поля: text → обычное поле, password и totp → скрытое поле; первый TOTP переносится в поле TOTP записи.
+ */
+export function importPassworkJson(text: string): ImportResult {
+  const errors: string[] = [];
+  const items: ImportItem[] = [];
+  const doc = JSON.parse(text) as { passwords?: PassworkRecord[] };
+  if (!Array.isArray(doc.passwords))
+    throw new Error('В файле не найдены пароли: это не экспорт Passwork.');
+  for (const p of doc.passwords) {
+    const f = p.fields ?? {};
+    const d = blankEntry('login');
+    d.title = String(f.name ?? '').trim();
+    if (!d.title) {
+      errors.push('Запись без названия пропущена');
+      continue;
+    }
+    d.username = f.login ?? '';
+    d.password = f.password ?? '';
+    d.url = f.url ?? '';
+    d.notes = f.note ?? '';
+    const fields: { name: string; value: string; secret: boolean }[] = [];
+    for (const c of f.custom ?? []) {
+      if (!c.name || !c.value) continue;
+      if (c.type === 'totp' && !d.totp) {
+        d.totp = c.value;
+        continue;
+      }
+      fields.push({
+        name: c.name,
+        value: c.value,
+        secret: c.type === 'password' || c.type === 'totp',
+      });
+    }
+    d.fields = fields;
+    const path = [p.vaultName || 'Passwork', ...(p.path ?? []).map((x) => x.name ?? '')];
+    items.push({ data: d, path: path.filter(Boolean) });
+  }
+  return { items, errors };
+}
+
 export function importKeepassXml(text: string): ImportResult {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   if (doc.querySelector('parsererror')) throw new Error('Файл XML повреждён');
@@ -263,13 +320,15 @@ export function importArklockJson(text: string): ImportResult {
   };
 }
 
-export type ImportFormat = 'csv' | 'bitwarden' | 'keepass' | 'arklock' | 'encrypted';
+export type ImportFormat = 'csv' | 'bitwarden' | 'keepass' | 'passwork' | 'arklock' | 'encrypted';
 
 export function detectFormat(name: string, text: string): ImportFormat {
   const t = text.trimStart();
   if (t.startsWith('{')) {
     if (/"format"\s*:\s*"arklock-encrypted"/.test(t.slice(0, 200))) return 'encrypted';
     if (/"format"\s*:\s*"arklock-export"/.test(t.slice(0, 200))) return 'arklock';
+    // экспорт Passwork начинается с массива passwords (структура соответствует экспорту этого формата)
+    if (/"passwords"\s*:\s*\[/.test(t.slice(0, 2000))) return 'passwork';
     return 'bitwarden';
   }
   if (t.startsWith('<')) return 'keepass';

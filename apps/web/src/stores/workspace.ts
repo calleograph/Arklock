@@ -345,7 +345,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * Перенос записи в другой сейф. Запись перешифровывается ключом целевого сейфа (шифртекст привязан к сейфу
    * и идентификатору), создаётся в целевом сейфе, исходная отправляется в корзину. Права проверяет сервер:
    * создание в целевом сейфе требует права редактирования, удаление исходной записи — тоже.
-   * Записи с вложениями не переносятся: вложения хранятся по сейфу записи. История изменений остаётся в исходном сейфе.
+   * Вложения копируются: каждый файл расшифровывается ключом исходного сейфа и шифруется ключом целевого. Если любой шаг
+   * не удался, созданная копия удаляется окончательно, исходная запись остаётся на месте. История изменений остаётся в
+   * исходном сейфе (в корзине); переносятся текущие данные записи.
    */
   async function moveEntry(
     item: EntryItem,
@@ -357,16 +359,29 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!target) throw new Error('vault is not available');
     const targetKey = keyOf(target.id, target.keyVersion);
     if (!targetKey) throw new Error('target vault is locked');
-    if ((await attachmentList(item)).length) throw new Error('has_attachments');
-
+    const files = await attachmentList(item);
     const id = crypto.randomUUID();
     const enc = await encryptEntry(item.data, targetKey, target.id, id, target.keyVersion);
-    await api<EntryRecord>('POST', `/vaults/${target.id}/entries`, {
+    const created = await api<EntryRecord>('POST', `/vaults/${target.id}/entries`, {
       id,
       branchId: targetBranchId,
       ...enc,
     });
     try {
+      if (files.length) {
+        const copy = (await decryptEntryRecord(target.id, created))!;
+        for (const f of files) {
+          // файл расшифровывается ключом исходного сейфа и тут же шифруется ключом целевого
+          const chunks: Uint8Array[] = [];
+          await attachmentDownload_(item, f.id, {
+            write: async (c) => {
+              chunks.push(c);
+            },
+          });
+          const file = new File(chunks as BlobPart[], f.name, { type: f.type });
+          await attachmentAdd_(copy, file);
+        }
+      }
       await api(
         'DELETE',
         `/vaults/${item.vaultId}/entries/${item.id}?expectedVersion=${item.version}`,

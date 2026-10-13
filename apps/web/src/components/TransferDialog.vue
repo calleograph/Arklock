@@ -12,6 +12,7 @@ import {
   guessCsvMapping,
   importArklockJson,
   importBitwardenJson,
+  importPassworkJson,
   importCsv,
   importKeepassXml,
   parseCsv,
@@ -73,6 +74,7 @@ async function preview(): Promise<void> {
       result.value = importArklockJson(text);
     } else if (format.value === 'csv') result.value = importCsv(rows.value, mapping.value, true);
     else if (format.value === 'bitwarden') result.value = importBitwardenJson(text);
+    else if (format.value === 'passwork') result.value = importPassworkJson(text);
     else if (format.value === 'keepass') result.value = importKeepassXml(text);
     else result.value = importArklockJson(text);
   } catch (e) {

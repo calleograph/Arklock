@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
 
 const SETUP = 'e2e-setup-code-e2e-setup-code-3';
 const ADMIN = {
@@ -480,6 +480,63 @@ test('the generator follows the chosen options; the generated password is saved 
   await expect(page.getByTestId('view-title')).toHaveText('Генератор-проверка');
   await page.getByTestId('btn-reveal').click();
   await expect(page.getByTestId('view-password')).toHaveText(generated);
+});
+
+test('an entry with an attachment moves to another vault; the file keeps its content', async () => {
+  const page = adminPage;
+  // личный сейф в интерфейсе подписан по языку (ru: «Личный сейф», en: «Personal locker»)
+  const personal = (sel: Locator) =>
+    sel
+      .locator('option', { hasText: /Личный сейф|Personal locker/ })
+      .getAttribute('value')
+      .then((v) => v!);
+  await page
+    .getByRole('link', { name: /Сейф|Locker/ })
+    .first()
+    .click();
+  await expect(page.getByTestId('vault-select')).toBeVisible();
+  await page
+    .getByTestId('vault-select')
+    .selectOption(await personal(page.getByTestId('vault-select')));
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Файлы перенос');
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(
+    'Файлы перенос',
+  );
+  await addEntry(page, {
+    title: 'Запись с файлом',
+    username: 'files',
+    password: 'Files-Move-7!zz',
+  });
+  await page.getByTestId('tab-files').click();
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'перенос.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('СОДЕРЖИМОЕ ФАЙЛА ПРИ ПЕРЕНОСЕ 5521'),
+  });
+  await expect(page.getByTestId('file-row')).toContainText('перенос.txt');
+
+  await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
+  await page
+    .getByTestId('move-target')
+    .selectOption(await personal(page.getByTestId('move-target')));
+  await page.getByTestId('btn-move').click();
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' })).toHaveCount(0);
+
+  // в личном сейфе файл открывается и совпадает побайтно
+  await page
+    .getByTestId('vault-select')
+    .selectOption(await personal(page.getByTestId('vault-select')));
+  await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
+  await page.getByTestId('tab-files').click();
+  await expect(page.getByTestId('file-row')).toContainText('перенос.txt');
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('file-download').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('перенос.txt');
+  expect(readFileSync((await download.path())!, 'utf8')).toBe('СОДЕРЖИМОЕ ФАЙЛА ПРИ ПЕРЕНОСЕ 5521');
 });
 
 test('two-factor sign-in: enrol, sign out, password alone is not enough, code completes', async ({

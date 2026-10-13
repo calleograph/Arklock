@@ -176,11 +176,7 @@ async function moveNow(): Promise<void> {
   } catch (e) {
     const code = e instanceof Error ? e.message : '';
     error.value =
-      code === 'has_attachments'
-        ? t('vault.entryMoveHasFiles')
-        : code === 'target vault is locked'
-          ? t('vault.entryMoveLocked')
-          : errorMessage(e, t);
+      code === 'target vault is locked' ? t('vault.entryMoveLocked') : errorMessage(e, t);
   }
 }
 

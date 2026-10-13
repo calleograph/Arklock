@@ -151,3 +151,66 @@ describe('import and export', () => {
     await expect(decryptExport(enc, 'wrong passphrase')).rejects.toBeDefined();
   });
 });
+
+describe('Passwork JSON import', () => {
+  // структура экспорта Passwork (passwords / vaultName / path / fields / custom), данные — свои
+  const passwork = JSON.stringify({
+    passwords: [
+      {
+        id: 'p1',
+        fields: {
+          name: 'Почта',
+          login: 'anna',
+          password: 'pw-1',
+          url: 'https://mail.example.com',
+          note: 'заметка',
+        },
+        vaultName: 'Офис',
+        path: [{ name: 'Почта', parentId: null, id: 'f1' }],
+      },
+      {
+        id: 'p2',
+        fields: {
+          name: 'Сервер',
+          login: 'ops',
+          password: 'pw-2',
+          custom: [
+            { name: 'Доп. логин', value: 'ops-2', type: 'text' },
+            { name: 'Доп. пароль', value: 'pw-3', type: 'password' },
+            { name: 'Код', value: 'JBSWY3DPEHPK3PXP', type: 'totp' },
+          ],
+        },
+        vaultName: 'Офис',
+      },
+      { id: 'p3', fields: { name: '', login: 'x' }, vaultName: 'Офис' },
+    ],
+  });
+
+  it('is detected, maps folders from the vault name, custom fields and TOTP, and reports skipped records', async () => {
+    const { detectFormat: detect, importPassworkJson } = await import('../src/services/transfer');
+    expect(detect('export.json', passwork)).toBe('passwork');
+    const r = importPassworkJson(passwork);
+    expect(r.errors).toEqual(['Запись без названия пропущена']);
+    expect(r.items).toHaveLength(2);
+    const [mail, server] = r.items;
+    expect(mail!.path).toEqual(['Офис', 'Почта']);
+    expect(mail!.data).toMatchObject({
+      title: 'Почта',
+      username: 'anna',
+      password: 'pw-1',
+      url: 'https://mail.example.com',
+      notes: 'заметка',
+    });
+    expect(server!.path).toEqual(['Офис']);
+    expect(server!.data.totp).toBe('JBSWY3DPEHPK3PXP');
+    expect(server!.data.fields).toEqual([
+      { name: 'Доп. логин', value: 'ops-2', secret: false },
+      { name: 'Доп. пароль', value: 'pw-3', secret: true },
+    ]);
+  });
+
+  it('refuses a file without passwords', async () => {
+    const { importPassworkJson } = await import('../src/services/transfer');
+    expect(() => importPassworkJson('{"items":[]}')).toThrow(/не экспорт Passwork/);
+  });
+});

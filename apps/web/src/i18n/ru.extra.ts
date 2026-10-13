@@ -532,8 +532,6 @@ export default {
     entryMoveTarget: 'Сейф для переноса',
     entryMoveChoose: 'Перенести в сейф…',
     entryMoveAction: 'Перенести',
-    entryMoveHasFiles:
-      'Запись с вложениями нельзя перенести: вложения хранятся в исходном сейфе. Сначала удалите их или сохраните файлы отдельно.',
     move: 'Переместить',
     selected: 'Выбрано: {n}',
     selectAll: 'Выбрать все',
@@ -601,7 +599,7 @@ export default {
     tooBig: 'Файл больше 20 МБ',
     badPassphrase: 'Неверная парольная фраза или повреждённый файл',
     formats:
-      'Поддерживаются CSV, JSON (Arklock, Bitwarden), XML (KeePass 2) и зашифрованный экспорт Arklock. Файл обрабатывается в браузере.',
+      'Поддерживаются CSV, JSON (Arklock, Bitwarden, Passwork), XML (KeePass 2) и зашифрованный экспорт Arklock. Файл обрабатывается в браузере.',
     passphrase: 'Парольная фраза',
     decrypt: 'Расшифровать',
     mapping: 'Сопоставление столбцов',
