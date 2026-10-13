@@ -481,7 +481,7 @@ jobs:
         run: |
           dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
           lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
-          echo "LAN=$lan" >> "$GITHUB_ENV"
+          echo "LAN_IP=$lan" >> "$GITHUB_ENV"
           cat install.sh | sudo bash -s -- --yes --profile standalone --bind "$lan" \
             --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v-ci-piped \
             --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log
@@ -751,15 +751,16 @@ jobs:
           cp install.sh "$RUNNER_TEMP/install-standalone.sh"
           dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
           lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
-          echo "LAN=$lan" >> "$GITHUB_ENV"
+          echo "LAN_IP=$lan" >> "$GITHUB_ENV"
           sudo "$RUNNER_TEMP/install-standalone.sh" --yes --profile standalone --repo "file://$RUNNER_TEMP/origin.git" --ref v0.0.1 \
             --bind "$lan" --port 18080 \
             --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA"
           test "$(sudo sed -n 's/^APP_BIND=//p' "$CFG/arklock.env")" = "$lan"
           test "$(curl -fsS "http://$lan:18080/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
+          echo "SETUP_TOKEN=$(sudo sed -n 's/^BOOTSTRAP_TOKEN=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
       - name: Create a user and an encrypted entry on v0.0.1
         env:
-          BASE_URL: http://${{ env.LAN }}:18080
+          BASE_URL: http://${{ env.LAN_IP }}:18080
           STATE_FILE: ${{ github.workspace }}/smoke-state.json
         run: node scripts/smoke-container.mjs write
       - name: 'Reproduce the lost setting: the environment file has no APP_BIND (as after the 1.0.x to 1.11 update)'
@@ -768,7 +769,7 @@ jobs:
           ! sudo grep -q '^APP_BIND=' "$CFG/arklock.env"
       - name: Update to v0.0.2 keeps the LAN address, the user and the encrypted entry
         env:
-          BASE_URL: http://${{ env.LAN }}:18080
+          BASE_URL: http://${{ env.LAN_IP }}:18080
           STATE_FILE: ${{ github.workspace }}/smoke-state.json
         run: |
           sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.2 --yes
@@ -823,18 +824,19 @@ jobs:
           cd "$APPDIR"
           sudo ./install.sh --yes --profile standalone --port 18080 --project "$PROJ" --config "$CFG" --data "$DATA"
           test "$(curl -fsS http://127.0.0.1:18080/api/v1/version | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.0.0
+          echo "SETUP_TOKEN=$(sudo sed -n 's/^BOOTSTRAP_TOKEN=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
       - name: 'Reproduce the reported change (publish address typed into compose.yaml by hand on the LAN address)'
         run: |
           dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
           lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
-          echo "LAN=$lan" >> "$GITHUB_ENV"
+          echo "LAN_IP=$lan" >> "$GITHUB_ENV"
           cd "$APPDIR"
           sudo sed -i "s#'127.0.0.1:#'$lan:#" compose.yaml
           sudo docker compose --env-file "$CFG/arklock.env" --project-name "$PROJ" -f compose.yaml up -d
           test "$(curl -fsS "http://$lan:18080/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.0.0
       - name: Create a user and an encrypted entry on the published 1.0.0
         env:
-          BASE_URL: http://${{ env.LAN }}:18080
+          BASE_URL: http://${{ env.LAN_IP }}:18080
           STATE_FILE: ${{ github.workspace }}/smoke-state.json
         run: node scripts/smoke-container.mjs write
       - name: The published 1.0.0 updater refuses while compose.yaml is edited (the reported state)
@@ -848,7 +850,7 @@ jobs:
           grep -q "локальные изменения" "$RUNNER_TEMP/old-updater.log"
       - name: Upgrade with the candidate installer (migrates the publish address, then the published updater finishes)
         env:
-          BASE_URL: http://${{ env.LAN }}:18080
+          BASE_URL: http://${{ env.LAN_IP }}:18080
           STATE_FILE: ${{ github.workspace }}/smoke-state.json
         run: |
           mkdir -p "$RUNNER_TEMP/inst"
