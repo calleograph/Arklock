@@ -1,6 +1,6 @@
 {
   "name": "arklock",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "private": true,
   "description": "Self-hosted team password manager with client-side encryption",
   "type": "module",
