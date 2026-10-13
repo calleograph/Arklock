@@ -87,9 +87,36 @@ test('long reading keeps the keys; the default is eight hours of inactivity', as
       ).__vue_app__.config.globalProperties.$pinia;
       return { unlocked: pinia.state.value.auth?.unlocked, now: Date.now() };
     });
+  // диагностика: какие события страницы продлевают сеанс во время бездействия
+  await page.evaluate(() => {
+    const w = window as unknown as { __evt: Record<string, number> };
+    w.__evt = {};
+    for (const ev of [
+      'pointerdown',
+      'pointermove',
+      'keydown',
+      'wheel',
+      'touchstart',
+      'touchmove',
+      'focusin',
+      'scroll',
+      'visibilitychange',
+    ]) {
+      window.addEventListener(ev, () => (w.__evt[ev] = (w.__evt[ev] ?? 0) + 1), {
+        capture: true,
+        passive: true,
+      });
+    }
+  });
   console.log('[diag] before idle', JSON.stringify(await probe()));
   for (let i = 0; i < 42; i++) await idle(page, 10 * MIN);
   console.log('[diag] after idle', JSON.stringify(await probe()));
+  console.log(
+    '[diag] events',
+    JSON.stringify(
+      await page.evaluate(() => (window as unknown as { __evt: Record<string, number> }).__evt),
+    ),
+  );
   await expect(page).toHaveURL(/\/unlock$/);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
