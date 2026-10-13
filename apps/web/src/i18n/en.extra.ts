@@ -758,6 +758,8 @@ export default {
     vaultCreators: 'Who creates shared vaults',
     onlyAdmins: 'administrators only',
     allMembers: 'all users',
+    sessionIdle: 'Sign out after inactivity, hours',
+    sessionMax: 'Maximum session length, hours (0 — no limit)',
     trashDays: 'Trash retention, days',
     passwordMaxAge: 'Maximum password age, days (0 — do not check)',
     rangeTitle: 'Compromised password check',

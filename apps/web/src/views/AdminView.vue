@@ -571,6 +571,38 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               </select></label
             >
             <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.sessionIdle')
+              }}<input
+                :value="settings['session.idleHours']"
+                type="number"
+                min="0.25"
+                max="720"
+                step="0.25"
+                class="input w-24"
+                data-testid="set-session-idle"
+                @change="
+                  saveSetting(
+                    'session.idleHours',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.sessionMax')
+              }}<input
+                :value="settings['session.maxHours']"
+                type="number"
+                min="0"
+                max="8760"
+                step="1"
+                class="input w-24"
+                data-testid="set-session-max"
+                @change="
+                  saveSetting('session.maxHours', Number(($event.target as HTMLInputElement).value))
+                "
+            /></label>
+
+            <label class="flex items-center justify-between gap-3"
               >{{ t('policy.minLength')
               }}<input
                 :value="settings['policy.password.minLength']"

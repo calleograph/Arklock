@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../context.js';
 import { apiTokens, sessions, settings, users } from '../db/schema.js';
@@ -16,6 +16,40 @@ export async function samlSessionHours(ctx: AppContext): Promise<number> {
   );
   ctx.samlPolicy = { hours: Number.isFinite(hours) ? hours : 0, until: now + 30_000 };
   return ctx.samlPolicy.hours;
+}
+
+const limitsCache = new WeakMap<
+  AppContext,
+  { idleHours: number; maxHours: number; until: number }
+>();
+
+/**
+ * Сроки сеанса из настроек администратора: бездействие (`session.idleHours`) и предельная длительность от входа
+ * (`session.maxHours`, 0 — не ограничена). Без настройки действует SESSION_IDLE_HOURS. Значения кэшируются на 3 секунды.
+ */
+export async function sessionLimits(
+  ctx: AppContext,
+  now = Date.now(),
+): Promise<{ idleMs: number; maxMs: number }> {
+  const cached = limitsCache.get(ctx);
+  if (cached && cached.until > now)
+    return { idleMs: cached.idleHours * 3_600_000, maxMs: cached.maxHours * 3_600_000 };
+  const rows = await ctx.db
+    .select()
+    .from(settings)
+    .where(inArray(settings.key, ['session.idleHours', 'session.maxHours']));
+  const value = (key: string) => Number(rows.find((r) => r.key === key)?.value);
+  const idle = value('session.idleHours');
+  const max = value('session.maxHours');
+  const idleHours = Number.isFinite(idle) && idle > 0 ? idle : ctx.config.SESSION_IDLE_HOURS;
+  const maxHours = Number.isFinite(max) && max > 0 ? max : 0;
+  limitsCache.set(ctx, { idleHours, maxHours, until: now + 3000 });
+  return { idleMs: idleHours * 3_600_000, maxMs: maxHours * 3_600_000 };
+}
+
+/** Сбрасывает кэш сроков сеанса: новое значение действует сразу после сохранения настройки. */
+export function resetSessionLimitsCache(ctx: AppContext): void {
+  limitsCache.delete(ctx);
 }
 
 export interface AuthInfo {
@@ -139,12 +173,14 @@ export function requireAuth(ctx: AppContext) {
       .limit(1);
     if (!row) throw unauthorized();
     const now = Date.now();
-    const idleMs = ctx.config.SESSION_IDLE_HOURS * 3_600_000;
+    // сроки из настроек администратора, а не только из переменных окружения
+    const { idleMs, maxMs } = await sessionLimits(ctx, now);
     if (
       row.session.revokedAt ||
       row.user.disabledAt ||
       row.session.expiresAt.getTime() <= now ||
-      row.session.lastSeenAt.getTime() + idleMs <= now
+      row.session.lastSeenAt.getTime() + idleMs <= now ||
+      (maxMs > 0 && row.session.createdAt.getTime() + maxMs <= now)
     ) {
       throw unauthorized();
     }

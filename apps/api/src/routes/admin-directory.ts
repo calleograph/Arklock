@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { isEnrolled, resetMfaPolicyCache } from '../auth/mfa.js';
+import { resetSessionLimitsCache } from '../auth/session.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -16,6 +17,8 @@ const SETTINGS: Record<string, z.ZodType> = {
   'vaults.creators': z.enum(['admins', 'members']),
   'trash.retentionDays': z.number().int().min(1).max(3650),
   'session.idleHours': z.number().min(0.25).max(720),
+  /** Предельная длительность сеанса от входа, часов; 0 — без ограничения (кроме общего срока SESSION_MAX_DAYS). */
+  'session.maxHours': z.number().min(0).max(8760),
   'security.passwordMaxAgeDays': z.number().int().min(0).max(3650),
   'security.mfaRequired': z.enum(['off', 'admins', 'all']),
   'storage.attachmentMaxMiB': z.number().int().min(0).max(102_400),
@@ -29,6 +32,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'vaults.creators': 'admins',
   'trash.retentionDays': 30,
   'session.idleHours': 12,
+  'session.maxHours': 0,
   'security.passwordMaxAgeDays': 365,
   'security.mfaRequired': 'off',
   'storage.attachmentMaxMiB': 1024,
@@ -276,6 +280,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           set: { value: value as never, updatedAt: new Date(), updatedBy: user.id },
         });
       if (key === 'security.mfaRequired') resetMfaPolicyCache(ctx);
+      if (key === 'session.idleHours' || key === 'session.maxHours') resetSessionLimitsCache(ctx);
       await audit(db, `user:${user.id}`, 'admin.setting.change', key, {
         value: typeof value === 'object' ? 'object' : (value as string | number | boolean),
       });
