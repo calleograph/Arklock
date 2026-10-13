@@ -60,9 +60,10 @@ check "без изменений файл окружения не меняетс
 R="$WORK/lan"; make_repo "$R" "$LEGACY_LINE"; edit_publish "$R" 198.51.100.94
 E="$WORK/lan.env"; make_env "$E"
 C="$WORK/copies-lan"
-OUT="$(ic_migrate_bind "$R" "$E" "$C" 1 2>&1)"; RC=$?
+ic_migrate_bind "$R" "$E" "$C" 1 > "$WORK/out.txt" 2>&1; RC=$?; OUT="$(cat "$WORK/out.txt")"
 check "перенос адреса LAN выполняется" [ "$RC" -eq 0 ]
 check "APP_BIND получает адрес из compose.yaml" [ "$(env_get "$E" APP_BIND)" = 198.51.100.94 ]
+check "APP_BIND виден процессу обновления (экспорт)" [ "${APP_BIND:-}" = 198.51.100.94 ]
 check "compose.yaml возвращён к версии релиза" [ -z "$(ic_modified_files "$R")" ]
 check "копия прежнего compose.yaml сохранена" bash -c "ls '$C'/compose.yaml.* >/dev/null 2>&1"
 check "секреты не попадают в журнал переноса" bash -c "! printf '%s' \"\$1\" | grep -q '$SECRET_MARK'" _ "$OUT"
@@ -142,6 +143,7 @@ docker() {
 E="$WORK/restore.env"; make_env "$E"; STUB_ADDR=198.51.100.94; STUB_PORT=9090
 check "потерянный APP_BIND восстанавливается из работающего приложения" ic_restore_bind_from_running "$E" arklock
 check "адрес восстановлен из Docker" [ "$(env_get "$E" APP_BIND)" = 198.51.100.94 ]
+check "восстановленный адрес виден процессу обновления (экспорт)" [ "${APP_BIND:-}" = 198.51.100.94 ]
 check "нестандартный порт восстановлен из Docker" [ "$(env_get "$E" APP_PORT)" = 9090 ]
 check "секреты окружения не изменены" grep -q "^APP_SECRET=$SECRET_MARK\$" "$E"
 

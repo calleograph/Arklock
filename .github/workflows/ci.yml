@@ -481,7 +481,7 @@ jobs:
         run: |
           dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
           lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
-          echo "LAN_IP=$lan" >> "$GITHUB_ENV"
+          echo "LAN=$lan" >> "$GITHUB_ENV"
           cat install.sh | sudo bash -s -- --yes --profile standalone --bind "$lan" \
             --repo "file://$RUNNER_TEMP/origin-ci.git" --ref v-ci-piped \
             --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log

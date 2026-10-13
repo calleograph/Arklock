@@ -96,6 +96,8 @@ const domainOk = (d) =>
 
 /** Возвращает список проблем в одной строке текста. */
 function scanLine(line) {
+  // выражения GitHub Actions (${{ env.X }}) — не адреса и не домены
+  line = line.replace(/${{[^}]*}}/g, ' ');
   const out = [];
   for (const re of DENY)
     if (re.test(line)) out.push('запрещённый шаблон из дополнительного списка');

@@ -80,6 +80,8 @@ ic_migrate_bind() { # ic_migrate_bind КАТАЛОГ ФАЙЛ_ОКРУЖЕНИЯ
   cp -p "$repo/compose.yaml" "$copies/compose.yaml.$ts" || { fail "Не удалось сохранить копию compose.yaml"; return 1; }
   [ "$port" = "$IC_PORT_DEFAULT" ] || env_set "$env_file" APP_PORT "$port"
   env_set "$env_file" APP_BIND "$addr"
+  export APP_BIND="$addr"
+  [ "$port" = "$IC_PORT_DEFAULT" ] || export APP_PORT="$port"
   git -C "$repo" checkout --quiet -- compose.yaml || { fail "Не удалось вернуть compose.yaml к версии релиза"; return 1; }
   ok "Адрес публикации $addr перенесён в APP_BIND; compose.yaml возвращён к версии релиза (копия: $copies/compose.yaml.$ts)"
 }
@@ -121,6 +123,8 @@ ic_restore_bind_from_running() { # ic_restore_bind_from_running ФАЙЛ_ОКР�
   read -r addr port <<<"$parsed"
   ic_valid_ipv4 "$addr" || return 0
   env_set "$env_file" APP_BIND "$addr"
+  export APP_BIND="$addr"
   if [ -z "$(env_get "$env_file" APP_PORT)" ] && [[ "$port" =~ ^[0-9]{1,5}$ ]]; then env_set "$env_file" APP_PORT "$port"; fi
+  export APP_PORT="$(env_get "$env_file" APP_PORT)"
   ok "Адрес публикации $addr:$port взят у работающего приложения и сохранён в APP_BIND"
 }
