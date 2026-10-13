@@ -71,7 +71,25 @@ test('long reading keeps the keys; the default is eight hours of inactivity', as
 
   // ещё семь часов полного бездействия (всего больше восьми часов) — блокировка с запросом мастер-пароля
   // шагами по 10 минут, как при реальном бездействии: одна длинная перемотка зависит от поведения часов браузера
+  // диагностика: состояние разблокировки и часы страницы до и после бездействия (видно в журнале CI)
+  const probe = () =>
+    page.evaluate(() => {
+      const pinia = (
+        document.querySelector('#app') as unknown as {
+          __vue_app__: {
+            config: {
+              globalProperties: {
+                $pinia: { state: { value: Record<string, { unlocked?: boolean }> } };
+              };
+            };
+          };
+        }
+      ).__vue_app__.config.globalProperties.$pinia;
+      return { unlocked: pinia.state.value.auth?.unlocked, now: Date.now() };
+    });
+  console.log('[diag] before idle', JSON.stringify(await probe()));
   for (let i = 0; i < 42; i++) await idle(page, 10 * MIN);
+  console.log('[diag] after idle', JSON.stringify(await probe()));
   await expect(page).toHaveURL(/\/unlock$/);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
