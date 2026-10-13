@@ -193,7 +193,10 @@ const backupNow = async () => {
   try {
     await operation('/admin/backups', { action: 'create', label: label.value || undefined });
     label.value = '';
+    // обновление списка очищает ошибку операции; сохраняем её, чтобы показать результат
+    const failure = error.value;
     await load();
+    error.value = failure;
   } catch (e) {
     error.value = failMessage(e);
   } finally {
@@ -216,7 +219,10 @@ const uploadBackup = async (ev: Event) => {
     const res = await waitOp(r.requestId);
     if (res.ok) notice.value = res.message || t('sys.done');
     else error.value = res.message || t('error.generic');
+    // обновление списка очищает ошибку операции; сохраняем её, чтобы показать результат
+    const failure = error.value;
     await load();
+    error.value = failure;
   } catch (e) {
     error.value = failMessage(e);
   } finally {
