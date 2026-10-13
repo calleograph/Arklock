@@ -64,7 +64,8 @@ test('long reading keeps the keys; the default is eight hours of inactivity', as
   await expect(page.getByTestId('view-title')).toHaveText('Журнал работы');
 
   // ещё семь часов полного бездействия (всего больше восьми часов) — блокировка с запросом мастер-пароля
-  await idle(page, 7 * 60 * MIN);
+  // шагами по 10 минут, как при реальном бездействии: одна длинная перемотка зависит от поведения часов браузера
+  for (let i = 0; i < 42; i++) await idle(page, 10 * MIN);
   await expect(page).toHaveURL(/\/unlock$/);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
