@@ -833,7 +833,11 @@ jobs:
           cd "$APPDIR"
           sudo sed -i "s#'127.0.0.1:#'$lan:#" compose.yaml
           sudo docker compose --env-file "$CFG/arklock.env" --project-name "$PROJ" -f compose.yaml up -d
+          # после пересоздания приложение стартует не сразу: ждём готовности по LAN-адресу
+          for i in $(seq 1 90); do curl -fsS "http://$lan:18080/api/v1/version" >/dev/null 2>&1 && break; sleep 2; done
+          sudo docker port "$(sudo docker compose --env-file "$CFG/arklock.env" --project-name "$PROJ" -f compose.yaml ps -q app)" 8080 | grep -q "^$lan:18080$"
           test "$(curl -fsS "http://$lan:18080/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.0.0
+
       - name: Create a user and an encrypted entry on the published 1.0.0
         env:
           BASE_URL: http://${{ env.LAN_IP }}:18080
