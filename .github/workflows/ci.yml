@@ -720,3 +720,69 @@ jobs:
         run: |
           sudo "$APPDIR/scripts/updater.sh" uninstall --env "$CFG/arklock.env" || true
           sudo docker compose --project-name "$PROJ" down -v || true
+
+  bind-upgrade:
+    name: old install (1.0.x-style) keeps its LAN address through an update, data and foreign containers untouched
+    runs-on: ubuntu-24.04
+    env:
+      CFG: /etc/arklock-bind
+      DATA: /var/lib/arklock-bind
+      APPDIR: /opt/arklock-bind
+      PROJ: arklock-bind
+      ARKLOCK_UPDATE_WAIT: '90'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @arklock/crypto
+      - name: Build the release fixture (v0.0.1 base, v0.0.2 current)
+        run: tests/update/make-fixture.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
+      - name: A container that does not belong to Arklock (must stay untouched)
+        run: |
+          sudo docker run -d --name arklock-bind-foreign alpine sleep 36000
+          sudo docker inspect -f '{{.Id}}' arklock-bind-foreign > "$RUNNER_TEMP/foreign.id"
+      - name: Install v0.0.1 on the runner's LAN address and a non-standard port
+        run: |
+          cp install.sh "$RUNNER_TEMP/install-standalone.sh"
+          dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
+          lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
+          echo "LAN=$lan" >> "$GITHUB_ENV"
+          sudo "$RUNNER_TEMP/install-standalone.sh" --yes --profile standalone --repo "file://$RUNNER_TEMP/origin.git" --ref v0.0.1 \
+            --bind "$lan" --port 18080 \
+            --dir "$APPDIR" --project "$PROJ" --config "$CFG" --data "$DATA"
+          test "$(sudo sed -n 's/^APP_BIND=//p' "$CFG/arklock.env")" = "$lan"
+          test "$(curl -fsS "http://$lan:18080/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
+      - name: Create a user and an encrypted entry on v0.0.1
+        env:
+          BASE_URL: http://${{ env.LAN }}:18080
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: node scripts/smoke-container.mjs write
+      - name: 'Reproduce the lost setting: the environment file has no APP_BIND (as after the 1.0.x to 1.11 update)'
+        run: |
+          sudo sed -i '/^APP_BIND=/d' "$CFG/arklock.env"
+          ! sudo grep -q '^APP_BIND=' "$CFG/arklock.env"
+      - name: Update to v0.0.2 keeps the LAN address, the user and the encrypted entry
+        env:
+          BASE_URL: http://${{ env.LAN }}:18080
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.2 --yes
+          test "$(sudo sed -n 's/^APP_BIND=//p' "$CFG/arklock.env")" = "$LAN"
+          test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.2
+          node scripts/smoke-container.mjs verify
+          sudo docker port "$(sudo docker compose --project-name "$PROJ" ps -q app)" 8080 | grep -q "^$LAN:18080$"
+      - name: The foreign container is the same container and still running
+        run: |
+          test "$(sudo docker inspect -f '{{.Id}}' arklock-bind-foreign)" = "$(cat "$RUNNER_TEMP/foreign.id")"
+          test "$(sudo docker inspect -f '{{.State.Running}}' arklock-bind-foreign)" = true
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo docker rm -f arklock-bind-foreign || true
+          sudo "$APPDIR/scripts/updater.sh" uninstall --env "$CFG/arklock.env" || true
+          sudo docker compose --project-name "$PROJ" down -v || true

@@ -7,6 +7,8 @@ WORKDIR /src
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
+# Сеть сборки бывает нестабильной: повторные попытки загрузки пакетов вместо немедленного отказа
+ENV npm_config_fetch_retries=5 npm_config_fetch_retry_mintimeout=20000 npm_config_fetch_retry_maxtimeout=120000
 RUN npm ci --no-audit --no-fund
 RUN npm run build
 
@@ -20,6 +22,8 @@ COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
 COPY packages/client/package.json packages/client/
 COPY apps/cli/package.json apps/cli/
+# Сеть сборки бывает нестабильной: повторные попытки загрузки пакетов вместо немедленного отказа
+ENV npm_config_fetch_retries=5 npm_config_fetch_retry_mintimeout=20000 npm_config_fetch_retry_maxtimeout=120000
 RUN npm ci --omit=dev --no-audit --no-fund -w @arklock/api && npm cache clean --force
 COPY --from=build /src/packages/crypto/dist packages/crypto/dist
 COPY --from=build /src/packages/contracts/dist packages/contracts/dist
