@@ -39,6 +39,12 @@ async function idle(page: Page, ms: number): Promise<void> {
 }
 
 test('long reading keeps the keys; the default is eight hours of inactivity', async ({ page }) => {
+  // диагностика: ошибки страницы попадают в журнал прогона (в CI иначе не видны)
+  page.on('pageerror', (e) => console.log('[page error]', String(e)));
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning')
+      console.log('[page console]', m.type(), m.text());
+  });
   // часы включаются до загрузки приложения: все таймеры страницы идут по ним
   await page.clock.install({ time: new Date('2026-10-13T08:00:00Z') });
   await register(page);
