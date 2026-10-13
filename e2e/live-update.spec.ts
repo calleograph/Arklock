@@ -130,8 +130,9 @@ test('a copy is uploaded back: the helper checks it with this server key; a fore
   // чужой файл (не зашифрован ключом сервера) отклоняется, в список не попадает
   const foreign = path.join(work, 'foreign.bak.gpg');
   writeFileSync(foreign, 'это не резервная копия Arklock');
+  await expect(page.getByTestId('backup-upload')).toBeEnabled({ timeout: 300_000 });
   await page.getByTestId('backup-upload').setInputFiles(foreign);
-  await expect(page.getByText(/не прошёл проверку|did not pass the check/)).toBeVisible({
+  await expect(page.getByRole('alert').filter({ hasText: 'не прошёл проверку' })).toBeVisible({
     timeout: 300_000,
   });
   await expect(page.getByTestId('backup-row')).toHaveCount(before + 1);
