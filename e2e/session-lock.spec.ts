@@ -26,10 +26,16 @@ async function register(page: Page): Promise<void> {
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 60_000 });
 }
 
-/** Настоящее чтение: прокрутка колёсиком и движение мыши (без кликов и клавиш). */
+/**
+ * Настоящее чтение: прокрутка колёсиком и движение мыши (без кликов и клавиш).
+ * Колёсико браузер подтверждает раньше, чем передаёт его странице, поэтому после него даём странице
+ * реальные полсекунды (ожидание на стороне Node, не в часах страницы): иначе событие обработается уже
+ * после перемотки часов и отсчёт бездействия начнётся заново.
+ */
 async function read(page: Page): Promise<void> {
   await page.mouse.move(400, 300);
   await page.mouse.wheel(0, 240);
+  await page.waitForTimeout(500);
 }
 
 /** Прошло `ms` без единого действия пользователя. */
@@ -39,12 +45,6 @@ async function idle(page: Page, ms: number): Promise<void> {
 }
 
 test('long reading keeps the keys; the default is eight hours of inactivity', async ({ page }) => {
-  // диагностика: ошибки страницы попадают в журнал прогона (в CI иначе не видны)
-  page.on('pageerror', (e) => console.log('[page error]', String(e)));
-  page.on('console', (m) => {
-    if (m.type() === 'error' || m.type() === 'warning')
-      console.log('[page console]', m.type(), m.text());
-  });
   // часы включаются до загрузки приложения: все таймеры страницы идут по ним
   await page.clock.install({ time: new Date('2026-10-13T08:00:00Z') });
   await register(page);
@@ -69,75 +69,9 @@ test('long reading keeps the keys; the default is eight hours of inactivity', as
   await expect(page).not.toHaveURL(/\/unlock$/);
   await expect(page.getByTestId('view-title')).toHaveText('Журнал работы');
 
-  // ещё семь часов полного бездействия (всего больше восьми часов) — блокировка с запросом мастер-пароля
-  // шагами по 10 минут, как при реальном бездействии: одна длинная перемотка зависит от поведения часов браузера
-  // диагностика: состояние разблокировки и часы страницы до и после бездействия (видно в журнале CI)
-  const probe = () =>
-    page.evaluate(() => {
-      const pinia = (
-        document.querySelector('#app') as unknown as {
-          __vue_app__: {
-            config: {
-              globalProperties: {
-                $pinia: { state: { value: Record<string, { unlocked?: boolean }> } };
-              };
-            };
-          };
-        }
-      ).__vue_app__.config.globalProperties.$pinia;
-      return { unlocked: pinia.state.value.auth?.unlocked, now: Date.now() };
-    });
-  // диагностика: какие события страницы продлевают сеанс во время бездействия
-  await page.evaluate(() => {
-    const w = window as unknown as { __evt: Record<string, number> };
-    w.__evt = {};
-    for (const ev of [
-      'pointerdown',
-      'pointermove',
-      'keydown',
-      'wheel',
-      'touchstart',
-      'touchmove',
-      'focusin',
-      'scroll',
-      'visibilitychange',
-    ]) {
-      window.addEventListener(ev, () => (w.__evt[ev] = (w.__evt[ev] ?? 0) + 1), {
-        capture: true,
-        passive: true,
-      });
-    }
-  });
-  console.log('[diag] before idle', JSON.stringify(await probe()));
+  // ещё семь часов полного бездействия (всего больше восьми часов) — блокировка с запросом мастер-пароля.
+  // Шагами по 10 минут, как при реальном бездействии: одна длинная перемотка зависит от поведения часов браузера.
   for (let i = 0; i < 42; i++) await idle(page, 10 * MIN);
-  console.log('[diag] after idle', JSON.stringify(await probe()));
-  console.log(
-    '[diag] events',
-    JSON.stringify(
-      await page.evaluate(() => (window as unknown as { __evt: Record<string, number> }).__evt),
-    ),
-  );
-  // диагностика: вызываем проверку бездействия из стора напрямую и смотрим, блокирует ли она сеанс
-  console.log(
-    '[diag] direct check',
-    JSON.stringify(
-      await page.evaluate(() => {
-        const app = document.querySelector('#app') as unknown as {
-          __vue_app__: {
-            config: {
-              globalProperties: {
-                $pinia: { _s: Map<string, { checkIdle: () => void; unlocked: boolean }> };
-              };
-            };
-          };
-        };
-        const store = app.__vue_app__.config.globalProperties.$pinia._s.get('auth');
-        const before = store?.unlocked;
-        store?.checkIdle();
-        return { before, after: store?.unlocked, hasCheck: typeof store?.checkIdle };
-      }),
-    ),
-  );
   await expect(page).toHaveURL(/\/unlock$/);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
