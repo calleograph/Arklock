@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -89,4 +91,45 @@ test('a release with a failing migration is recovered and the interface explains
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 90_000 });
   await openUpdates(page);
   await expect(page.getByTestId('installed-version')).toHaveText('0.0.2');
+});
+
+test('a copy is uploaded back: the helper checks it with this server key; a foreign file is refused', async ({
+  page,
+}) => {
+  test.skip(!process.env.LIVE_DATA, 'LIVE_DATA не задан');
+  const backupDir = path.join(process.env.LIVE_DATA!, 'backups');
+  const work = path.resolve('test-results', 'live-backup');
+  mkdirSync(work, { recursive: true });
+
+  await page.goto('/login');
+  await page.getByTestId('email').fill(EMAIL);
+  await page.getByTestId('password').fill(MASTER);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('nav-admin')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('admin-tab-backups').click();
+
+  // копия этого сервера; каталог копий принадлежит пользователю помощника, читаем через sudo
+  await page.getByTestId('backup-create').click();
+  await expect(page.getByTestId('backup-row').first()).toBeVisible({ timeout: 300_000 });
+  const before = await page.getByTestId('backup-row').count();
+  const newest = execFileSync('sudo', ['sh', '-c', `ls -1t ${backupDir}/*.bak.gpg | head -n 1`])
+    .toString()
+    .trim();
+  const copy = path.join(work, 'copy.bak.gpg');
+  writeFileSync(copy, execFileSync('sudo', ['cat', newest]));
+
+  // копия с этого же сервера проходит проверку и попадает в список
+  await page.getByTestId('backup-upload').setInputFiles(copy);
+  await expect(page.getByTestId('backup-row')).toHaveCount(before + 1, { timeout: 300_000 });
+  await expect(page.getByTestId('backup-row').filter({ hasText: 'uploaded' })).toHaveCount(1);
+
+  // чужой файл (не зашифрован ключом сервера) отклоняется, в список не попадает
+  const foreign = path.join(work, 'foreign.bak.gpg');
+  writeFileSync(foreign, 'это не резервная копия Arklock');
+  await page.getByTestId('backup-upload').setInputFiles(foreign);
+  await expect(page.getByText(/не прошёл проверку|did not pass the check/)).toBeVisible({
+    timeout: 300_000,
+  });
+  await expect(page.getByTestId('backup-row')).toHaveCount(before + 1);
 });

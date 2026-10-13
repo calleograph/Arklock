@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import type { Readable } from 'node:stream';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
@@ -6,7 +7,15 @@ import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { AppError, notFound, parse } from '../errors.js';
-import { BACKUP_NAME_RE, RequestPendingError, type UpdaterRequest } from '../updater/protocol.js';
+import {
+  BACKUP_NAME_RE,
+  BackupUploadError,
+  RequestPendingError,
+  type UpdaterRequest,
+} from '../updater/protocol.js';
+
+/** Предел размера загружаемой копии (8 ГиБ); больше — отказ до записи на диск. */
+const MAX_BACKUP_UPLOAD_BYTES = 8 * 1024 ** 3;
 
 const backupName = z
   .string()
@@ -290,6 +299,38 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
       .header('content-disposition', `attachment; filename="${name}"`)
       .header('cache-control', 'no-store')
       .send(createReadStream(f.path));
+  });
+
+  /**
+   * Загрузка резервной копии (например, с другого сервера). Тело — сам файл; принимается потоком с ограничением размера.
+   * Помощник переносит файл в каталог копий и проверяет его ключом этого сервера. Восстановление — отдельная операция.
+   */
+  app.addContentTypeParser('application/octet-stream', (_req, payload, done) =>
+    done(null, payload),
+  );
+  app.post('/admin/backups/upload', async (req, reply) => {
+    const { user } = authOf(req);
+    let name: string;
+    try {
+      name = await ctx.updater.acceptBackupUpload(req.body as Readable, MAX_BACKUP_UPLOAD_BYTES);
+    } catch (e) {
+      if (e instanceof BackupUploadError && e.code === 'too_large')
+        throw new AppError(413, 'backup_too_large', 'The backup is larger than the upload limit');
+      if (e instanceof BackupUploadError && e.code === 'empty')
+        throw new AppError(400, 'backup_empty', 'The file is empty');
+      throw e;
+    }
+    let requestId: string;
+    try {
+      requestId = await submit(req, { action: 'backup_import', file: name });
+    } catch (e) {
+      await ctx.updater.discardBackupUpload(name);
+      throw e;
+    }
+    await audit(db, `user:${user.id}`, 'admin.backup.upload', `request:${requestId}`, {
+      file: name,
+    });
+    return reply.status(202).send({ requestId });
   });
 
   app.get('/admin/logs/system', async () => ({

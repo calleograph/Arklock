@@ -49,10 +49,12 @@ export async function api<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  opts: { auth?: boolean; headers?: Record<string, string> } = {},
+  opts: { auth?: boolean; headers?: Record<string, string>; raw?: Blob } = {},
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // raw — тело-файл (например, резервная копия): передаётся потоком, без JSON
+  if (opts.raw) headers['Content-Type'] = 'application/octet-stream';
+  else if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token && opts.auth !== false) headers.Authorization = `Bearer ${token}`;
   Object.assign(headers, opts.headers);
   let res: Response;
@@ -60,7 +62,7 @@ export async function api<T = unknown>(
     res = await fetch(`${API_PREFIX}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: opts.raw ?? (body === undefined ? undefined : JSON.stringify(body)),
       cache: 'no-store',
     });
   } catch {

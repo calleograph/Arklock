@@ -90,7 +90,7 @@ parse_request() { # parse_request ФАЙЛ
     key="${line%%=*}"; val="${line#*=}"
     case "$key" in
       request_id) [[ "$val" =~ $UUID_RE ]] || { REQ_ERR="неверный request_id"; return 1; }; REQ_ID="$val" ;;
-      action) case "$val" in check|update|rollback|backup|backup_verify|backup_delete|backup_export|restore|logs|schedule|offsite_import|offsite_test|offsite_push|offsite_pull|offsite_verify|offsite_delete|offsite_refresh|offsite_clear) REQ_ACTION="$val" ;; *) REQ_ERR="недопустимое действие"; return 1 ;; esac ;;
+      action) case "$val" in check|update|rollback|backup|backup_verify|backup_delete|backup_export|backup_import|restore|logs|schedule|offsite_import|offsite_test|offsite_push|offsite_pull|offsite_verify|offsite_delete|offsite_refresh|offsite_clear) REQ_ACTION="$val" ;; *) REQ_ERR="недопустимое действие"; return 1 ;; esac ;;
       file) [[ "$val" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,150}\.bak\.gpg$ ]] && [[ "$val" != *..* ]] || { REQ_ERR="недопустимое имя копии"; return 1; }; REQ_FILE="$val" ;;
       label) [[ "$val" =~ ^[a-z0-9]{1,20}$ ]] || { REQ_ERR="недопустимая метка"; return 1; }; REQ_LABEL="$val" ;;
       service) case "$val" in app|db) REQ_SERVICE="$val" ;; *) REQ_ERR="недопустимая служба"; return 1 ;; esac ;;
@@ -108,7 +108,7 @@ parse_request() { # parse_request ФАЙЛ
   [ -n "$REQ_ID" ] && [ -n "$REQ_ACTION" ] || { REQ_ERR="не хватает обязательных параметров"; return 1; }
   if [ "$REQ_ACTION" = update ] && [ -z "$REQ_VERSION" ]; then REQ_ERR="для update нужна версия"; return 1; fi
   case "$REQ_ACTION" in
-    backup_verify|backup_delete|backup_export|restore|offsite_push|offsite_pull|offsite_verify|offsite_delete) [ -n "$REQ_FILE" ] || { REQ_ERR="не указана копия"; return 1; } ;;
+    backup_verify|backup_delete|backup_export|backup_import|restore|offsite_push|offsite_pull|offsite_verify|offsite_delete) [ -n "$REQ_FILE" ] || { REQ_ERR="не указана копия"; return 1; } ;;
     logs) [ -n "$REQ_SERVICE" ] && [ -n "$REQ_LINES" ] || { REQ_ERR="для logs нужны service и lines"; return 1; } ;;
     schedule) [ -n "$REQ_SCHED_ENABLED" ] && [ -n "$REQ_SCHED_HOUR" ] && [ -n "$REQ_SCHED_KEEP" ] || { REQ_ERR="для schedule нужны все параметры"; return 1; } ;;
   esac
@@ -183,7 +183,7 @@ process_request() { # process_request ФАЙЛ_ЗАПРОСА
   : > "$CH/update.log"; chmod 644 "$CH/update.log"
 
   case "$REQ_ACTION" in
-    backup|backup_verify|backup_delete|backup_export|restore|logs|schedule|offsite_*)
+    backup|backup_verify|backup_delete|backup_export|backup_import|restore|logs|schedule|offsite_*)
       run_ops_action || rc=$?
       ;;
     check)
@@ -228,6 +228,23 @@ run_ops_action() {
       own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
       run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --verify "$(backup_path "$REQ_FILE")" || rc=$?
       ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE корректна" || echo "Копия $REQ_FILE НЕ прошла проверку")" ;;
+    backup_import)
+      # копия, загруженная в веб-интерфейсе, лежит в каталоге обмена; имя файла проверено при приёме запроса
+      ST_NAME="Загрузка копии"; write_status
+      [[ "$REQ_FILE" =~ ^upload-[0-9a-f-]{36}\.bak\.gpg$ ]] || { ST_MSG="Недопустимое имя загруженного файла"; return 1; }
+      src="$CH/inbox/$REQ_FILE"
+      [ -f "$src" ] && [ ! -L "$src" ] || { ST_MSG="Загруженный файл не найден"; return 1; }
+      name="${COMPOSE_PROJECT_NAME}-uploaded-$(date -u +%Y%m%dT%H%M%SZ).bak.gpg"
+      mv -f -- "$src" "$(backup_path "$name")" && chmod 600 "$(backup_path "$name")" || { ST_MSG="Не удалось принять файл"; return 1; }
+      # проверка тем же ключом, что и у своих копий: копия с другого сервера откроется только с его ключом резервного шифрования
+      run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --verify "$(backup_path "$name")" || rc=$?
+      if [ "$rc" -eq 0 ]; then
+        ST_MSG="Копия загружена и проверена: $name"
+      else
+        rm -f -- "$(backup_path "$name")"
+        ST_MSG="Файл не прошёл проверку: он повреждён или зашифрован другим ключом. Скопируйте на этот сервер ключ резервного шифрования исходного сервера."
+        return 1
+      fi ;;
     backup_delete)
       ST_NAME="Удаление копии"; write_status
       own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }

@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { link, lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { link, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { Transform, type Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { UpdateStatus, UpdatesOverview } from '@arklock/contracts';
+
+/** Ошибка приёма загруженной копии; code — причина для ответа API. */
+export class BackupUploadError extends Error {
+  constructor(readonly code: 'too_large' | 'empty' | 'write_failed') {
+    super(code);
+  }
+}
 
 /**
  * Обмен с помощником обновлений через каталог. Веб-приложение:
@@ -20,6 +30,7 @@ export type HelperAction =
   | 'backup_verify'
   | 'backup_delete'
   | 'backup_export'
+  | 'backup_import'
   | 'restore'
   | 'logs'
   | 'schedule'
@@ -333,6 +344,42 @@ export class UpdaterChannel {
     const tmp = this.p(`.offsite.${randomUUID()}`);
     await writeFile(tmp, lines.join('\n') + '\n', { mode: 0o600, flag: 'wx' });
     await rename(tmp, this.p('offsite-config.in'));
+  }
+
+  /**
+   * Принимает загруженную резервную копию в каталог обмена потоком: в памяти файл не держится, размер ограничен.
+   * Помощник переносит файл в каталог копий и проверяет его ключом этого сервера. Возвращает имя файла.
+   */
+  async acceptBackupUpload(input: Readable, maxBytes: number): Promise<string> {
+    if (!this.configured) throw new Error('updater channel is not configured');
+    const inbox = this.p('inbox');
+    await mkdir(inbox, { recursive: true, mode: 0o770 });
+    const name = `upload-${randomUUID()}.bak.gpg`;
+    const dest = path.join(inbox, name);
+    let total = 0;
+    const limit = new Transform({
+      transform(chunk: Buffer, _enc, cb) {
+        total += chunk.length;
+        if (total > maxBytes) cb(new BackupUploadError('too_large'));
+        else cb(null, chunk);
+      },
+    });
+    try {
+      await pipeline(input, limit, createWriteStream(dest, { flags: 'wx', mode: 0o600 }));
+    } catch (e) {
+      await unlink(dest).catch(() => undefined);
+      throw e instanceof BackupUploadError ? e : new BackupUploadError('write_failed');
+    }
+    if (total === 0) {
+      await unlink(dest).catch(() => undefined);
+      throw new BackupUploadError('empty');
+    }
+    return name;
+  }
+
+  /** Удаляет принятый, но не переданный помощнику файл (например, если операция не запущена). */
+  async discardBackupUpload(name: string): Promise<void> {
+    await unlink(path.join(this.p('inbox'), name)).catch(() => undefined);
   }
 
   async removeOffsiteConfig(): Promise<void> {

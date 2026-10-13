@@ -667,6 +667,7 @@ jobs:
         env:
           LIVE_BASE_URL: http://127.0.0.1:${{ env.PORT }}
           LIVE_ORIGIN: /srv/origin-web.git
+          LIVE_DATA: /var/lib/arklock-web
         run: |
           npx playwright install --with-deps chromium
           npm run build

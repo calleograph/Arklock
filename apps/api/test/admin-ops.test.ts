@@ -437,3 +437,34 @@ describe('remote backup storage (S3 / SMB)', () => {
     );
   });
 });
+
+describe('uploading a backup copy', () => {
+  const octet = { 'content-type': 'application/octet-stream' };
+
+  it('stores the file in the inbox and asks the helper to check it', async () => {
+    heartbeat();
+    const body = Buffer.from('uploaded-copy-bytes');
+    const r = await withHeaders(admin, 'POST', '/admin/backups/upload', octet, body);
+    expect(r.statusCode).toBe(202);
+    const req = consume();
+    expect(req.action).toBe('backup_import');
+    expect(req.file).toMatch(/^upload-[0-9a-f-]{36}\.bak\.gpg$/);
+    expect(readFileSync(path.join(dir, 'inbox', req.file!))).toEqual(body);
+  });
+
+  it('empty uploads, other users and anonymous requests are refused without writing anything', async () => {
+    heartbeat();
+    const empty = await withHeaders(admin, 'POST', '/admin/backups/upload', octet, Buffer.alloc(0));
+    expect(empty.statusCode).toBe(400);
+    const other = await withHeaders(bob, 'POST', '/admin/backups/upload', octet, Buffer.from('x'));
+    expect(other.statusCode).toBe(403);
+    const anon = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/backups/upload',
+      headers: octet,
+      payload: Buffer.from('x'),
+    });
+    expect(anon.statusCode).toBe(401);
+    expect(() => readFileSync(reqFile())).toThrow();
+  });
+});

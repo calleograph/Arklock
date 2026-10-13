@@ -139,6 +139,9 @@ export default {
     backups: {
       label: 'Label (a–z, 0–9)',
       create: 'Create backup',
+      upload: 'Upload backup',
+      uploadHint:
+        'A backup from another server: the file is checked with this server’s backup encryption key. Restoring is a separate step.',
       name: 'Backup',
       created: 'Created',
       size: 'Size',

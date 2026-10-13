@@ -200,6 +200,29 @@ const backupNow = async () => {
     busy.value = false;
   }
 };
+/** Загрузка копии (например, с другого сервера): помощник проверяет её ключом этого сервера. */
+const uploadBackup = async (ev: Event) => {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const r = await api<{ requestId: string }>('POST', '/admin/backups/upload', undefined, {
+      raw: file,
+    });
+    notice.value = t('sys.running');
+    const res = await waitOp(r.requestId);
+    if (res.ok) notice.value = res.message || t('sys.done');
+    else error.value = res.message || t('error.generic');
+    await load();
+  } catch (e) {
+    error.value = failMessage(e);
+  } finally {
+    busy.value = false;
+  }
+};
 const verifyBackup = async (file: string) => {
   busy.value = true;
   error.value = '';
@@ -565,6 +588,21 @@ const disks = computed(() => (data.value?.disks ?? []) as Json[]);
         >
           {{ t('sys.backups.create') }}
         </button>
+        <label
+          class="btn cursor-pointer"
+          :class="{ 'pointer-events-none opacity-50': busy || !data.helperAlive }"
+          :title="t('sys.backups.uploadHint')"
+        >
+          {{ t('sys.backups.upload') }}
+          <input
+            type="file"
+            accept=".gpg,application/octet-stream"
+            class="sr-only"
+            data-testid="backup-upload"
+            :disabled="busy || !data.helperAlive"
+            @change="uploadBackup"
+          />
+        </label>
         <span v-if="data.backups" class="text-xs text-slate-500"
           >{{ data.backups.dir }} · {{ t('sys.res.free') }} {{ data.backups.freeGiB }} GiB</span
         >
