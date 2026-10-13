@@ -10,6 +10,30 @@ import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
+import Icon, { type IconName } from '../components/Icon.vue';
+
+/** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
+const TAB_ICON: Record<string, IconName> = {
+  overview: 'chart',
+  users: 'user',
+  circles: 'users',
+  roles: 'shield',
+  invitations: 'user',
+  resources: 'chart',
+  containers: 'database',
+  backups: 'database',
+  logs: 'log',
+  storage: 'file',
+  diagnostics: 'help',
+  certificates: 'lock',
+  ldap: 'users',
+  sso: 'key',
+  saml: 'key',
+  smtp: 'text',
+  syslog: 'log',
+  settings: 'settings',
+  ledger: 'log',
+};
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
 
@@ -320,6 +344,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 :data-testid="`admin-tab-${x}`"
                 @click="tab = x"
               >
+                <Icon :name="TAB_ICON[x] ?? 'settings'" class="size-4 opacity-80" />
                 {{ t(`admin.tab.${x}`) }}
               </button>
             </template>

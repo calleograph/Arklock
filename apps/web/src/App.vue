@@ -78,7 +78,7 @@ const initial = () =>
       style="background: var(--header-bg)"
     >
       <div
-        class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-6"
+        class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 sm:px-6 lg:flex-nowrap"
       >
         <RouterLink to="/" class="flex items-center gap-2.5" aria-label="Arklock">
           <span
@@ -107,7 +107,7 @@ const initial = () =>
 
         <nav
           v-if="auth.isSignedIn && auth.unlocked"
-          class="order-3 -mx-1 flex w-full items-center gap-0.5 overflow-x-auto px-1 sm:order-none sm:mx-0 sm:w-auto sm:flex-1 sm:overflow-visible"
+          class="order-3 -mx-1 flex w-full items-center gap-0.5 overflow-x-auto px-1 sm:order-none sm:mx-0 sm:w-auto sm:flex-1 sm:overflow-visible lg:min-w-0 lg:overflow-x-auto"
           :aria-label="t('ui.mainNav')"
         >
           <RouterLink
@@ -159,7 +159,7 @@ const initial = () =>
         </nav>
         <div v-else class="flex-1" />
 
-        <div class="ml-auto flex items-center gap-1.5 text-sm">
+        <div class="ml-auto flex shrink-0 items-center gap-1.5 text-sm">
           <!-- до входа тему можно выбрать здесь, после входа — в «Настройках» -->
           <div
             v-if="!auth.isSignedIn"
@@ -221,7 +221,7 @@ const initial = () =>
                 <rect x="5" y="11" width="14" height="9" rx="2" />
                 <path d="M8 11V8a4 4 0 0 1 8 0v3" />
               </svg>
-              <span class="hidden md:inline">{{ t('nav.lock') }}</span>
+              <span class="hidden 2xl:inline">{{ t('nav.lock') }}</span>
             </button>
             <div ref="menuRoot" class="relative">
               <button
@@ -239,14 +239,14 @@ const initial = () =>
                   aria-hidden="true"
                   >{{ initial() }}</span
                 >
-                <span class="hidden md:inline">{{
+                <span class="hidden 2xl:inline">{{
                   auth.user?.displayName || auth.user?.email
                 }}</span>
               </button>
               <div
                 v-if="menuOpen"
                 role="menu"
-                class="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                class="menu-pop absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
                 data-testid="user-menu-list"
               >
                 <RouterLink

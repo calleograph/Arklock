@@ -403,7 +403,7 @@ void api;
   <section
     :class="
       editing
-        ? 'fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-8'
+        ? 'modal-fade fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-8'
         : 'card p-4'
     "
     :role="editing ? 'dialog' : undefined"
