@@ -117,6 +117,27 @@ test('long reading keeps the keys; the default is eight hours of inactivity', as
       await page.evaluate(() => (window as unknown as { __evt: Record<string, number> }).__evt),
     ),
   );
+  // диагностика: вызываем проверку бездействия из стора напрямую и смотрим, блокирует ли она сеанс
+  console.log(
+    '[diag] direct check',
+    JSON.stringify(
+      await page.evaluate(() => {
+        const app = document.querySelector('#app') as unknown as {
+          __vue_app__: {
+            config: {
+              globalProperties: {
+                $pinia: { _s: Map<string, { checkIdle: () => void; unlocked: boolean }> };
+              };
+            };
+          };
+        };
+        const store = app.__vue_app__.config.globalProperties.$pinia._s.get('auth');
+        const before = store?.unlocked;
+        store?.checkIdle();
+        return { before, after: store?.unlocked, hasCheck: typeof store?.checkIdle };
+      }),
+    ),
+  );
   await expect(page).toHaveURL(/\/unlock$/);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
