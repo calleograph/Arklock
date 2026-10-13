@@ -166,6 +166,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         name: v.name,
         keyVersion: v.keyVersion,
         role: a.role,
+        canManageMembers: a.isAdmin,
         key: k
           ? {
               sealedKey: k.k.sealedKey,

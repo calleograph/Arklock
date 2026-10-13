@@ -674,6 +674,9 @@ const disks = computed(() => (data.value?.disks ?? []) as Json[]);
         @submit.prevent="restoreBackup"
       >
         <p class="text-red-700">{{ t('sys.backups.restoreWarn') }}</p>
+        <p class="text-slate-600 dark:text-slate-300" data-testid="restore-key-note">
+          {{ t('sys.backups.keyNote') }}
+        </p>
         <p class="font-mono text-xs">{{ restoring }}</p>
         <input
           v-model="restoreConfirm"

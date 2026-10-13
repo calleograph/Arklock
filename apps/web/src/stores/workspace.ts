@@ -570,7 +570,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    */
   async function distributeAllPending(): Promise<void> {
     for (const v of vaults.value) {
-      if (!v.unlocked || !['owner', 'admin'].includes(v.role)) continue;
+      // право выдавать ключи определяет сервер (полномочие управлять участниками), а не название роли
+      if (!v.unlocked || !v.canManageMembers) continue;
       try {
         await distributePending(v.id);
       } catch {

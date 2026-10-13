@@ -544,6 +544,18 @@ describe('circles', () => {
     expect(bobSees.pendingKey).toBe(true);
     const pending = (await admin.req('GET', `/vaults/${v2.id}/pending-keys`)).json();
     expect(pending.users.map((u: { userId: string }) => u.userId)).toEqual([bob.userId]);
+    // полномочие управлять участниками: у администратора сейфа есть, у редактора нет; очередь и выдачу ключей
+    // участник без полномочия не получает, даже с корректно подписанным ключом
+    expect((await admin.vaults()).find((v) => v.id === v2.id)!.canManageMembers).toBe(true);
+    expect(bobSees.canManageMembers).toBe(false);
+    expect((await bob.req('GET', `/vaults/${v2.id}/pending-keys`)).statusCode).toBe(403);
+    expect(
+      (
+        await bob.req('POST', `/vaults/${v2.id}/keys`, {
+          keys: [{ userId: bob.userId, ...(await admin.keyFor(bob, v2.id, v2.key)) }],
+        })
+      ).statusCode,
+    ).toBe(403);
     await admin.req('POST', `/vaults/${v2.id}/keys`, {
       keys: [{ userId: bob.userId, ...(await admin.keyFor(bob, v2.id, v2.key)) }],
     });
