@@ -178,7 +178,8 @@ try {
   await setTheme(page, 'corporate');
 
   // настройки внешнего вида
-  await page.locator('a[href="/settings"]').first().click();
+  await tid(page, 'menu-toggle').click();
+  await tid(page, 'menu-settings').click();
   await tid(page, 'theme-sunset').waitFor();
   for (const t of QUICK ? ['corporate'] : ['corporate', 'forest']) {
     await setTheme(page, t);
@@ -187,12 +188,14 @@ try {
   await setTheme(page, 'corporate');
 
   // безопасность
-  await page.locator('a[href="/security"]').first().click();
+  await tid(page, 'menu-toggle').click();
+  await tid(page, 'menu-security').click();
   await page.getByTestId('sessions').waitFor();
   await shot(page, 'security-corporate');
 
   // администрирование
-  await tid(page, 'nav-admin').click();
+  await tid(page, 'menu-toggle').click();
+  await tid(page, 'menu-full').click();
   await tid(page, 'admin-tab-overview').waitFor();
   await tid(page, 'admin-tab-overview').click();
   await page.waitForTimeout(800);
