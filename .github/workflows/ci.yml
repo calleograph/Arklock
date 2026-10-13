@@ -786,3 +786,90 @@ jobs:
           sudo docker rm -f arklock-bind-foreign || true
           sudo "$APPDIR/scripts/updater.sh" uninstall --env "$CFG/arklock.env" || true
           sudo docker compose --project-name "$PROJ" down -v || true
+
+  real-upgrade:
+    name: published 1.0.0 with a hand-edited LAN address upgrades to the candidate release (proxy, data, foreign containers)
+    runs-on: ubuntu-24.04
+    env:
+      CFG: /etc/arklock-real
+      DATA: /var/lib/arklock-real
+      APPDIR: /opt/arklock-real
+      PROJ: arklock-real
+      ARKLOCK_UPDATE_WAIT: '240'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w @arklock/crypto
+      - name: Candidate release commit on top of the real history (current code, version 1.12.0)
+        run: |
+          echo 1.12.0 > VERSION
+          git -c user.name=ci -c user.email=ci@example.com commit -q -am "release candidate 1.12.0 (CI)"
+          git tag v1.12.0
+      - name: Origin with the published tags and the candidate
+        run: git clone -q --bare "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
+      - name: A container that does not belong to Arklock (must stay untouched)
+        run: |
+          sudo docker run -d --name arklock-real-foreign alpine sleep 36000
+          sudo docker inspect -f '{{.Id}}' arklock-real-foreign > "$RUNNER_TEMP/foreign.id"
+      - name: Install the published v1.0.0 exactly as users did (its own installer, port 18080)
+        run: |
+          sudo git clone -q --branch v1.0.0 "file://$RUNNER_TEMP/origin.git" "$APPDIR"
+          cd "$APPDIR"
+          sudo ./install.sh --yes --profile standalone --port 18080 --project "$PROJ" --config "$CFG" --data "$DATA"
+          test "$(curl -fsS http://127.0.0.1:18080/api/v1/version | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.0.0
+      - name: 'Reproduce the reported change (publish address typed into compose.yaml by hand on the LAN address)'
+        run: |
+          dev="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"
+          lan="$(ip -4 -o addr show dev "$dev" | awk '{ split($4, a, "/"); print a[1]; exit }')"
+          echo "LAN=$lan" >> "$GITHUB_ENV"
+          cd "$APPDIR"
+          sudo sed -i "s#'127.0.0.1:#'$lan:#" compose.yaml
+          sudo docker compose --env-file "$CFG/arklock.env" --project-name "$PROJ" -f compose.yaml up -d
+          test "$(curl -fsS "http://$lan:18080/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.0.0
+      - name: Create a user and an encrypted entry on the published 1.0.0
+        env:
+          BASE_URL: http://${{ env.LAN }}:18080
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: node scripts/smoke-container.mjs write
+      - name: The published 1.0.0 updater refuses while compose.yaml is edited (the reported state)
+        run: |
+          cd "$APPDIR"
+          set +e
+          sudo ./scripts/update.sh --env "$CFG/arklock.env" --ref v1.12.0 --yes > "$RUNNER_TEMP/old-updater.log" 2>&1
+          rc=$?
+          set -e
+          test "$rc" != 0
+          grep -q "локальные изменения" "$RUNNER_TEMP/old-updater.log"
+      - name: Upgrade with the candidate installer (migrates the publish address, then the published updater finishes)
+        env:
+          BASE_URL: http://${{ env.LAN }}:18080
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          mkdir -p "$RUNNER_TEMP/inst"
+          cp install.sh "$RUNNER_TEMP/inst/install.sh"
+          cd "$RUNNER_TEMP/inst"
+          sudo bash install.sh --yes --ref v1.12.0 --repo "file://$RUNNER_TEMP/origin.git" --dir "$APPDIR" --config "$CFG" --data "$DATA" --project "$PROJ" --port 18080
+          test "$(sudo sed -n 's/^APP_BIND=//p' "$CFG/arklock.env")" = "$LAN"
+          test "$(curl -fsS "http://$LAN:18080/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.12.0
+          node scripts/smoke-container.mjs verify
+      - name: Reverse proxy (self-signed, real Nginx) still reaches the instance on the same address
+        run: |
+          sudo "$APPDIR/scripts/proxy.sh" setup --domain arklock.test --mode self-signed
+          grep -q "$LAN:18080" /etc/nginx/conf.d/arklock-*.conf || grep -q "$LAN" /etc/nginx/conf.d/arklock-*.conf
+          test "$(curl -sk --resolve arklock.test:443:127.0.0.1 https://arklock.test/api/v1/version | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 1.12.0
+      - name: The foreign container is the same container and still running
+        run: |
+          test "$(sudo docker inspect -f '{{.Id}}' arklock-real-foreign)" = "$(cat "$RUNNER_TEMP/foreign.id")"
+          test "$(sudo docker inspect -f '{{.State.Running}}' arklock-real-foreign)" = true
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo docker rm -f arklock-real-foreign || true
+          sudo "$APPDIR/scripts/updater.sh" uninstall --env "$CFG/arklock.env" || true
+          sudo docker compose --project-name "$PROJ" down -v || true
