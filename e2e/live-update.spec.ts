@@ -111,6 +111,8 @@ test('a copy is uploaded back: the helper checks it with this server key; a fore
 
   // копия этого сервера; каталог копий принадлежит пользователю помощника, читаем через sudo
   await page.getByTestId('backup-create').click();
+  // список обновляется раньше, чем операция завершится: ждём сообщение помощника, иначе загрузка получит 409
+  await expect(page.getByText(/создана и проверена/)).toBeVisible({ timeout: 300_000 });
   await expect(page.getByTestId('backup-row').first()).toBeVisible({ timeout: 300_000 });
   const before = await page.getByTestId('backup-row').count();
   const newest = execFileSync('sudo', ['sh', '-c', `ls -1t ${backupDir}/*.bak.gpg | head -n 1`])
@@ -121,6 +123,7 @@ test('a copy is uploaded back: the helper checks it with this server key; a fore
 
   // копия с этого же сервера проходит проверку и попадает в список
   await page.getByTestId('backup-upload').setInputFiles(copy);
+  await expect(page.getByText(/загружена и проверена/)).toBeVisible({ timeout: 300_000 });
   await expect(page.getByTestId('backup-row')).toHaveCount(before + 1, { timeout: 300_000 });
   await expect(page.getByTestId('backup-row').filter({ hasText: 'uploaded' })).toHaveCount(1);
 
