@@ -154,6 +154,11 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('btn-add-field').click();
   await page.getByTestId('field-name-0').fill('IP');
   await page.getByTestId('field-value-0').fill('203.0.113.7');
+  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('field-name-1').fill('PIN');
+  await page.getByTestId('field-type-password-1').click();
+  await expect(page.getByTestId('field-value-1')).toHaveAttribute('type', 'password');
+  await page.getByTestId('field-value-1').fill('4242');
   await page.getByTestId('f-tags').fill('prod, bank');
   await page.getByTestId('f-save').click();
   await expect(page.getByTestId('view-title')).toHaveText('Сервер банка');
@@ -320,7 +325,8 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   test.setTimeout(420_000);
   const page = adminPage;
   // администратор открывает регистрацию в настройках
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await page.getByTestId('admin-tab-settings').click();
   await page.getByTestId('set-registration').selectOption('open');
 
@@ -328,10 +334,8 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await register(memberPage, MEMBER);
 
   // администратор создаёт общее хранилище
-  await page
-    .getByRole('link', { name: /Сейф|Locker/ })
-    .first()
-    .click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Команда');
@@ -393,10 +397,8 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   ).toHaveCount(0);
 
   // данные после ротации открываются администратором
-  await page
-    .getByRole('link', { name: /Сейф|Locker/ })
-    .first()
-    .click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('entry-row').first()).toBeVisible({ timeout: 30_000 });
   await page.getByTestId('entry-row').first().click();
   // после ротации ключа файл открывается новым ключом и содержимое прежнее
@@ -425,10 +427,8 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   } else {
     await login(page, ADMIN);
   }
-  await page
-    .getByRole('link', { name: /Сейф|Locker/ })
-    .first()
-    .click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Перенос');
@@ -490,10 +490,8 @@ test('an entry with an attachment moves to another vault; the file keeps its con
       .locator('option', { hasText: /Личный сейф|Personal locker/ })
       .getAttribute('value')
       .then((v) => v!);
-  await page
-    .getByRole('link', { name: /Сейф|Locker/ })
-    .first()
-    .click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
   await page
     .getByTestId('vault-select')
@@ -544,7 +542,8 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
 }) => {
   const { totp, parseTotpInput } = await import('../packages/crypto/dist/index.js');
   const page = adminPage;
-  await page.locator('a[href="/security"]').first().click();
+  await await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-security').click();
   await page.getByTestId('mfa-start').click();
   const secret = (await page.getByTestId('mfa-secret').innerText()).trim();
   // предыдущий шаг времени: следующий вход использует текущий, один шаг дважды не принимается
@@ -558,7 +557,7 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
   await page.getByTestId('mfa-codes-saved').click();
   await expect(page.getByTestId('mfa-state')).toContainText(/10/);
 
-  await page.getByTestId('user-menu').click();
+  await page.getByTestId('menu-toggle').click();
 
   await page.getByTestId('signout').click();
   const fresh = await (await browser.newContext()).newPage();
@@ -579,7 +578,7 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
   await expect(fresh.getByTestId('entry-row').first()).toBeVisible({ timeout: 30_000 });
 
   // резервный код работает один раз
-  await fresh.getByTestId('user-menu').click();
+  await fresh.getByTestId('menu-toggle').click();
   await fresh.getByTestId('signout').click();
   const login2 = async (code: string) => {
     await fresh.goto('/login');
@@ -591,7 +590,7 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
   };
   await login2(backup);
   await expect(fresh.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
-  await fresh.getByTestId('user-menu').click();
+  await fresh.getByTestId('menu-toggle').click();
   await fresh.getByTestId('signout').click();
   await login2(backup);
   await expect(fresh.getByTestId('error')).toBeVisible({ timeout: 90_000 });

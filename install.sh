@@ -87,6 +87,39 @@ if [ -n "$HTTPS_MODE" ] && [ -z "$DOMAIN" ]; then echo "--https требует -
 
 say()  { printf '[..] %s\n' "$*"; }
 okk()  { printf '[ok] %s\n' "$*"; }
+
+# Копия программы с локальными изменениями (например, адрес публикации, вписанный вручную в compose.yaml версии 1.0.x):
+# адрес переносится в файл окружения, файлы возвращаются к релизу, после чего обновление выполняет скрипт установленной
+# версии. Без изменений ничего не делает. Аргумент — релиз для обновления (пусто — текущая копия, без смены версии).
+migrate_modified_install() {
+  local target="$1" lib dirty tmp=""
+  dirty="$(git -C "$INSTALL_DIR" diff --name-only HEAD -- 2>/dev/null)"
+  [ -n "$dirty" ] || return 0
+  say "В каталоге программы есть локальные изменения: $(printf '%s' "$dirty" | tr '\n' ' ')"
+  if [ -n "$target" ]; then
+    [[ "$target" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || bail "Для установки с локальными изменениями укажите релизный тег: --ref vX.Y.Z"
+    # помощник переноса берётся из выбранного релиза: он соответствует формату новой версии
+    tmp="$(mktemp -d)"
+    git -C "$INSTALL_DIR" fetch --quiet --tags origin || bail "Не удалось получить релизы из репозитория"
+    git -C "$INSTALL_DIR" show "$target:scripts/lib/common.sh" > "$tmp/common.sh" 2>/dev/null \
+      && git -C "$INSTALL_DIR" show "$target:scripts/lib/instance-config.sh" > "$tmp/instance-config.sh" 2>/dev/null \
+      || bail "В релизе $target нет помощника переноса настроек"
+    lib="$tmp"
+  else
+    lib="$INSTALL_DIR/scripts/lib"
+    [ -f "$lib/instance-config.sh" ] || bail "В установленной версии нет помощника переноса настроек. Запустите установщик из релиза: curl -fsSL https://github.com/calleograph/arklock/releases/latest/download/install.sh | sudo bash"
+  fi
+  DATA_ROOT="${DATA_ROOT:-/var/lib/arklock}"
+  ENV_FILE="$CONFIG_DIR/arklock.env"
+  [ -f "$ENV_FILE" ] || bail "Файл настроек $ENV_FILE не найден: сначала выполните установку"
+  ( . "$lib/common.sh"; . "$lib/instance-config.sh"
+    ic_migrate_bind "$INSTALL_DIR" "$ENV_FILE" "$DATA_ROOT/config-backups" "$((1 - DRY))" ) \
+    || bail "Перенос адреса публикации не выполнен (ничего не изменено). См. docs/TROUBLESHOOTING.md."
+  [ -z "$tmp" ] || rm -rf "$tmp"
+  [ "$DRY" -eq 0 ] || exit 0
+  # дальнейшее обновление выполняет updater установленной версии: он проверяет и откатывает изменения
+  exec "$INSTALL_DIR/scripts/update.sh" ${target:+--ref "$target"} --yes --env "$ENV_FILE"
+}
 warnn() { printf '[warn] %s\n' "$*" >&2; }
 bail() { printf '[FAIL] %s\n' "$*" >&2; exit 1; }
 run()  { if [ "$DRY" -eq 1 ]; then printf '[dry-run] %s\n' "$*"; else "$@"; fi; }
@@ -129,6 +162,7 @@ if [ ! -f "$HERE/scripts/lib/common.sh" ] || [ ! -f "$HERE/compose.yaml" ]; then
     run git clone --depth 1 --branch "$REF" "$REPO_URL" "$INSTALL_DIR"
   else
     okk "Каталог программы уже существует: $INSTALL_DIR (не перезаписывается)"
+    migrate_modified_install "$REF"
   fi
   [ "$DRY" -eq 0 ] || exit 0
   args=(--bootstrapped --profile "${PROFILE:-}" --dir "$INSTALL_DIR" --data "${DATA_ROOT:-}" --config "$CONFIG_DIR"
@@ -153,6 +187,7 @@ INSTALL_DIR="${INSTALL_DIR:-$REPO_ROOT}"
 DATA_ROOT="${DATA_ROOT:-/var/lib/arklock}"
 ENV_FILE="$CONFIG_DIR/arklock.env"
 ARKLOCK_ENV="$ENV_FILE"
+migrate_modified_install "$REF"
 
 # ------------------------------------------------------------------ 3. Профиль
 OTHER_CONTAINERS=0
@@ -235,6 +270,12 @@ if [ "$PORT" != "$EXISTING_PORT" ] && port_in_use "$PORT"; then bail "Порт $
 # ------------------------------------------------------------------ 5а. Адрес прослушивания
 EXISTING_BIND=""
 [ -f "$ENV_FILE" ] && EXISTING_BIND="$(env_get "$ENV_FILE" APP_BIND)"
+# Повторный запуск не должен сбрасывать адрес публикации: если APP_BIND потерян, берём его у работающего приложения.
+if [ -f "$ENV_FILE" ] && [ -z "$EXISTING_BIND" ]; then
+  . "$REPO_ROOT/scripts/lib/instance-config.sh"
+  ic_restore_bind_from_running "$ENV_FILE" "$PROJECT"
+  EXISTING_BIND="$(env_get "$ENV_FILE" APP_BIND)"
+fi
 lan_ip() { # адрес основного сетевого интерфейса (того, что с маршрутом по умолчанию)
   local dev
   dev="$(ip -4 route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')"

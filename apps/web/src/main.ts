@@ -12,10 +12,23 @@ async function bootstrap(): Promise<void> {
   await auth.restore();
   app.use(router);
 
-  // Любая активность продлевает время до автоблокировки.
-  for (const ev of ['pointerdown', 'keydown', 'visibilitychange'] as const) {
+  // Любая работа с экраном продлевает разблокированное состояние: чтение (прокрутка, движение мыши), ввод, касания.
+  for (const ev of [
+    'pointerdown',
+    'pointermove',
+    'keydown',
+    'wheel',
+    'touchstart',
+    'touchmove',
+    'focusin',
+  ] as const) {
     window.addEventListener(ev, () => auth.touch(), { passive: true });
   }
+  window.addEventListener('scroll', () => auth.touch(), { passive: true, capture: true });
+  // Возврат на вкладку (в том числе после сна компьютера): срок бездействия проверяется сразу, без продления.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') auth.checkIdle();
+  });
 
   // Автоблокировка переводит на экран разблокировки.
   auth.$subscribe(() => {

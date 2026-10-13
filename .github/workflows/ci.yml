@@ -162,6 +162,8 @@ jobs:
           done
           exit $rc
       - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh
+      - name: Migration of a hand-edited publish address (1.0.x compose.yaml → APP_BIND)
+        run: bash tests/update/instance-config.test.sh
 
   installer:
     name: installer, backup and restore on a clean Ubuntu 24.04 runner

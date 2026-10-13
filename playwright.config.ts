@@ -10,6 +10,7 @@ const PORT_EXTENSION = 18185;
 const PORT_MOBILE = 18186;
 const PORT_WEBAUTHN = 18187;
 const PORT_FIREFOX = 18188;
+const PORT_SESSION = 18189;
 /** Расширению нужен видимый браузер (в CI — xvfb), поэтому проект включается только по запросу. */
 const WITH_EXTENSION = process.env.E2E_EXTENSION === '1';
 /** Расширение в Firefox проверяется через geckodriver (Selenium) и требует установленного Firefox. */
@@ -87,6 +88,11 @@ export default defineConfig({
       use: { baseURL: `http://localhost:${PORT_WEBAUTHN}` },
     },
     {
+      name: 'session',
+      testMatch: 'session-lock.spec.ts',
+      use: { baseURL: `http://127.0.0.1:${PORT_SESSION}` },
+    },
+    {
       name: 'updates',
       testMatch: 'updates.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_UPDATES}` },
@@ -112,6 +118,16 @@ export default defineConfig({
         ...common,
         PORT: String(PORT_MOBILE),
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-6',
+      },
+    },
+    {
+      command: 'node apps/api/dist/main.js',
+      url: `http://127.0.0.1:${PORT_SESSION}/api/v1/ready`,
+      timeout: 60_000,
+      env: {
+        ...common,
+        PORT: String(PORT_SESSION),
+        BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-9',
       },
     },
     ...(WITH_FIREFOX

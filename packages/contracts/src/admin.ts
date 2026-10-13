@@ -51,6 +51,8 @@ export const updatesOverview = z.object({
     })
     .nullable(),
   status: updateStatus,
+  /** Журнал этапов обновления: последние строки вывода помощника (ошибки и предупреждения — как есть, секреты маскируются). */
+  updateLog: z.string(),
   history: z.array(
     z.object({
       at: z.string(),

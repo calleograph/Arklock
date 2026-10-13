@@ -20,6 +20,7 @@ import {
 import { useWorkspaceStore } from '../stores/workspace';
 import PasswordGenerator from './PasswordGenerator.vue';
 import IconButton from './IconButton.vue';
+import Icon from './Icon.vue';
 import { errorMessage } from '../services/helpers';
 import { api } from '../services/api';
 import { openSink } from '../services/download';
@@ -187,6 +188,12 @@ function useGenerated(value: string): void {
   showPw.value = true;
   showGenerator.value = false;
 }
+
+/** Тип поля выбирается из двух вариантов; тип хранится в том же флаге `secret`, что и раньше. */
+const FIELD_TYPES = [
+  { key: 'text', secret: false, icon: 'text', label: 'vault.fieldTypeText' },
+  { key: 'password', secret: true, icon: 'lock', label: 'vault.fieldTypePassword' },
+] as const;
 
 function addField(): void {
   form.value.fields.push({ name: '', value: '', secret: false });
@@ -437,7 +444,7 @@ void api;
       <template v-if="item && !editing">
         <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
           <div class="min-w-0">
-            <h2 class="truncate text-lg font-semibold" data-testid="view-title">
+            <h2 class="truncate text-xl font-semibold tracking-tight" data-testid="view-title">
               {{ item.data.title }}
             </h2>
             <div class="mt-1 flex flex-wrap gap-1">
@@ -473,7 +480,7 @@ void api;
         <div class="mb-3 flex gap-1 border-b border-slate-200 text-sm dark:border-slate-800">
           <button
             type="button"
-            class="px-3 py-1"
+            class="px-3 py-1.5 transition-colors"
             :class="tab === 'details' ? 'border-b-2 border-brand-500 font-medium' : ''"
             @click="tab = 'details'"
           >
@@ -481,7 +488,7 @@ void api;
           </button>
           <button
             type="button"
-            class="px-3 py-1"
+            class="px-3 py-1.5 transition-colors"
             :class="tab === 'history' ? 'border-b-2 border-brand-500 font-medium' : ''"
             data-testid="tab-history"
             @click="loadHistory"
@@ -490,7 +497,7 @@ void api;
           </button>
           <button
             type="button"
-            class="px-3 py-1"
+            class="px-3 py-1.5 transition-colors"
             :class="tab === 'files' ? 'border-b-2 border-brand-500 font-medium' : ''"
             data-testid="tab-files"
             @click="openFiles"
@@ -499,7 +506,7 @@ void api;
           </button>
           <button
             type="button"
-            class="px-3 py-1"
+            class="px-3 py-1.5 transition-colors"
             :class="tab === 'share' ? 'border-b-2 border-brand-500 font-medium' : ''"
             data-testid="tab-share"
             @click="tab = 'share'"
@@ -928,9 +935,30 @@ void api;
               class="input"
               :data-testid="`field-value-${i}`"
             />
-            <label class="flex items-center gap-1 text-xs"
-              ><input v-model="f.secret" type="checkbox" />{{ t('vault.secretField') }}</label
+            <div
+              class="flex shrink-0 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+              role="radiogroup"
+              :aria-label="t('vault.fieldType')"
             >
+              <button
+                v-for="opt in FIELD_TYPES"
+                :key="opt.key"
+                type="button"
+                role="radio"
+                class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
+                :class="
+                  f.secret === opt.secret
+                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                "
+                :aria-checked="f.secret === opt.secret"
+                :data-testid="`field-type-${opt.key}-${i}`"
+                @click="f.secret = opt.secret"
+              >
+                <Icon :name="opt.icon" class="size-3.5" />
+                {{ t(opt.label) }}
+              </button>
+            </div>
             <button type="button" class="btn" @click="form.fields.splice(i, 1)">×</button>
           </div>
           <button type="button" class="btn" data-testid="btn-add-field" @click="addField">

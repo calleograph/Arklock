@@ -4,11 +4,23 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import { DEFAULT_THEME, isTheme, PREVIEW, THEMES, type ThemeId } from '../services/theme';
 import { errorMessage } from '../services/helpers';
+import {
+  AUTO_LOCK_OPTIONS,
+  autoLockMinutes,
+  setAutoLockMinutes,
+  type AutoLockMinutes,
+} from '../services/autolock';
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
 const error = ref('');
 const notice = ref('');
+const lockMinutes = ref<AutoLockMinutes>(autoLockMinutes());
+
+function chooseLock(minutes: AutoLockMinutes): void {
+  lockMinutes.value = minutes;
+  setAutoLockMinutes(minutes);
+}
 
 const current = (): ThemeId =>
   isTheme(auth.user?.theme) ? (auth.user!.theme as ThemeId) : DEFAULT_THEME;
@@ -92,6 +104,25 @@ function setLocale(value: 'ru' | 'en'): void {
             />
             <span class="block h-3 w-1/2 rounded" :style="{ background: PREVIEW[id].accent }" />
           </span>
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <h2>{{ t('prefs.autoLock') }}</h2>
+      <p class="mb-4 mt-1 text-sm text-slate-500">{{ t('prefs.autoLockHint') }}</p>
+      <div class="flex flex-wrap gap-2" role="radiogroup" :aria-label="t('prefs.autoLock')">
+        <button
+          v-for="m in AUTO_LOCK_OPTIONS"
+          :key="m"
+          type="button"
+          role="radio"
+          :aria-checked="lockMinutes === m"
+          :data-testid="`autolock-${m}`"
+          :class="lockMinutes === m ? 'btn-primary' : 'btn'"
+          @click="chooseLock(m)"
+        >
+          {{ t(`prefs.autoLockOptions.m${m}`) }}
         </button>
       </div>
     </div>

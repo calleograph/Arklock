@@ -204,6 +204,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const get = (k: string, d: unknown) => rows.find((r) => r.key === k)?.value ?? d;
     return {
       'vaults.creators': get('vaults.creators', 'admins'),
+      'vaults.personalLockers': get('vaults.personalLockers', true),
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
       'security.mfaRequired': get('security.mfaRequired', 'off'),

@@ -38,6 +38,9 @@ const parentChoices = computed(() =>
 );
 const permLabel = (p: string) => t(`roles.perm.${p.replace('.', '_')}`);
 const nameOf = (id: string) => data.value.roles.find((r) => r.id === id)?.name ?? id;
+/** Сколько прав видно в таблице сразу; остальные раскрываются в строке. */
+const RIGHTS_SHOWN = 6;
+const rightsOf = (r: Role): string[] => effective.value[r.id] ?? [];
 
 async function load(): Promise<void> {
   data.value = await api<Listing>('GET', '/admin/roles');
@@ -235,45 +238,89 @@ const remove = (r: Role) =>
     </form>
 
     <p v-if="!data.roles.length" class="text-sm text-slate-500">{{ t('roles.empty') }}</p>
-    <ul class="space-y-2">
-      <li v-for="r in data.roles" :key="r.id" class="card space-y-1 text-sm" data-testid="role-row">
-        <div class="flex flex-wrap items-center gap-2">
-          <strong>{{ r.name }}</strong>
-          <span class="badge">{{
-            r.scope === 'admin' ? t('roles.scopeAdmin') : t('roles.scopeVault')
-          }}</span>
-          <span class="ml-auto space-x-1">
-            <button
-              type="button"
-              class="btn"
-              :data-testid="`role-edit-${r.name}`"
-              @click="startEdit(r)"
-            >
-              {{ t('roles.edit') }}
-            </button>
-            <button
-              type="button"
-              class="btn-danger"
-              :disabled="busy"
-              :data-testid="`role-delete-${r.name}`"
-              @click="remove(r)"
-            >
-              {{ confirmId === r.id ? t('roles.confirmDelete') : t('roles.delete') }}
-            </button>
-          </span>
-        </div>
-        <p v-if="r.description" class="text-xs text-slate-500">{{ r.description }}</p>
-        <p v-if="r.parents.length" class="text-xs">
-          {{ t('roles.parents') }}: {{ r.parents.map(nameOf).join(', ') }}
-        </p>
-        <p v-if="r.deny.length" class="text-xs text-red-600">
-          {{ t('roles.deny') }}: {{ r.deny.map((p) => permLabel(p)).join(', ') }}
-        </p>
-        <p class="text-xs text-slate-600 dark:text-slate-400">
-          {{ t('roles.effective') }}:
-          {{ (effective[r.id] ?? []).map((p) => permLabel(p)).join(', ') || t('roles.none') }}
-        </p>
-      </li>
-    </ul>
+    <div
+      class="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+    >
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left text-xs text-slate-500 dark:bg-slate-800/60">
+          <tr>
+            <th class="px-4 py-2.5 font-medium">{{ t('roles.colName') }}</th>
+            <th class="px-4 py-2.5 font-medium">{{ t('roles.colScope') }}</th>
+            <th class="px-4 py-2.5 font-medium">{{ t('roles.colRights') }}</th>
+            <th class="w-px px-4 py-2.5">
+              <span class="sr-only">{{ t('roles.colActions') }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+          <tr v-for="r in data.roles" :key="r.id" class="align-top" data-testid="role-row">
+            <td class="px-4 py-3">
+              <div class="font-semibold">{{ r.name }}</div>
+              <div v-if="r.description" class="mt-0.5 text-xs text-slate-500">
+                {{ r.description }}
+              </div>
+              <div v-if="r.parents.length" class="mt-1 text-xs text-slate-500">
+                {{ t('roles.parents') }}: {{ r.parents.map(nameOf).join(', ') }}
+              </div>
+            </td>
+            <td class="px-4 py-3">
+              <span class="badge">{{
+                r.scope === 'admin' ? t('roles.scopeAdmin') : t('roles.scopeVault')
+              }}</span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="p in rightsOf(r).slice(0, RIGHTS_SHOWN)"
+                  :key="p"
+                  class="rounded-md bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800"
+                  >{{ permLabel(p) }}</span
+                >
+                <details v-if="rightsOf(r).length > RIGHTS_SHOWN" class="w-full">
+                  <summary class="cursor-pointer text-xs text-brand-600 dark:text-brand-400">
+                    {{ t('roles.moreRights', { n: rightsOf(r).length - RIGHTS_SHOWN }) }}
+                  </summary>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span
+                      v-for="p in rightsOf(r).slice(RIGHTS_SHOWN)"
+                      :key="p"
+                      class="rounded-md bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800"
+                      >{{ permLabel(p) }}</span
+                    >
+                  </div>
+                </details>
+                <span v-if="!rightsOf(r).length" class="text-xs text-slate-500">{{
+                  t('roles.none')
+                }}</span>
+              </div>
+              <p v-if="r.deny.length" class="mt-1.5 text-xs text-red-600">
+                {{ t('roles.deny') }}: {{ r.deny.map((p) => permLabel(p)).join(', ') }}
+              </p>
+            </td>
+            <td class="whitespace-nowrap px-4 py-3 text-right">
+              <div class="flex justify-end gap-1.5">
+                <button
+                  type="button"
+                  class="btn"
+                  :data-testid="`role-edit-${r.name}`"
+                  @click="startEdit(r)"
+                >
+                  {{ t('roles.edit') }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-danger"
+                  :disabled="busy"
+                  :data-testid="`role-delete-${r.name}`"
+                  @click="remove(r)"
+                >
+                  {{ confirmId === r.id ? t('roles.confirmDelete') : t('roles.delete') }}
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>

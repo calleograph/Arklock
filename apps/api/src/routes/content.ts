@@ -25,6 +25,7 @@ import {
   pins,
   users,
   vaults,
+  settings,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsExpired, attachmentIdsOfEntries } from './attachments.js';
@@ -175,10 +176,19 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
 
   // ------------------------------------------------------------------ записи
 
+  /** Личные сейфы можно отключить для всей организации: тогда запись в них запрещена (данные сохраняются). */
+  async function assertPersonalWritable(vaultId: string): Promise<void> {
+    const [v] = await db.select({ kind: vaults.kind }).from(vaults).where(eq(vaults.id, vaultId));
+    if (v?.kind !== 'locker') return;
+    const [s] = await db.select().from(settings).where(eq(settings.key, 'vaults.personalLockers'));
+    if (s?.value === false) throw forbidden();
+  }
+
   app.post('/vaults/:vaultId/entries', async (req, reply): Promise<EntryRecord> => {
     const { user } = authOf(req);
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(entryWrite, req.body);
+    await assertPersonalWritable(vaultId);
     const access = await requireVault(db, vaultId, user.id);
     if (!access.allows('entry.create')) throw forbidden();
     const branchId = body.branchId ?? null;
@@ -211,6 +221,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { user } = authOf(req);
     const { vaultId, entryId } = parse(entryParams, req.params);
     const body = parse(entryUpdate, req.body);
+    await assertPersonalWritable(vaultId);
     const access = await requireVault(db, vaultId, user.id);
     const cur = await loadEntry(vaultId, entryId);
     const a = entryAccess(access, cur, 'editor');

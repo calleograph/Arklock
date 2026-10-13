@@ -11,6 +11,20 @@ const auth = useAuthStore();
 
 const data = ref<UpdatesOverview | null>(null);
 const error = ref('');
+
+/** Строки консоли: служебные отметки уже отфильтрованы на сервере. */
+const consoleLines = computed(() =>
+  (data.value?.updateLog ?? '').split('\n').filter((line) => line.trim() !== ''),
+);
+
+/** Цвет строки по маркеру вывода: ошибки, предупреждения, успешные этапы, ход работы. */
+function lineTone(line: string): string {
+  if (/\[FAIL\]|ОШИБКА|ошибка|не удалось|не прошёл|не пройден/i.test(line)) return 'tone-error';
+  if (/\[warn\]|предупрежд/i.test(line)) return 'tone-warn';
+  if (/\[ok\]/.test(line)) return 'tone-ok';
+  if (/\[\.\.\]/.test(line)) return 'tone-info';
+  return '';
+}
 const busy = ref(false);
 
 // Повторное подтверждение пароля: токен живёт 5 минут и хранится только в памяти.
@@ -258,6 +272,22 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
           <input v-model="withRestore" type="checkbox" />
           {{ t('updates.withRestore') }}
         </label>
+      </div>
+
+      <!-- Журнал обновления в виде консоли: все этапы, команды помощника и ошибки как есть -->
+      <div>
+        <h2 class="mb-2 font-medium">{{ t('updates.console') }}</h2>
+        <div class="update-console" role="log" aria-live="polite" data-testid="update-console">
+          <p v-if="!consoleLines.length" class="text-slate-500">{{ t('updates.consoleEmpty') }}</p>
+          <div
+            v-for="(line, i) in consoleLines"
+            :key="i"
+            class="update-console-line"
+            :class="lineTone(line)"
+          >
+            {{ line }}
+          </div>
+        </div>
       </div>
 
       <div v-if="data.remote?.changelog">

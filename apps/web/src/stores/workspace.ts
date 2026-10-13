@@ -84,6 +84,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const loading = ref(false);
   const skipped = ref(0);
   const keyLogOk = ref(true);
+  /** Поиск по паролям: строка в шапке, список читает её здесь. */
+  const searchQuery = ref('');
+  /** Политика организации: false — личные сейфы не показываются и не принимают записи. */
+  const personalAllowed = ref(true);
   let keyLog: KeyLogEntry[] = [];
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
@@ -93,6 +97,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     for (const k of vaultKeys.values()) k.fill(0);
     vaultKeys.clear();
     vaults.value = [];
+    searchQuery.value = '';
     currentId.value = null;
     branches.value = [];
     entries.value = [];
@@ -149,7 +154,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const auth = useAuthStore();
     const { privateKey, publicKey } = auth.keys();
     await loadKeyLog();
-    const infos = await api<VaultInfo[]>('GET', '/vaults');
+    const policy = await api<Record<string, unknown>>('GET', '/auth/policy').catch(
+      (): Record<string, unknown> => ({}),
+    );
+    personalAllowed.value = policy['vaults.personalLockers'] !== false;
+    const infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
+      (v) => personalAllowed.value || v.kind !== 'locker',
+    );
     const out: VaultView[] = [];
     for (const v of infos) {
       const view: VaultView = { ...v, unlocked: false };
@@ -907,6 +918,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     vaults,
     current,
     currentId,
+    searchQuery,
+    personalAllowed,
     locker,
     branches,
     entries,

@@ -208,6 +208,12 @@ export class UpdaterChannel {
       readJson<Record<string, unknown>>(this.p('remote.json')),
       readSafe(this.p('history.jsonl')),
     ]);
+    // Журнал этапов обновления (вывод update.sh): последние строки, без служебных отметок ARKLOCK_STEP
+    const updateLog = ((await readSafe(this.p('update.log'))) ?? '')
+      .split('\n')
+      .filter((l) => !l.startsWith('ARKLOCK_STEP '))
+      .slice(-400)
+      .join('\n');
     // Пульс пишется помощником атомарно, но чтение может совпасть с заменой файла: берём последнее прочитанное значение
     if (hb && typeof hb.ts === 'number') this.lastBeat = hb.ts * 1000;
     else if (
@@ -261,6 +267,7 @@ export class UpdaterChannel {
         : null,
       status,
       history,
+      updateLog,
       pending,
     };
   }

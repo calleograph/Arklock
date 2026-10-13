@@ -31,9 +31,14 @@ upd_init
 [ -z "$REF" ] || [[ "$REF" =~ $TAG_RE ]] || die "--ref: допустимы только релизные теги вида vX.Y.Z"
 
 git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "Каталог программы не является git-репозиторием: обновление невозможно"
-[ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] || die "В каталоге программы есть локальные изменения — обновление остановлено (ничего не изменено)."
-
 acquire_lock
+# Адрес публикации, вписанный вручную в compose.yaml (версии 1.0.x), переносится в APP_BIND файла окружения;
+# сам файл возвращается к версии релиза. Любые другие изменения файлов по-прежнему останавливают обновление.
+ic_migrate_bind "$REPO_ROOT" "$ENV_FILE" "$DATA_ROOT/config-backups" $((1 - DRY)) || die "Перенос адреса публикации не выполнен (ничего не изменено)."
+# Если APP_BIND потерян (как после прошлого обновления 1.0.x → 1.11.x), адрес берём у работающего приложения.
+[ "$DRY" -eq 1 ] || ic_restore_bind_from_running "$ENV_FILE" "$COMPOSE_PROJECT_NAME"
+DIRTY="$(ic_modified_files "$REPO_ROOT")"
+[ "$DRY" -eq 1 ] || [ -z "$DIRTY" ] || die "В каталоге программы есть локальные изменения: $(printf '%s' "$DIRTY" | tr '\n' ' ') — обновление остановлено (ничего не изменено). См. docs/TROUBLESHOOTING.md."
 "$REPO_ROOT/scripts/preflight.sh" --env "$ENV_FILE" || die "Требования для обновления не выполнены (ничего не изменено)."
 
 upd_step 1 7 "Проверка требований и получение версий"
@@ -102,6 +107,7 @@ recover() { # recover ПРИЧИНА — автоматическое восст
   else
     upd_log "Миграции уже применены ($now > ${CUR_MIGR:-0}) — восстановление БД из копии перед обновлением"
     git -C "$REPO_ROOT" checkout --quiet --detach "$CUR_COMMIT" || true
+    ic_apply_legacy_bind "$REPO_ROOT" "$ENV_FILE" || true
     export ARKLOCK_IMAGE="$PREV_IMAGE" ARKLOCK_IMAGE_OVERRIDE="$PREV_IMAGE"
     if "$REPO_ROOT/scripts/restore.sh" "$BACKUP_FILE" --env "$ENV_FILE" --yes --no-safety-backup; then
       upd_retag_current "$PREV_IMAGE"
@@ -124,6 +130,7 @@ if fetch_release_image "$TARGET_VERSION" "$TARGET_COMMIT"; then
   upd_log "Загружен готовый образ релиза $TARGET_VERSION"
 elif ! dc build app >"$DATA_ROOT/logs/update-build.log" 2>&1; then
   git -C "$REPO_ROOT" checkout --quiet --detach "$CUR_COMMIT"
+  ic_apply_legacy_bind "$REPO_ROOT" "$ENV_FILE" || true
   state_set update status failed_build; state_set update finished_at "$(date -u +%FT%TZ)"
   tail -n 15 "$DATA_ROOT/logs/update-build.log" | mask_text_stream >&2
   die "Сборка новой версии не удалась. Работающая версия $CUR_VERSION не затронута."

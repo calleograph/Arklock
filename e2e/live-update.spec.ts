@@ -17,6 +17,8 @@ test.skip(!BASE, 'LIVE_BASE_URL не задан');
 test.describe.configure({ mode: 'serial' });
 
 async function openUpdates(page: Page) {
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await page.getByTestId('nav-updates').click();
   await expect(page.getByTestId('helper-state')).toHaveText(/работает|running/, {
     timeout: 30_000,
@@ -105,8 +107,9 @@ test('a copy is uploaded back: the helper checks it with this server key; a fore
   await page.getByTestId('email').fill(EMAIL);
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
-  await expect(page.getByTestId('nav-admin')).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId('nav-admin').click();
+  await expect(page.getByTestId('menu-toggle')).toBeVisible({ timeout: 90_000 });
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await page.getByTestId('admin-tab-backups').click();
 
   // копия этого сервера; каталог копий принадлежит пользователю помощника, читаем через sudo

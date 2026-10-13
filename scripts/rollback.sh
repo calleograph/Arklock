@@ -63,7 +63,10 @@ if [ "$DRY" -eq 1 ]; then ok "[dry-run] откат возможен ($([ "$NEED_
 if [ "$YES" -ne 1 ]; then read -r -p "Выполнить откат на $PREV_VERSION? [y/N] " a; [ "$a" = y ] || die "Отменено."; fi
 
 state_set update status rolling_back
+# адрес публикации, вписанный вручную в compose.yaml, переносится в APP_BIND до переключения кода
+ic_migrate_bind "$REPO_ROOT" "$ENV_FILE" "$DATA_ROOT/config-backups" 1 || die "Перенос адреса публикации не выполнен (откат не начат)."
 git -C "$REPO_ROOT" checkout --quiet --detach "$PREV_COMMIT" || die "Не удалось переключить код"
+ic_apply_legacy_bind "$REPO_ROOT" "$ENV_FILE" || warn "Адрес публикации предыдущей версии не применён: проверьте APP_BIND (docs/TROUBLESHOOTING.md)."
 export ARKLOCK_IMAGE="$PREV_IMAGE" ARKLOCK_IMAGE_OVERRIDE="$PREV_IMAGE"
 if [ "$NEED_RESTORE" -eq 1 ]; then
   "$REPO_ROOT/scripts/restore.sh" "$BACKUP_FILE" --env "$ENV_FILE" --yes || die "Восстановление БД не удалось. Копия: $BACKUP_FILE"

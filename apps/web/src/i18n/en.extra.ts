@@ -12,8 +12,23 @@ export default {
     emerald: 'Emerald',
     sunset: 'Sunset',
   },
+  menu: {
+    open: 'Open menu',
+    close: 'Close menu',
+    full: 'Full menu',
+  },
   prefs: {
     title: 'Settings',
+    autoLock: 'Lock after inactivity',
+    autoLockHint:
+      'Keys stay in this tab only. If you do not use Arklock for longer than the chosen time, it asks for your master password. Scrolling, reading and typing count as use. Reloading the page and locking manually always require the password.',
+    autoLockOptions: {
+      m30: '30 minutes',
+      m60: '1 hour',
+      m240: '4 hours',
+      m480: '8 hours (default)',
+      m1440: '24 hours',
+    },
     appearance: 'Appearance',
     appearanceHint:
       'The colour theme is saved in your profile and follows you to other devices. It is not part of the encrypted vault.',
@@ -558,7 +573,9 @@ export default {
     fields: 'Custom fields',
     fieldName: 'Name',
     fieldValue: 'Value',
-    secretField: 'secret',
+    fieldType: 'Field type',
+    fieldTypeText: 'Text',
+    fieldTypePassword: 'Password',
     addField: 'Add field',
     tags: 'Labels',
     links: 'Related entries',
@@ -710,6 +727,7 @@ export default {
     status: { active: 'active', used: 'used', expired: 'expired', revoked: 'revoked' },
   },
   admin: {
+    personalLockers: 'Staff personal vaults (turn off for corporate-only use)',
     title: 'Administration',
     tab: {
       users: 'Users',
@@ -780,6 +798,11 @@ export default {
     more: 'Show more',
   },
   roles: {
+    colName: 'Role',
+    colScope: 'Scope',
+    colRights: 'Rights',
+    colActions: 'Actions',
+    moreRights: '{n} more',
     intro:
       'Custom roles are sets of permissions. A deny always wins over an allow, and a role inherits permissions from its parents. All checks are performed on the server.',
     new: 'New role',

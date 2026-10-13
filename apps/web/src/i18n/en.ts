@@ -117,6 +117,8 @@ export default {
     rollback: 'Roll back',
     withRestore: 'restore the database from the backup',
     changes: 'Changes',
+    console: 'Update log (every step and error)',
+    consoleEmpty: 'The log appears when the helper starts working.',
     migrations: 'Database migrations in the new version: {n}',
     history: 'History',
     confirmTitle: 'Confirm your master password',

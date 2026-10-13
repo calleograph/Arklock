@@ -43,8 +43,10 @@ test('administrator checks for updates and applies one from the browser', async 
   await page.getByTestId('submit').click();
   await page.getByTestId('recovery-saved').check({ timeout: 60_000 });
   await page.getByTestId('recovery-continue').click();
-  await expect(page.getByTestId('nav-updates')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('menu-toggle')).toBeVisible({ timeout: 60_000 });
 
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await page.getByTestId('nav-updates').click();
   await expect(page.getByTestId('helper-state')).toHaveText(/работает|running/, {
     timeout: 15_000,

@@ -234,7 +234,8 @@ test('entries are created and edited from the extension, readable in the web app
   await expect(web.getByTestId('view-password')).toHaveText('Changed-By-Ext-77!');
 
   // отзыв доступа: пользователь завершает остальные сеансы — расширение теряет доступ и стирает ключи
-  await web.locator('a[href="/security"]').first().click();
+  await await web.getByTestId('menu-toggle').click();
+  await web.getByTestId('menu-security').click();
   await web.getByTestId('revoke-others').click();
   await expect(web.getByTestId('sessions').locator('button')).toHaveCount(0, { timeout: 30_000 });
   await popup.getByTestId('refresh').click();

@@ -44,7 +44,8 @@ test('register a security key, sign in with it, remove it', async ({ page }) => 
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
 
   // добавление ключа на странице «Безопасность»
-  await page.locator('a[href="/security"]').first().click();
+  await await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-security').click();
   await expect(page.getByTestId('keys-section')).toBeVisible();
   await page.getByTestId('key-name').fill('Виртуальный ключ');
   await page.getByTestId('key-password').fill(USER.password);
@@ -53,7 +54,7 @@ test('register a security key, sign in with it, remove it', async ({ page }) => 
   await expect(page.getByTestId('key-row')).toContainText('Виртуальный ключ');
 
   // новый вход: пароль, затем ключ
-  await page.getByTestId('user-menu').click();
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('signout').click();
   await page.goto('/login');
   await page.getByTestId('email').fill(USER.email);
@@ -65,13 +66,14 @@ test('register a security key, sign in with it, remove it', async ({ page }) => 
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
 
   // удаление ключа: нужен мастер-пароль
-  await page.locator('a[href="/security"]').first().click();
+  await await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-security').click();
   page.once('dialog', (d) => void d.accept(USER.password));
   await page.getByTestId('key-remove').click();
   await expect(page.getByTestId('key-row')).toHaveCount(0, { timeout: 90_000 });
 
   // без ключей вход снова обычный
-  await page.getByTestId('user-menu').click();
+  await page.getByTestId('menu-toggle').click();
   await page.getByTestId('signout').click();
   await page.goto('/login');
   await page.getByTestId('email').fill(USER.email);

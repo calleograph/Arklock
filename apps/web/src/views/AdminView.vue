@@ -351,6 +351,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
             <RouterLink
               v-if="g.id === 'system' && auth.user?.role === 'admin'"
               to="/admin/updates"
+              data-testid="nav-updates"
               class="nav-link w-full whitespace-nowrap"
               >{{ t('nav.updates') }}</RouterLink
             >
@@ -657,6 +658,16 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                     'policy.password.classes',
                     Number(($event.target as HTMLInputElement).value),
                   )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('admin.personalLockers')
+              }}<input
+                type="checkbox"
+                :checked="settings['vaults.personalLockers'] !== false"
+                data-testid="set-personal-lockers"
+                @change="
+                  saveSetting('vaults.personalLockers', ($event.target as HTMLInputElement).checked)
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"

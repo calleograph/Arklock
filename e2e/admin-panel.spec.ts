@@ -94,7 +94,8 @@ const tab = (page: Page, name: string) => page.getByTestId(`admin-tab-${name}`).
 
 test('administration sections show real data and perform real operations', async ({ page }) => {
   await register(page);
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
 
   // обзор
   await tab(page, 'overview');
@@ -216,7 +217,8 @@ test('administration sections show real data and perform real operations', async
   await page.reload();
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await tab(page, 'smtp');
   await expect(page.getByTestId('smtp-host')).toHaveValue('127.0.0.1', { timeout: 60_000 });
   await expect(page.getByTestId('smtp-password')).toHaveValue('');
@@ -296,7 +298,8 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await tab(page, 'ldap');
   await page.getByTestId('ldap-enabled').check();
   await page.getByTestId('ldap-url').fill(`ldap://127.0.0.1:${ldapPort}`);
@@ -382,7 +385,8 @@ test('SSO: configure the provider, first sign-in creates the account, later sign
     await page.getByTestId('password').fill(ADMIN.password);
     await page.getByTestId('submit').click();
     await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-    await page.getByTestId('nav-admin').click();
+    await page.getByTestId('menu-toggle').click();
+    await page.getByTestId('menu-full').click();
     await tab(page, 'sso');
     await expect(page.getByTestId('sso-redirect')).toContainText('/api/v1/auth/sso/callback');
     await page.getByTestId('sso-enabled').check();
@@ -434,7 +438,8 @@ test('an administrator creates a local user; the person activates with a one-tim
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await tab(page, 'invitations');
   await page.getByTestId('invite-name').fill('Новый Сотрудник');
   await page.getByTestId('invite-email').fill('invited.person@example.com');
@@ -487,7 +492,8 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await tab(page, 'roles');
 
   // создание роли: разрешение журнала, явный запрет в той же области без разрешений недопустим для UI-формы (взаимоисключение)
@@ -516,7 +522,8 @@ test('custom roles: an administrative role opens only its own sections for a del
   await guest.getByTestId('password').fill('invited-master-password-e2e-1');
   await guest.getByTestId('submit').click();
   await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await guest.getByTestId('nav-admin').click();
+  await guest.getByTestId('menu-toggle').click();
+  await guest.getByTestId('menu-full').click();
   await expect(guest.getByTestId('admin-tab-ledger')).toBeVisible();
   await expect(guest.getByTestId('admin-tab-users')).toHaveCount(0);
   await expect(guest.getByTestId('admin-tab-roles')).toHaveCount(0);
@@ -524,7 +531,8 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.reload();
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
-  await page.getByTestId('nav-admin').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
   await tab(page, 'roles');
   await page.getByTestId('role-delete-Аудитор журнала').click(); // первое нажатие — подтверждение
   await page.getByTestId('role-delete-Аудитор журнала').click();
@@ -579,7 +587,8 @@ test('SAML: provider metadata, first sign-in creates the account, later ones unl
     await page.getByTestId('password').fill(ADMIN.password);
     await page.getByTestId('submit').click();
     await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-    await page.getByTestId('nav-admin').click();
+    await page.getByTestId('menu-toggle').click();
+    await page.getByTestId('menu-full').click();
     await tab(page, 'saml');
     await expect(page.getByTestId('saml-acs')).toContainText('/api/v1/auth/saml/acs');
 
@@ -649,7 +658,8 @@ test('themes: all six apply to the whole interface, are saved in the profile and
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await page.getByTestId('nav-settings').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-settings').click();
 
   const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const seen = new Set<string>();

@@ -15,6 +15,8 @@ import { AppError, forbidden, notFound, parse } from '../errors.js';
 const SETTINGS: Record<string, z.ZodType> = {
   'registration.mode': z.enum(['closed', 'open']),
   'vaults.creators': z.enum(['admins', 'members']),
+  /** false — организация работает только с корпоративными сейфами: личные сейфы скрыты и недоступны для записи. */
+  'vaults.personalLockers': z.boolean(),
   'trash.retentionDays': z.number().int().min(1).max(3650),
   'session.idleHours': z.number().min(0.25).max(720),
   /** Предельная длительность сеанса от входа, часов; 0 — без ограничения (кроме общего срока SESSION_MAX_DAYS). */
@@ -30,6 +32,7 @@ const SETTINGS: Record<string, z.ZodType> = {
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
   'vaults.creators': 'admins',
+  'vaults.personalLockers': true,
   'trash.retentionDays': 30,
   'session.idleHours': 12,
   'session.maxHours': 0,

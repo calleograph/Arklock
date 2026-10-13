@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, toRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import BranchNode from '../components/BranchNode.vue';
@@ -22,7 +22,8 @@ const router = useRouter();
 type Scope = 'all' | 'favorites' | 'trash' | 'archive';
 const scope = ref<Scope>('all');
 const branchSel = ref<string | null>(null);
-const query = ref('');
+/** Строка поиска живёт в шапке; здесь читается из общего состояния. */
+const query = toRef(ws, 'searchQuery');
 const kindFilter = ref('');
 const tagFilter = ref('');
 const sort = ref<'title' | 'updated'>('title');
@@ -444,13 +445,6 @@ void router;
       <!-- Список -->
       <div class="min-w-0 space-y-2">
         <div class="flex flex-wrap gap-2">
-          <input
-            v-model="query"
-            type="search"
-            :placeholder="t('vault.search')"
-            class="input min-w-40 flex-1"
-            data-testid="search"
-          />
           <select v-model="kindFilter" class="input w-auto" data-testid="kind-filter">
             <option value="">{{ t('vault.allKinds') }}</option>
             <option
@@ -596,7 +590,11 @@ void router;
               v-for="e in list"
               :key="e.id"
               class="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
-              :class="openId === e.id ? 'bg-brand-50 hover:bg-brand-50' : ''"
+              :class="
+                openId === e.id
+                  ? 'bg-brand-50 hover:bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand-500)]'
+                  : ''
+              "
               data-testid="entry-row"
               draggable="true"
               @dragstart="dragId = e.id"

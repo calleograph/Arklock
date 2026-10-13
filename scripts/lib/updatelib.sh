@@ -3,6 +3,9 @@
 # CLI и веб-интерфейс обязаны выполнять один и тот же проверенный механизм.
 # shellcheck shell=bash
 
+# shellcheck source=instance-config.sh
+. "$(dirname "${BASH_SOURCE[0]}")/instance-config.sh"
+
 TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
 UPDATE_LOG_FILE=""
 
@@ -72,5 +75,6 @@ upd_retag_current() { # upd_retag_current ОБРАЗ_РАБОТАЮЩЕЙ_ВЕР
 # Возврат кода и образа к сохранённому состоянию (без изменения БД).
 upd_revert_code() { # upd_revert_code COMMIT IMAGE
   git -C "$REPO_ROOT" checkout --quiet --detach "$1" || return 1
+  ic_apply_legacy_bind "$REPO_ROOT" "$ENV_FILE" || return 1
   ARKLOCK_IMAGE="$2" upd_wait_app 180
 }

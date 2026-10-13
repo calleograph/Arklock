@@ -11,24 +11,28 @@ import {
 import * as account from '../services/account';
 import { useWorkspaceStore } from './workspace';
 import { applyTheme, type ThemeId } from '../services/theme';
+import { autoLockMinutes, idleExpired } from '../services/autolock';
 
 /**
  * Закрытый ключ аккаунта живёт ТОЛЬКО в памяти модуля (не в состоянии Pinia, не в хранилищах браузера):
- * перезагрузка страницы или автоблокировка стирают его, дальше нужен мастер-пароль.
+ * перезагрузка страницы, ручная блокировка и бездействие дольше выбранного срока стирают его.
  */
 let privateKey: Uint8Array | null = null;
 let publicKey: Uint8Array | null = null;
 let signPrivateKey: Uint8Array | null = null;
 let signPublicKey: Uint8Array | null = null;
 
-export const AUTO_LOCK_MS = 5 * 60_000;
+/** Как часто проверяется бездействие; при возврате на вкладку проверка выполняется сразу. */
+const IDLE_CHECK_MS = 30_000;
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserBundle | null>(null);
   const hasToken = ref(false);
   const unlocked = ref(false);
   const ready = ref(false);
-  let lockTimer: ReturnType<typeof setTimeout> | null = null;
+  let idleTimer: ReturnType<typeof setInterval> | null = null;
+  /** Момент последней активности пользователя (чтение, прокрутка, ввод). Не сбрасывается фоновыми запросами. */
+  let lastActivity = 0;
 
   const isSignedIn = computed(() => hasToken.value && user.value !== null);
 
@@ -50,10 +54,27 @@ export const useAuthStore = defineStore('auth', () => {
     };
   }
 
+  /** Отмечает активность пользователя: продлевает разблокированное состояние на выбранный срок. */
   function touch(): void {
+    if (unlocked.value) lastActivity = Date.now();
+  }
+
+  /** Блокирует, если с последней активности прошёл выбранный срок. Длительная операция считается активной. */
+  function checkIdle(): void {
     if (!unlocked.value) return;
-    if (lockTimer) clearTimeout(lockTimer);
-    lockTimer = setTimeout(() => (holds > 0 ? touch() : lock()), AUTO_LOCK_MS);
+    if (holds > 0) lastActivity = Date.now();
+    if (idleExpired(lastActivity, Date.now(), autoLockMinutes(), holds > 0)) lock();
+  }
+
+  function startIdleCheck(): void {
+    stopIdleCheck();
+    lastActivity = Date.now();
+    idleTimer = setInterval(checkIdle, IDLE_CHECK_MS);
+  }
+
+  function stopIdleCheck(): void {
+    if (idleTimer) clearInterval(idleTimer);
+    idleTimer = null;
   }
 
   function wipe(): void {
@@ -63,8 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
     publicKey = null;
     signPrivateKey = null;
     signPublicKey = null;
-    if (lockTimer) clearTimeout(lockTimer);
-    lockTimer = null;
+    stopIdleCheck();
     useWorkspaceStore().clear();
   }
 
@@ -85,7 +105,7 @@ export const useAuthStore = defineStore('auth', () => {
     signPrivateKey = acc.signPrivateKey;
     signPublicKey = acc.signPublicKey;
     unlocked.value = true;
-    touch();
+    startIdleCheck();
   }
 
   function clearSession(): void {
@@ -301,6 +321,7 @@ export const useAuthStore = defineStore('auth', () => {
     isSignedIn,
     keys,
     touch,
+    checkIdle,
     lock,
     signIn,
     completeMfa,
