@@ -53,6 +53,7 @@ test('register a security key, sign in with it, remove it', async ({ page }) => 
   await expect(page.getByTestId('key-row')).toContainText('Виртуальный ключ');
 
   // новый вход: пароль, затем ключ
+  await page.getByTestId('user-menu').click();
   await page.getByTestId('signout').click();
   await page.goto('/login');
   await page.getByTestId('email').fill(USER.email);
@@ -70,6 +71,7 @@ test('register a security key, sign in with it, remove it', async ({ page }) => 
   await expect(page.getByTestId('key-row')).toHaveCount(0, { timeout: 90_000 });
 
   // без ключей вход снова обычный
+  await page.getByTestId('user-menu').click();
   await page.getByTestId('signout').click();
   await page.goto('/login');
   await page.getByTestId('email').fill(USER.email);

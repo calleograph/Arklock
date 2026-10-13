@@ -558,6 +558,8 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
   await page.getByTestId('mfa-codes-saved').click();
   await expect(page.getByTestId('mfa-state')).toContainText(/10/);
 
+  await page.getByTestId('user-menu').click();
+
   await page.getByTestId('signout').click();
   const fresh = await (await browser.newContext()).newPage();
   await fresh.goto('/login');
@@ -577,6 +579,7 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
   await expect(fresh.getByTestId('entry-row').first()).toBeVisible({ timeout: 30_000 });
 
   // резервный код работает один раз
+  await fresh.getByTestId('user-menu').click();
   await fresh.getByTestId('signout').click();
   const login2 = async (code: string) => {
     await fresh.goto('/login');
@@ -588,6 +591,7 @@ test('two-factor sign-in: enrol, sign out, password alone is not enough, code co
   };
   await login2(backup);
   await expect(fresh.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  await fresh.getByTestId('user-menu').click();
   await fresh.getByTestId('signout').click();
   await login2(backup);
   await expect(fresh.getByTestId('error')).toBeVisible({ timeout: 90_000 });

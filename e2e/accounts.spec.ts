@@ -85,6 +85,7 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
 
   // Регистрация после первой учётной записи закрыта.
+  await page.getByTestId('user-menu').click();
   await page.getByTestId('signout').click();
   await expect(page.getByTestId('to-register')).toHaveCount(0);
 
@@ -132,6 +133,7 @@ test('recover access with the recovery key: same data, old password stops workin
   await expect(page.getByTestId('entry-row')).toContainText('Почта');
 
   // Использованный ключ восстановления уже недействителен.
+  await page.getByTestId('user-menu').click();
   await page.getByTestId('signout').click();
   await page.getByRole('button', { name: /Забыли пароль|Forgot your password/ }).click();
   await page.getByTestId('email').fill(EMAIL);

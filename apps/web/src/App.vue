@@ -1,13 +1,33 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from './stores/auth';
 import { applyTheme, DEFAULT_THEME, isTheme, PREVIEW, storedTheme, THEMES } from './services/theme';
+import Icon from './components/Icon.vue';
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
 const router = useRouter();
+
+/** Меню пользователя: закрывается по клику вне его, по Escape и после выбора пункта. */
+const menuOpen = ref(false);
+const menuRoot = ref<HTMLElement | null>(null);
+function onDocumentClick(e: MouseEvent): void {
+  if (menuOpen.value && menuRoot.value && !menuRoot.value.contains(e.target as Node))
+    menuOpen.value = false;
+}
+function onDocumentKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape') menuOpen.value = false;
+}
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick);
+  document.addEventListener('keydown', onDocumentKey);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick);
+  document.removeEventListener('keydown', onDocumentKey);
+});
 
 async function signOut(): Promise<void> {
   await auth.signOut();
@@ -203,21 +223,81 @@ const initial = () =>
               </svg>
               <span class="hidden md:inline">{{ t('nav.lock') }}</span>
             </button>
-            <button
-              type="button"
-              class="btn-ghost"
-              data-testid="signout"
-              :title="t('nav.signOut')"
-              @click="signOut"
-            >
-              <span
-                class="flex size-6 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold"
-                style="color: var(--on-brand)"
-                aria-hidden="true"
-                >{{ initial() }}</span
+            <div ref="menuRoot" class="relative">
+              <button
+                type="button"
+                class="btn-ghost"
+                data-testid="user-menu"
+                aria-haspopup="menu"
+                :aria-expanded="menuOpen"
+                :title="auth.user?.displayName || auth.user?.email || ''"
+                @click="menuOpen = !menuOpen"
               >
-              <span class="hidden md:inline">{{ t('nav.signOut') }}</span>
-            </button>
+                <span
+                  class="flex size-6 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold"
+                  style="color: var(--on-brand)"
+                  aria-hidden="true"
+                  >{{ initial() }}</span
+                >
+                <span class="hidden md:inline">{{
+                  auth.user?.displayName || auth.user?.email
+                }}</span>
+              </button>
+              <div
+                v-if="menuOpen"
+                role="menu"
+                class="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                data-testid="user-menu-list"
+              >
+                <RouterLink
+                  to="/settings"
+                  role="menuitem"
+                  class="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  @click="menuOpen = false"
+                >
+                  <Icon name="user" /> {{ t('nav.settings') }}
+                </RouterLink>
+                <RouterLink
+                  to="/security"
+                  role="menuitem"
+                  class="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  @click="menuOpen = false"
+                >
+                  <Icon name="shield" /> {{ t('nav.security') }}
+                </RouterLink>
+                <RouterLink
+                  v-if="auth.user?.role === 'admin' || auth.user?.delegated"
+                  to="/admin"
+                  role="menuitem"
+                  class="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  data-testid="menu-admin"
+                  @click="menuOpen = false"
+                >
+                  <Icon name="users" /> {{ t('nav.admin') }}
+                </RouterLink>
+                <RouterLink
+                  to="/status"
+                  role="menuitem"
+                  class="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  @click="menuOpen = false"
+                >
+                  <Icon name="chart" /> {{ t('nav.status') }}
+                </RouterLink>
+                <div class="my-1 border-t border-slate-200 dark:border-slate-700" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  data-testid="signout"
+                  @click="
+                    menuOpen = false;
+                    signOut();
+                  "
+                >
+                  <Icon name="logout" /> {{ t('nav.signOut') }}
+                </button>
+              </div>
+            </div>
           </template>
         </div>
       </div>
