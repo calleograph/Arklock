@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import BranchNode from '../components/BranchNode.vue';
 import Icon from '../components/Icon.vue';
+import IconButton from '../components/IconButton.vue';
 import EntryPanel from '../components/EntryPanel.vue';
 import TransferDialog from '../components/TransferDialog.vue';
 import { useAuthStore } from '../stores/auth';
@@ -377,15 +378,13 @@ void router;
         </ul>
         <div class="mb-1 flex items-center justify-between px-1 text-xs uppercase text-slate-500">
           <span>{{ t('vault.folders') }}</span>
-          <button
+          <IconButton
             v-if="canWrite || branchSel"
-            type="button"
-            class="text-brand-600"
+            icon="folder-plus"
+            :label="t('vault.newFolder')"
             data-testid="btn-new-folder"
             @click="newFolder"
-          >
-            ＋
-          </button>
+          />
         </div>
         <ul data-testid="tree">
           <BranchNode
@@ -452,15 +451,14 @@ void router;
             <option value="title">{{ t('vault.sortTitle') }}</option>
             <option value="updated">{{ t('vault.sortUpdated') }}</option>
           </select>
-          <button
+          <IconButton
             v-if="canWrite && scope !== 'trash'"
-            type="button"
-            class="btn-primary"
+            icon="plus"
+            :label="t('vault.add')"
+            class="!bg-brand-500 !text-white hover:!bg-brand-600"
             data-testid="add-entry"
             @click="newEntry"
-          >
-            {{ t('vault.add') }}
-          </button>
+          />
         </div>
 
         <div

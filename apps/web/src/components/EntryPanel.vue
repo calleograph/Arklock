@@ -19,6 +19,7 @@ import {
 } from '../services/model';
 import { useWorkspaceStore } from '../stores/workspace';
 import PasswordGenerator from './PasswordGenerator.vue';
+import IconButton from './IconButton.vue';
 import { errorMessage } from '../services/helpers';
 import { api } from '../services/api';
 import { openSink } from '../services/download';
@@ -425,33 +426,27 @@ void api;
             </div>
           </div>
           <div class="flex gap-1">
-            <button
+            <IconButton
               v-if="canEdit"
-              type="button"
-              class="btn"
+              icon="edit"
+              :label="t('vault.edit')"
               data-testid="btn-edit"
               @click="editing = true"
-            >
-              {{ t('vault.edit') }}
-            </button>
-            <button
+            />
+            <IconButton
               v-if="canEdit"
-              type="button"
-              class="btn"
+              :icon="item.data.archived ? 'inbox' : 'archive'"
+              :label="item.data.archived ? t('vault.unarchive') : t('vault.archiveEntry')"
               data-testid="btn-archive"
               @click="toggleArchive"
-            >
-              {{ item.data.archived ? t('vault.unarchive') : t('vault.archiveEntry') }}
-            </button>
-            <button
-              type="button"
-              class="btn"
-              :title="t('vault.pin')"
+            />
+            <IconButton
+              icon="star"
+              :label="item.pinned ? t('vault.unpin') : t('vault.pin')"
+              :active="item.pinned"
               data-testid="btn-pin"
               @click="ws.setPinned(item, !item.pinned)"
-            >
-              {{ item.pinned ? '★' : '☆' }}
-            </button>
+            />
           </div>
         </div>
 

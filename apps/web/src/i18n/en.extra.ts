@@ -586,6 +586,7 @@ export default {
     selectEntry: 'Select an entry or create a new one',
     generatePhrase: 'Passphrase',
     pin: 'Favorite',
+    unpin: 'Remove from favorites',
   },
   transfer: {
     title: 'Import and export',

@@ -591,6 +591,7 @@ export default {
     selectEntry: 'Выберите запись или создайте новую',
     generatePhrase: 'Парольная фраза',
     pin: 'Избранное',
+    unpin: 'Убрать из избранного',
   },
   transfer: {
     title: 'Импорт и экспорт',

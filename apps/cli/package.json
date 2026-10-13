@@ -1,6 +1,6 @@
 {
   "name": "@arklock/cli",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "description": "Arklock command-line client: keys stay on your machine, the server sees only ciphertext",
@@ -13,9 +13,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@arklock/client": "1.7.0",
-    "@arklock/contracts": "1.7.0",
-    "@arklock/crypto": "1.7.0"
+    "@arklock/client": "1.8.0",
+    "@arklock/contracts": "1.8.0",
+    "@arklock/crypto": "1.8.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0"
