@@ -113,7 +113,7 @@ ic_running_publish() { # ic_running_publish ПРОЕКТ
 # Если APP_BIND потерян (например, при прошлом обновлении), адрес и порт берём у работающего приложения.
 # Пока APP_BIND задан, ничего не меняется. Адрес, который Docker не подтверждает, не записывается.
 ic_restore_bind_from_running() { # ic_restore_bind_from_running ФАЙЛ_ОКРУЖЕНИЯ ПРОЕКТ
-  local env_file="$1" project="$2" parsed addr port
+  local env_file="$1" project="$2" parsed addr port cur_port
   [ -z "$(env_get "$env_file" APP_BIND)" ] || return 0
   parsed="$(ic_running_publish "$project")"
   if [ -z "$parsed" ]; then
@@ -125,6 +125,7 @@ ic_restore_bind_from_running() { # ic_restore_bind_from_running ФАЙЛ_ОКР�
   env_set "$env_file" APP_BIND "$addr"
   export APP_BIND="$addr"
   if [ -z "$(env_get "$env_file" APP_PORT)" ] && [[ "$port" =~ ^[0-9]{1,5}$ ]]; then env_set "$env_file" APP_PORT "$port"; fi
-  export APP_PORT="$(env_get "$env_file" APP_PORT)"
+  cur_port="$(env_get "$env_file" APP_PORT)"
+  export APP_PORT="$cur_port"
   ok "Адрес публикации $addr:$port взят у работающего приложения и сохранён в APP_BIND"
 }
