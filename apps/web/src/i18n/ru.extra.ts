@@ -733,6 +733,12 @@ export default {
     status: { active: 'действует', used: 'использована', expired: 'истекла', revoked: 'отозвана' },
   },
   admin: {
+    settingsTab: {
+      main: 'Основные',
+      security: 'Безопасность',
+      storage: 'Хранилища',
+      notify: 'Уведомления',
+    },
     settingsGroup: {
       access: 'Регистрация и доступ',
       accessHint: 'Кто может создать учётную запись и сейф.',

@@ -13,6 +13,15 @@ import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
+/** Вкладки настроек: карточки разложены по разделам, как в образце настроек. */
+type SettingsTab = 'main' | 'security' | 'storage' | 'notify';
+const settingsTab = ref<SettingsTab>('main');
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'main', label: 'admin.settingsTab.main' },
+  { id: 'security', label: 'admin.settingsTab.security' },
+  { id: 'storage', label: 'admin.settingsTab.storage' },
+  { id: 'notify', label: 'admin.settingsTab.notify' },
+];
 const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
   users: 'user',
@@ -538,7 +547,34 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
         </div>
 
         <div v-else-if="tab === 'settings'" class="space-y-6">
-          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-access">
+          <div
+            class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800"
+            role="tablist"
+            data-testid="settings-tabs"
+          >
+            <button
+              v-for="x in SETTINGS_TABS"
+              :key="x.id"
+              type="button"
+              role="tab"
+              class="-mb-px border-b-2 px-3 py-2 text-sm transition-colors"
+              :class="
+                settingsTab === x.id
+                  ? 'border-brand-500 font-semibold text-brand-600 dark:text-brand-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              "
+              :aria-selected="settingsTab === x.id"
+              :data-testid="`settings-tab-${x.id}`"
+              @click="settingsTab = x.id"
+            >
+              {{ t(x.label) }}
+            </button>
+          </div>
+          <section
+            class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-access"
+            v-show="settingsTab === 'main'"
+          >
             <div>
               <h2 class="font-medium">{{ t('admin.settingsGroup.access') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
@@ -570,7 +606,11 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               </select></label
             >
           </section>
-          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-sessions">
+          <section
+            class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-sessions"
+            v-show="settingsTab === 'security'"
+          >
             <div>
               <h2 class="font-medium">{{ t('admin.settingsGroup.sessions') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
@@ -622,7 +662,11 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
           </section>
-          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-passwords">
+          <section
+            class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-passwords"
+            v-show="settingsTab === 'security'"
+          >
             <div>
               <h2 class="font-medium">{{ t('admin.settingsGroup.passwords') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
@@ -675,7 +719,11 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
           </section>
-          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-storage">
+          <section
+            class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-storage"
+            v-show="settingsTab === 'storage'"
+          >
             <div>
               <h2 class="font-medium">{{ t('admin.settingsGroup.storage') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
@@ -738,7 +786,11 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
           </section>
-          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-notify">
+          <section
+            class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-notify"
+            v-show="settingsTab === 'notify'"
+          >
             <div>
               <h2 class="font-medium">{{ t('admin.settingsGroup.notify') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>

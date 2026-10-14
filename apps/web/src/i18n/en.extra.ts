@@ -727,6 +727,12 @@ export default {
     status: { active: 'active', used: 'used', expired: 'expired', revoked: 'revoked' },
   },
   admin: {
+    settingsTab: {
+      main: 'General',
+      security: 'Security',
+      storage: 'Storage',
+      notify: 'Notifications',
+    },
     settingsGroup: {
       access: 'Registration and access',
       accessHint: 'Who can create an account and a vault.',
