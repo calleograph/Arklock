@@ -727,6 +727,18 @@ export default {
     status: { active: 'active', used: 'used', expired: 'expired', revoked: 'revoked' },
   },
   admin: {
+    settingsGroup: {
+      access: 'Registration and access',
+      accessHint: 'Who can create an account and a vault.',
+      sessions: 'Sign-in and sessions',
+      sessionsHint: 'Second factors and how long a session lasts.',
+      passwords: 'Passwords',
+      passwordsHint: 'Master password requirements and password age.',
+      storage: 'Storage and files',
+      storageHint: 'Trash, attachments, quotas and personal vaults.',
+      notify: 'Notifications',
+      notifyHint: 'Emails about security events.',
+    },
     personalLockers: 'Staff personal vaults (turn off for corporate-only use)',
     title: 'Administration',
     tab: {

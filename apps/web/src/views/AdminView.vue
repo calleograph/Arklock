@@ -538,7 +538,11 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
         </div>
 
         <div v-else-if="tab === 'settings'" class="space-y-6">
-          <div class="card space-y-3 p-4 text-sm">
+          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-access">
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.access') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
+            </div>
             <label class="flex items-center justify-between gap-3"
               >{{ t('admin.registration')
               }}<select
@@ -565,22 +569,12 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 <option value="members">{{ t('admin.allMembers') }}</option>
               </select></label
             >
-            <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.trashDays')
-              }}<input
-                :value="settings['trash.retentionDays']"
-                type="number"
-                min="1"
-                max="3650"
-                class="input w-24"
-                data-testid="set-trash"
-                @change="
-                  saveSetting(
-                    'trash.retentionDays',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
+          </section>
+          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-sessions">
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.sessions') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
+            </div>
             <label class="flex items-center justify-between gap-3"
               >{{ t('adminx.mfaRequired')
               }}<select
@@ -627,7 +621,12 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                   saveSetting('session.maxHours', Number(($event.target as HTMLInputElement).value))
                 "
             /></label>
-
+          </section>
+          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-passwords">
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.passwords') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
+            </div>
             <label class="flex items-center justify-between gap-3"
               >{{ t('policy.minLength')
               }}<input
@@ -661,23 +660,40 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.personalLockers')
+              >{{ t('admin.passwordMaxAge')
               }}<input
-                type="checkbox"
-                :checked="settings['vaults.personalLockers'] !== false"
-                data-testid="set-personal-lockers"
+                :value="settings['security.passwordMaxAgeDays']"
+                type="number"
+                min="0"
+                max="3650"
+                class="input w-24"
                 @change="
-                  saveSetting('vaults.personalLockers', ($event.target as HTMLInputElement).checked)
+                  saveSetting(
+                    'security.passwordMaxAgeDays',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
                 "
             /></label>
+          </section>
+          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-storage">
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.storage') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
+            </div>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('invite.notify')
+              >{{ t('admin.trashDays')
               }}<input
-                type="checkbox"
-                :checked="settings['notifications.security'] !== false"
-                data-testid="set-notify"
+                :value="settings['trash.retentionDays']"
+                type="number"
+                min="1"
+                max="3650"
+                class="input w-24"
+                data-testid="set-trash"
                 @change="
-                  saveSetting('notifications.security', ($event.target as HTMLInputElement).checked)
+                  saveSetting(
+                    'trash.retentionDays',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
@@ -712,21 +728,32 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.passwordMaxAge')
+              >{{ t('admin.personalLockers')
               }}<input
-                :value="settings['security.passwordMaxAgeDays']"
-                type="number"
-                min="0"
-                max="3650"
-                class="input w-24"
+                type="checkbox"
+                :checked="settings['vaults.personalLockers'] !== false"
+                data-testid="set-personal-lockers"
                 @change="
-                  saveSetting(
-                    'security.passwordMaxAgeDays',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
+                  saveSetting('vaults.personalLockers', ($event.target as HTMLInputElement).checked)
                 "
             /></label>
-          </div>
+          </section>
+          <section class="card space-y-3 p-4 text-sm" data-testid="settings-group-notify">
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.notify') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>
+            </div>
+            <label class="flex items-center justify-between gap-3"
+              >{{ t('invite.notify')
+              }}<input
+                type="checkbox"
+                :checked="settings['notifications.security'] !== false"
+                data-testid="set-notify"
+                @change="
+                  saveSetting('notifications.security', ($event.target as HTMLInputElement).checked)
+                "
+            /></label>
+          </section>
           <div class="card space-y-2 p-4 text-sm">
             <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
             <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
