@@ -202,7 +202,7 @@ try {
   await shot(page, 'admin-overview-corporate');
   await tid(page, 'admin-tab-settings').click();
   await tid(page, 'settings-group-access').waitFor();
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.evaluate(() => globalThis.scrollTo(0, 0));
   await shot(page, 'admin-settings-corporate');
   await tid(page, 'admin-tab-users').click();
   await page.waitForTimeout(500);
