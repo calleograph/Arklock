@@ -33,7 +33,20 @@ async function register(page: Page, u: typeof ADMIN, setup?: string): Promise<vo
   await page.getByTestId('submit').click();
   await page.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await page.getByTestId('recovery-continue').click();
-  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  if (setup) {
+    const token = await page.evaluate(() => sessionStorage.getItem('arklock.token'));
+    const policy = await page.request.put('/api/v1/admin/settings', {
+      headers: { authorization: `Bearer ${token}` },
+      data: { 'vaults.personalLockers': true },
+    });
+    expect(policy.status()).toBe(200);
+    await page.getByTestId('menu-toggle').click();
+    await page.getByTestId('menu-settings').click();
+    await page.getByTestId('menu-toggle').click();
+    await page.getByTestId('menu-vault').click();
+    await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  }
 }
 
 async function login(page: Page, u: typeof ADMIN): Promise<void> {
@@ -198,6 +211,7 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('f-password').fill('Second-Password-9!x');
   await page.getByTestId('f-save').click();
   await expect(page.getByTestId('view-title')).toHaveText('Почта');
+  await page.getByTestId('tab-journal').click();
   await page.getByTestId('tab-history').click();
   await expect(page.getByTestId('history-row')).toHaveCount(1);
   await page.getByTestId('btn-revert').click();
@@ -254,6 +268,7 @@ test('administrator builds a structure and works with entries', async ({ browser
 test('a one-time link opens once, anonymously', async ({ browser }) => {
   const page = adminPage;
   await page.getByTestId('entry-row').filter({ hasText: 'Почта' }).click();
+  await page.getByTestId('tab-access').click();
   await page.getByTestId('tab-share').click();
   await page.getByTestId('share-views').selectOption('1');
   // кнопка включается, когда форма готова; без ожидания клик мог попасть в отрисовку вкладки
@@ -516,9 +531,20 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   await expect(page.getByTestId('file-row')).toContainText('перенос.txt');
 
   await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
-  await page
-    .getByTestId('move-target')
-    .selectOption(await personal(page.getByTestId('move-target')));
+  const targetVaultId = await personal(page.getByTestId('move-target'));
+  await page.getByTestId('move-target').selectOption(targetVaultId);
+  // A corrupted target must leave the source intact and remove the incomplete copy.
+  const targetContent = `**/vaults/${targetVaultId}/attachments/*/content`;
+  await page.route(targetContent, async (route) => {
+    const response = await route.fetch();
+    const body = await response.body();
+    body[0] = body[0]! ^ 1;
+    await route.fulfill({ response, body });
+  });
+  await page.getByTestId('btn-move').click();
+  await expect(page.getByTestId('ws-error')).toBeVisible();
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' })).toHaveCount(1);
+  await page.unroute(targetContent);
   await page.getByTestId('btn-move').click();
   await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' })).toHaveCount(0);
 
@@ -526,6 +552,7 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   await page
     .getByTestId('vault-select')
     .selectOption(await personal(page.getByTestId('vault-select')));
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' })).toHaveCount(1);
   await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
   await page.getByTestId('tab-files').click();
   await expect(page.getByTestId('file-row')).toContainText('перенос.txt');

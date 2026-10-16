@@ -102,6 +102,23 @@ async function registerWith(email: string, token?: string) {
 }
 
 describe('invitations', () => {
+  it('activates and signs in with a local username without email delivery', async () => {
+    const refused = await admin.req('POST', '/admin/invitations', {
+      email: 'operator.one',
+      sendEmail: true,
+    });
+    expect(refused.statusCode).toBe(400);
+    const invited = await admin.req('POST', '/admin/invitations', {
+      email: 'Operator.One',
+      displayName: 'Operator',
+      sendEmail: false,
+    });
+    expect(invited.statusCode).toBe(201);
+    const { res, c } = await registerWith('operator.one', tokenOf(invited.json().link));
+    expect(res.statusCode).toBe(201);
+    expect((await c.login()).user.email).toBe('operator.one');
+  });
+
   it('registration is closed without an invitation', async () => {
     expect((await registerWith('nobody@example.com')).res.statusCode).toBe(403);
   });
@@ -118,7 +135,10 @@ describe('invitations', () => {
     const { link, emailed } = r.json();
     expect(emailed).toBe(false);
     expect(link).toMatch(/^https:\/\/arklock\.example\.com\/login\?invite=[A-Z2-9-]{27}$/);
-    const [row] = await database.db.select().from(invitations);
+    const [row] = await database.db
+      .select()
+      .from(invitations)
+      .where(eq(invitations.email, 'newbie@example.com'));
     expect(row!.email).toBe('newbie@example.com');
     expect(JSON.stringify(row)).not.toContain(tokenOf(link));
     const list = (await admin.req('GET', '/admin/invitations')).json();

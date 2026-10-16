@@ -3,6 +3,7 @@ import ru from './ru';
 import en from './en';
 import ruExtra from './ru.extra';
 import enExtra from './en.extra';
+import { ruCorporate, enCorporate } from './corporate';
 
 type Tree = { [k: string]: string | Tree };
 /** Глубокое слияние словарей: дополнительные разделы переопределяют и расширяют базовые. */
@@ -31,5 +32,8 @@ export const i18n = createI18n({
   legacy: false,
   locale: initialLocale(),
   fallbackLocale: 'en',
-  messages: { ru: merge(ru as Tree, ruExtra as Tree), en: merge(en as Tree, enExtra as Tree) },
+  messages: {
+    ru: merge(merge(ru as Tree, ruExtra as Tree), ruCorporate),
+    en: merge(merge(en as Tree, enExtra as Tree), enCorporate),
+  },
 });

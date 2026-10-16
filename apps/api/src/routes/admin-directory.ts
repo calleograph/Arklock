@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
@@ -8,15 +8,29 @@ import { resetSessionLimitsCache } from '../auth/session.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { circleMembers, circles, ledger, roles, sessions, settings, users } from '../db/schema.js';
+import {
+  circleMembers,
+  circles,
+  entries,
+  ledger,
+  roles,
+  sessions,
+  settings,
+  users,
+  vaults,
+  vaultCircles,
+} from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { corporateAccessRisks } from '../corporate-continuity.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
 const SETTINGS: Record<string, z.ZodType> = {
   'registration.mode': z.enum(['closed', 'open']),
   'vaults.creators': z.enum(['admins', 'members']),
-  /** false — организация работает только с корпоративными сейфами: личные сейфы скрыты и недоступны для записи. */
+  /** false permits only explicit user/group exceptions. */
   'vaults.personalLockers': z.boolean(),
+  'vaults.personalLockerUsers': z.array(uuid).max(10000),
+  'vaults.personalLockerCircles': z.array(uuid).max(10000),
   'trash.retentionDays': z.number().int().min(1).max(3650),
   'session.idleHours': z.number().min(0.25).max(720),
   /** Предельная длительность сеанса от входа, часов; 0 — без ограничения (кроме общего срока SESSION_MAX_DAYS). */
@@ -32,7 +46,9 @@ const SETTINGS: Record<string, z.ZodType> = {
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
   'vaults.creators': 'admins',
-  'vaults.personalLockers': true,
+  'vaults.personalLockers': false,
+  'vaults.personalLockerUsers': [],
+  'vaults.personalLockerCircles': [],
   'trash.retentionDays': 30,
   'session.idleHours': 12,
   'session.maxHours': 0,
@@ -73,6 +89,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       role: u.role,
       adminRoleId: u.adminRoleId,
       disabled: !!u.disabledAt,
+      authSource: u.authSource,
       createdAt: u.createdAt.toISOString(),
       lastSeenAt: seen.get(u.id) ? new Date(seen.get(u.id)!).toISOString() : null,
     }));
@@ -85,6 +102,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       z.object({
         role: z.enum(['admin', 'member']).optional(),
         disabled: z.boolean().optional(),
+        acknowledgeAccessRisk: z.boolean().optional(),
         /** Административная роль (делегирование); null — снять. */
         adminRoleId: uuid.nullable().optional(),
       }),
@@ -118,6 +136,14 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     }
     if (id === user.id && disabling)
       throw new AppError(409, 'self_disable', 'You cannot disable your own account');
+    const accessRisks = disabling ? await corporateAccessRisks(db, id) : [];
+    if (accessRisks.length && !body.acknowledgeAccessRisk)
+      throw new AppError(
+        409,
+        'corporate_access_at_risk',
+        'Transfer corporate vault access before disabling this user, or acknowledge the risk',
+        { vaults: accessRisks },
+      );
     await db
       .update(users)
       .set({
@@ -138,6 +164,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       role: body.role ?? null,
       disabled: body.disabled ?? null,
       adminRole: body.adminRoleId ?? null,
+      accessRiskAcknowledged: accessRisks.length > 0 && body.acknowledgeAccessRisk === true,
     });
     return { id };
   });
@@ -230,6 +257,63 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     return reply.status(204).send();
   });
 
+  app.patch('/admin/circles/:id/members', async (req) => {
+    const { user } = authOf(req);
+    const { id } = parse(idParam, req.params);
+    const body = parse(
+      z.object({
+        add: z.array(uuid).max(500).default([]),
+        remove: z.array(uuid).max(500).default([]),
+      }),
+      req.body,
+    );
+    const add = [...new Set(body.add)];
+    const remove = [...new Set(body.remove)];
+    if (add.some((uid) => remove.includes(uid)))
+      throw new AppError(400, 'validation_error', 'A user cannot be both added and removed');
+    const [circle] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, id));
+    if (!circle) throw notFound();
+    const found = add.length
+      ? await db.select({ id: users.id }).from(users).where(inArray(users.id, add))
+      : [];
+    if (found.length !== add.length) throw notFound();
+    const changed = await db.transaction(async (tx) => {
+      const added = add.length
+        ? await tx
+            .insert(circleMembers)
+            .values(add.map((userId) => ({ circleId: id, userId })))
+            .onConflictDoNothing()
+            .returning({ userId: circleMembers.userId })
+        : [];
+      const removed = remove.length
+        ? await tx
+            .delete(circleMembers)
+            .where(and(eq(circleMembers.circleId, id), inArray(circleMembers.userId, remove)))
+            .returning({ userId: circleMembers.userId })
+        : [];
+      return { added: added.length, removed: removed.length };
+    });
+    await audit(db, `user:${user.id}`, 'admin.circle.members.update', `circle:${id}`, changed);
+    return changed;
+  });
+
+  app.get('/admin/circles/:id/vaults', async (req) => {
+    const { id } = parse(idParam, req.params);
+    const [circle] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, id));
+    if (!circle) throw notFound();
+    return db
+      .select({
+        id: vaults.id,
+        name: vaults.name,
+        role: vaultCircles.role,
+        customRoleId: vaultCircles.customRoleId,
+        expiresAt: vaultCircles.expiresAt,
+      })
+      .from(vaultCircles)
+      .innerJoin(vaults, eq(vaults.id, vaultCircles.vaultId))
+      .where(eq(vaultCircles.circleId, id));
+  });
+
   app.delete('/admin/circles/:id/members/:userId', async (req, reply) => {
     const { user } = authOf(req);
     const { id, userId } = parse(z.object({ id: uuid, userId: uuid }), req.params);
@@ -245,6 +329,55 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   });
 
   // ------------------------------------------------------------------ настройки
+
+  /** Inventory contains only ownership/counts; no personal ciphertext or keys are disclosed. */
+  app.get('/admin/settings/personal-lockers', async () => {
+    const [people, groups, memberships, lockers, stored] = await Promise.all([
+      db
+        .select({ id: users.id, name: users.displayName, email: users.email })
+        .from(users)
+        .orderBy(asc(users.displayName)),
+      db.select({ id: circles.id, name: circles.name }).from(circles).orderBy(asc(circles.name)),
+      db.select().from(circleMembers),
+      db
+        .select({
+          id: vaults.id,
+          userId: vaults.createdBy,
+          createdAt: vaults.createdAt,
+          entries: count(entries.id),
+        })
+        .from(vaults)
+        .leftJoin(entries, eq(entries.vaultId, vaults.id))
+        .where(eq(vaults.kind, 'locker'))
+        .groupBy(vaults.id, vaults.createdBy, vaults.createdAt),
+      db
+        .select()
+        .from(settings)
+        .where(
+          inArray(settings.key, [
+            'vaults.personalLockers',
+            'vaults.personalLockerUsers',
+            'vaults.personalLockerCircles',
+          ]),
+        ),
+    ]);
+    const value = (key: string) => stored.find((r) => r.key === key)?.value;
+    const everyone = value('vaults.personalLockers') === true;
+    const allowedUsers = value('vaults.personalLockerUsers');
+    const allowedCircles = value('vaults.personalLockerCircles');
+    return {
+      circles: groups,
+      users: people.map((u) => ({
+        ...u,
+        allowed:
+          everyone ||
+          (Array.isArray(allowedUsers) && allowedUsers.includes(u.id)) ||
+          (Array.isArray(allowedCircles) &&
+            memberships.some((m) => m.userId === u.id && allowedCircles.includes(m.circleId))),
+        lockers: lockers.filter((v) => v.userId === u.id),
+      })),
+    };
+  });
 
   app.get('/admin/settings', async () => {
     const rows = await db.select().from(settings);
@@ -263,6 +396,17 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           { path: key, code: 'unknown' },
         ]);
       parse(schema, value);
+    }
+    for (const [key, table] of [
+      ['vaults.personalLockerUsers', users],
+      ['vaults.personalLockerCircles', circles],
+    ] as const) {
+      const ids = body[key] as string[] | undefined;
+      if (ids?.length) {
+        const found = await db.select({ id: table.id }).from(table).where(inArray(table.id, ids));
+        if (new Set(ids).size !== found.length)
+          throw new AppError(400, 'validation_error', 'Unknown personal vault policy subject');
+      }
     }
     // Нельзя включить обязательный MFA, не настроив его самому: иначе администратор закроет себе доступ
     if (
@@ -285,7 +429,11 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       if (key === 'security.mfaRequired') resetMfaPolicyCache(ctx);
       if (key === 'session.idleHours' || key === 'session.maxHours') resetSessionLimitsCache(ctx);
       await audit(db, `user:${user.id}`, 'admin.setting.change', key, {
-        value: typeof value === 'object' ? 'object' : (value as string | number | boolean),
+        value: Array.isArray(value)
+          ? value.join(',')
+          : typeof value === 'object'
+            ? 'object'
+            : (value as string | number | boolean),
       });
     }
     return { updated: Object.keys(body) };

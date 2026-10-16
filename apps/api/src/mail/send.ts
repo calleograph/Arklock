@@ -3,6 +3,7 @@ import type { AppContext } from '../context.js';
 import { settings, users } from '../db/schema.js';
 import { openSetting } from '../secretbox.js';
 import { smtpSession, type SmtpConfig } from './smtp.js';
+import { email } from '@arklock/contracts';
 
 export const SMTP_KEY = 'smtp.config';
 export const SMTP_PURPOSE = 'smtp-password';
@@ -45,6 +46,7 @@ export async function sendMail(
   subject: string,
   text: string,
 ): Promise<boolean> {
+  if (!email.safeParse(to).success) return false;
   try {
     const s = await loadStoredSmtp(ctx);
     if (!s) return false;

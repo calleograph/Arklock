@@ -16,11 +16,13 @@ import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { corporateRecoveryRecipientOf } from '../corporate-recovery.js';
 import {
   attachments,
   branches,
   circleMembers,
   circles,
+  corporateRecoveryKeys,
   entries,
   entryRevisions,
   grants,
@@ -34,7 +36,8 @@ import {
   vaults,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
-import { attachmentIdsOfVault, blobSuffix } from './attachments.js';
+import { attachmentIdsOfVault, blobSuffix, rotationSuffix } from './attachments.js';
+import { lockVaultForWrite } from '../vault-mutation.js';
 
 export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (
   app,
@@ -50,8 +53,11 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     return v;
   }
 
-  async function signKeyOf(userId: string): Promise<Uint8Array> {
-    const [u] = await db.select({ k: users.signPublicKey }).from(users).where(eq(users.id, userId));
+  async function signKeyOf(userId: string, connection = db): Promise<Uint8Array> {
+    const [u] = await connection
+      .select({ k: users.signPublicKey })
+      .from(users)
+      .where(eq(users.id, userId));
     if (!u) throw notFound();
     return fromBase64Url(u.k);
   }
@@ -64,9 +70,10 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     keyVersion: number,
     sealedKey: string,
     signature: string,
+    connection = db,
   ): Promise<void> {
     const ok = await verifyKeyGrant(
-      await signKeyOf(granterId),
+      await signKeyOf(granterId, connection),
       signature,
       vaultId,
       memberId,
@@ -272,6 +279,12 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       );
     if (!key) throw new AppError(409, 'key_missing', 'Give the new owner the vault key first');
     await db.transaction(async (tx) => {
+      await tx.select({ id: vaults.id }).from(vaults).where(eq(vaults.id, vaultId)).for('update');
+      const [currentOwner] = await tx
+        .select({ role: vaultMembers.role })
+        .from(vaultMembers)
+        .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, user.id)));
+      if (currentOwner?.role !== 'owner') throw forbidden();
       await tx
         .update(vaultMembers)
         .set({ role: 'admin', customRoleId: null, expiresAt: null })
@@ -597,11 +610,14 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         exists (select 1 from vault_members m where m.vault_id = ${vaultId} and m.user_id = u.id)
         or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
                    where vc.vault_id = ${vaultId} and cm.user_id = u.id)
-        or exists (select 1 from grants g where g.vault_id = ${vaultId} and g.subject_type = 'user' and g.subject_id = u.id)
+        or exists (select 1 from grants g where g.vault_id = ${vaultId} and (
+          (g.subject_type = 'user' and g.subject_id = u.id) or
+          (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = u.id))))
       ) and not exists (select 1 from vault_keys k where k.vault_id = ${vaultId} and k.user_id = u.id and k.key_version = ${v.keyVersion})`);
     const rows =
       (ids as unknown as { rows?: { id: string }[] }).rows ?? (ids as unknown as { id: string }[]);
-    const list = rows.map((r) => r.id);
+    const list: string[] = [];
+    for (const r of rows) if ((await loadAccess(db, vaultId, r.id)).isMember) list.push(r.id);
     const us = list.length ? await db.select().from(users).where(inArray(users.id, list)) : [];
     return {
       keyVersion: v.keyVersion,
@@ -675,92 +691,203 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         keyVersion: v.keyVersion,
       });
     }
-    // Незавершённые загрузки теряют силу: их ключ относится к прежней версии
-    const pendingAtt = await db
-      .select({ id: attachments.id })
-      .from(attachments)
-      .where(and(eq(attachments.vaultId, vaultId), eq(attachments.status, 'pending')));
-    const [allEntries, allRevisions, allBranches, allAttachments] = await Promise.all([
-      db.select({ id: entries.id }).from(entries).where(eq(entries.vaultId, vaultId)),
-      db
-        .select({ id: entryRevisions.id })
-        .from(entryRevisions)
-        .where(eq(entryRevisions.vaultId, vaultId)),
-      db.select({ id: branches.id }).from(branches).where(eq(branches.vaultId, vaultId)),
-      db
-        .select({ id: attachments.id, size: attachments.size })
-        .from(attachments)
-        .where(and(eq(attachments.vaultId, vaultId), eq(attachments.status, 'ready'))),
-    ]);
-    const same = (a: string[], b: string[]) =>
-      a.length === b.length && new Set(a).size === a.length && b.every((x) => new Set(a).has(x));
-    if (
-      !same(
-        body.entries.map((e) => e.id),
-        allEntries.map((e) => e.id),
-      ) ||
-      !same(
-        body.revisions.map((e) => e.id),
-        allRevisions.map((e) => e.id),
-      ) ||
-      !same(
-        body.branches.map((e) => e.id),
-        allBranches.map((e) => e.id),
-      ) ||
-      !same(
-        body.attachments.map((e) => e.id),
-        allAttachments.map((e) => e.id),
-      )
-    ) {
+    const recoveryRecipient = await corporateRecoveryRecipientOf(db);
+    const previousRecovery = recoveryRecipient
+      ? await db
+          .select({ vaultId: corporateRecoveryKeys.vaultId })
+          .from(corporateRecoveryKeys)
+          .where(
+            and(
+              eq(corporateRecoveryKeys.vaultId, vaultId),
+              eq(corporateRecoveryKeys.recipientId, recoveryRecipient.id),
+            ),
+          )
+          .limit(1)
+      : [];
+    if (previousRecovery.length && !body.recoveryKey)
       throw new AppError(
         409,
-        'incomplete_rotation',
-        'The rotation must cover every entry, revision, branch and attachment',
+        'recovery_key_required',
+        'Rotation must also update the configured corporate recovery envelope',
       );
-    }
-    // Ключ нужен каждому, кто сейчас имеет доступ.
-    const holders = await db.execute(sql`
-      select distinct u.id from users u where u.disabled_at is null and (
-        exists (select 1 from vault_members m where m.vault_id = ${vaultId} and m.user_id = u.id)
-        or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id where vc.vault_id = ${vaultId} and cm.user_id = u.id)
-        or exists (select 1 from grants g where g.vault_id = ${vaultId} and g.subject_type = 'user' and g.subject_id = u.id))`);
-    const hrows = (
-      (holders as unknown as { rows?: { id: string }[] }).rows ??
-      (holders as unknown as { id: string }[])
-    ).map((r) => r.id);
-    if (
-      !same(
-        body.keys.map((k) => k.userId),
-        hrows,
+    if (body.recoveryKey) {
+      if (
+        !recoveryRecipient ||
+        body.recoveryKey.recipientId !== recoveryRecipient.id ||
+        body.recoveryKey.keyVersion !== body.newKeyVersion
       )
-    ) {
-      throw new AppError(
-        409,
-        'incomplete_rotation',
-        'A key is required for every user who has access',
-        { required: hrows.length },
-      );
-    }
-    for (const k of body.keys)
+        throw new AppError(
+          409,
+          'recovery_recipient_changed',
+          'The recovery envelope must match the configured identity and new vault version',
+        );
       await assertGrantSignature(
         user.id,
         vaultId,
-        k.userId,
+        recoveryRecipient.id,
         body.newKeyVersion,
-        k.sealedKey,
-        k.signature,
+        body.recoveryKey.sealedKey,
+        body.recoveryKey.signature,
       );
-    // Файлы, перешифрованные новым ключом, должны быть загружены заранее и иметь прежний размер
-    for (const att of allAttachments) {
-      if ((await ctx.blobs.size(att.id, blobSuffix(body.newKeyVersion))) !== att.size)
+    }
+    const { pendingAtt, allAttachments } = await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId, v.keyVersion);
+      const access = await requireVault(tx, vaultId, user.id);
+      if (!access.can('vault.rotate')) throw forbidden();
+      // Read the complete snapshot after taking the same lock used by all ciphertext writers.
+      const pendingAtt = await tx
+        .select({ id: attachments.id })
+        .from(attachments)
+        .where(and(eq(attachments.vaultId, vaultId), eq(attachments.status, 'pending')));
+      const [allEntries, allRevisions, allBranches, allAttachments] = await Promise.all([
+        tx
+          .select({ id: entries.id, branchId: entries.branchId, version: entries.version })
+          .from(entries)
+          .where(eq(entries.vaultId, vaultId))
+          .orderBy(entries.id)
+          .for('update'),
+        tx
+          .select({ id: entryRevisions.id })
+          .from(entryRevisions)
+          .where(eq(entryRevisions.vaultId, vaultId))
+          .orderBy(entryRevisions.id)
+          .for('update'),
+        tx
+          .select({ id: branches.id, version: branches.version })
+          .from(branches)
+          .where(eq(branches.vaultId, vaultId))
+          .orderBy(branches.id)
+          .for('update'),
+        tx
+          .select({ id: attachments.id, size: attachments.size })
+          .from(attachments)
+          .where(and(eq(attachments.vaultId, vaultId), eq(attachments.status, 'ready')))
+          .orderBy(attachments.id)
+          .for('update'),
+      ]);
+      // Rotation rewrites every object, so an object denial also forbids whole-vault rotation.
+      if (
+        allEntries.some((e) => !access.entry(e.id, e.branchId)) ||
+        allBranches.some((b) => !access.branch(b.id))
+      )
+        throw forbidden();
+      const expectedEntries = new Map(
+        body.entries.map((entry) => [entry.id, entry.expectedVersion]),
+      );
+      const expectedBranches = new Map(
+        body.branches.map((branch) => [branch.id, branch.expectedVersion]),
+      );
+      if (
+        allEntries.some(
+          (entry) =>
+            expectedEntries.has(entry.id) && expectedEntries.get(entry.id) !== entry.version,
+        ) ||
+        allBranches.some(
+          (branch) =>
+            expectedBranches.has(branch.id) && expectedBranches.get(branch.id) !== branch.version,
+        )
+      )
+        throw new AppError(
+          409,
+          'version_conflict',
+          'Vault contents changed while rotation was being prepared; refresh and retry',
+        );
+      const same = (a: string[], b: string[]) =>
+        a.length === b.length && new Set(a).size === a.length && b.every((x) => new Set(a).has(x));
+      if (
+        !same(
+          body.entries.map((e) => e.id),
+          allEntries.map((e) => e.id),
+        ) ||
+        !same(
+          body.revisions.map((e) => e.id),
+          allRevisions.map((e) => e.id),
+        ) ||
+        !same(
+          body.branches.map((e) => e.id),
+          allBranches.map((e) => e.id),
+        ) ||
+        !same(
+          body.attachments.map((e) => e.id),
+          allAttachments.map((e) => e.id),
+        )
+      ) {
         throw new AppError(
           409,
           'incomplete_rotation',
-          'Re-encrypted attachment files must be uploaded before rotation',
+          'The rotation must cover every entry, revision, branch and attachment',
         );
-    }
-    const now = new Date();
-    await db.transaction(async (tx) => {
+      }
+      // Ключ нужен каждому, кто сейчас имеет доступ.
+      const holders = await tx.execute(sql`
+      select distinct u.id from users u where u.disabled_at is null and (
+        exists (select 1 from vault_members m where m.vault_id = ${vaultId} and m.user_id = u.id)
+        or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id where vc.vault_id = ${vaultId} and cm.user_id = u.id)
+        or exists (select 1 from grants g where g.vault_id = ${vaultId} and (
+          (g.subject_type = 'user' and g.subject_id = u.id) or
+          (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = u.id)))))`);
+      const candidates = (
+        (holders as unknown as { rows?: { id: string }[] }).rows ??
+        (holders as unknown as { id: string }[])
+      ).map((r) => r.id);
+      const hrows: string[] = [];
+      for (const id of candidates) if ((await loadAccess(tx, vaultId, id)).isMember) hrows.push(id);
+      if (
+        !same(
+          body.keys.map((k) => k.userId),
+          hrows,
+        )
+      ) {
+        throw new AppError(
+          409,
+          'incomplete_rotation',
+          'A key is required for every user who has access',
+          { required: hrows.length },
+        );
+      }
+      for (const k of body.keys)
+        await assertGrantSignature(
+          user.id,
+          vaultId,
+          k.userId,
+          body.newKeyVersion,
+          k.sealedKey,
+          k.signature,
+          tx,
+        );
+      // Файлы, перешифрованные новым ключом, должны быть загружены заранее и иметь прежний размер
+      for (const att of allAttachments) {
+        if (
+          (await ctx.blobs.size(att.id, rotationSuffix(body.newKeyVersion, body.rotationId!))) !==
+          att.size
+        )
+          throw new AppError(
+            409,
+            'incomplete_rotation',
+            'Re-encrypted attachment files must be uploaded before rotation',
+          );
+      }
+      const now = new Date();
+      const enrolled = recoveryRecipient
+        ? await tx
+            .select({ vaultId: corporateRecoveryKeys.vaultId })
+            .from(corporateRecoveryKeys)
+            .where(
+              and(
+                eq(corporateRecoveryKeys.vaultId, vaultId),
+                eq(corporateRecoveryKeys.recipientId, recoveryRecipient.id),
+              ),
+            )
+            .limit(1)
+        : [];
+      if (enrolled.length && !body.recoveryKey)
+        throw new AppError(409, 'recovery_key_required', 'Rotation must update corporate recovery');
+      for (const att of allAttachments)
+        await ctx.blobs.promote(
+          att.id,
+          rotationSuffix(body.newKeyVersion, body.rotationId!),
+          blobSuffix(body.newKeyVersion),
+        );
       for (const p of pendingAtt) await tx.delete(attachments).where(eq(attachments.id, p.id));
       for (const att of body.attachments) {
         await tx
@@ -816,11 +943,30 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         })),
       );
       await tx.update(vaults).set({ keyVersion: body.newKeyVersion }).where(eq(vaults.id, vaultId));
+      if (body.recoveryKey) {
+        await tx.insert(corporateRecoveryKeys).values({
+          vaultId,
+          recipientId: body.recoveryKey.recipientId,
+          keyVersion: body.newKeyVersion,
+          sealedKey: body.recoveryKey.sealedKey,
+          signature: body.recoveryKey.signature,
+          grantedBy: user.id,
+          grantedBySignKey: user.signPublicKey,
+        });
+        await audit(tx, `user:${user.id}`, 'corporate.recovery.rotate', `vault:${vaultId}`, {
+          recipient: body.recoveryKey.recipientId,
+          keyVersion: body.newKeyVersion,
+        });
+      }
+      return { pendingAtt, allAttachments };
     });
     // Файлы прежней версии ключа больше не нужны
     for (const att of allAttachments)
       await ctx.blobs.removeVersion(att.id, blobSuffix(body.newKeyVersion - 1));
-    await ctx.blobs.remove(pendingAtt.map((p) => p.id));
+    for (const att of allAttachments)
+      await ctx.blobs.removeVersion(att.id, rotationSuffix(body.newKeyVersion, body.rotationId!));
+    for (const pending of pendingAtt)
+      await ctx.blobs.removeVersion(pending.id, blobSuffix(v.keyVersion));
     await audit(db, `user:${user.id}`, 'vault.rotate', `vault:${vaultId}`, {
       keyVersion: body.newKeyVersion,
     });

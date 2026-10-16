@@ -5,6 +5,17 @@ import { apiTokens, sessions, settings, users } from '../db/schema.js';
 import { AppError, unauthorized } from '../errors.js';
 import { isEnrolled, mfaPolicy } from './mfa.js';
 import { randomB64url, sha256Hex } from '../security.js';
+import { ldapIdentityProfile, readLdapProfiles } from './ldap-profiles.js';
+
+async function assertDirectoryActive(
+  ctx: AppContext,
+  user: Pick<typeof users.$inferSelect, 'authSource' | 'externalId'>,
+): Promise<void> {
+  if (user.authSource !== 'ldap') return;
+  const profileId = ldapIdentityProfile(user.externalId);
+  if (!(await readLdapProfiles(ctx.db)).some((p) => p.id === profileId && p.enabled))
+    throw unauthorized();
+}
 
 /** Предельная длительность сеанса для вошедших через SAML (часы; 0 — не ограничена). Значение кэшируется на полминуты. */
 export async function samlSessionHours(ctx: AppContext): Promise<number> {
@@ -105,6 +116,7 @@ async function authenticateToken(ctx: AppContext, req: FastifyRequest, token: st
     (row.token.expiresAt && row.token.expiresAt.getTime() <= now)
   )
     throw unauthorized();
+  await assertDirectoryActive(ctx, row.user);
   const path = req.url.split('?')[0] ?? '';
   if (!TOKEN_ALLOWED.some((p) => path === p || path.startsWith(p + '/')))
     throw new AppError(403, 'token_not_allowed', 'This endpoint cannot be used with an API token');
@@ -143,6 +155,9 @@ export async function createSession(
   ip: string | null,
   userAgent: string | null,
 ) {
+  const [user] = await ctx.db.select().from(users).where(eq(users.id, userId));
+  if (!user || user.disabledAt) throw unauthorized();
+  await assertDirectoryActive(ctx, user);
   const token = `aks_${randomB64url(32)}`;
   const now = Date.now();
   const expiresAt = new Date(now + ctx.config.SESSION_MAX_DAYS * 86_400_000);
@@ -172,6 +187,7 @@ export function requireAuth(ctx: AppContext) {
       .where(eq(sessions.tokenHash, sha256Hex(m[1]!)))
       .limit(1);
     if (!row) throw unauthorized();
+    await assertDirectoryActive(ctx, row.user);
     const now = Date.now();
     // сроки из настроек администратора, а не только из переменных окружения
     const { idleMs, maxMs } = await sessionLimits(ctx, now);

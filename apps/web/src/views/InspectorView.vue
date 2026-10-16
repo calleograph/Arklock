@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { findInRange, sha1Hex } from '@arklock/crypto';
@@ -16,6 +16,7 @@ const maxAge = ref(365);
 const orgPolicy = ref<PasswordPolicy>(NO_POLICY);
 const issues = ref<Issue[]>([]);
 const checked = ref(false);
+const breachChecked = ref(false);
 const breachProgress = ref<{ done: number; total: number } | null>(null);
 const breachError = ref('');
 const reported = ref('');
@@ -27,11 +28,30 @@ const grouped = computed(() => {
   for (const i of issues.value) m.set(i.type, [...(m.get(i.type) ?? []), i]);
   return m;
 });
-const total = computed(() => ws.entries.filter((e) => e.data.password).length);
+const passwordIds = computed(
+  () =>
+    new Set(ws.entries.filter((e) => e.data.password && e.data.kind !== 'note').map((e) => e.id)),
+);
+const total = computed(() => passwordIds.value.size);
 const score = computed(() => {
-  const bad = new Set(issues.value.map((i) => i.entryId)).size;
-  return total.value ? Math.round(((total.value - bad) / total.value) * 100) : 100;
+  const bad = new Set(
+    issues.value.filter((i) => passwordIds.value.has(i.entryId)).map((i) => i.entryId),
+  ).size;
+  return total.value ? Math.round(((total.value - bad) / total.value) * 100) : null;
 });
+watch(
+  () =>
+    `${ws.currentId}:${ws.entries
+      .map((e) => `${e.id}:${e.version}`)
+      .sort()
+      .join(',')}`,
+  () => {
+    checked.value = false;
+    breachChecked.value = false;
+    issues.value = [];
+    reported.value = '';
+  },
+);
 
 function analyze(): void {
   const keepCompromised = issues.value.filter((i) => i.type === 'compromised');
@@ -57,10 +77,16 @@ onMounted(async () => {
 /** Проверка по базе утечек: наружу уходит только префикс SHA-1 из 5 символов; пароли не передаются. */
 async function checkBreaches(): Promise<void> {
   breachError.value = '';
+  breachChecked.value = false;
   const withPw = ws.entries.filter((e) => e.data.password && e.data.kind !== 'note');
   breachProgress.value = { done: 0, total: withPw.length };
   const found: Issue[] = [];
   const cache = new Map<string, string>();
+  const snapshot = ws.entries
+    .map((e) => `${e.id}:${e.version}`)
+    .sort()
+    .join(',');
+  const vaultId = ws.currentId;
   try {
     for (const e of withPw) {
       const hash = await sha1Hex(e.data.password);
@@ -74,7 +100,17 @@ async function checkBreaches(): Promise<void> {
       if (count > 0) found.push({ entryId: e.id, type: 'compromised', info: count });
       breachProgress.value = { done: breachProgress.value.done + 1, total: withPw.length };
     }
-    issues.value = [...issues.value.filter((i) => i.type !== 'compromised'), ...found];
+    if (
+      vaultId === ws.currentId &&
+      snapshot ===
+        ws.entries
+          .map((e) => `${e.id}:${e.version}`)
+          .sort()
+          .join(',')
+    ) {
+      issues.value = [...issues.value.filter((i) => i.type !== 'compromised'), ...found];
+      breachChecked.value = true;
+    }
   } catch (e) {
     // Недоступность сервиса не означает «пароли безопасны»
     breachError.value =
@@ -92,7 +128,9 @@ async function report(): Promise<void> {
   busy.value = true;
   try {
     const map = (type: Issue['type']) => (type === 'old' ? 'expired' : type);
-    const items = issues.value.map((i) => ({ entryId: i.entryId, type: map(i.type) }));
+    const items = issues.value
+      .filter((i) => i.type !== 'policy')
+      .map((i) => ({ entryId: i.entryId, type: map(i.type) }));
     const uniq = [...new Map(items.map((i) => [`${i.entryId}:${i.type}`, i])).values()];
     const res = await api<{ created: number; resolved: number }>(
       'POST',
@@ -103,7 +141,7 @@ async function report(): Promise<void> {
           'weak',
           'reused',
           'expired',
-          ...(issues.value.some((i) => i.type === 'compromised') ? ['compromised'] : []),
+          ...(breachChecked.value ? ['compromised'] : []),
         ],
       },
     );
@@ -127,7 +165,9 @@ async function report(): Promise<void> {
 
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="inspector-summary">
       <div class="card p-3 text-center">
-        <div class="text-2xl font-semibold" data-testid="score">{{ score }}%</div>
+        <div class="text-2xl font-semibold" data-testid="score">
+          {{ checked && score !== null ? `${score}%` : t('corporate.noData') }}
+        </div>
         <div class="text-xs text-slate-500">{{ t('inspector.score') }}</div>
       </div>
       <div
@@ -136,11 +176,18 @@ async function report(): Promise<void> {
         class="card p-3 text-center"
       >
         <div class="text-2xl font-semibold" :data-testid="`count-${type}`">
-          {{ grouped.get(type)?.length ?? 0 }}
+          {{
+            type === 'compromised' && !breachChecked
+              ? t('corporate.unchecked')
+              : !checked && type !== 'compromised'
+                ? t('corporate.noData')
+                : (grouped.get(type)?.length ?? 0)
+          }}
         </div>
         <div class="text-xs text-slate-500">{{ t(`issue.${type}`) }}</div>
       </div>
     </div>
+    <p class="text-xs text-slate-500">{{ t('corporate.method') }}</p>
 
     <div class="flex flex-wrap items-center gap-2">
       <label class="text-sm"
@@ -168,7 +215,7 @@ async function report(): Promise<void> {
         v-if="ws.current && ['owner', 'admin', 'editor', 'reader'].includes(ws.current.role)"
         type="button"
         class="btn"
-        :disabled="busy"
+        :disabled="busy || !checked || !!breachProgress"
         data-testid="btn-report"
         @click="report"
       >

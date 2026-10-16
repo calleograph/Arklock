@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { api } from '../services/api';
+import { api, ApiError } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
@@ -11,6 +11,8 @@ import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
+import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
+import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
 /** Вкладки настроек: карточки разложены по разделам, как в образце настроек. */
@@ -136,8 +138,20 @@ interface U {
   disabled: boolean;
   createdAt: string;
   lastSeenAt: string | null;
+  authSource?: string;
 }
 const users = ref<U[]>([]);
+const userSearch = ref('');
+const userStatus = ref('');
+const visibleUsers = computed(() =>
+  users.value.filter(
+    (u) =>
+      `${u.name} ${u.email} ${u.authSource ?? 'local'}`
+        .toLowerCase()
+        .includes(userSearch.value.toLowerCase()) &&
+      (!userStatus.value || u.disabled === (userStatus.value === 'disabled')),
+  ),
+);
 const loadUsers = async () => {
   users.value = await api('GET', '/admin/users');
 };
@@ -151,7 +165,16 @@ async function loadAdminRoles(): Promise<void> {
   adminRoles.value = r.roles.filter((x) => x.scope === 'admin');
 }
 const patchUser = (u: U, body: object) =>
-  run(() => api('PATCH', `/admin/users/${u.id}`, body), loadUsers);
+  run(async () => {
+    try {
+      await api('PATCH', `/admin/users/${u.id}`, body);
+    } catch (e) {
+      if (!(e instanceof ApiError && e.code === 'corporate_access_at_risk')) throw e;
+      const risks = (e.details as { vaults: { name: string | null; id: string }[] }).vaults;
+      if (window.confirm(`${t('corporate.risk')}\n${risks.map((v) => v.name ?? v.id).join('\n')}`))
+        await api('PATCH', `/admin/users/${u.id}`, { ...body, acknowledgeAccessRisk: true });
+    }
+  }, loadUsers);
 const endSessions = (u: U) =>
   run(() => api('POST', `/admin/users/${u.id}/revoke-sessions`), loadUsers);
 
@@ -163,6 +186,24 @@ interface C {
   members: number;
 }
 const circles = ref<C[]>([]);
+const circleSearch = ref('');
+const visibleCircles = computed(() =>
+  circles.value.filter((c) =>
+    `${c.name} ${c.description}`.toLowerCase().includes(circleSearch.value.toLowerCase()),
+  ),
+);
+const editingCircle = ref<C | null>(null);
+const selectedGroupUsers = ref<string[]>([]);
+const selectedMembers = ref<string[]>([]);
+const assignedVaults = ref<
+  {
+    id: string;
+    name: string;
+    role: string;
+    customRoleId: string | null;
+    expiresAt: string | null;
+  }[]
+>([]);
 const newCircle = ref({ name: '', description: '' });
 const openCircle = ref<string | null>(null);
 const circleMembers = ref<{ id: string; name: string; email: string }[]>([]);
@@ -180,8 +221,32 @@ const deleteCircle = (c: C) =>
   run(() => api('DELETE', `/admin/circles/${c.id}`), loadCircles);
 async function showCircle(c: C): Promise<void> {
   openCircle.value = openCircle.value === c.id ? null : c.id;
-  if (openCircle.value) circleMembers.value = await api('GET', `/admin/circles/${c.id}/members`);
+  selectedMembers.value = [];
+  selectedGroupUsers.value = [];
+  if (openCircle.value)
+    [circleMembers.value, assignedVaults.value] = await Promise.all([
+      api<typeof circleMembers.value>('GET', `/admin/circles/${c.id}/members`),
+      api<typeof assignedVaults.value>('GET', `/admin/circles/${c.id}/vaults`),
+    ]);
 }
+const updateCircle = () =>
+  run(async () => {
+    if (!editingCircle.value) return;
+    await api('PATCH', `/admin/circles/${editingCircle.value.id}`, {
+      name: editingCircle.value.name,
+      description: editingCircle.value.description,
+    });
+    editingCircle.value = null;
+  }, loadCircles);
+const updateGroupMembers = (action: 'add' | 'remove') =>
+  run(async () => {
+    await api('PATCH', `/admin/circles/${openCircle.value}/members`, {
+      [action]: action === 'add' ? selectedGroupUsers.value : selectedMembers.value,
+    });
+    circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
+    selectedGroupUsers.value = [];
+    selectedMembers.value = [];
+  }, loadCircles);
 const addToCircle = () =>
   run(async () => {
     await api('PUT', `/admin/circles/${openCircle.value}/members/${addUserId.value}`);
@@ -393,6 +458,21 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
         <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
 
         <div v-else-if="tab === 'users'" class="card overflow-x-auto">
+          <div class="flex flex-wrap gap-2 p-3">
+            <input
+              v-model="userSearch"
+              type="search"
+              class="input max-w-sm"
+              :aria-label="t('corporate.findUsers')"
+              :placeholder="t('corporate.findUsers')"
+              data-testid="admin-user-search"
+            />
+            <select v-model="userStatus" class="input w-auto" :aria-label="t('admin.status')">
+              <option value="">{{ t('corporate.allStatuses') }}</option>
+              <option value="active">{{ t('admin.active') }}</option>
+              <option value="disabled">{{ t('admin.disabled') }}</option>
+            </select>
+          </div>
           <table class="min-w-full text-sm" data-testid="users-table">
             <thead class="text-left text-xs text-slate-500">
               <tr>
@@ -406,7 +486,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
             </thead>
             <tbody>
               <tr
-                v-for="u in users"
+                v-for="u in visibleUsers"
                 :key="u.id"
                 class="border-t border-slate-200 dark:border-slate-800"
                 data-testid="user-row"
@@ -414,6 +494,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 <td class="px-3 py-2">
                   <div>{{ u.name }}</div>
                   <div class="text-xs text-slate-500">{{ u.email }}</div>
+                  <div class="text-xs text-slate-500">{{ u.authSource ?? 'local' }}</div>
                 </td>
                 <td>
                   <select
@@ -476,6 +557,14 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
         </div>
 
         <div v-else-if="tab === 'circles'" class="space-y-3">
+          <input
+            v-model="circleSearch"
+            type="search"
+            class="input max-w-sm"
+            :aria-label="t('corporate.findGroups')"
+            :placeholder="t('corporate.findGroups')"
+            data-testid="admin-group-search"
+          />
           <form class="flex flex-wrap gap-2" @submit.prevent="createCircle">
             <input
               v-model="newCircle.name"
@@ -499,32 +588,81 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
             class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
             data-testid="circles-list"
           >
-            <li v-for="c in circles" :key="c.id" class="px-3 py-2">
+            <li v-for="c in visibleCircles" :key="c.id" class="px-3 py-2">
               <div class="flex items-center justify-between gap-2">
                 <button
                   type="button"
                   class="min-w-0 truncate text-left font-medium"
                   :data-testid="`circle-${c.name}`"
-                  @click="showCircle(c)"
+                  @click="run(() => showCircle(c))"
                 >
                   ◎ {{ c.name }}
                   <span class="text-xs text-slate-500"
                     >· {{ c.members }} {{ t('admin.membersN') }}</span
                   >
                 </button>
+                <button
+                  type="button"
+                  class="btn"
+                  :aria-label="`${t('vault.rename')}: ${c.name}`"
+                  @click="editingCircle = { ...c }"
+                >
+                  {{ t('vault.rename') }}
+                </button>
                 <button type="button" class="btn-danger" @click="deleteCircle(c)">
                   {{ t('common.delete') }}
                 </button>
               </div>
+              <form
+                v-if="editingCircle?.id === c.id"
+                class="my-2 flex flex-wrap gap-2"
+                @submit.prevent="updateCircle"
+              >
+                <input
+                  v-model="editingCircle.name"
+                  required
+                  maxlength="100"
+                  class="input"
+                  :aria-label="t('common.name')"
+                />
+                <input
+                  v-model="editingCircle.description"
+                  maxlength="500"
+                  class="input"
+                  :aria-label="t('admin.description')"
+                />
+                <button type="submit" class="btn-primary">{{ t('common.save') }}</button
+                ><button type="button" class="btn" @click="editingCircle = null">
+                  {{ t('common.cancel') }}
+                </button>
+              </form>
               <div v-if="openCircle === c.id" class="mt-2 space-y-2">
                 <ul class="text-xs">
                   <li v-for="m in circleMembers" :key="m.id" class="flex justify-between py-0.5">
-                    {{ m.name }} ({{ m.email }})
-                    <button type="button" class="text-red-600" @click="removeFromCircle(m.id)">
+                    <label class="flex items-center gap-2"
+                      ><input v-model="selectedMembers" :value="m.id" type="checkbox" />{{
+                        m.name
+                      }}
+                      ({{ m.email }})</label
+                    >
+                    <button
+                      type="button"
+                      class="text-red-600"
+                      :aria-label="`${t('common.delete')}: ${m.name}`"
+                      @click="removeFromCircle(m.id)"
+                    >
                       ×
                     </button>
                   </li>
                 </ul>
+                <button
+                  v-if="selectedMembers.length"
+                  type="button"
+                  class="btn-danger"
+                  @click="updateGroupMembers('remove')"
+                >
+                  {{ t('corporate.removeSelected') }} ({{ selectedMembers.length }})
+                </button>
                 <div class="flex gap-2">
                   <select v-model="addUserId" class="input" data-testid="circle-add-user">
                     <option value="" disabled>…</option>
@@ -540,6 +678,42 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                   >
                     {{ t('settings.add') }}
                   </button>
+                </div>
+                <details class="rounded-md border border-slate-200 p-2 dark:border-slate-800">
+                  <summary class="cursor-pointer text-sm">{{ t('corporate.addSeveral') }}</summary>
+                  <div class="my-2 max-h-48 space-y-1 overflow-y-auto">
+                    <label
+                      v-for="u in users.filter(
+                        (candidate) =>
+                          !circleMembers.some((m) => m.id === candidate.id) && !candidate.disabled,
+                      )"
+                      :key="u.id"
+                      class="flex items-center gap-2 text-xs"
+                      ><input v-model="selectedGroupUsers" :value="u.id" type="checkbox" />{{
+                        u.name
+                      }}
+                      ({{ u.email }})</label
+                    >
+                  </div>
+                  <button
+                    type="button"
+                    class="btn"
+                    :disabled="!selectedGroupUsers.length"
+                    @click="updateGroupMembers('add')"
+                  >
+                    {{ t('settings.add') }} ({{ selectedGroupUsers.length }})
+                  </button>
+                </details>
+                <div class="space-y-1 text-xs">
+                  <h3 class="font-medium">{{ t('corporate.groupVaults') }}</h3>
+                  <p v-if="!assignedVaults.length" class="text-slate-500">
+                    {{ t('corporate.noGroupVaults') }}
+                  </p>
+                  <p v-for="v in assignedVaults" :key="v.id">
+                    {{ v.name }} ·
+                    {{ v.customRoleId ? t('corporate.customRole') : t(`role.${v.role}`)
+                    }}<span v-if="v.expiresAt"> · {{ fmt(v.expiresAt) }}</span>
+                  </p>
                 </div>
               </div>
             </li>
@@ -570,6 +744,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               {{ t(x.label) }}
             </button>
           </div>
+          <AdminCorporateRecovery v-if="isFull() && settingsTab === 'security'" />
           <section
             class="card space-y-3 p-4 text-sm"
             data-testid="settings-group-access"
@@ -775,16 +950,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.personalLockers')
-              }}<input
-                type="checkbox"
-                :checked="settings['vaults.personalLockers'] !== false"
-                data-testid="set-personal-lockers"
-                @change="
-                  saveSetting('vaults.personalLockers', ($event.target as HTMLInputElement).checked)
-                "
-            /></label>
+            <PersonalLockerSettings />
           </section>
           <section
             class="card space-y-3 p-4 text-sm"

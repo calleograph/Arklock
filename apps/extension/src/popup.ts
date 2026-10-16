@@ -95,7 +95,7 @@ function showLogin(message = ''): void {
   });
   const email = h('input', {
     id: 'email',
-    type: 'email',
+    type: 'text',
     autocomplete: 'username',
     value: prefs.email,
     'data-testid': 'email',
@@ -119,7 +119,12 @@ function showLogin(message = ''): void {
     autocomplete: 'one-time-code',
     'data-testid': 'code',
   });
-  const emailRow = h('div', {}, h('label', { for: 'email' }, T('E-mail', 'Почта')), email);
+  const emailRow = h(
+    'div',
+    {},
+    h('label', { for: 'email' }, T('Username or email', 'Учётная запись или почта')),
+    email,
+  );
   const tokenRow = h(
     'div',
     { hidden: true },

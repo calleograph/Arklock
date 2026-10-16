@@ -27,7 +27,13 @@ import { AppError, parse } from '../errors.js';
 import { openSetting, sealSetting } from '../secretbox.js';
 import { bundle, insertAccount } from './auth.js';
 import { LDAP_SETTING_KEY, syncCirclesFor } from './ldap.js';
-import type { LdapConfig } from '../auth/ldap.js';
+import { ldapLookup, type LdapConfig } from '../auth/ldap.js';
+import {
+  ldapBindSecret,
+  ldapExternalId,
+  readLdapProfiles,
+  type LdapProfile,
+} from '../auth/ldap-profiles.js';
 import { SAML_SETTING_KEY, samlGroupMap, type SamlConfig } from '../auth/saml.js';
 
 const KEY = 'sso.oidc';
@@ -317,11 +323,42 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       .select()
       .from(settings)
       .where(eq(settings.key, SETTING_KEY_BY_SOURCE[ident.source]));
-    const cfg = row?.value as { enabled?: boolean; autoProvision?: boolean } | undefined;
+    const cfg =
+      ident.source === 'ldap'
+        ? (await readLdapProfiles(db)).find((p) => p.id === (ident.directoryId ?? 'default'))
+        : (row?.value as { enabled?: boolean; autoProvision?: boolean } | undefined);
     if (!cfg?.enabled || !cfg.autoProvision)
       throw new AppError(403, 'not_provisioned', 'Account creation is disabled');
+    if (ident.source === 'ldap') {
+      const profile = cfg as LdapProfile;
+      let found;
+      try {
+        found = await ldapLookup(profile, ldapBindSecret(profile, config.APP_SECRET), ident.email);
+      } catch {
+        throw new AppError(503, 'ldap_unavailable', 'Directory is unavailable');
+      }
+      if (!found || found.disabled || ldapExternalId(profile.id, found.dn) !== ident.externalId)
+        throw new AppError(403, 'not_provisioned', 'Directory identity is no longer authorized');
+      ident.groups = found.groups;
+    }
     const full = { ...body, email: ident.email, displayName: ident.name || ident.email };
     await db.transaction(async (tx) => {
+      if (ident.source === 'ldap') {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext('arklock.ldap.profiles'))`);
+        const current = (await readLdapProfiles(tx)).find(
+          (p) => p.id === (ident.directoryId ?? 'default'),
+        );
+        if (
+          !current?.enabled ||
+          !current.autoProvision ||
+          JSON.stringify(current) !== JSON.stringify(cfg)
+        )
+          throw new AppError(
+            403,
+            'not_provisioned',
+            'The directory configuration changed; start sign-in again',
+          );
+      }
       await tx.execute(sql`select pg_advisory_xact_lock(7001)`);
       const [dupe] = await tx
         .select({ id: users.id })
@@ -334,10 +371,10 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         authSource: ident.source,
         externalId: ident.externalId,
       });
+      if (ident.source === 'ldap')
+        await syncCirclesFor(tx, body.userId, cfg as unknown as LdapConfig, ident.groups);
     });
-    if (ident.source === 'ldap')
-      await syncCirclesFor(db, body.userId, cfg as unknown as LdapConfig, ident.groups);
-    else if (ident.source === 'saml')
+    if (ident.source === 'saml')
       await syncCirclesFor(
         db,
         body.userId,

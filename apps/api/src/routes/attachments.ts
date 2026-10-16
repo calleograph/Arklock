@@ -11,10 +11,13 @@ import { BlobOffsetError, BlobSizeError } from '../blobs.js';
 import type { AppContext } from '../context.js';
 import { attachments, entries, settings, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { lockVaultForWrite } from '../vault-mutation.js';
 
 export const DEFAULT_MAX_MIB = 1024;
 const MIB = 1024 * 1024;
 export const blobSuffix = (keyVersion: number) => `.k${keyVersion}`;
+export const rotationSuffix = (keyVersion: number, rotationId: string) =>
+  `${blobSuffix(keyVersion)}.r${rotationId}`;
 
 /** Ограничения на вложения из настроек: максимальный размер файла и квота хранилища (0 — без ограничения). */
 export async function attachmentLimits(db: AppContext['db']) {
@@ -53,12 +56,13 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     entryId: string,
     access: VaultAccess,
     min: 'reader' | 'editor',
+    includeDeleted = false,
   ) {
     const [e] = await db
       .select()
       .from(entries)
       .where(and(eq(entries.id, entryId), eq(entries.vaultId, vaultId)));
-    if (!e || e.deletedAt) throw notFound();
+    if (!e || (!includeDeleted && e.deletedAt)) throw notFound();
     const a = access.entry(e.id, e.branchId);
     if (!a) throw notFound();
     if (min === 'editor' && a === 'reader') throw forbidden();
@@ -110,6 +114,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { user } = authOf(req);
     const { vaultId } = parse(z.object({ vaultId: uuid }), req.params);
     const access = await requireVault(db, vaultId, user.id);
+    if (!access.allows('attachment.read')) throw forbidden();
     const rows = await db
       .select({ a: attachments, branchId: entries.branchId })
       .from(attachments)
@@ -151,16 +156,19 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       .from(attachments)
       .where(eq(attachments.id, body.id));
     if (dup) throw new AppError(409, 'conflict', 'Attachment already exists');
-    await db.insert(attachments).values({
-      id: body.id,
-      vaultId,
-      entryId,
-      wrappedKey: body.wrappedKey,
-      metaCipher: body.metaCipher,
-      keyVersion: body.keyVersion,
-      size: body.size,
-      status: 'pending',
-      createdBy: user.id,
+    await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId, body.keyVersion);
+      await tx.insert(attachments).values({
+        id: body.id,
+        vaultId,
+        entryId,
+        wrappedKey: body.wrappedKey,
+        metaCipher: body.metaCipher,
+        keyVersion: body.keyVersion,
+        size: body.size,
+        status: 'pending',
+        createdBy: user.id,
+      });
     });
     return reply.status(201).send({ id: body.id });
   });
@@ -183,19 +191,47 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       throw e;
     }
     // Ключ мог смениться, пока файл загружался: такое вложение уже не соответствует ключу хранилища.
-    const [v] = await db.select().from(vaults).where(eq(vaults.id, vaultId));
-    if (!v || v.keyVersion !== a.keyVersion) {
-      await blobs.remove([a.id]);
-      await db.delete(attachments).where(eq(attachments.id, a.id));
-      throw new AppError(409, 'stale_key_version', 'Vault key was rotated during upload');
-    }
-    await db.update(attachments).set({ status: 'ready' }).where(eq(attachments.id, a.id));
+    await finishOrdinaryUpload(a);
     await audit(db, `user:${user.id}`, 'attachment.add', `entry:${a.entryId}`, {
       vault: vaultId,
       size: a.size,
     });
     return reply.status(204).send();
   });
+
+  async function finishOrdinaryUpload(a: typeof attachments.$inferSelect) {
+    try {
+      await db.transaction(async (tx) => {
+        await lockVaultForWrite(tx, a.vaultId, a.keyVersion);
+        const ready = await tx
+          .update(attachments)
+          .set({ status: 'ready' })
+          .where(
+            and(
+              eq(attachments.id, a.id),
+              eq(attachments.keyVersion, a.keyVersion),
+              eq(attachments.status, 'pending'),
+            ),
+          )
+          .returning({ id: attachments.id });
+        if (!ready.length) throw notFound();
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'stale_key_version') {
+        await blobs.removeVersion(a.id, blobSuffix(a.keyVersion));
+        await db
+          .delete(attachments)
+          .where(
+            and(
+              eq(attachments.id, a.id),
+              eq(attachments.keyVersion, a.keyVersion),
+              eq(attachments.status, 'pending'),
+            ),
+          );
+      }
+      throw error;
+    }
+  }
 
   /** Скачивание зашифрованного файла. */
   app.get('/vaults/:vaultId/attachments/:attachmentId/content', async (req, reply) => {
@@ -227,10 +263,17 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const { vaultId, attachmentId } = parse(attParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
     if (!access.can('vault.rotate')) throw forbidden();
+    const { rotationId } = parse(z.object({ rotationId: uuid }), req.query);
     const a = await attachmentFor(vaultId, attachmentId);
     if (a.status !== 'ready') throw notFound();
+    await entryFor(vaultId, a.entryId, access, 'editor', true);
     try {
-      await blobs.write(a.id, req.body as Readable, a.size, blobSuffix(a.keyVersion + 1));
+      await blobs.write(
+        a.id,
+        req.body as Readable,
+        a.size,
+        rotationSuffix(a.keyVersion + 1, rotationId),
+      );
     } catch (e) {
       if (e instanceof BlobSizeError)
         throw new AppError(400, 'size_mismatch', 'Uploaded size differs from the original size');
@@ -243,13 +286,23 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
 
   /** Кадр на часть: запас сверх размера куска шифрования (1 МиБ + заголовок, nonce и тег). */
   const MAX_PART = 1024 * 1024 + 64;
-  const stepQuery = z.object({
-    offset: z.coerce.number().int().min(0),
-    rotation: z.enum(['0', '1']).default('0'),
-  });
+  const stepQuery = z
+    .object({
+      offset: z.coerce.number().int().min(0),
+      rotation: z.enum(['0', '1']).default('0'),
+      rotationId: uuid.optional(),
+    })
+    .refine((q) => q.rotation !== '1' || !!q.rotationId, {
+      message: 'A rotation operation ID is required',
+    });
+  const progressQuery = z
+    .object({ rotation: z.enum(['0', '1']).default('0'), rotationId: uuid.optional() })
+    .refine((q) => q.rotation !== '1' || !!q.rotationId, {
+      message: 'A rotation operation ID is required',
+    });
 
   /** Куда писать: обычная загрузка — в ожидающее вложение редактора; ротация — в новую версию готового вложения администратором. */
-  async function stepTarget(req: FastifyRequest, rotation: boolean) {
+  async function stepTarget(req: FastifyRequest, rotation: boolean, rotationId?: string) {
     requireStorage();
     const { user } = authOf(req);
     const { vaultId, attachmentId } = parse(attParams, req.params);
@@ -258,25 +311,30 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     if (rotation) {
       if (!access.can('vault.rotate')) throw forbidden();
       if (a.status !== 'ready') throw notFound();
+      await entryFor(vaultId, a.entryId, access, 'editor', true);
     } else {
       if (!access.allows('attachment.write')) throw forbidden();
       await entryFor(vaultId, a.entryId, access, 'editor');
       if (a.status !== 'pending')
         throw new AppError(409, 'conflict', 'Content is already uploaded');
     }
-    return { user, a, suffix: blobSuffix(a.keyVersion + (rotation ? 1 : 0)) };
+    return {
+      user,
+      a,
+      suffix: rotation ? rotationSuffix(a.keyVersion + 1, rotationId!) : blobSuffix(a.keyVersion),
+    };
   }
 
   /** Состояние незавершённой загрузки (для возобновления после обрыва). */
   app.get('/vaults/:vaultId/attachments/:attachmentId/progress', async (req) => {
-    const q = parse(z.object({ rotation: z.enum(['0', '1']).default('0') }), req.query);
-    const { a, suffix } = await stepTarget(req, q.rotation === '1');
+    const q = parse(progressQuery, req.query);
+    const { a, suffix } = await stepTarget(req, q.rotation === '1', q.rotationId);
     return { received: await blobs.uploadedSize(a.id, suffix), size: a.size };
   });
 
   app.put('/vaults/:vaultId/attachments/:attachmentId/parts', async (req, reply) => {
     const q = parse(stepQuery, req.query);
-    const { a, suffix } = await stepTarget(req, q.rotation === '1');
+    const { a, suffix } = await stepTarget(req, q.rotation === '1', q.rotationId);
     const room = a.size - q.offset;
     if (room <= 0) throw new AppError(409, 'offset_mismatch', 'All parts are already received');
     try {
@@ -300,9 +358,9 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
   });
 
   app.post('/vaults/:vaultId/attachments/:attachmentId/complete', async (req, reply) => {
-    const q = parse(z.object({ rotation: z.enum(['0', '1']).default('0') }), req.query);
+    const q = parse(progressQuery, req.query);
     const rotation = q.rotation === '1';
-    const { user, a, suffix } = await stepTarget(req, rotation);
+    const { user, a, suffix } = await stepTarget(req, rotation, q.rotationId);
     try {
       await blobs.finalizeUpload(a.id, suffix, a.size);
     } catch (e) {
@@ -315,13 +373,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       throw e;
     }
     if (!rotation) {
-      const [v] = await db.select().from(vaults).where(eq(vaults.id, a.vaultId));
-      if (!v || v.keyVersion !== a.keyVersion) {
-        await blobs.remove([a.id]);
-        await db.delete(attachments).where(eq(attachments.id, a.id));
-        throw new AppError(409, 'stale_key_version', 'Vault key was rotated during upload');
-      }
-      await db.update(attachments).set({ status: 'ready' }).where(eq(attachments.id, a.id));
+      await finishOrdinaryUpload(a);
       await audit(db, `user:${user.id}`, 'attachment.add', `entry:${a.entryId}`, {
         vault: a.vaultId,
         size: a.size,

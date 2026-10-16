@@ -1,9 +1,19 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { VaultRole } from '@arklock/contracts';
 import type { Db } from './db/connect.js';
-import { branches, circleMembers, grants, roles, vaultCircles, vaultMembers } from './db/schema.js';
+import {
+  branches,
+  circleMembers,
+  grants,
+  roles,
+  users,
+  vaultCircles,
+  vaultMembers,
+  vaults,
+} from './db/schema.js';
 import { notFound } from './errors.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole, type RoleDef } from './perms.js';
+import { personalLockersAllowed } from './personal-lockers.js';
 
 /** Эффективное право на ветвь или запись. */
 export type Access = 'reader' | 'editor' | 'manager';
@@ -49,6 +59,7 @@ export class VaultAccess {
     private readonly denied: Set<string> = new Set(),
     /** Названия пользовательских ролей (для отображения). */
     readonly customRoles: string[] = [],
+    private readonly objectDenials: Set<string> = new Set(),
   ) {}
 
   get isMember(): boolean {
@@ -88,6 +99,7 @@ export class VaultAccess {
     const seen = new Set<string>();
     while (cur && !seen.has(cur)) {
       seen.add(cur);
+      if (this.objectDenials.has(`branch:${cur}`)) return null;
       best = maxAccess(best, this.grantMap.get(`branch:${cur}`) ?? null);
       cur = this.parents.get(cur) ?? null;
     }
@@ -96,6 +108,11 @@ export class VaultAccess {
 
   /** Право на запись: роль, грант на запись, гранты на ветви-предки. */
   entry(entryId: string, branchId: string | null): Access | null {
+    if (
+      this.objectDenials.has(`entry:${entryId}`) ||
+      this.ancestors(branchId).some((id) => this.objectDenials.has(`branch:${id}`))
+    )
+      return null;
     return this.cap(
       maxAccess(this.branch(branchId), this.grantMap.get(`entry:${entryId}`) ?? null),
     );
@@ -137,6 +154,16 @@ export async function loadAccess(
   userId: string,
   now: Date = new Date(),
 ): Promise<VaultAccess> {
+  const [vault] = await db.select({ kind: vaults.kind }).from(vaults).where(eq(vaults.id, vaultId));
+  const [user] = await db
+    .select({ disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!user || user.disabledAt) return new VaultAccess(vaultId, userId, null, new Map(), new Map());
+  if (vault?.kind === 'locker' && !(await personalLockersAllowed(db, userId))) {
+    return new VaultAccess(vaultId, userId, null, new Map(), new Map());
+  }
+  if (!vault) return new VaultAccess(vaultId, userId, null, new Map(), new Map());
   const nowMs = now.getTime();
   const [direct] = await db
     .select({
@@ -193,6 +220,7 @@ export async function loadAccess(
 
   const grantRows = await db.select().from(grants).where(eq(grants.vaultId, vaultId));
   const grantMap = new Map<string, Access>();
+  const objectDenials = new Set<string>();
   for (const g of grantRows) {
     if (g.expiresAt && g.expiresAt.getTime() <= nowMs) continue;
     const mine =
@@ -200,6 +228,10 @@ export async function loadAccess(
       (g.subjectType === 'circle' && circleIds.includes(g.subjectId));
     if (!mine) continue;
     const key = `${g.targetType}:${g.targetId}`;
+    if (g.role === 'none') {
+      objectDenials.add(key);
+      continue;
+    }
     grantMap.set(key, maxAccess(grantMap.get(key) ?? null, g.role) as Access);
   }
   // Член хранилища с ролью limited существует только пока есть гранты; без ролей и грантов доступа нет вообще.
@@ -210,7 +242,17 @@ export async function loadAccess(
     .from(branches)
     .where(eq(branches.vaultId, vaultId));
   const parents = new Map(brRows.map((b) => [b.id, b.parentId]));
-  return new VaultAccess(vaultId, userId, role, grantMap, parents, perms, denied, customNames);
+  return new VaultAccess(
+    vaultId,
+    userId,
+    role,
+    grantMap,
+    parents,
+    perms,
+    denied,
+    customNames,
+    objectDenials,
+  );
 }
 
 /** Доступ к хранилищу или 404: не участник не отличает хранилище от несуществующего. */

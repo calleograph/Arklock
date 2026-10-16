@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { api, ApiError, apiBinary } from '../services/api';
 import { reauth } from '../services/account';
 import OffsiteBackups from './OffsiteBackups.vue';
+import CorporateContinuity from './CorporateContinuity.vue';
 import { useAuthStore } from '../stores/auth';
 
 type Section =
@@ -428,6 +429,7 @@ const disks = computed(() => (data.value?.disks ?? []) as Json[]);
 
     <!-- Обзор -->
     <div v-else-if="section === 'overview'" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <CorporateContinuity />
       <div class="card p-3 text-sm">
         <div class="text-xs text-slate-500">{{ t('sys.overview.version') }}</div>
         <div class="text-lg font-medium" data-testid="ov-version">{{ data.version }}</div>

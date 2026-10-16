@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, nextTick, onMounted, ref, toRef, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import BranchNode from '../components/BranchNode.vue';
 import Icon from '../components/Icon.vue';
 import IconButton from '../components/IconButton.vue';
 import EntryPanel from '../components/EntryPanel.vue';
 import TransferDialog from '../components/TransferDialog.vue';
+import VaultOverview from '../components/VaultOverview.vue';
+import FolderPanel from '../components/FolderPanel.vue';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
 import { errorMessage } from '../services/helpers';
@@ -18,6 +20,8 @@ const confirmBox = (m: string) => window.confirm(m);
 const ws = useWorkspaceStore();
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+let ready = false;
 
 type Scope = 'all' | 'favorites' | 'trash' | 'archive';
 const scope = ref<Scope>('all');
@@ -30,6 +34,8 @@ const sort = ref<'title' | 'updated'>('title');
 const selected = ref<Set<string>>(new Set());
 const openId = ref<string | null>(null);
 const creating = ref(false);
+const mobileView = ref<'folders' | 'list' | 'details'>('list');
+const detailPanel = ref<HTMLElement | null>(null);
 const error = ref('');
 const collapsed = ref<Set<string>>(new Set());
 const dialog = ref<null | { title: string; value: string; action: (v: string) => Promise<void> }>(
@@ -44,6 +50,8 @@ onMounted(async () => {
   try {
     await ws.loadVaults();
     await ws.loadTree();
+    ready = true;
+    await openFromRoute();
     if (auth.user?.role !== 'admin') {
       const s = await api<Record<string, unknown>>('GET', '/auth/policy').catch(
         () => ({}) as Record<string, unknown>,
@@ -54,6 +62,29 @@ onMounted(async () => {
     error.value = errorMessage(e, t);
   }
 });
+watch(
+  () => route.fullPath,
+  () => {
+    if (ready) void openFromRoute();
+  },
+);
+async function openFromRoute(): Promise<void> {
+  const vaultId = typeof route.query.vault === 'string' ? route.query.vault : ws.currentId;
+  const entryId = typeof route.query.entry === 'string' ? route.query.entry : null;
+  if (!entryId || !vaultId || !ws.vaults.some((v) => v.id === vaultId && v.unlocked)) return;
+  try {
+    if (ws.currentId !== vaultId) await ws.select(vaultId);
+    branchSel.value = null;
+    scope.value = 'all';
+    kindFilter.value = '';
+    tagFilter.value = '';
+    await nextTick();
+    const entry = ws.entries.find((e) => e.id === entryId);
+    if (entry) open(entry);
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  }
+}
 
 watch(
   () => ws.currentId,
@@ -65,12 +96,23 @@ watch(
     creating.value = false;
   },
 );
+watch(branchSel, () => {
+  openId.value = null;
+  creating.value = false;
+  mobileView.value = 'list';
+});
 
 const vault = computed(() => ws.current);
 const canWrite = computed(
-  () => !!vault.value && ['owner', 'admin', 'editor'].includes(vault.value.role),
+  () =>
+    !!vault.value &&
+    (vault.value.permissions.includes('entry.create') ||
+      (vault.value.role === 'limited' &&
+        !!branchSel.value &&
+        ws.branches.some((b) => b.id === branchSel.value && b.access !== 'reader'))),
 );
-const isVaultAdmin = computed(() => !!vault.value && ['owner', 'admin'].includes(vault.value.role));
+const isVaultAdmin = computed(() => !!vault.value?.canManageMembers);
+const selectedBranch = computed(() => ws.branches.find((b) => b.id === branchSel.value) ?? null);
 const canCreateVault = computed(() => auth.user?.role === 'admin' || creatorsPolicy.value);
 
 const branchById = computed(() => new Map(ws.branches.map((b) => [b.id, b])));
@@ -140,10 +182,20 @@ const opened = computed(
 function open(e: EntryItem): void {
   creating.value = false;
   openId.value = e.id;
+  showDetails();
 }
 function newEntry(): void {
   openId.value = null;
   creating.value = true;
+  showDetails();
+}
+function showDetails(): void {
+  mobileView.value = 'details';
+  if (window.matchMedia('(max-width: 1023px)').matches)
+    void nextTick(() => {
+      detailPanel.value?.focus({ preventScroll: true });
+      detailPanel.value?.scrollIntoView({ block: 'start' });
+    });
 }
 function toggle(id: string): void {
   selected.value.has(id) ? selected.value.delete(id) : selected.value.add(id);
@@ -232,6 +284,7 @@ const folderTargets = (b: BranchItem) => {
 function onSaved(item: EntryItem): void {
   creating.value = false;
   openId.value = item.id;
+  showDetails();
 }
 void router;
 </script>
@@ -301,6 +354,14 @@ void router;
       {{ t('vault.keyLogBroken') }}
     </p>
     <p
+      v-if="ws.personalDataRestricted"
+      class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      role="status"
+      data-testid="personal-restricted"
+    >
+      {{ t('corporate.personalRestricted') }}
+    </p>
+    <p
       v-if="vault?.problem === 'pending'"
       class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200"
       data-testid="pending-banner"
@@ -334,8 +395,26 @@ void router;
       v-if="vault?.unlocked"
       class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[15rem_minmax(0,1fr)_24rem]"
     >
+      <nav class="flex gap-1 lg:hidden" :aria-label="t('corporate.mobileNavigation')">
+        <button
+          v-for="view in ['folders', 'list', 'details'] as const"
+          :key="view"
+          type="button"
+          class="btn flex-1"
+          :class="mobileView === view ? 'btn-primary' : ''"
+          :aria-pressed="mobileView === view"
+          :data-testid="`mobile-view-${view}`"
+          @click="mobileView = view"
+        >
+          {{ t(`corporate.mobile.${view}`) }}
+        </button>
+      </nav>
       <!-- Боковая панель -->
-      <aside class="card p-2 text-sm" data-testid="sidebar">
+      <aside
+        class="card p-2 text-sm"
+        :class="mobileView === 'folders' ? '' : 'hidden lg:block'"
+        data-testid="sidebar"
+      >
         <ul class="mb-2 space-y-0.5">
           <li>
             <button
@@ -343,7 +422,7 @@ void router;
               class="nav-link w-full"
               :class="scope === 'all' && !branchSel ? 'nav-link-active' : ''"
               data-testid="scope-all"
-              @click="((scope = 'all'), (branchSel = null))"
+              @click="((scope = 'all'), (branchSel = null), (mobileView = 'list'))"
               @dragover.prevent
               @drop.prevent="dropOn(null, dragId)"
             >
@@ -360,7 +439,7 @@ void router;
               class="nav-link w-full"
               :class="scope === 'favorites' ? 'nav-link-active' : ''"
               data-testid="scope-favorites"
-              @click="scope = 'favorites'"
+              @click="((scope = 'favorites'), (mobileView = 'list'))"
             >
               <Icon name="star" /> <span class="flex-1 text-left">{{ t('vault.favorites') }}</span>
             </button>
@@ -371,7 +450,7 @@ void router;
               class="nav-link w-full"
               :class="scope === 'archive' ? 'nav-link-active' : ''"
               data-testid="scope-archive"
-              @click="scope = 'archive'"
+              @click="((scope = 'archive'), (mobileView = 'list'))"
             >
               <Icon name="archive" /> <span class="flex-1 text-left">{{ t('vault.archive') }}</span>
             </button>
@@ -382,7 +461,7 @@ void router;
               class="nav-link w-full"
               :class="scope === 'trash' ? 'nav-link-active' : ''"
               data-testid="scope-trash"
-              @click="scope = 'trash'"
+              @click="((scope = 'trash'), (mobileView = 'list'))"
             >
               <Icon name="trash" /> <span class="flex-1 text-left">{{ t('vault.trash') }}</span>
               <span class="text-xs text-slate-500">{{
@@ -443,7 +522,30 @@ void router;
       </aside>
 
       <!-- Список -->
-      <div class="min-w-0 space-y-2">
+      <div class="min-w-0 space-y-2" :class="mobileView === 'list' ? '' : 'hidden lg:block'">
+        <section
+          v-if="
+            !branchSel &&
+            scope === 'all' &&
+            !query &&
+            ws.entries.some((e) => e.pinned && !e.data.archived)
+          "
+          class="card p-3"
+          data-testid="home-favorites"
+        >
+          <h2 class="mb-2 text-sm font-semibold">{{ t('corporate.favorites') }}</h2>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="e in ws.entries.filter((item) => item.pinned && !item.data.archived)"
+              :key="e.id"
+              type="button"
+              class="btn max-w-full"
+              @click="open(e)"
+            >
+              <Icon name="star" class="shrink-0" /><span class="truncate">{{ e.data.title }}</span>
+            </button>
+          </div>
+        </section>
         <div class="flex flex-wrap gap-2">
           <select v-model="kindFilter" class="input w-auto" data-testid="kind-filter">
             <option value="">{{ t('vault.allKinds') }}</option>
@@ -614,7 +716,13 @@ void router;
                 >{{ (e.data.title || '?').trim().charAt(0).toUpperCase() }}</span
               >
               <div class="min-w-0 flex-1">
-                <div class="truncate font-medium">{{ e.pinned ? '★ ' : '' }}{{ e.data.title }}</div>
+                <button
+                  type="button"
+                  class="block w-full truncate text-left font-medium"
+                  @click.stop="open(e)"
+                >
+                  {{ e.pinned ? '★ ' : '' }}{{ e.data.title }}
+                </button>
                 <div class="truncate text-xs text-slate-500">
                   {{ e.data.username }}<span v-if="e.data.url"> · {{ e.data.url }}</span
                   ><span v-if="e.branchId"> · {{ pathOf(e.branchId) }}</span>
@@ -627,7 +735,12 @@ void router;
       </div>
 
       <!-- Панель записи -->
-      <div class="min-w-0 space-y-2 lg:sticky lg:top-20 lg:self-start">
+      <div
+        ref="detailPanel"
+        tabindex="-1"
+        class="min-w-0 scroll-mt-20 space-y-2 lg:sticky lg:top-20 lg:self-start"
+        :class="mobileView === 'details' ? '' : 'hidden lg:block'"
+      >
         <EntryPanel
           v-if="opened || creating"
           :key="(opened?.id ?? 'new') + (creating ? 'c' : '')"
@@ -641,10 +754,14 @@ void router;
           @cancel="creating = false"
           @changed="() => (openId = openId)"
         />
-        <section v-else class="empty hidden lg:flex">
-          <Icon name="lock" class="!size-8 opacity-60" />
-          {{ t('vault.selectEntry') }}
-        </section>
+        <FolderPanel
+          v-else-if="selectedBranch"
+          :key="selectedBranch.id"
+          :vault-id="vault.id"
+          :branch="selectedBranch"
+          @changed="run(() => ws.loadTree())"
+        />
+        <VaultOverview v-else />
         <div v-if="opened && scope === 'trash'" class="flex gap-2">
           <button
             type="button"
@@ -662,7 +779,7 @@ void router;
             {{ t('vault.purge') }}
           </button>
         </div>
-        <div v-else-if="opened && canWrite && opened.access !== 'reader'">
+        <div v-else-if="opened && opened.access !== 'reader'">
           <button
             type="button"
             class="btn-danger"
@@ -673,7 +790,7 @@ void router;
           </button>
         </div>
         <div
-          v-if="opened && canWrite && opened.access !== 'reader' && moveTargets.length"
+          v-if="opened && opened.access !== 'reader' && moveTargets.length"
           class="flex flex-wrap items-center gap-2"
           data-testid="move-entry"
         >

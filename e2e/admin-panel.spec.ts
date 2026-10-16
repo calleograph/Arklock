@@ -100,7 +100,7 @@ test('administration sections show real data and perform real operations', async
   // обзор
   await tab(page, 'overview');
   await expect(page.getByTestId('ov-users')).toHaveText('1');
-  await expect(page.getByTestId('ov-lockers')).toHaveText('1');
+  await expect(page.getByTestId('ov-lockers')).toHaveText('0');
   await expect(page.getByTestId('ov-version')).not.toHaveText('');
 
   // ресурсы

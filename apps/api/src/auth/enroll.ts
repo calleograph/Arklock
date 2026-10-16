@@ -8,6 +8,8 @@ export interface ExternalIdentity {
   email: string;
   name: string;
   groups: string[];
+  /** LDAP connection is bound to the ticket, never chosen again during enrollment. */
+  directoryId?: string;
 }
 
 /** Одноразовые токены создания учётной записи: 15 минут, в памяти процесса. */

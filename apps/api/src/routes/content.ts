@@ -25,10 +25,11 @@ import {
   pins,
   users,
   vaults,
-  settings,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsExpired, attachmentIdsOfEntries } from './attachments.js';
+import { registerObjectDetailsRoutes } from './object-details.js';
+import { lockVaultForWrite } from '../vault-mutation.js';
 
 const REVISIONS_KEEP = 100;
 const atLeast = (a: Access | null, min: Access): boolean =>
@@ -44,6 +45,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
 ) => {
   const { db } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
+  await app.register(registerObjectDetailsRoutes, { ctx });
 
   const vaultParams = z.object({ vaultId: uuid });
   const entryParams = z.object({ vaultId: uuid, entryId: uuid });
@@ -171,24 +173,16 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const access = await requireVault(db, vaultId, user.id);
     const e = await loadEntry(vaultId, entryId, true);
     const a = entryAccess(access, e, 'reader');
+    await audit(db, `user:${user.id}`, 'entry.fetch', `entry:${entryId}`, { vault: vaultId });
     return entryRecord(e, a, (await pinnedSet(user.id, [e.id])).has(e.id));
   });
 
   // ------------------------------------------------------------------ записи
 
-  /** Личные сейфы можно отключить для всей организации: тогда запись в них запрещена (данные сохраняются). */
-  async function assertPersonalWritable(vaultId: string): Promise<void> {
-    const [v] = await db.select({ kind: vaults.kind }).from(vaults).where(eq(vaults.id, vaultId));
-    if (v?.kind !== 'locker') return;
-    const [s] = await db.select().from(settings).where(eq(settings.key, 'vaults.personalLockers'));
-    if (s?.value === false) throw forbidden();
-  }
-
   app.post('/vaults/:vaultId/entries', async (req, reply): Promise<EntryRecord> => {
     const { user } = authOf(req);
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(entryWrite, req.body);
-    await assertPersonalWritable(vaultId);
     const access = await requireVault(db, vaultId, user.id);
     if (!access.allows('entry.create')) throw forbidden();
     const branchId = body.branchId ?? null;
@@ -199,19 +193,22 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const id = body.id ?? crypto.randomUUID();
     const [dupe] = await db.select({ id: entries.id }).from(entries).where(eq(entries.id, id));
     if (dupe) throw new AppError(409, 'already_exists', 'Entry already exists');
-    const [row] = await db
-      .insert(entries)
-      .values({
-        id,
-        vaultId,
-        branchId,
-        wrappedEntryKey: body.wrappedEntryKey,
-        ciphertext: body.ciphertext,
-        keyVersion: body.keyVersion,
-        createdBy: user.id,
-        updatedBy: user.id,
-      })
-      .returning();
+    const [row] = await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId, body.keyVersion);
+      return tx
+        .insert(entries)
+        .values({
+          id,
+          vaultId,
+          branchId,
+          wrappedEntryKey: body.wrappedEntryKey,
+          ciphertext: body.ciphertext,
+          keyVersion: body.keyVersion,
+          createdBy: user.id,
+          updatedBy: user.id,
+        })
+        .returning();
+    });
     await audit(db, `user:${user.id}`, 'entry.create', `entry:${id}`, { vault: vaultId });
     reply.status(201);
     return entryRecord(row!, access.entry(id, branchId) ?? 'editor', false);
@@ -221,7 +218,6 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { user } = authOf(req);
     const { vaultId, entryId } = parse(entryParams, req.params);
     const body = parse(entryUpdate, req.body);
-    await assertPersonalWritable(vaultId);
     const access = await requireVault(db, vaultId, user.id);
     const cur = await loadEntry(vaultId, entryId);
     const a = entryAccess(access, cur, 'editor');
@@ -240,6 +236,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     }
     const now = new Date();
     const updated = await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId, body.keyVersion);
       // Условное обновление одним оператором: параллельная правка не теряется.
       const [row] = await tx
         .update(entries)
@@ -291,7 +288,13 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     if (!updated) {
       throw new AppError(409, 'version_conflict', 'Entry was modified by someone else');
     }
-    await audit(db, `user:${user.id}`, 'entry.update', `entry:${entryId}`, { vault: vaultId });
+    await audit(
+      db,
+      `user:${user.id}`,
+      branchId !== cur.branchId ? 'entry.move' : 'entry.update',
+      `entry:${entryId}`,
+      { vault: vaultId, branch: branchId },
+    );
     return entryRecord(updated, a, (await pinnedSet(user.id, [entryId])).has(entryId));
   });
 
@@ -322,15 +325,27 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         currentVersion: e.version,
       });
     }
-    await db
-      .update(entries)
-      .set({
-        deletedAt: new Date(),
-        trashGroup: crypto.randomUUID(),
-        version: e.version + 1,
-        updatedBy: user.id,
-      })
-      .where(eq(entries.id, entryId));
+    const removed = await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId);
+      return tx
+        .update(entries)
+        .set({
+          deletedAt: new Date(),
+          trashGroup: crypto.randomUUID(),
+          version: e.version + 1,
+          updatedBy: user.id,
+        })
+        .where(
+          and(
+            eq(entries.id, entryId),
+            eq(entries.version, expectedVersion),
+            isNull(entries.deletedAt),
+          ),
+        )
+        .returning({ id: entries.id });
+    });
+    if (!removed.length)
+      throw new AppError(409, 'version_conflict', 'Entry was modified by someone else');
     await audit(db, `user:${user.id}`, 'entry.delete', `entry:${entryId}`, { vault: vaultId });
     return reply.status(204).send();
   });
@@ -342,6 +357,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const e = await loadEntry(vaultId, entryId, true);
     entryAccess(access, e, 'editor');
     if (!e.deletedAt) throw new AppError(409, 'not_in_trash', 'The entry is not in the trash');
+    await requireRestoreGroupEdit(access, e.trashGroup);
     await restoreGroup(vaultId, e.trashGroup, e.id, 'entry');
     await audit(db, `user:${user.id}`, 'entry.restore', `entry:${entryId}`, { vault: vaultId });
     return reply.status(204).send();
@@ -397,6 +413,13 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       });
     }
     const updated = await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId, rev.keyVersion);
+      const [latest] = await tx
+        .select({ version: entries.version })
+        .from(entries)
+        .where(eq(entries.id, entryId));
+      if (latest?.version !== expectedVersion)
+        throw new AppError(409, 'version_conflict', 'Entry was modified by someone else');
       await tx.insert(entryRevisions).values({
         id: crypto.randomUUID(),
         entryId,
@@ -466,10 +489,13 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .from(branches)
       .where(eq(branches.id, body.id));
     if (dupe) throw new AppError(409, 'already_exists', 'Branch already exists');
-    const [row] = await db
-      .insert(branches)
-      .values({ ...body, vaultId, createdBy: user.id })
-      .returning();
+    const [row] = await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId, body.keyVersion);
+      return tx
+        .insert(branches)
+        .values({ ...body, vaultId, createdBy: user.id })
+        .returning();
+    });
     await audit(db, `user:${user.id}`, 'branch.create', `branch:${body.id}`, { vault: vaultId });
     reply.status(201);
     return branchRecord(row!, 'manager');
@@ -497,6 +523,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       patch.keyVersion = kv;
     }
     if (body.parentId !== undefined && body.parentId !== b.parentId) {
+      await requireSubtreeEdit(access, await subtree(vaultId, branchId));
       if (body.parentId) {
         await branchRow(vaultId, body.parentId);
         if (access.ancestors(body.parentId).includes(branchId)) {
@@ -510,7 +537,19 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       if (!atLeast(access.branch(body.parentId), 'editor')) throw forbidden();
       patch.parentId = body.parentId;
     }
-    const [row] = await db.update(branches).set(patch).where(eq(branches.id, branchId)).returning();
+    const [row] = await db.transaction(async (tx) => {
+      await lockVaultForWrite(
+        tx,
+        vaultId,
+        body.nameCipher === undefined ? undefined : body.keyVersion,
+      );
+      return tx
+        .update(branches)
+        .set(patch)
+        .where(and(eq(branches.id, branchId), eq(branches.version, b.version)))
+        .returning();
+    });
+    if (!row) throw new AppError(409, 'version_conflict', 'Branch was modified by someone else');
     await audit(db, `user:${user.id}`, 'branch.update', `branch:${branchId}`, { vault: vaultId });
     return branchRecord(row!, a);
   });
@@ -529,6 +568,32 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     return out;
   }
 
+  async function requireSubtreeEdit(access: VaultAccess, ids: string[]) {
+    for (const id of ids) if (!atLeast(access.branch(id), 'editor')) throw forbidden();
+    const contents = await db
+      .select()
+      .from(entries)
+      .where(and(eq(entries.vaultId, access.vaultId), inArray(entries.branchId, ids)));
+    for (const entry of contents) entryAccess(access, entry, 'editor');
+  }
+
+  async function requireRestoreGroupEdit(access: VaultAccess, group: string | null) {
+    if (!group) return;
+    const [groupBranches, groupEntries] = await Promise.all([
+      db
+        .select({ id: branches.id })
+        .from(branches)
+        .where(and(eq(branches.vaultId, access.vaultId), eq(branches.trashGroup, group))),
+      db
+        .select()
+        .from(entries)
+        .where(and(eq(entries.vaultId, access.vaultId), eq(entries.trashGroup, group))),
+    ]);
+    for (const branch of groupBranches)
+      if (!atLeast(access.branch(branch.id), 'editor')) throw forbidden();
+    for (const entry of groupEntries) entryAccess(access, entry, 'editor');
+  }
+
   /** Удаление ветви: она и всё внутри уходят в корзину одной группой и восстанавливаются вместе. */
   app.delete('/vaults/:vaultId/branches/:branchId', async (req, reply) => {
     const { user } = authOf(req);
@@ -536,12 +601,14 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const purge = (req.query as { purge?: string }).purge === '1';
     const access = await requireVault(db, vaultId, user.id);
     const b = await branchRow(vaultId, branchId, purge);
+    if (!access.allows('branch.manage') || (!purge && !access.allows('entry.delete')))
+      throw forbidden();
     const a = access.branch(branchId);
     if (!a) throw notFound();
     if (!atLeast(a, 'editor')) throw forbidden();
     const ids = await subtree(vaultId, branchId);
     // Удалять ветвь целиком может только тот, кто вправе менять всё её содержимое.
-    for (const id of ids) if (!atLeast(access.branch(id), 'editor')) throw forbidden();
+    await requireSubtreeEdit(access, ids);
     if (purge) {
       if (!access.allows('trash.purge')) throw forbidden();
       if (!b.deletedAt)
@@ -565,6 +632,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const group = crypto.randomUUID();
     const now = new Date();
     await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId);
       await tx
         .update(branches)
         .set({ deletedAt: now, trashGroup: group })
@@ -591,45 +659,57 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     kind: 'entry' | 'branch',
   ): Promise<void> {
     await db.transaction(async (tx) => {
+      await lockVaultForWrite(tx, vaultId);
+      let restoredBranchIds: string[] = [];
+      let restoredEntryIds: string[] = [];
       if (group) {
-        await tx
+        const restoredBranches = await tx
           .update(branches)
           .set({ deletedAt: null, trashGroup: null })
-          .where(and(eq(branches.vaultId, vaultId), eq(branches.trashGroup, group)));
-        await tx
+          .where(and(eq(branches.vaultId, vaultId), eq(branches.trashGroup, group)))
+          .returning({ id: branches.id });
+        const restoredEntries = await tx
           .update(entries)
           .set({ deletedAt: null, trashGroup: null })
-          .where(and(eq(entries.vaultId, vaultId), eq(entries.trashGroup, group)));
+          .where(and(eq(entries.vaultId, vaultId), eq(entries.trashGroup, group)))
+          .returning({ id: entries.id });
+        restoredBranchIds = restoredBranches.map((branch) => branch.id);
+        restoredEntryIds = restoredEntries.map((entry) => entry.id);
       } else if (kind === 'entry') {
         await tx.update(entries).set({ deletedAt: null }).where(eq(entries.id, rootId));
+        restoredEntryIds = [rootId];
       }
       // Родитель восстановленного элемента мог остаться в корзине (удалён отдельно): поднимаем элемент в корень.
       const live = tx
         .select({ id: branches.id })
         .from(branches)
         .where(and(eq(branches.vaultId, vaultId), isNull(branches.deletedAt)));
-      await tx
-        .update(branches)
-        .set({ parentId: null })
-        .where(
-          and(
-            eq(branches.vaultId, vaultId),
-            isNull(branches.deletedAt),
-            isNotNull(branches.parentId),
-            sql`${branches.parentId} not in (${live})`,
-          ),
-        );
-      await tx
-        .update(entries)
-        .set({ branchId: null })
-        .where(
-          and(
-            eq(entries.vaultId, vaultId),
-            isNull(entries.deletedAt),
-            isNotNull(entries.branchId),
-            sql`${entries.branchId} not in (${live})`,
-          ),
-        );
+      if (restoredBranchIds.length)
+        await tx
+          .update(branches)
+          .set({ parentId: null })
+          .where(
+            and(
+              eq(branches.vaultId, vaultId),
+              inArray(branches.id, restoredBranchIds),
+              isNull(branches.deletedAt),
+              isNotNull(branches.parentId),
+              sql`${branches.parentId} not in (${live})`,
+            ),
+          );
+      if (restoredEntryIds.length)
+        await tx
+          .update(entries)
+          .set({ branchId: null })
+          .where(
+            and(
+              eq(entries.vaultId, vaultId),
+              inArray(entries.id, restoredEntryIds),
+              isNull(entries.deletedAt),
+              isNotNull(entries.branchId),
+              sql`${entries.branchId} not in (${live})`,
+            ),
+          );
     });
   }
 
@@ -638,9 +718,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId, branchId } = parse(branchParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
     const b = await branchRow(vaultId, branchId, true);
+    if (!access.allows('branch.manage')) throw forbidden();
     if (!access.branch(branchId)) throw notFound();
     if (!atLeast(access.branch(branchId), 'editor')) throw forbidden();
     if (!b.deletedAt) throw new AppError(409, 'not_in_trash', 'The branch is not in the trash');
+    await requireRestoreGroupEdit(access, b.trashGroup);
     await restoreGroup(vaultId, b.trashGroup, branchId, 'branch');
     await audit(db, `user:${user.id}`, 'branch.restore', `branch:${branchId}`, { vault: vaultId });
     return reply.status(204).send();
@@ -653,6 +735,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId } = parse(vaultParams, req.params);
     const body = parse(bulkRequest, req.body);
     const access = await requireVault(db, vaultId, user.id);
+    if (body.action === 'trash' && !access.allows('entry.delete')) throw forbidden();
     const rows = await db
       .select()
       .from(entries)
@@ -663,17 +746,26 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       const target = body.branchId ?? null;
       if (target) await branchRow(vaultId, target);
       if (!atLeast(access.branch(target), 'editor')) throw forbidden();
-      await db
-        .update(entries)
-        .set({ branchId: target, updatedAt: new Date(), updatedBy: user.id })
-        .where(inArray(entries.id, body.ids));
+      await db.transaction(async (tx) => {
+        await lockVaultForWrite(tx, vaultId);
+        return tx
+          .update(entries)
+          .set({ branchId: target, updatedAt: new Date(), updatedBy: user.id })
+          .where(inArray(entries.id, body.ids));
+      });
     } else if (body.action === 'trash') {
-      await db
-        // у каждой записи своя группа корзины: восстановление одной не возвращает остальные
-        .update(entries)
-        .set({ deletedAt: new Date(), trashGroup: sql`gen_random_uuid()`, updatedBy: user.id })
-        .where(and(inArray(entries.id, body.ids), isNull(entries.deletedAt)));
+      await db.transaction(async (tx) => {
+        await lockVaultForWrite(tx, vaultId);
+        return (
+          tx
+            // у каждой записи своя группа корзины: восстановление одной не возвращает остальные
+            .update(entries)
+            .set({ deletedAt: new Date(), trashGroup: sql`gen_random_uuid()`, updatedBy: user.id })
+            .where(and(inArray(entries.id, body.ids), isNull(entries.deletedAt)))
+        );
+      });
     } else if (body.action === 'restore') {
+      for (const e of rows) if (e.deletedAt) await requireRestoreGroupEdit(access, e.trashGroup);
       for (const e of rows)
         if (e.deletedAt) await restoreGroup(vaultId, e.trashGroup, e.id, 'entry');
     } else {
@@ -688,6 +780,10 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       vault: vaultId,
       count: body.ids.length,
     });
+    for (const entry of rows)
+      await audit(db, `user:${user.id}`, `entry.bulk.${body.action}`, `entry:${entry.id}`, {
+        vault: vaultId,
+      });
     return { affected: body.ids.length };
   });
 
@@ -699,11 +795,18 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const q = req.query as { targetId?: string };
     const access = await requireVault(db, vaultId, user.id);
     const rows = await db.select().from(grants).where(eq(grants.vaultId, vaultId));
+    const entryRows = await db
+      .select({ id: entries.id, branchId: entries.branchId })
+      .from(entries)
+      .where(eq(entries.vaultId, vaultId));
+    const entryBranches = new Map(entryRows.map((e) => [e.id, e.branchId]));
     const visible = rows.filter((g) => {
       if (q.targetId && g.targetId !== q.targetId) return false;
       if (access.isAdmin) return true;
       const a =
-        g.targetType === 'branch' ? access.branch(g.targetId) : access.entry(g.targetId, null);
+        g.targetType === 'branch'
+          ? access.branch(g.targetId)
+          : access.entry(g.targetId, entryBranches.get(g.targetId) ?? null);
       return a === 'manager';
     });
     const userIds = visible.filter((g) => g.subjectType === 'user').map((g) => g.subjectId);
@@ -753,8 +856,8 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       const e = await loadEntry(vaultId, body.targetId, true);
       mine = access.entry(e.id, e.branchId);
     }
-    if (!mine) throw notFound();
-    if (mine !== 'manager') throw forbidden();
+    if (!mine && !access.isAdmin) throw notFound();
+    if (mine !== 'manager' && !access.isAdmin) throw forbidden();
     if (body.subjectType === 'user') {
       const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, body.subjectId));
       if (!u) throw notFound();
@@ -796,9 +899,12 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .from(grants)
       .where(and(eq(grants.id, grantId), eq(grants.vaultId, vaultId)));
     if (!g) throw notFound();
+    const entry = g.targetType === 'entry' ? await loadEntry(vaultId, g.targetId, true) : null;
     const mine =
-      g.targetType === 'branch' ? access.branch(g.targetId) : access.entry(g.targetId, null);
-    if (mine !== 'manager') throw notFound();
+      g.targetType === 'branch'
+        ? access.branch(g.targetId)
+        : access.entry(g.targetId, entry?.branchId ?? null);
+    if (mine !== 'manager' && !access.isAdmin) throw notFound();
     await db.delete(grants).where(eq(grants.id, grantId));
     await audit(db, `user:${user.id}`, 'grant.delete', `${g.targetType}:${g.targetId}`, {
       vault: vaultId,

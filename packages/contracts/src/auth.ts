@@ -15,6 +15,17 @@ export const email = z
   .max(254)
   .regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
 
+export const accountIdentifier = z.union([
+  email,
+  z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(3)
+    .max(64)
+    .regex(/^[a-z0-9][a-z0-9._-]*$/),
+]);
+
 export const authKey = b64url(43, 43); // 32 байта
 const proof = b64url(43, 43);
 const publicKey = b64url(86, 88); // 65 байт
@@ -22,13 +33,13 @@ const wrappedKey = sealedValue(4096);
 const signSig = b64url(80, 100);
 
 /** Параметры получения ключей. Для неизвестных адресов сервер возвращает правдоподобные значения. */
-export const authParamsQuery = z.object({ email });
+export const authParamsQuery = z.object({ email: accountIdentifier });
 export const authParamsResponse = z.object({ userId: uuid, salt: b64url(22, 22), kdf: kdfParams });
 export type AuthParamsResponse = z.infer<typeof authParamsResponse>;
 
 export const registerRequest = z.object({
   userId: uuid,
-  email,
+  email: accountIdentifier,
   displayName: z.string().trim().min(1).max(100),
   /** Код первоначальной настройки (нужен только для первой, администраторской записи). */
   setupToken: z.string().max(200).optional(),
@@ -65,7 +76,7 @@ export const userBundle = z.object({
 });
 export type UserBundle = z.infer<typeof userBundle>;
 
-export const loginRequest = z.object({ email, authKey });
+export const loginRequest = z.object({ email: accountIdentifier, authKey });
 export const sessionResponse = z.object({
   token: z.string(),
   expiresAt: z.string(),
@@ -94,7 +105,7 @@ export const changePasswordRequest = z.object({
   wrappedSignPrivateKey: wrappedKey,
 });
 
-export const recoveryStartRequest = z.object({ email });
+export const recoveryStartRequest = z.object({ email: accountIdentifier });
 export const recoveryStartResponse = z.object({
   userId: uuid,
   recoveryWrappedPrivateKey: wrappedKey,
@@ -103,7 +114,7 @@ export const recoveryStartResponse = z.object({
   signPublicKey: publicKey,
 });
 export const recoveryCompleteRequest = z.object({
-  email,
+  email: accountIdentifier,
   recoveryProof: proof,
   kdf: kdfParams,
   salt: b64url(22, 22),

@@ -22,6 +22,10 @@ import {
   signKeyGrant,
   verifyKeyGrant,
   verifyKeyLog,
+  ctx,
+  sign,
+  toBase64Url,
+  utf8,
 } from '@arklock/crypto';
 import type {
   AttachmentRecord,
@@ -34,11 +38,14 @@ import { api, ApiError, apiBinary, apiStream } from '../services/api';
 import {
   blankEntry,
   normalizeEntry,
+  searchText,
   type BranchItem,
   type EntryData,
   type EntryItem,
 } from '../services/model';
 import { useAuthStore } from './auth';
+import { checkPolicy, type PasswordPolicy } from '../services/policy';
+import type { RecoveryRecipient, RecoverySecrets } from '../services/corporate-recovery';
 
 /** Ключи хранилищ — вне реактивного состояния; стираются при блокировке. */
 const vaultKeys = new Map<string, Uint8Array>();
@@ -87,7 +94,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** Поиск по паролям: строка в шапке, список читает её здесь. */
   const searchQuery = ref('');
   /** Политика организации: false — личные сейфы не показываются и не принимают записи. */
-  const personalAllowed = ref(true);
+  const personalAllowed = ref(false);
+  const personalDataRestricted = ref(false);
   let keyLog: KeyLogEntry[] = [];
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
@@ -103,6 +111,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     entries.value = [];
     trash.value = { branches: [], entries: [] };
     keyLog = [];
+    personalAllowed.value = false;
+    personalDataRestricted.value = false;
   }
 
   // ------------------------------------------------------------------ доверие к ключам
@@ -157,10 +167,34 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const policy = await api<Record<string, unknown>>('GET', '/auth/policy').catch(
       (): Record<string, unknown> => ({}),
     );
-    personalAllowed.value = policy['vaults.personalLockers'] !== false;
-    const infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
+    personalAllowed.value = policy['vaults.personalLockers'] === true;
+    personalDataRestricted.value = policy['vaults.personalDataRestricted'] === true;
+    let infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
       (v) => personalAllowed.value || v.kind !== 'locker',
     );
+    if (personalAllowed.value && !infos.some((v) => v.kind === 'locker')) {
+      const id = crypto.randomUUID();
+      const key = createVaultKey();
+      try {
+        const sealedKey = await sealVaultKeyFor(key, publicKey, id, auth.user!.id, 1);
+        await api('POST', '/auth/locker', {
+          vaultId: id,
+          sealedKey,
+          signature: await signKeyGrant(
+            auth.keys().signPrivateKey,
+            id,
+            auth.user!.id,
+            1,
+            sealedKey,
+          ),
+        });
+      } catch (e) {
+        if (!(e instanceof ApiError && e.code === 'already_exists')) throw e;
+      } finally {
+        key.fill(0);
+      }
+      infos = await api<VaultInfo[]>('GET', '/vaults');
+    }
     const out: VaultView[] = [];
     for (const v of infos) {
       const view: VaultView = { ...v, unlocked: false };
@@ -202,8 +236,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       out.push(view);
     }
     vaults.value = out;
+    const available = new Set(out.map((v) => v.id));
+    for (const [id, key] of vaultKeys) {
+      if (!available.has(id.split(':')[0]!)) {
+        key.fill(0);
+        vaultKeys.delete(id);
+      }
+    }
     if (!currentId.value || !out.some((v) => v.id === currentId.value)) {
-      currentId.value = (out.find((v) => v.kind === 'locker') ?? out[0])?.id ?? null;
+      currentId.value = (out.find((v) => v.kind === 'shared') ?? out[0])?.id ?? null;
     }
     void distributeAllPending();
   }
@@ -282,6 +323,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     loading.value = true;
     try {
       const [live, bin] = await Promise.all([fetchTree(v.id, false), fetchTree(v.id, true)]);
+      if (currentId.value !== v.id || !useAuthStore().unlocked) return;
       branches.value = live.branches;
       entries.value = live.entries;
       trash.value = { branches: bin.branches, entries: bin.entries };
@@ -289,6 +331,57 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } finally {
       loading.value = false;
     }
+  }
+
+  async function searchEverywhere(query: string) {
+    const q = query.trim().toLowerCase().slice(0, 500);
+    const userId = useAuthStore().user?.id;
+    const matches: {
+      id: string;
+      vaultId: string;
+      vaultName: string | null;
+      title: string;
+      username: string;
+      path: string;
+    }[] = [];
+    let unavailable = 0;
+    for (const vault of vaults.value) {
+      if (!vault.unlocked) {
+        unavailable++;
+        continue;
+      }
+      try {
+        const tree = await fetchTree(vault.id, false);
+        if (!useAuthStore().unlocked || useAuthStore().user?.id !== userId)
+          return { matches: [], unavailable: 0 };
+        const branches = new Map(tree.branches.map((b) => [b.id, b]));
+        for (const entry of tree.entries) {
+          if (entry.data.archived) continue;
+          const path: string[] = [];
+          const seen = new Set<string>();
+          let branchId = entry.branchId;
+          while (branchId && !seen.has(branchId)) {
+            seen.add(branchId);
+            const branch = branches.get(branchId);
+            if (!branch) break;
+            path.unshift(branch.name);
+            branchId = branch.parentId;
+          }
+          if (searchText(entry.data).includes(q) || path.join(' / ').toLowerCase().includes(q))
+            matches.push({
+              id: entry.id,
+              vaultId: vault.id,
+              vaultName: vault.name,
+              title: entry.data.title,
+              username: entry.data.username,
+              path: path.join(' / '),
+            });
+        }
+      } catch {
+        unavailable++;
+      }
+    }
+    return { matches: matches.sort((a, b) => a.title.localeCompare(b.title)), unavailable };
   }
 
   // ------------------------------------------------------------------ записи
@@ -306,6 +399,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     branchId?: string | null,
   ): Promise<EntryItem> {
     const { vault, key } = needKey();
+    await enforceEntryPolicy(
+      data,
+      vault.id,
+      branchId === undefined ? (existing?.branchId ?? null) : branchId,
+      existing?.id,
+    );
     const id = existing?.id ?? crypto.randomUUID();
     const clean: EntryData = {
       ...data,
@@ -334,6 +433,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return item;
   }
 
+  async function enforceEntryPolicy(
+    data: EntryData,
+    vaultId: string,
+    branchId: string | null,
+    entryId?: string,
+  ): Promise<void> {
+    if (!data.password || data.kind === 'note') return;
+    const parent = `/vaults/${vaultId}${branchId ? `/branches/${branchId}` : ''}/policy`;
+    const { effective } = await api<{ effective: PasswordPolicy }>(
+      'GET',
+      entryId ? `/vaults/${vaultId}/entries/${entryId}/policy` : parent,
+    );
+    if (entryId) {
+      const destination = await api<{ effective: PasswordPolicy }>('GET', parent);
+      effective.minLength = Math.max(effective.minLength, destination.effective.minLength);
+      effective.classes = Math.max(effective.classes, destination.effective.classes);
+    }
+    const violations = checkPolicy(data.password, effective);
+    if (violations.length)
+      throw new ApiError(400, 'password_policy', 'Password does not meet the effective policy', {
+        ...effective,
+        violations,
+      });
+  }
+
   async function trashEntry(item: EntryItem): Promise<void> {
     await api(
       'DELETE',
@@ -357,10 +481,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * и идентификатору), создаётся в целевом сейфе, исходная отправляется в корзину. Права проверяет сервер:
    * создание в целевом сейфе требует права редактирования, удаление исходной записи — тоже.
    * Вложения копируются: каждый файл расшифровывается ключом исходного сейфа и шифруется ключом целевого. Если любой шаг
-   * не удался, созданная копия удаляется окончательно, исходная запись остаётся на месте. История изменений остаётся в
+   * не удался, непроверенная копия удаляется, исходная запись остаётся на месте. Проверенная копия сохраняется при
+   * неопределённом результате удаления источника. История изменений остаётся в
    * исходном сейфе (в корзине); переносятся текущие данные записи.
    */
-  async function moveEntry(
+  async function moveEntryRaw(
     item: EntryItem,
     targetVaultId: string,
     targetBranchId: string | null = null,
@@ -370,18 +495,33 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!target) throw new Error('vault is not available');
     const targetKey = keyOf(target.id, target.keyVersion);
     if (!targetKey) throw new Error('target vault is locked');
+    await enforceEntryPolicy(item.data, target.id, targetBranchId);
     const files = await attachmentList(item);
     const id = crypto.randomUUID();
     const enc = await encryptEntry(item.data, targetKey, target.id, id, target.keyVersion);
-    const created = await api<EntryRecord>('POST', `/vaults/${target.id}/entries`, {
-      id,
-      branchId: targetBranchId,
-      ...enc,
-    });
+    let created: EntryRecord | null = null;
     try {
+      created = await api<EntryRecord>('POST', `/vaults/${target.id}/entries`, {
+        id,
+        branchId: targetBranchId,
+        ...enc,
+      });
+      const copy = await decryptEntryRecord(target.id, created);
+      if (!copy || JSON.stringify(copy.data) !== JSON.stringify(normalizeEntry(item.data)))
+        throw new ApiError(
+          409,
+          'move_verification_failed',
+          'The copied entry could not be verified',
+        );
       if (files.length) {
-        const copy = (await decryptEntryRecord(target.id, created))!;
+        const copiedIds: string[] = [];
         for (const f of files) {
+          if (f.problem)
+            throw new ApiError(
+              409,
+              'move_verification_failed',
+              'Source attachment metadata could not be verified',
+            );
           // файл расшифровывается ключом исходного сейфа и тут же шифруется ключом целевого
           const chunks: Uint8Array[] = [];
           await attachmentDownload_(item, f.id, {
@@ -390,17 +530,103 @@ export const useWorkspaceStore = defineStore('workspace', () => {
             },
           });
           const file = new File(chunks as BlobPart[], f.name, { type: f.type });
-          await attachmentAdd_(copy, file);
+          if (file.size !== f.size)
+            throw new ApiError(
+              409,
+              'move_verification_failed',
+              'Source attachment size did not match',
+            );
+          const attachmentId = await attachmentAdd_(copy, file);
+          copiedIds.push(attachmentId);
+          let verified = 0;
+          await attachmentDownload_(copy, attachmentId, {
+            write: async (chunk) => {
+              const expected = new Uint8Array(
+                await file.slice(verified, verified + chunk.length).arrayBuffer(),
+              );
+              if (
+                expected.length !== chunk.length ||
+                !chunk.every((byte, index) => byte === expected[index])
+              )
+                throw new ApiError(
+                  409,
+                  'move_verification_failed',
+                  'The copied attachment did not match',
+                );
+              verified += chunk.length;
+            },
+          });
+          if (verified !== file.size)
+            throw new ApiError(
+              409,
+              'move_verification_failed',
+              'The copied attachment was incomplete',
+            );
         }
+        const storedFiles = await attachmentList(copy);
+        if (
+          storedFiles.length !== files.length ||
+          files.some((file, index) => {
+            const stored = storedFiles.find((row) => row.id === copiedIds[index]);
+            return (
+              !stored ||
+              stored.problem ||
+              stored.name !== file.name ||
+              stored.type !== file.type ||
+              stored.size !== file.size
+            );
+          })
+        )
+          throw new ApiError(
+            409,
+            'move_verification_failed',
+            'The copied attachment metadata did not match',
+          );
       }
+      const stored = await api<EntryRecord>('GET', `/vaults/${target.id}/entries/${id}`);
+      const verified = await decryptEntryRecord(target.id, stored);
+      if (
+        !verified ||
+        verified.deletedAt ||
+        verified.branchId !== targetBranchId ||
+        JSON.stringify(verified.data) !== JSON.stringify(normalizeEntry(item.data))
+      )
+        throw new ApiError(
+          409,
+          'move_verification_failed',
+          'The stored target entry could not be verified',
+        );
+    } catch (e) {
+      try {
+        await api(
+          'DELETE',
+          `/vaults/${target.id}/entries/${id}?expectedVersion=${created?.version ?? 1}`,
+        );
+        await api('DELETE', `/vaults/${target.id}/entries/${id}?purge=1`);
+      } catch (cleanupError) {
+        if (!(cleanupError instanceof ApiError && cleanupError.status === 404))
+          throw new ApiError(
+            409,
+            'move_cleanup_failed',
+            'The original entry is preserved; the incomplete target could not be removed',
+            { targetVaultId: target.id, targetEntryId: id },
+          );
+      }
+      throw e;
+    }
+    try {
       await api(
         'DELETE',
         `/vaults/${item.vaultId}/entries/${item.id}?expectedVersion=${item.version}`,
       );
-    } catch (e) {
-      // исходная запись не удалена: копию в целевом сейфе убираем, чтобы не было двух экземпляров
-      await api('DELETE', `/vaults/${target.id}/entries/${id}?purge=1`).catch(() => undefined);
-      throw e;
+    } catch {
+      // Ответ мог потеряться после удаления: проверенную целевую копию сохраняем в любом случае.
+      throw new ApiError(
+        409,
+        'move_source_failed',
+        'The verified target is preserved; the source deletion could not be confirmed',
+        { targetVaultId: target.id, targetEntryId: id },
+      );
     }
     await loadTree();
   }
@@ -627,93 +853,124 @@ export const useWorkspaceStore = defineStore('workspace', () => {
    * После отзыва доступа это единственный способ закрыть дальнейший доступ по ранее полученному ключу.
    */
   async function rotateRaw(vaultId: string): Promise<void> {
+    const rotationId = crypto.randomUUID();
     const v = vaults.value.find((x) => x.id === vaultId)!;
     const oldKey = keyOf(vaultId, v.keyVersion)!;
     const newVersion = v.keyVersion + 1;
     const newKey = createVaultKey();
-    if (!keyLog.length) await loadKeyLog();
+    try {
+      if (!keyLog.length) await loadKeyLog();
+      if (!keyLogOk.value) throw new Error('key log verification failed');
+      const recovery =
+        v.kind === 'shared'
+          ? await api<{ recipient: RecoveryRecipient | null; enrolled: boolean }>(
+              'GET',
+              `/vaults/${vaultId}/recovery`,
+            )
+          : null;
+      if (recovery?.enrolled && !recovery.recipient)
+        throw new Error('corporate recovery recipient is missing');
+      const recoveryKey =
+        recovery?.enrolled && recovery.recipient
+          ? await recoveryGrant(vaultId, newVersion, newKey, recovery.recipient)
+          : undefined;
 
-    const [live, bin] = await Promise.all([
-      api<{ branches: BranchRecord[]; entries: EntryRecord[] }>('GET', `/vaults/${vaultId}/tree`),
-      api<{ branches: BranchRecord[]; entries: EntryRecord[] }>(
-        'GET',
-        `/vaults/${vaultId}/tree?trash=1`,
-      ),
-    ]);
-    const allEntries = [...live.entries, ...bin.entries];
-    const allBranches = [...live.branches, ...bin.branches];
-    const entryOut = [];
-    const revOut = [];
-    for (const e of allEntries) {
-      const re = await rewrapEntry(e, oldKey, newKey, vaultId, e.id, newVersion);
-      entryOut.push({ id: e.id, wrappedEntryKey: re.wrappedEntryKey, ciphertext: re.ciphertext });
-      for (const r of await api<RevisionRecord[]>(
-        'GET',
-        `/vaults/${vaultId}/entries/${e.id}/revisions`,
-      )) {
-        const rr = await rewrapEntry(r, oldKey, newKey, vaultId, e.id, newVersion);
-        revOut.push({ id: r.id, wrappedEntryKey: rr.wrappedEntryKey, ciphertext: rr.ciphertext });
-      }
-    }
-    const branchOut = [];
-    for (const b of allBranches) {
-      branchOut.push({
-        id: b.id,
-        nameCipher: await rewrapBranchName(
-          b.nameCipher,
-          oldKey,
-          newKey,
-          vaultId,
-          b.id,
-          b.keyVersion,
-          newVersion,
+      const [live, bin] = await Promise.all([
+        api<{ branches: BranchRecord[]; entries: EntryRecord[] }>('GET', `/vaults/${vaultId}/tree`),
+        api<{ branches: BranchRecord[]; entries: EntryRecord[] }>(
+          'GET',
+          `/vaults/${vaultId}/tree?trash=1`,
         ),
-      });
-    }
-    // Вложения: файлы перешифровываются новыми ключами и загружаются заранее; метаданные уходят в запрос ротации
-    const attOut = [];
-    for (const att of await api<AttachmentRecord[]>('GET', `/vaults/${vaultId}/attachments`)) {
-      // Файл перешифровывается потоком: старые кадры читаются порциями, новые уходят по мере готовности
-      const oldAk = await openAttachmentKey(oldKey, vaultId, att);
-      const meta = await openAttachmentMeta(oldKey, vaultId, att);
-      const fresh = await beginAttachment(newKey, vaultId, newVersion, meta, att.id);
-      try {
-        const base = `/vaults/${vaultId}/attachments/${att.id}`;
-        const re = new AttachmentReencryptor(oldAk, fresh.ak, att.id);
-        const res = await apiStream(`${base}/content`);
-        const reader = res.body!.getReader();
-        let off = 0;
-        const send = async (frames: Uint8Array[]) => {
-          for (const f of frames) off = await putPart(`${base}/parts?rotation=1&offset=${off}`, f);
-        };
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await send(await re.push(value));
+      ]);
+      const allEntries = [...live.entries, ...bin.entries];
+      const allBranches = [...live.branches, ...bin.branches];
+      const entryOut = [];
+      const revOut = [];
+      for (const e of allEntries) {
+        const re = await rewrapEntry(e, oldKey, newKey, vaultId, e.id, newVersion);
+        entryOut.push({
+          id: e.id,
+          expectedVersion: e.version,
+          wrappedEntryKey: re.wrappedEntryKey,
+          ciphertext: re.ciphertext,
+        });
+        for (const r of await api<RevisionRecord[]>(
+          'GET',
+          `/vaults/${vaultId}/entries/${e.id}/revisions`,
+        )) {
+          const rr = await rewrapEntry(r, oldKey, newKey, vaultId, e.id, newVersion);
+          revOut.push({ id: r.id, wrappedEntryKey: rr.wrappedEntryKey, ciphertext: rr.ciphertext });
         }
-        await send(await re.finish());
-        await api('POST', `${base}/complete?rotation=1`);
-      } finally {
-        oldAk.fill(0);
-        fresh.ak.fill(0);
       }
-      attOut.push({ id: att.id, wrappedKey: fresh.wrappedKey, metaCipher: fresh.metaCipher });
+      const branchOut = [];
+      for (const b of allBranches) {
+        branchOut.push({
+          id: b.id,
+          expectedVersion: b.version,
+          nameCipher: await rewrapBranchName(
+            b.nameCipher,
+            oldKey,
+            newKey,
+            vaultId,
+            b.id,
+            b.keyVersion,
+            newVersion,
+          ),
+        });
+      }
+      // Вложения: файлы перешифровываются новыми ключами и загружаются заранее; метаданные уходят в запрос ротации
+      const attOut = [];
+      for (const att of await api<AttachmentRecord[]>('GET', `/vaults/${vaultId}/attachments`)) {
+        // Файл перешифровывается потоком: старые кадры читаются порциями, новые уходят по мере готовности
+        const oldAk = await openAttachmentKey(oldKey, vaultId, att);
+        const meta = await openAttachmentMeta(oldKey, vaultId, att);
+        const fresh = await beginAttachment(newKey, vaultId, newVersion, meta, att.id);
+        try {
+          const base = `/vaults/${vaultId}/attachments/${att.id}`;
+          const re = new AttachmentReencryptor(oldAk, fresh.ak, att.id);
+          const res = await apiStream(`${base}/content`);
+          const reader = res.body!.getReader();
+          let off = 0;
+          const send = async (frames: Uint8Array[]) => {
+            for (const f of frames)
+              off = await putPart(
+                `${base}/parts?rotation=1&rotationId=${rotationId}&offset=${off}`,
+                f,
+              );
+          };
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await send(await re.push(value));
+          }
+          await send(await re.finish());
+          await api('POST', `${base}/complete?rotation=1&rotationId=${rotationId}`);
+        } finally {
+          oldAk.fill(0);
+          fresh.ak.fill(0);
+        }
+        attOut.push({ id: att.id, wrappedKey: fresh.wrappedKey, metaCipher: fresh.metaCipher });
+      }
+      const m = await members(vaultId);
+      const holders = m.members;
+      const keys = [];
+      for (const u of holders)
+        keys.push({ userId: u.userId, ...(await keyGrantFor(vaultId, u, newVersion, newKey)) });
+      await api('POST', `/vaults/${vaultId}/rotate`, {
+        newKeyVersion: newVersion,
+        rotationId,
+        keys: keys.map(({ userId, sealedKey, signature }) => ({ userId, sealedKey, signature })),
+        entries: entryOut,
+        revisions: revOut,
+        branches: branchOut,
+        attachments: attOut,
+        ...(recoveryKey ? { recoveryKey } : {}),
+      });
+      await loadVaults();
+      await loadTree();
+    } finally {
+      newKey.fill(0);
     }
-    const m = await members(vaultId);
-    const holders = m.members;
-    const keys = [];
-    for (const u of holders)
-      keys.push({ userId: u.userId, ...(await keyGrantFor(vaultId, u, newVersion, newKey)) });
-    await api('POST', `/vaults/${vaultId}/rotate`, {
-      newKeyVersion: newVersion,
-      keys: keys.map(({ userId, sealedKey, signature }) => ({ userId, sealedKey, signature })),
-      entries: entryOut,
-      revisions: revOut,
-      branches: branchOut,
-      attachments: attOut,
-    });
-    await loadVaults();
-    await loadTree();
   }
 
   // ------------------------------------------------------------------ вложения
@@ -738,6 +995,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
   const rotate = (...a: Parameters<typeof rotateRaw>) => held(() => rotateRaw(...a));
+  const moveEntry = (...a: Parameters<typeof moveEntryRaw>) => held(() => moveEntryRaw(...a));
   const attachmentAdd = (...a: Parameters<typeof attachmentAdd_>) =>
     held(() => attachmentAdd_(...a));
   const attachmentDownload = (...a: Parameters<typeof attachmentDownload_>) =>
@@ -778,7 +1036,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function putPart(path: string, frame: Uint8Array): Promise<number> {
     const url = new URL(path, 'http://x');
     const base = url.pathname;
-    const rotation = url.searchParams.get('rotation') === '1' ? '&rotation=1' : '';
+    const rotation =
+      url.searchParams.get('rotation') === '1'
+        ? `&rotation=1&rotationId=${encodeURIComponent(url.searchParams.get('rotationId') ?? '')}`
+        : '';
     let offset = Number(url.searchParams.get('offset'));
     for (let attempt = 0; ; attempt++) {
       try {
@@ -805,7 +1066,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     item: EntryItem,
     file: File,
     onProgress?: (done: number, total: number) => void,
-  ): Promise<void> {
+  ): Promise<string> {
     const v = vaults.value.find((x) => x.id === item.vaultId)!;
     const key = keyOf(item.vaultId, v.keyVersion);
     if (!key) throw new Error('vault is locked');
@@ -835,6 +1096,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         onProgress?.(off, total);
       }
       await api('POST', `${base}/complete`);
+      return head.id;
     } catch (e) {
       // незавершённая загрузка не оставляет ни записи, ни файла
       await api('DELETE', base).catch(() => undefined);
@@ -914,12 +1176,172 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return `${location.origin}/h/${id}#${pkg.fragment}`;
   }
 
+  async function recoveryGrant(
+    vaultId: string,
+    keyVersion: number,
+    key: Uint8Array,
+    recipient: RecoveryRecipient,
+  ) {
+    const sealedKey = await sealVaultKeyFor(
+      key,
+      fromBase64Url(recipient.publicKey),
+      vaultId,
+      recipient.id,
+      keyVersion,
+    );
+    return {
+      recipientId: recipient.id,
+      keyVersion,
+      sealedKey,
+      signature: await signKeyGrant(
+        useAuthStore().keys().signPrivateKey,
+        vaultId,
+        recipient.id,
+        keyVersion,
+        sealedKey,
+      ),
+    };
+  }
+
+  async function enrollCorporateRecovery(
+    vaultId: string,
+    recipient: RecoveryRecipient,
+  ): Promise<void> {
+    return held(async () => {
+      const vault = vaults.value.find((v) => v.id === vaultId);
+      const key = vault && keyOf(vaultId, vault.keyVersion);
+      if (!vault || vault.kind !== 'shared' || !vault.canManageMembers || !key)
+        throw new Error('vault is not available for recovery enrollment');
+      await loadKeyLog();
+      if (!keyLogOk.value) throw new Error('key log verification failed');
+      const configured = await api<{ recipient: RecoveryRecipient | null }>(
+        'GET',
+        '/corporate-recovery',
+      );
+      if (
+        !configured.recipient ||
+        configured.recipient.id !== recipient.id ||
+        configured.recipient.publicKey !== recipient.publicKey ||
+        configured.recipient.signPublicKey !== recipient.signPublicKey
+      )
+        throw new Error('corporate recovery recipient changed');
+      await api(
+        'POST',
+        `/vaults/${vaultId}/recovery`,
+        await recoveryGrant(vaultId, vault.keyVersion, key, recipient),
+      );
+    });
+  }
+
+  async function recoverCorporateVault(vaultId: string, recovery: RecoverySecrets): Promise<void> {
+    return held(async () => {
+      const auth = useAuthStore();
+      const account = auth.keys();
+      await loadKeyLog();
+      if (!keyLogOk.value) throw new Error('key log verification failed');
+      const challenge = await api<{
+        challengeId: string;
+        encryptedNonce: string;
+        message: string;
+        recipient: RecoveryRecipient;
+        rescue: {
+          keyVersion: number;
+          recipientId: string;
+          sealedKey: string;
+          signature: string;
+          grantedBy: string;
+          grantedBySignKey: string;
+        };
+        target: { userId: string; publicKey: string; signPublicKey: string };
+      }>('POST', `/admin/corporate-recovery/${vaultId}/challenge`, {});
+      const { recipient, rescue, target } = challenge;
+      if (
+        recipient.id !== recovery.id ||
+        recipient.publicKey !== recovery.publicKey ||
+        recipient.signPublicKey !== recovery.signPublicKey ||
+        rescue.recipientId !== recovery.id ||
+        target.userId !== auth.user!.id ||
+        target.publicKey !== toBase64Url(account.publicKey) ||
+        target.signPublicKey !== toBase64Url(account.signPublicKey)
+      )
+        throw new Error('recovery identity mismatch');
+      const signer = signerKey(rescue.grantedBy);
+      if (
+        !signer ||
+        signer !== rescue.grantedBySignKey ||
+        !(await verifyKeyGrant(
+          fromBase64Url(signer),
+          rescue.signature,
+          vaultId,
+          recipient.id,
+          rescue.keyVersion,
+          rescue.sealedKey,
+        ))
+      )
+        throw new Error('recovery key grant signature is invalid');
+      const key = await openVaultKey(
+        rescue.sealedKey,
+        recovery.privateKey,
+        fromBase64Url(recovery.publicKey),
+        vaultId,
+        recovery.id,
+        rescue.keyVersion,
+      );
+      let nonceBytes: Uint8Array | null = null;
+      try {
+        nonceBytes = await openVaultKey(
+          challenge.encryptedNonce,
+          recovery.privateKey,
+          fromBase64Url(recovery.publicKey),
+          vaultId,
+          recovery.id,
+          rescue.keyVersion,
+        );
+        if (key.length !== 32 || nonceBytes.length !== 32) throw new Error('invalid recovered key');
+        const nonce = toBase64Url(nonceBytes);
+        const sealedKey = await sealVaultKeyFor(
+          key,
+          account.publicKey,
+          vaultId,
+          auth.user!.id,
+          rescue.keyVersion,
+        );
+        const signature = await signKeyGrant(
+          account.signPrivateKey,
+          vaultId,
+          auth.user!.id,
+          rescue.keyVersion,
+          sealedKey,
+        );
+        const proof = toBase64Url(
+          await sign(
+            recovery.signPrivateKey,
+            utf8(ctx('corporate-recovery-recover', challenge.message, nonce, sealedKey, signature)),
+          ),
+        );
+        await api('POST', `/admin/corporate-recovery/${vaultId}/recover`, {
+          challengeId: challenge.challengeId,
+          nonce,
+          sealedKey,
+          signature,
+          proof,
+        });
+      } finally {
+        key.fill(0);
+        nonceBytes?.fill(0);
+      }
+      await loadVaults();
+      if (currentId.value === vaultId) await loadTree();
+    });
+  }
+
   return {
     vaults,
     current,
     currentId,
     searchQuery,
     personalAllowed,
+    personalDataRestricted,
     locker,
     branches,
     entries,
@@ -931,6 +1353,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     loadVaults,
     select,
     loadTree,
+    searchEverywhere,
     saveEntry,
     trashEntry,
     restoreEntry,
@@ -957,6 +1380,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     attachmentDownload,
     attachmentRemove,
     createLink,
+    enrollCorporateRecovery,
+    recoverCorporateVault,
     blankEntry,
   };
 });

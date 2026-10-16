@@ -14,6 +14,8 @@ import { registerAdminSyslogRoutes } from './routes/admin-syslog.js';
 import { registerAdminOpsRoutes } from './routes/admin-ops.js';
 import { registerAdminSystemRoutes } from './routes/admin-system.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
+import { registerContinuityRoutes } from './routes/continuity.js';
+import { registerCorporateRecoveryRoutes } from './routes/corporate-recovery.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerTokenRoutes } from './routes/tokens.js';
 import { registerWebauthnRoutes } from './routes/webauthn.js';
@@ -144,6 +146,8 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminOpsRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerContinuityRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerCorporateRecoveryRoutes, { prefix: API_PREFIX, ctx });
 
   const webDist = config.WEB_DIST ? path.resolve(config.WEB_DIST) : '';
   if (webDist && existsSync(webDist)) {

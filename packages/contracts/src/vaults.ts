@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { b64url, sealedBox, sealedValue, uuid } from './common.js';
+import { corporateRecoveryEnroll } from './corporate-recovery.js';
 
 /** Роли в хранилище (по убыванию полномочий). limited — доступ только по грантам на ветви и записи. */
 export const vaultRole = z.enum(['owner', 'admin', 'editor', 'reader', 'limited']);
 export type VaultRole = z.infer<typeof vaultRole>;
-export const grantRole = z.enum(['reader', 'editor', 'manager']);
+export const grantRole = z.enum(['none', 'reader', 'editor', 'manager']);
 export type GrantRole = z.infer<typeof grantRole>;
 
 const MAX_BLOB = 512 * 1024;
@@ -79,11 +80,15 @@ export const branchWrite = z.object({
   nameCipher: sealedValue(2048),
   keyVersion: z.number().int().min(1),
 });
-export const branchPatch = z.object({
-  parentId: uuid.nullable().optional(),
-  nameCipher: sealedValue(2048).optional(),
-  keyVersion: z.number().int().min(1).optional(),
-});
+export const branchPatch = z
+  .object({
+    parentId: uuid.nullable().optional(),
+    nameCipher: sealedValue(2048).optional(),
+    keyVersion: z.number().int().min(1).optional(),
+  })
+  .refine((body) => body.nameCipher === undefined || body.keyVersion !== undefined, {
+    message: 'A key version is required for encrypted branch names',
+  });
 export const branchRecord = z.object({
   id: uuid,
   vaultId: uuid,
@@ -144,29 +149,52 @@ export const keysPost = z.object({
     .max(500),
 });
 
-export const rotatePost = z.object({
-  newKeyVersion: z.number().int().min(2),
-  keys: z
-    .array(z.object({ userId: uuid, sealedKey: sealedBox, signature }))
-    .min(1)
-    .max(1000),
-  entries: z
-    .array(
-      z.object({ id: uuid, wrappedEntryKey: sealedValue(512), ciphertext: sealedValue(MAX_BLOB) }),
-    )
-    .max(20000),
-  revisions: z
-    .array(
-      z.object({ id: uuid, wrappedEntryKey: sealedValue(512), ciphertext: sealedValue(MAX_BLOB) }),
-    )
-    .max(100000),
-  branches: z.array(z.object({ id: uuid, nameCipher: sealedValue(2048) })).max(20000),
-  /** Вложения: перешифрованные ключи; содержимое заранее загружено в область подготовки (PUT …/rotation). */
-  attachments: z
-    .array(z.object({ id: uuid, wrappedKey: sealedValue(512), metaCipher: sealedValue(4096) }))
-    .max(100000)
-    .default([]),
-});
+export const rotatePost = z
+  .object({
+    newKeyVersion: z.number().int().min(2),
+    rotationId: uuid.optional(),
+    recoveryKey: corporateRecoveryEnroll.optional(),
+    keys: z
+      .array(z.object({ userId: uuid, sealedKey: sealedBox, signature }))
+      .min(1)
+      .max(1000),
+    entries: z
+      .array(
+        z.object({
+          id: uuid,
+          expectedVersion: z.number().int().min(1),
+          wrappedEntryKey: sealedValue(512),
+          ciphertext: sealedValue(MAX_BLOB),
+        }),
+      )
+      .max(20000),
+    revisions: z
+      .array(
+        z.object({
+          id: uuid,
+          wrappedEntryKey: sealedValue(512),
+          ciphertext: sealedValue(MAX_BLOB),
+        }),
+      )
+      .max(100000),
+    branches: z
+      .array(
+        z.object({
+          id: uuid,
+          expectedVersion: z.number().int().min(1),
+          nameCipher: sealedValue(2048),
+        }),
+      )
+      .max(20000),
+    /** Вложения: перешифрованные ключи; содержимое заранее загружено в область подготовки (PUT …/rotation). */
+    attachments: z
+      .array(z.object({ id: uuid, wrappedKey: sealedValue(512), metaCipher: sealedValue(4096) }))
+      .max(100000)
+      .default([]),
+  })
+  .refine((body) => body.attachments.length === 0 || !!body.rotationId, {
+    message: 'A rotation operation ID is required for attachment staging',
+  });
 
 export const grantPut = z.object({
   targetType: z.enum(['branch', 'entry']),
@@ -176,6 +204,21 @@ export const grantPut = z.object({
   role: grantRole,
   expiresAt: z.string().datetime().nullable().optional(),
 });
+
+export const objectPasswordPolicy = z
+  .object({
+    minLength: z.number().int().min(0).max(128).optional(),
+    classes: z.number().int().min(0).max(4).optional(),
+    maxAgeDays: z.number().int().min(0).max(3650).optional(),
+  })
+  .strict();
+export const objectPolicyPatch = z.object({ policy: objectPasswordPolicy.nullable() }).strict();
+export const entryClientEvent = z
+  .object({
+    action: z.enum(['reveal', 'copy']),
+    field: z.enum(['password', 'username', 'totp', 'custom']),
+  })
+  .strict();
 
 export const handoffCreate = z.object({
   id: uuid,

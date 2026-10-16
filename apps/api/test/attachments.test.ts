@@ -338,10 +338,12 @@ describe('attachments and key rotation', () => {
     const newFile = await encryptAttachment(ak2, p.id, content);
     const newWrapped = await encrypt(newKey, ak2, aad('att-key', v.id, p.id, 2));
     const newMeta = await encrypt(ak2, utf8('{"name":"r.txt"}'), aad('att-meta', v.id, p.id));
+    const rotationId = crypto.randomUUID();
     const body = {
+      rotationId,
       newKeyVersion: 2,
       keys,
-      entries: [{ id: e.entryId, ...entry }],
+      entries: [{ id: e.entryId, expectedVersion: rec.version, ...entry }],
       revisions: [],
       branches: [],
       attachments: [{ id: p.id, wrappedKey: newWrapped, metaCipher: newMeta }],
@@ -355,19 +357,50 @@ describe('attachments and key rotation', () => {
     expect(noAtt.statusCode).toBe(409);
     // файл неверного размера не принимается
     expect(
-      (await put(admin, `/vaults/${v.id}/attachments/${p.id}/rotation`, newFile.slice(0, 5)))
-        .statusCode,
+      (
+        await put(
+          admin,
+          `/vaults/${v.id}/attachments/${p.id}/rotation?rotationId=${rotationId}`,
+          newFile.slice(0, 5),
+        )
+      ).statusCode,
     ).toBe(400);
     // участник без прав администратора не готовит файлы
     expect(
-      (await put(bob, `/vaults/${v.id}/attachments/${p.id}/rotation`, newFile)).statusCode,
+      (
+        await put(
+          bob,
+          `/vaults/${v.id}/attachments/${p.id}/rotation?rotationId=${rotationId}`,
+          newFile,
+        )
+      ).statusCode,
     ).toBe(404);
     expect(
-      (await put(admin, `/vaults/${v.id}/attachments/${p.id}/rotation`, newFile)).statusCode,
+      (
+        await put(
+          admin,
+          `/vaults/${v.id}/attachments/${p.id}/rotation?rotationId=${rotationId}`,
+          newFile,
+        )
+      ).statusCode,
     ).toBe(204);
     // пока ротация не применена, скачивается прежняя версия
     const before = await admin.req('GET', `/vaults/${v.id}/attachments/${p.id}/content`);
     expect(Buffer.compare(before.rawPayload, Buffer.from(p.file))).toBe(0);
+
+    // A competing rotation must not replace this operation's staged ciphertext.
+    const competingRotationId = crypto.randomUUID();
+    const competing = newFile.slice();
+    competing[0] = competing[0]! ^ 1;
+    expect(
+      (
+        await put(
+          admin,
+          `/vaults/${v.id}/attachments/${p.id}/rotation?rotationId=${competingRotationId}`,
+          competing,
+        )
+      ).statusCode,
+    ).toBe(204);
 
     expect((await admin.req('POST', `/vaults/${v.id}/rotate`, body)).statusCode).toBe(200);
     const after = await admin.req('GET', `/vaults/${v.id}/attachments/${p.id}/content`);

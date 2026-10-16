@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { onBeforeRouteLeave } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import {
   estimateStrength,
@@ -19,12 +20,15 @@ import {
 } from '../services/model';
 import { useWorkspaceStore } from '../stores/workspace';
 import PasswordGenerator from './PasswordGenerator.vue';
+import EntryAccessPanel from './EntryAccessPanel.vue';
+import EntryJournalPanel from './EntryJournalPanel.vue';
+import EntrySettingsPanel from './EntrySettingsPanel.vue';
 import IconButton from './IconButton.vue';
 import Icon from './Icon.vue';
 import { errorMessage } from '../services/helpers';
 import { api } from '../services/api';
 import { openSink } from '../services/download';
-import { NO_POLICY, checkPolicy, policyFrom, type PasswordPolicy } from '../services/policy';
+import { NO_POLICY, checkPolicy, type PasswordPolicy } from '../services/policy';
 import type { VaultView } from '../stores/workspace';
 
 const props = defineProps<{
@@ -53,7 +57,29 @@ const showPw = ref(false);
 const revealed = ref<Set<number>>(new Set());
 const error = ref('');
 const busy = ref(false);
-const tab = ref<'details' | 'history' | 'files' | 'share'>('details');
+const tab = ref<'details' | 'access' | 'journal' | 'settings'>('details');
+const subTab = ref<'files' | 'history' | 'share' | null>(null);
+const tabs = ['details', 'access', 'journal', 'settings'] as const;
+function selectTab(value: (typeof tabs)[number]): void {
+  tab.value = value;
+  subTab.value = null;
+  error.value = '';
+}
+function tabKey(event: KeyboardEvent): void {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const index = tabs.indexOf(tab.value);
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  selectTab(tabs[next]!);
+  (event.currentTarget as HTMLElement)
+    .querySelector<HTMLButtonElement>(`[data-entry-tab="${tab.value}"]`)
+    ?.focus();
+}
 const branchChoice = ref<string | null>(props.item?.branchId ?? props.branchId);
 
 // Сброс вкладок и состояния только при смене записи или режима. Строковый ключ: массив в геттере
@@ -68,11 +94,14 @@ watch(
     revealed.value = new Set();
     error.value = '';
     tab.value = 'details';
+    subTab.value = null;
     branchChoice.value = props.item?.branchId ?? props.branchId;
     history.value = null;
     files.value = null;
     confirmFile.value = '';
     link.value = '';
+    share.value = { passphrase: '', minutes: 60, views: 1, notes: false };
+    showGenerator.value = false;
   },
 );
 // Обновлённые данные той же записи подставляются в форму, если её не редактируют.
@@ -139,9 +168,16 @@ onBeforeUnmount(() => timer && clearInterval(timer));
 // ---- буфер обмена
 const copied = ref('');
 async function copy(label: string, value: string): Promise<void> {
+  const item = props.item;
   try {
     await navigator.clipboard.writeText(value);
     copied.value = label;
+    if (label !== 'link')
+      void reportEvent(
+        'copy',
+        label === 'password' || label === 'username' || label === 'totp' ? label : 'custom',
+        item,
+      );
     setTimeout(async () => {
       copied.value = '';
       try {
@@ -152,15 +188,52 @@ async function copy(label: string, value: string): Promise<void> {
       }
     }, 30_000);
   } catch {
-    /* буфер недоступен */
+    error.value = t('entryPanel.clipboardFailed');
   }
 }
 
-// ---- политика паролей организации
+async function reportEvent(
+  action: 'copy' | 'reveal',
+  field: 'password' | 'username' | 'totp' | 'custom',
+  item = props.item,
+): Promise<void> {
+  if (!item) return;
+  try {
+    await api('POST', `/vaults/${item.vaultId}/entries/${item.id}/events`, {
+      action,
+      field,
+    });
+  } catch {
+    error.value = t('entryPanel.eventFailed');
+  }
+}
+function toggleReveal(index: number): void {
+  if (revealed.value.has(index)) revealed.value.delete(index);
+  else {
+    revealed.value.add(index);
+    void reportEvent('reveal', index === -1 ? 'password' : 'custom');
+  }
+  revealed.value = new Set(revealed.value);
+}
+
+// ---- действующая политика записи и родителей
 const policy = ref<PasswordPolicy>(NO_POLICY);
-void api<Record<string, unknown>>('GET', '/auth/policy')
-  .then((p) => (policy.value = policyFrom(p)))
-  .catch(() => undefined);
+watch(
+  () => `${props.vault.id}|${props.item?.id ?? ''}|${branchChoice.value ?? ''}`,
+  async () => {
+    const path = props.item
+      ? `/vaults/${props.vault.id}/entries/${props.item.id}/policy`
+      : branchChoice.value
+        ? `/vaults/${props.vault.id}/branches/${branchChoice.value}/policy`
+        : `/vaults/${props.vault.id}/policy`;
+    try {
+      policy.value = (await api<{ effective: PasswordPolicy }>('GET', path)).effective;
+    } catch {
+      /* Сохранение повторно проверяет политику в общем сторе. */
+    }
+  },
+  { immediate: true },
+);
 
 function generate(kind: 'password' | 'phrase'): void {
   form.value.password =
@@ -173,13 +246,40 @@ function generate(kind: 'password' | 'phrase'): void {
 /** Отмена редактирования: та же логика, что у кнопки «Отмена»; Escape закрывает модальное окно. */
 function cancelEditing(): void {
   if (!editing.value) return;
+  if (busy.value) return;
+  if (!confirmDiscard()) return;
   if (props.item) {
     editing.value = false;
     form.value = clone(normalizeEntry(props.item.data));
+    tagsText.value = form.value.tags.join(', ');
+    branchChoice.value = props.item.branchId;
+    showPw.value = false;
+    showGenerator.value = false;
   } else {
     emit('cancel');
   }
 }
+const hasChanges = computed(() => {
+  const original = props.item ? normalizeEntry(props.item.data) : blankEntry();
+  return (
+    editing.value &&
+    (JSON.stringify(form.value) !== JSON.stringify(original) ||
+      tagsText.value !== original.tags.join(', ') ||
+      branchChoice.value !== (props.item?.branchId ?? props.branchId))
+  );
+});
+function confirmDiscard(): boolean {
+  return !hasChanges.value || window.confirm(t('entryPanel.discardChanges'));
+}
+function beforeUnload(event: BeforeUnloadEvent): void {
+  if (hasChanges.value || busy.value) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+}
+window.addEventListener('beforeunload', beforeUnload);
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload));
+onBeforeRouteLeave(() => (busy.value ? false : confirmDiscard()));
 
 /** Панель генератора открывается по кнопке под полем пароля; выбранный пароль подставляется в форму. */
 const showGenerator = ref(false);
@@ -246,8 +346,18 @@ const history = ref<
   { rev: { id: string; version: number; savedAt: string }; data: EntryData | null }[] | null
 >(null);
 async function loadHistory(): Promise<void> {
-  tab.value = 'history';
-  if (props.item) history.value = await ws.revisions(props.item);
+  subTab.value = 'history';
+  error.value = '';
+  const item = props.item;
+  try {
+    if (item) {
+      const rows = await ws.revisions(item);
+      if (props.item?.id === item.id) history.value = rows;
+    }
+  } catch (e) {
+    error.value = errorMessage(e, t);
+    history.value = [];
+  }
 }
 async function revert(id: string): Promise<void> {
   if (!props.item) return;
@@ -257,6 +367,7 @@ async function revert(id: string): Promise<void> {
     emit('changed');
     history.value = null;
     tab.value = 'details';
+    subTab.value = null;
   } catch (e) {
     error.value = errorMessage(e, t);
   } finally {
@@ -277,7 +388,7 @@ const storage = ref<{ enabled: boolean; maxMiB: number }>({ enabled: true, maxMi
 const confirmFile = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
 async function openFiles(): Promise<void> {
-  tab.value = 'files';
+  subTab.value = 'files';
   error.value = '';
   if (!props.item) return;
   try {
@@ -298,7 +409,8 @@ async function addFile(ev: Event): Promise<void> {
   const input = ev.target as HTMLInputElement;
   const picked = Array.from(input.files ?? []);
   input.value = '';
-  if (!props.item || !picked.length) return;
+  const item = props.item;
+  if (!item || !picked.length) return;
   busy.value = true;
   error.value = '';
   try {
@@ -308,11 +420,12 @@ async function addFile(ev: Event): Promise<void> {
         continue;
       }
       progress.value = { label: f.name, done: 0, total: f.size || 1 };
-      await ws.attachmentAdd(props.item, f, (done, total) => {
+      await ws.attachmentAdd(item, f, (done, total) => {
         progress.value = { label: f.name, done, total };
       });
     }
-    files.value = await ws.attachmentList(props.item);
+    const rows = await ws.attachmentList(item);
+    if (props.item?.id === item.id) files.value = rows;
   } catch (e) {
     error.value = errorMessage(e, t);
   } finally {
@@ -370,16 +483,18 @@ const fmtSize = (n: number) =>
 const link = ref('');
 const share = ref({ passphrase: '', minutes: 60, views: 1, notes: false });
 async function createLink(): Promise<void> {
-  if (!props.item) return;
+  const item = props.item;
+  if (!item) return;
   busy.value = true;
   error.value = '';
   try {
-    link.value = await ws.createLink(props.item, {
+    const created = await ws.createLink(item, {
       passphrase: share.value.passphrase,
       expiresInMinutes: Number(share.value.minutes),
       maxViews: Number(share.value.views),
       includeNotes: share.value.notes,
     });
+    if (props.item?.id === item.id) link.value = created;
   } catch (e) {
     error.value = errorMessage(e, t);
   } finally {
@@ -437,7 +552,7 @@ void api;
     :aria-modal="editing ? 'true' : undefined"
     :aria-label="editing ? item?.data.title || t('vault.add') : undefined"
     data-testid="entry-panel"
-    @keydown.esc="cancelEditing"
+    @keydown.esc.stop.prevent="cancelEditing"
   >
     <div :class="editing ? 'card w-full max-w-2xl p-4 shadow-xl' : 'contents'">
       <!-- Просмотр -->
@@ -477,317 +592,386 @@ void api;
           </div>
         </div>
 
-        <div class="mb-3 flex gap-1 border-b border-slate-200 text-sm dark:border-slate-800">
+        <div
+          class="mb-3 grid grid-cols-4 gap-1 border-b border-slate-200 text-sm dark:border-slate-800"
+          role="tablist"
+          :aria-label="t('entryPanel.tabsLabel')"
+          @keydown="tabKey"
+        >
           <button
+            v-for="value in tabs"
+            :id="`entry-tab-${value}`"
+            :key="value"
             type="button"
-            class="px-3 py-1.5 transition-colors"
-            :class="tab === 'details' ? 'border-b-2 border-brand-500 font-medium' : ''"
-            @click="tab = 'details'"
+            role="tab"
+            class="min-w-0 px-1 py-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 sm:px-3"
+            :class="tab === value ? 'border-b-2 border-brand-500 font-medium' : 'text-slate-500'"
+            :aria-selected="tab === value"
+            :aria-controls="`entry-panel-${value}`"
+            :tabindex="tab === value ? 0 : -1"
+            :data-entry-tab="value"
+            :data-testid="`tab-${value}`"
+            @click="selectTab(value)"
           >
-            {{ t('vault.details') }}
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 transition-colors"
-            :class="tab === 'history' ? 'border-b-2 border-brand-500 font-medium' : ''"
-            data-testid="tab-history"
-            @click="loadHistory"
-          >
-            {{ t('vault.history') }}
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 transition-colors"
-            :class="tab === 'files' ? 'border-b-2 border-brand-500 font-medium' : ''"
-            data-testid="tab-files"
-            @click="openFiles"
-          >
-            {{ t('files.tab') }}
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 transition-colors"
-            :class="tab === 'share' ? 'border-b-2 border-brand-500 font-medium' : ''"
-            data-testid="tab-share"
-            @click="tab = 'share'"
-          >
-            {{ t('vault.share') }}
+            {{ t(`entryPanel.tabs.${value}`) }}
           </button>
         </div>
-
-        <dl v-if="tab === 'details'" class="space-y-3 text-sm">
-          <div v-if="item.data.username">
-            <dt class="text-xs text-slate-500">{{ t('vault.username') }}</dt>
-            <dd class="flex items-center justify-between gap-2">
-              <span class="break-all" data-testid="view-username">{{ item.data.username }}</span>
-              <button type="button" class="btn" @click="copy('username', item.data.username)">
-                {{ copied === 'username' ? t('common.copied') : t('common.copy') }}
-              </button>
-            </dd>
-          </div>
-          <div v-if="item.data.password">
-            <dt class="text-xs text-slate-500">
-              {{ item.data.kind === 'apikey' ? t('vault.secret') : t('vault.password') }}
-            </dt>
-            <dd class="flex items-center justify-between gap-2">
-              <span class="break-all font-mono" data-testid="view-password">{{
-                revealed.has(-1) ? item.data.password : '••••••••••'
-              }}</span>
-              <span class="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  class="btn"
-                  data-testid="btn-reveal"
-                  @click="
-                    revealed.has(-1) ? revealed.delete(-1) : revealed.add(-1);
-                    revealed = new Set(revealed);
-                  "
-                >
-                  {{ revealed.has(-1) ? t('common.hide') : t('common.show') }}
-                </button>
-                <button
-                  type="button"
-                  class="btn"
-                  data-testid="btn-copy-password"
-                  @click="copy('password', item.data.password)"
-                >
-                  {{ copied === 'password' ? t('common.copied') : t('common.copy') }}
-                </button>
-              </span>
-            </dd>
-          </div>
-          <div v-if="linkedEntries.length" data-testid="links-view">
-            <dt class="text-xs text-slate-500">{{ t('vault.links') }}</dt>
-            <dd class="flex flex-wrap gap-1">
-              <button
-                v-for="l in linkedEntries"
-                :key="l.id"
-                type="button"
-                class="btn"
-                data-testid="link-open"
-                @click="emit('open', l.id)"
-              >
-                🔗 {{ l.title }}
-              </button>
-            </dd>
-          </div>
-          <div v-if="item.data.url">
-            <dt class="text-xs text-slate-500">{{ t('vault.url') }}</dt>
-            <dd class="break-all">
-              <a
-                v-if="/^https?:\/\//i.test(item.data.url)"
-                :href="item.data.url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-brand-600 underline"
-                >{{ item.data.url }}</a
-              >
-              <span v-else>{{ item.data.url }}</span>
-            </dd>
-          </div>
-          <div v-if="code">
-            <dt class="text-xs text-slate-500">{{ t('vault.totp') }}</dt>
-            <dd class="flex items-center justify-between gap-2">
-              <span class="font-mono text-lg tracking-widest" data-testid="view-totp">{{
-                code
-              }}</span>
-              <span class="text-xs text-slate-500">{{ remaining }} {{ t('vault.sec') }}</span>
-              <button type="button" class="btn" @click="copy('totp', code)">
-                {{ copied === 'totp' ? t('common.copied') : t('common.copy') }}
-              </button>
-            </dd>
-          </div>
-          <div v-for="(f, i) in item.data.fields" :key="i">
-            <dt class="text-xs text-slate-500">{{ f.name }}</dt>
-            <dd class="flex items-center justify-between gap-2">
-              <span class="break-all" :class="f.secret ? 'font-mono' : ''">{{
-                f.secret && !revealed.has(i) ? '••••••••' : f.value
-              }}</span>
-              <span class="flex gap-1">
-                <button
-                  v-if="f.secret"
-                  type="button"
-                  class="btn"
-                  @click="
-                    revealed.has(i) ? revealed.delete(i) : revealed.add(i);
-                    revealed = new Set(revealed);
-                  "
-                >
-                  {{ revealed.has(i) ? t('common.hide') : t('common.show') }}
-                </button>
-                <button type="button" class="btn" @click="copy('f' + i, f.value)">
-                  {{ copied === 'f' + i ? t('common.copied') : t('common.copy') }}
-                </button>
-              </span>
-            </dd>
-          </div>
-          <div v-if="item.data.notes">
-            <dt class="text-xs text-slate-500">{{ t('vault.notes') }}</dt>
-            <dd class="whitespace-pre-wrap break-words" data-testid="view-notes">
-              {{ item.data.notes }}
-            </dd>
-          </div>
-          <div class="text-xs text-slate-500">
-            {{ t('vault.updated') }}: {{ fmt(item.updatedAt) }}
-            <span v-if="item.data.expiresAt">
-              · {{ t('vault.expires') }}: {{ item.data.expiresAt }}</span
-            >
-          </div>
-        </dl>
-
-        <div v-else-if="tab === 'files'" class="space-y-3 text-sm" data-testid="files-panel">
-          <p class="text-xs text-slate-500">
-            {{ t('files.encryptedNote') }} {{ t('files.max', { n: storage.maxMiB }) }}
-          </p>
-          <p v-if="!storage.enabled" class="text-amber-700" role="alert">
-            {{ t('files.disabled') }}
-          </p>
-          <p v-else-if="!files" class="text-slate-500">{{ t('common.working') }}</p>
-          <p v-else-if="!files.length" class="text-slate-500" data-testid="files-empty">
-            {{ t('files.empty') }}
-          </p>
-          <ul v-else class="divide-y divide-slate-200 dark:divide-slate-800">
-            <li
-              v-for="f in files"
-              :key="f.id"
-              class="flex flex-wrap items-center justify-between gap-2 py-2"
-              data-testid="file-row"
-            >
-              <span class="min-w-0 break-all"
-                >{{ f.name }}
-                <span class="text-xs text-slate-500">· {{ fmtSize(f.size) }}</span></span
-              >
-              <span class="flex gap-1">
-                <button
-                  type="button"
-                  class="btn"
-                  :disabled="busy || f.problem"
-                  data-testid="file-download"
-                  @click="downloadFile(f)"
-                >
-                  {{ t('files.download') }}
-                </button>
-                <button
-                  v-if="canEdit"
-                  type="button"
-                  class="btn"
-                  :disabled="busy"
-                  data-testid="file-remove"
-                  @click="removeFile(f)"
-                >
-                  {{ confirmFile === f.id ? t('files.confirmRemove') : t('files.remove') }}
-                </button>
-              </span>
-            </li>
-          </ul>
-          <div v-if="progress" class="space-y-1" data-testid="file-progress">
-            <div class="truncate text-xs text-slate-500">{{ progress.label }}</div>
-            <progress class="w-full" :max="progress.total" :value="progress.done"></progress>
-          </div>
-          <div v-if="canEdit && storage.enabled">
-            <input
-              ref="fileInput"
-              type="file"
-              multiple
-              class="hidden"
-              data-testid="file-input"
-              @change="addFile"
-            />
+        <div class="mb-3 flex flex-wrap gap-2 text-sm">
+          <template v-if="tab === 'details'">
+            <button type="button" class="btn" :aria-pressed="!subTab" @click="subTab = null">
+              {{ t('entryPanel.tabs.details') }}
+            </button>
             <button
               type="button"
               class="btn"
-              :disabled="busy"
-              data-testid="file-add"
-              @click="fileInput?.click()"
+              :aria-pressed="subTab === 'files'"
+              data-testid="tab-files"
+              @click="openFiles"
             >
-              {{ t('files.add') }}
+              {{ t('files.tab') }}
             </button>
-          </div>
-          <p v-if="error" class="text-red-600" role="alert" data-testid="files-error">
-            {{ error }}
-          </p>
-        </div>
-
-        <div v-else-if="tab === 'history'" data-testid="history-list">
-          <p v-if="!history" class="text-sm text-slate-500">{{ t('common.working') }}</p>
-          <p v-else-if="!history.length" class="text-sm text-slate-500">
-            {{ t('vault.noHistory') }}
-          </p>
-          <ul v-else class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
-            <li
-              v-for="h in history"
-              :key="h.rev.id"
-              class="flex items-center justify-between gap-2 py-2"
-              data-testid="history-row"
+          </template>
+          <template v-else-if="tab === 'access'">
+            <button type="button" class="btn" :aria-pressed="!subTab" @click="subTab = null">
+              {{ t('entryPanel.actualAccess') }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :aria-pressed="subTab === 'share'"
+              data-testid="tab-share"
+              @click="subTab = 'share'"
             >
-              <div class="min-w-0">
-                <div class="font-medium">v{{ h.rev.version }} · {{ fmt(h.rev.savedAt) }}</div>
-                <div class="truncate text-xs text-slate-500">
-                  {{ h.data ? `${h.data.title} · ${h.data.username}` : t('vault.undecryptable') }}
-                </div>
-              </div>
-              <button
-                v-if="canEdit && h.data"
-                type="button"
-                class="btn shrink-0"
-                :disabled="busy"
-                data-testid="btn-revert"
-                @click="revert(h.rev.id)"
+              {{ t('vault.share') }}
+            </button>
+          </template>
+          <template v-else-if="tab === 'journal'">
+            <button type="button" class="btn" :aria-pressed="!subTab" @click="subTab = null">
+              {{ t('entryPanel.events') }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :aria-pressed="subTab === 'history'"
+              data-testid="tab-history"
+              @click="loadHistory"
+            >
+              {{ t('vault.history') }}
+            </button>
+          </template>
+        </div>
+        <div
+          v-show="tab === 'details'"
+          id="entry-panel-details"
+          role="tabpanel"
+          aria-labelledby="entry-tab-details"
+        >
+          <dl v-if="subTab !== 'files'" class="space-y-3 text-sm">
+            <div v-if="item.data.username">
+              <dt class="text-xs text-slate-500">{{ t('vault.username') }}</dt>
+              <dd class="flex items-center justify-between gap-2">
+                <span class="break-all" data-testid="view-username">{{ item.data.username }}</span>
+                <button type="button" class="btn" @click="copy('username', item.data.username)">
+                  {{ copied === 'username' ? t('common.copied') : t('common.copy') }}
+                </button>
+              </dd>
+            </div>
+            <div v-if="item.data.password">
+              <dt class="text-xs text-slate-500">
+                {{ item.data.kind === 'apikey' ? t('vault.secret') : t('vault.password') }}
+              </dt>
+              <dd class="flex items-center justify-between gap-2">
+                <span class="break-all font-mono" data-testid="view-password">{{
+                  revealed.has(-1) ? item.data.password : '••••••••••'
+                }}</span>
+                <span class="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    class="btn"
+                    data-testid="btn-reveal"
+                    @click="toggleReveal(-1)"
+                  >
+                    {{ revealed.has(-1) ? t('common.hide') : t('common.show') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    data-testid="btn-copy-password"
+                    @click="copy('password', item.data.password)"
+                  >
+                    {{ copied === 'password' ? t('common.copied') : t('common.copy') }}
+                  </button>
+                </span>
+              </dd>
+            </div>
+            <div v-if="linkedEntries.length" data-testid="links-view">
+              <dt class="text-xs text-slate-500">{{ t('vault.links') }}</dt>
+              <dd class="flex flex-wrap gap-1">
+                <button
+                  v-for="l in linkedEntries"
+                  :key="l.id"
+                  type="button"
+                  class="btn"
+                  data-testid="link-open"
+                  @click="emit('open', l.id)"
+                >
+                  🔗 {{ l.title }}
+                </button>
+              </dd>
+            </div>
+            <div v-if="item.data.url">
+              <dt class="text-xs text-slate-500">{{ t('vault.url') }}</dt>
+              <dd class="break-all">
+                <a
+                  v-if="/^https?:\/\//i.test(item.data.url)"
+                  :href="item.data.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-brand-600 underline"
+                  >{{ item.data.url }}</a
+                >
+                <span v-else>{{ item.data.url }}</span>
+              </dd>
+            </div>
+            <div v-if="code">
+              <dt class="text-xs text-slate-500">{{ t('vault.totp') }}</dt>
+              <dd class="flex items-center justify-between gap-2">
+                <span class="font-mono text-lg tracking-widest" data-testid="view-totp">{{
+                  code
+                }}</span>
+                <span class="text-xs text-slate-500">{{ remaining }} {{ t('vault.sec') }}</span>
+                <button type="button" class="btn" @click="copy('totp', code)">
+                  {{ copied === 'totp' ? t('common.copied') : t('common.copy') }}
+                </button>
+              </dd>
+            </div>
+            <div v-for="(f, i) in item.data.fields" :key="i">
+              <dt class="text-xs text-slate-500">{{ f.name }}</dt>
+              <dd class="flex items-center justify-between gap-2">
+                <span class="break-all" :class="f.secret ? 'font-mono' : ''">{{
+                  f.secret && !revealed.has(i) ? '••••••••' : f.value
+                }}</span>
+                <span class="flex gap-1">
+                  <button v-if="f.secret" type="button" class="btn" @click="toggleReveal(i)">
+                    {{ revealed.has(i) ? t('common.hide') : t('common.show') }}
+                  </button>
+                  <button type="button" class="btn" @click="copy('f' + i, f.value)">
+                    {{ copied === 'f' + i ? t('common.copied') : t('common.copy') }}
+                  </button>
+                </span>
+              </dd>
+            </div>
+            <div v-if="item.data.notes">
+              <dt class="text-xs text-slate-500">{{ t('vault.notes') }}</dt>
+              <dd class="whitespace-pre-wrap break-words" data-testid="view-notes">
+                {{ item.data.notes }}
+              </dd>
+            </div>
+            <div class="text-xs text-slate-500">
+              {{ t('vault.updated') }}: {{ fmt(item.updatedAt) }}
+              <span v-if="item.data.expiresAt">
+                · {{ t('vault.expires') }}: {{ item.data.expiresAt }}</span
               >
-                {{ t('vault.revert') }}
-              </button>
-            </li>
-          </ul>
-        </div>
+            </div>
+          </dl>
 
-        <div v-else class="space-y-3 text-sm">
-          <p class="text-slate-500">{{ t('vault.shareHint') }}</p>
-          <div class="grid grid-cols-2 gap-2">
-            <label class="block"
-              ><span class="mb-1 block text-xs">{{ t('vault.linkLifetime') }}</span>
-              <select v-model="share.minutes" class="input" data-testid="share-minutes">
-                <option :value="15">15 {{ t('vault.min') }}</option>
-                <option :value="60">1 {{ t('vault.hour') }}</option>
-                <option :value="1440">24 {{ t('vault.hour') }}</option>
-                <option :value="10080">7 {{ t('vault.days') }}</option>
-              </select></label
-            >
-            <label class="block"
-              ><span class="mb-1 block text-xs">{{ t('vault.linkViews') }}</span>
-              <select v-model="share.views" class="input" data-testid="share-views">
-                <option :value="1">1</option>
-                <option :value="3">3</option>
-                <option :value="10">10</option>
-              </select></label
-            >
+          <div v-else class="space-y-3 text-sm" data-testid="files-panel">
+            <p class="text-xs text-slate-500">
+              {{ t('files.encryptedNote') }} {{ t('files.max', { n: storage.maxMiB }) }}
+            </p>
+            <p v-if="!storage.enabled" class="text-amber-700" role="alert">
+              {{ t('files.disabled') }}
+            </p>
+            <p v-else-if="!files" class="text-slate-500">{{ t('common.working') }}</p>
+            <p v-else-if="!files.length" class="text-slate-500" data-testid="files-empty">
+              {{ t('files.empty') }}
+            </p>
+            <ul v-else class="divide-y divide-slate-200 dark:divide-slate-800">
+              <li
+                v-for="f in files"
+                :key="f.id"
+                class="flex flex-wrap items-center justify-between gap-2 py-2"
+                data-testid="file-row"
+              >
+                <span class="min-w-0 break-all"
+                  >{{ f.name }}
+                  <span class="text-xs text-slate-500">· {{ fmtSize(f.size) }}</span></span
+                >
+                <span class="flex gap-1">
+                  <button
+                    type="button"
+                    class="btn"
+                    :disabled="busy || f.problem"
+                    data-testid="file-download"
+                    @click="downloadFile(f)"
+                  >
+                    {{ t('files.download') }}
+                  </button>
+                  <button
+                    v-if="canEdit"
+                    type="button"
+                    class="btn"
+                    :disabled="busy"
+                    data-testid="file-remove"
+                    @click="removeFile(f)"
+                  >
+                    {{ confirmFile === f.id ? t('files.confirmRemove') : t('files.remove') }}
+                  </button>
+                </span>
+              </li>
+            </ul>
+            <div v-if="progress" class="space-y-1" data-testid="file-progress">
+              <div class="truncate text-xs text-slate-500">{{ progress.label }}</div>
+              <progress class="w-full" :max="progress.total" :value="progress.done"></progress>
+            </div>
+            <div v-if="canEdit && storage.enabled">
+              <input
+                ref="fileInput"
+                type="file"
+                multiple
+                class="hidden"
+                data-testid="file-input"
+                @change="addFile"
+              />
+              <button
+                type="button"
+                class="btn"
+                :disabled="busy"
+                data-testid="file-add"
+                @click="fileInput?.click()"
+              >
+                {{ t('files.add') }}
+              </button>
+            </div>
+            <p v-if="error" class="text-red-600" role="alert" data-testid="files-error">
+              {{ error }}
+            </p>
           </div>
-          <label class="block"
-            ><span class="mb-1 block text-xs">{{ t('vault.linkPassphrase') }}</span>
-            <input
-              v-model="share.passphrase"
-              type="password"
-              autocomplete="off"
-              class="input"
-              data-testid="share-passphrase"
-          /></label>
-          <label class="flex items-center gap-2"
-            ><input v-model="share.notes" type="checkbox" /> {{ t('vault.linkNotes') }}</label
-          >
-          <button
-            type="button"
-            class="btn-primary"
-            :disabled="busy"
-            data-testid="btn-create-link"
-            @click="createLink"
-          >
-            {{ t('vault.createLink') }}
-          </button>
-          <div v-if="link" class="rounded-md bg-emerald-50 p-2 dark:bg-emerald-950">
-            <p class="break-all font-mono text-xs" data-testid="share-link">{{ link }}</p>
-            <button type="button" class="btn mt-2" @click="copy('link', link)">
-              {{ copied === 'link' ? t('common.copied') : t('common.copy') }}
+        </div>
+        <div
+          v-show="tab === 'journal'"
+          id="entry-panel-journal"
+          role="tabpanel"
+          aria-labelledby="entry-tab-journal"
+        >
+          <EntryJournalPanel
+            :key="item.id"
+            v-show="subTab !== 'history'"
+            :vault-id="vault.id"
+            :entry-id="item.id"
+            :active="tab === 'journal' && subTab !== 'history'"
+          />
+          <div v-if="subTab === 'history'" data-testid="history-list">
+            <p v-if="!history" class="text-sm text-slate-500">{{ t('common.working') }}</p>
+            <p v-else-if="!history.length" class="text-sm text-slate-500">
+              {{ t('vault.noHistory') }}
+            </p>
+            <ul v-else class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+              <li
+                v-for="h in history"
+                :key="h.rev.id"
+                class="flex items-center justify-between gap-2 py-2"
+                data-testid="history-row"
+              >
+                <div class="min-w-0">
+                  <div class="font-medium">v{{ h.rev.version }} · {{ fmt(h.rev.savedAt) }}</div>
+                  <div class="truncate text-xs text-slate-500">
+                    {{ h.data ? `${h.data.title} · ${h.data.username}` : t('vault.undecryptable') }}
+                  </div>
+                </div>
+                <button
+                  v-if="canEdit && h.data"
+                  type="button"
+                  class="btn shrink-0"
+                  :disabled="busy"
+                  data-testid="btn-revert"
+                  @click="revert(h.rev.id)"
+                >
+                  {{ t('vault.revert') }}
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div
+          v-show="tab === 'access'"
+          id="entry-panel-access"
+          role="tabpanel"
+          aria-labelledby="entry-tab-access"
+        >
+          <EntryAccessPanel
+            :key="item.id"
+            v-show="subTab !== 'share'"
+            :vault-id="vault.id"
+            :entry-id="item.id"
+            :active="tab === 'access' && subTab !== 'share'"
+            @changed="emit('changed')"
+          />
+          <div v-if="subTab === 'share'" class="space-y-3 text-sm">
+            <p class="text-slate-500">{{ t('vault.shareHint') }}</p>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="block"
+                ><span class="mb-1 block text-xs">{{ t('vault.linkLifetime') }}</span>
+                <select v-model="share.minutes" class="input" data-testid="share-minutes">
+                  <option :value="15">15 {{ t('vault.min') }}</option>
+                  <option :value="60">1 {{ t('vault.hour') }}</option>
+                  <option :value="1440">24 {{ t('vault.hour') }}</option>
+                  <option :value="10080">7 {{ t('vault.days') }}</option>
+                </select></label
+              >
+              <label class="block"
+                ><span class="mb-1 block text-xs">{{ t('vault.linkViews') }}</span>
+                <select v-model="share.views" class="input" data-testid="share-views">
+                  <option :value="1">1</option>
+                  <option :value="3">3</option>
+                  <option :value="10">10</option>
+                </select></label
+              >
+            </div>
+            <label class="block"
+              ><span class="mb-1 block text-xs">{{ t('vault.linkPassphrase') }}</span>
+              <input
+                v-model="share.passphrase"
+                type="password"
+                autocomplete="off"
+                class="input"
+                data-testid="share-passphrase"
+            /></label>
+            <label class="flex items-center gap-2"
+              ><input v-model="share.notes" type="checkbox" /> {{ t('vault.linkNotes') }}</label
+            >
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="busy"
+              data-testid="btn-create-link"
+              @click="createLink"
+            >
+              {{ t('vault.createLink') }}
             </button>
+            <div v-if="link" class="rounded-md bg-emerald-50 p-2 dark:bg-emerald-950">
+              <p class="break-all font-mono text-xs" data-testid="share-link">{{ link }}</p>
+              <button type="button" class="btn mt-2" @click="copy('link', link)">
+                {{ copied === 'link' ? t('common.copied') : t('common.copy') }}
+              </button>
+            </div>
           </div>
+        </div>
+        <div
+          v-show="tab === 'settings'"
+          id="entry-panel-settings"
+          role="tabpanel"
+          aria-labelledby="entry-tab-settings"
+        >
+          <EntrySettingsPanel
+            :key="item.id"
+            :vault-id="vault.id"
+            :entry-id="item.id"
+            :active="tab === 'settings'"
+            :password="item.data.password"
+            :password-changed-at="item.data.passwordChangedAt"
+            @policy="policy = $event"
+          />
         </div>
         <p v-if="error" class="mt-2 text-sm text-red-600" role="alert">{{ error }}</p>
       </template>
@@ -1016,13 +1200,7 @@ void api;
           <button type="submit" class="btn-primary" :disabled="busy" data-testid="f-save">
             {{ t('common.save') }}
           </button>
-          <button
-            type="button"
-            class="btn"
-            @click="
-              item ? ((editing = false), (form = clone(normalizeEntry(item.data)))) : emit('cancel')
-            "
-          >
+          <button type="button" class="btn" @click="cancelEditing">
             {{ t('common.cancel') }}
           </button>
         </div>

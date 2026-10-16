@@ -67,6 +67,8 @@ const list = (v: unknown): string[] =>
 function makeClient(cfg: LdapConfig): Client {
   if (!/^ldaps?:\/\//i.test(cfg.url))
     throw new LdapError('Address must start with ldap:// or ldaps://', 'config');
+  if (/^ldap:\/\//i.test(cfg.url) && !cfg.startTls && !cfg.allowPlaintext)
+    throw new LdapError('LDAP requires TLS or explicit plaintext authorization', 'tls');
   const tlsOptions = {
     ...(cfg.caPem ? { ca: [cfg.caPem] } : {}),
     rejectUnauthorized: !cfg.insecureTls,
@@ -126,15 +128,17 @@ async function findUser(
       scope: 'sub',
       filter: buildUserFilter(cfg.userFilter, username),
       attributes: attrs,
-      sizeLimit: 2,
+      // ldapts hides SizeLimitExceeded with a positive client limit; authoritative lookups must surface it.
+      sizeLimit: 0,
     });
   } catch (e) {
     if (e instanceof LdapError) throw e;
-    // sizeLimitExceeded при двух совпадениях трактуется ниже как неоднозначность
-    if (/size/i.test((e as Error).message)) return null;
     throw new LdapError(`Search failed: ${(e as Error).message}`, 'search');
   }
-  if (res.searchEntries.length !== 1) return null; // нет или неоднозначно — не входим
+  if (res.searchReferences.length)
+    throw new LdapError('User search has unresolved referrals', 'search');
+  if (res.searchEntries.length > 1) throw new LdapError('User search is ambiguous', 'search');
+  if (!res.searchEntries.length) return null;
   const e = res.searchEntries[0]!;
   const uac = Number(str(pick(e, 'userAccountControl')) || 0);
   return {
@@ -155,11 +159,14 @@ async function groupsOf(c: Client, cfg: LdapConfig, user: DirectoryUser): Promis
       scope: 'sub',
       filter: `(|(member=${dn})(uniqueMember=${dn}))`,
       attributes: ['dn'],
-      sizeLimit: 500,
+      sizeLimit: 0,
     });
+    if (res.searchReferences.length || res.searchEntries.length > 500)
+      throw new LdapError('Group search is incomplete or exceeds the supported limit', 'search');
     return res.searchEntries.map((e) => e.dn);
-  } catch {
-    return [];
+  } catch (e) {
+    // An incomplete group search must not remove existing memberships during synchronization.
+    throw new LdapError(`Group search failed: ${(e as Error).message}`, 'search');
   }
 }
 
@@ -188,6 +195,61 @@ export async function ldapLookup(
     const u = await findUser(c, cfg, username);
     if (!u) return null;
     return { ...u, groups: await groupsOf(c, cfg, u) };
+  });
+}
+
+/** Bounded administrative browsing; caller chooses a base/OU within the configured directory. */
+export async function ldapBrowse(
+  cfg: LdapConfig,
+  bindPassword: string,
+  query: { kind: 'users' | 'groups' | 'ous'; baseDn?: string; q?: string; limit: number },
+): Promise<{
+  entries: { dn: string; name: string; email: string; disabled: boolean }[];
+  truncated: boolean;
+}> {
+  const base = query.baseDn || cfg.baseDn;
+  // Escaped commas belong to an RDN value and cannot forge the configured ancestor DN.
+  const parts = (dn: string) =>
+    dn.match(/(?:\\.|[^,])+/g)?.map((rdn) => rdn.trim().toLowerCase()) ?? [];
+  const parent = parts(cfg.baseDn);
+  const requested = parts(base);
+  if (
+    requested.length < parent.length ||
+    !parent.every((rdn, i) => rdn === requested[requested.length - parent.length + i])
+  )
+    throw new LdapError('Browse base must be within the configured Base DN', 'config');
+  const objectFilter =
+    query.kind === 'users'
+      ? '(objectClass=person)'
+      : query.kind === 'groups'
+        ? '(|(objectClass=group)(objectClass=groupOfNames)(objectClass=groupOfUniqueNames)(objectClass=posixGroup))'
+        : '(objectClass=organizationalUnit)';
+  const term = escapeFilter(query.q ?? '');
+  const filter = term
+    ? `(&${objectFilter}(|(cn=*${term}*)(ou=*${term}*)(mail=*${term}*)(uid=*${term}*)))`
+    : objectFilter;
+  return withClient(cfg, async (c) => {
+    await serviceBind(c, cfg, bindPassword);
+    try {
+      const result = await c.search(base, {
+        scope: 'sub',
+        filter,
+        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, 'ou', 'userAccountControl'],
+        sizeLimit: query.limit,
+        paged: false,
+      });
+      return {
+        entries: result.searchEntries.slice(0, query.limit).map((e) => ({
+          dn: e.dn,
+          name: str(pick(e, cfg.nameAttr)) || str(pick(e, 'ou')),
+          email: str(pick(e, cfg.emailAttr)),
+          disabled: (Number(str(pick(e, 'userAccountControl')) || 0) & 2) === 2,
+        })),
+        truncated: result.searchEntries.length >= query.limit,
+      };
+    } catch (e) {
+      throw new LdapError(`Browse failed: ${(e as Error).message}`, 'search');
+    }
   });
 }
 

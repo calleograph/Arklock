@@ -26,12 +26,13 @@ import type { EntryRecord, SessionResponse, VaultInfo } from '@arklock/contracts
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { connect } from '../src/db/connect.js';
+import { settings } from '../src/db/schema.js';
 
 export const FAST = { memoryKiB: 64, iterations: 1, parallelism: 1 };
 const LOW_FLOOR = { memoryKiB: 8, iterations: 1, parallelism: 1 };
 export const APP_SECRET = 'test-secret-test-secret-test-secret-123';
 
-export async function createTestApp(env: Record<string, string> = {}) {
+export async function createTestApp(env: Record<string, string> = {}, personalLockers = true) {
   const config = loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: 'pglite:memory',
@@ -41,6 +42,9 @@ export async function createTestApp(env: Record<string, string> = {}) {
   });
   const database = await connect(config.DATABASE_URL);
   await database.migrate();
+  // Most suites exercise existing personal-vault workflows; policy suites use the product default.
+  if (personalLockers)
+    await database.db.insert(settings).values({ key: 'vaults.personalLockers', value: true });
   const app = await buildApp({ config, database });
   return { app, database };
 }

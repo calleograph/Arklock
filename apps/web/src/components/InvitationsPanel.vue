@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { email } from '@arklock/contracts';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
 import { errorMessage } from '../services/helpers';
@@ -26,6 +27,10 @@ const empty = () => ({
   circleIds: [] as string[],
 });
 const form = ref(empty());
+const canEmail = computed(() => email.safeParse(form.value.email).success);
+watch(canEmail, (allowed) => {
+  if (!allowed) form.value.sendEmail = false;
+});
 /** Код активации показывается один раз — сразу после создания учётной записи. */
 const created = ref<{ code: string; emailed: boolean } | null>(null);
 const error = ref('');
@@ -96,11 +101,14 @@ const fmt = (s: string) => new Date(s).toLocaleString();
           data-testid="invite-name"
       /></label>
       <label class="block"
-        >{{ t('common.email')
+        >{{ t('corporate.accountIdentifier')
         }}<input
           v-model="form.email"
-          type="email"
+          type="text"
           required
+          autocapitalize="none"
+          spellcheck="false"
+          maxlength="254"
           class="input"
           data-testid="invite-email"
       /></label>
@@ -117,7 +125,12 @@ const fmt = (s: string) => new Date(s).toLocaleString();
           <input v-model.number="form.days" type="number" min="1" max="60" class="input w-20"
         /></label>
         <label class="flex items-center gap-2"
-          ><input v-model="form.sendEmail" type="checkbox" data-testid="invite-send" />
+          ><input
+            v-model="form.sendEmail"
+            type="checkbox"
+            :disabled="!canEmail"
+            data-testid="invite-send"
+          />
           {{ t('invite.send') }}</label
         >
       </div>
@@ -146,7 +159,7 @@ const fmt = (s: string) => new Date(s).toLocaleString();
         <thead class="text-left text-xs text-slate-500">
           <tr>
             <th class="px-3 py-2">{{ t('invite.name') }}</th>
-            <th>{{ t('common.email') }}</th>
+            <th>{{ t('corporate.accountIdentifier') }}</th>
             <th>{{ t('invite.role') }}</th>
             <th>{{ t('invite.status') }}</th>
             <th>{{ t('invite.expires') }}</th>

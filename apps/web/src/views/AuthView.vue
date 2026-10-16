@@ -21,6 +21,8 @@ const activationCode = ref('');
 const inviteEmail = ref('');
 const inviteBad = ref(false);
 const ldapAvailable = ref(false);
+const ldapProfiles = ref<{ id: string; name: string }[]>([]);
+const ldapProfileId = ref('default');
 const sso = ref<{ enabled: boolean; buttonText: string }>({ enabled: false, buttonText: 'SSO' });
 const saml = ref<{ enabled: boolean; buttonText: string }>({ enabled: false, buttonText: 'SSO' });
 /** Уход к провайдеру: проверочное значение остаётся во вкладке, серверу уходит его хэш. */
@@ -102,9 +104,18 @@ onMounted(async () => {
       ldapMode.value = true;
       mfaStep.value = true;
     }
-    ldapAvailable.value = (
-      await api<{ enabled: boolean }>('GET', '/auth/ldap', undefined, { auth: false })
-    ).enabled;
+    const directory = await api<{ enabled: boolean; profiles?: { id: string; name: string }[] }>(
+      'GET',
+      '/auth/ldap',
+      undefined,
+      { auth: false },
+    );
+    ldapAvailable.value = directory.enabled;
+    ldapProfiles.value = directory.profiles ?? [];
+    ldapProfileId.value =
+      ldapProfiles.value.find((p) => p.id === 'default')?.id ??
+      ldapProfiles.value[0]?.id ??
+      'default';
   } catch {
     /* сервер недоступен — форма покажет ошибку при отправке */
   }
@@ -204,7 +215,11 @@ async function submit(): Promise<void> {
       recoveryContext.value = 'register';
       shownRecovery.value = recoveryCode;
     } else if (ldapMode.value) {
-      const next = await auth.signInLdap(ldapUser.value.trim(), password.value);
+      const next = await auth.signInLdap(
+        ldapUser.value.trim(),
+        password.value,
+        ldapProfileId.value,
+      );
       password.value = '';
       if (next === 'mfa') mfaStep.value = true;
       else if (next === 'enroll') ldapEnrollStep.value = true;
@@ -423,12 +438,14 @@ async function copyRecovery(): Promise<void> {
       </p>
 
       <label v-if="mode !== 'unlock' && !mfaStep && !ldapMode" class="block text-sm">
-        <span class="mb-1 block">{{ t('common.email') }}</span>
+        <span class="mb-1 block">{{ t('corporate.accountIdentifier') }}</span>
         <input
           v-model="email"
-          type="email"
+          type="text"
           required
           autocomplete="username"
+          autocapitalize="none"
+          spellcheck="false"
           :readonly="!!inviteEmail"
           class="field"
           data-testid="email"
@@ -487,6 +504,15 @@ async function copyRecovery(): Promise<void> {
           class="field font-mono"
           data-testid="recovery-input"
         />
+      </label>
+      <label
+        v-if="ldapMode && !mfaStep && !ldapEnrollStep && ldapProfiles.length > 1"
+        class="block text-sm"
+      >
+        <span class="mb-1 block">{{ t('ldap.useDirectory') }}</span>
+        <select v-model="ldapProfileId" class="input" data-testid="ldap-profile-select">
+          <option v-for="p in ldapProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
       </label>
       <label v-if="ldapMode && !mfaStep && !ldapEnrollStep" class="block text-sm">
         <span class="mb-1 block">{{ t('ldap.username') }}</span>

@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat, truncate } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, rename, rm, stat, truncate } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -128,6 +128,11 @@ export class BlobStore {
     } catch {
       return null;
     }
+  }
+
+  /** Publish an isolated rotation upload while the caller holds the vault transaction lock. */
+  async promote(id: string, stagedSuffix: string, liveSuffix: string): Promise<void> {
+    await copyFile(this.file(id, stagedSuffix), this.file(id, liveSuffix));
   }
 
   /** Удаляет одну версию файла (после ротации ключа прежняя версия не нужна). */

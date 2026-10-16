@@ -112,6 +112,7 @@ export function effective(
 
 /** Для каких путей административного API требуется какое полномочие (первое совпадение). */
 export const ADMIN_PATHS: [RegExp, AdminPerm][] = [
+  [/^\/api\/v1\/admin\/continuity$/, 'admin.system'],
   [/^\/api\/v1\/admin\/roles(\/|$)/, 'admin.roles'],
   [/^\/api\/v1\/admin\/users\/[^/]+\/mfa-reset$/, 'admin.users'],
   [/^\/api\/v1\/admin\/users(\/|$)/, 'admin.users'],

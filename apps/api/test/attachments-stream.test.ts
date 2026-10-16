@@ -181,15 +181,17 @@ describe('key rotation with step-by-step files', () => {
     ).json() as EntryRecord;
     const entry = await rewrapEntry(rec, v.key, newKey, v.id, e.entryId, 2);
     const sealed = await sealVaultKeyFor(newKey, user.publicKey, v.id, user.userId, 2);
+    const rotationId = crypto.randomUUID();
     let o2 = 0;
     for await (const f of encryptStream(ak2, id, size, async (s, t) =>
       new Uint8Array(t - s).fill(7),
     )) {
-      const r = await put(`${base}/parts?offset=${o2}&rotation=1`, f);
+      const r = await put(`${base}/parts?offset=${o2}&rotation=1&rotationId=${rotationId}`, f);
       expect(r.statusCode).toBe(200);
       o2 = r.json().received;
     }
     const body = {
+      rotationId,
       newKeyVersion: 2,
       keys: [
         {
@@ -198,7 +200,7 @@ describe('key rotation with step-by-step files', () => {
           signature: await signKeyGrant(user.signPrivateKey, v.id, user.userId, 2, sealed),
         },
       ],
-      entries: [{ id: e.entryId, ...entry }],
+      entries: [{ id: e.entryId, expectedVersion: rec.version, ...entry }],
       revisions: [],
       branches: [],
       attachments: [
@@ -211,7 +213,9 @@ describe('key rotation with step-by-step files', () => {
     };
     // пока подготовка не завершена, ротация отклоняется
     expect((await user.req('POST', `/vaults/${v.id}/rotate`, body)).statusCode).toBe(409);
-    expect((await user.req('POST', `${base}/complete?rotation=1`)).statusCode).toBe(204);
+    expect(
+      (await user.req('POST', `${base}/complete?rotation=1&rotationId=${rotationId}`)).statusCode,
+    ).toBe(204);
     expect((await user.req('POST', `/vaults/${v.id}/rotate`, body)).statusCode).toBe(200);
     const dl = await user.req('GET', `${base}/content`);
     const dec = new AttachmentDecryptor(ak2, id);

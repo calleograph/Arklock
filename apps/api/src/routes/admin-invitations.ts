@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { uuid } from '@arklock/contracts';
+import { accountIdentifier, email, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -12,7 +12,7 @@ import { sendMail } from '../mail/send.js';
 import { invitationTokenHash, newActivationCode } from '../activation.js';
 
 const createSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
+  email: accountIdentifier,
   /** Имя учётной записи; пользователь подтверждает его при активации. */
   displayName: z.string().trim().min(1).max(100).optional(),
   role: z.enum(['admin', 'member']).default('member'),
@@ -61,6 +61,8 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
   app.post('/admin/invitations', async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(createSchema, req.body);
+    if (body.sendEmail && !email.safeParse(body.email).success)
+      throw new AppError(400, 'email_required', 'Email delivery requires an email address');
     const [exists] = await db
       .select({ id: users.id })
       .from(users)

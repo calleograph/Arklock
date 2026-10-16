@@ -169,6 +169,48 @@ export const vaultKeys = pgTable(
   (t) => [primaryKey({ columns: [t.vaultId, t.userId, t.keyVersion] })],
 );
 
+/** Explicit rescue envelopes: recipient is an offline recovery identity, never an ordinary account. */
+export const corporateRecoveryKeys = pgTable(
+  'corporate_recovery_keys',
+  {
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    recipientId: uuid('recipient_id').notNull(),
+    keyVersion: integer('key_version').notNull(),
+    sealedKey: text('sealed_key').notNull(),
+    signature: text('signature').notNull(),
+    grantedBy: uuid('granted_by').notNull(),
+    grantedBySignKey: text('granted_by_sign_key').notNull(),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.vaultId, t.recipientId, t.keyVersion] })],
+);
+
+/** Persisted one-use recovery proofs remain safe across process restarts and multiple API instances. */
+export const corporateRecoveryChallenges = pgTable(
+  'corporate_recovery_challenges',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    vaultId: uuid('vault_id')
+      .notNull()
+      .references(() => vaults.id, { onDelete: 'cascade' }),
+    recipientId: uuid('recipient_id').notNull(),
+    keyVersion: integer('key_version').notNull(),
+    nonceHash: text('nonce_hash').notNull(),
+    message: text('message').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+    usedAt: ts('used_at'),
+  },
+  (t) => [index('corporate_recovery_challenges_expiry_idx').on(t.expiresAt)],
+);
+
 /** Круги (группы пользователей). */
 export const circles = pgTable(
   'circles',
@@ -307,7 +349,7 @@ export const grants = pgTable(
     targetId: uuid('target_id').notNull(),
     subjectType: text('subject_type', { enum: ['user', 'circle'] }).notNull(),
     subjectId: uuid('subject_id').notNull(),
-    role: text('role', { enum: ['reader', 'editor', 'manager'] }).notNull(),
+    role: text('role', { enum: ['none', 'reader', 'editor', 'manager'] }).notNull(),
     expiresAt: ts('expires_at'),
     createdBy: uuid('created_by').notNull(),
     createdAt: ts('created_at').notNull().defaultNow(),

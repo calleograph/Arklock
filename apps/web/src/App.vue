@@ -6,6 +6,7 @@ import { useAuthStore } from './stores/auth';
 import { useWorkspaceStore } from './stores/workspace';
 import { applyTheme, DEFAULT_THEME, isTheme, PREVIEW, storedTheme, THEMES } from './services/theme';
 import Icon from './components/Icon.vue';
+import GlobalSearchResults from './components/GlobalSearchResults.vue';
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
@@ -134,7 +135,9 @@ const initial = () =>
             class="input w-full !pl-9"
             data-testid="search"
             @input="onSearch"
+            @keydown.esc.prevent="ws.searchQuery = ''"
           />
+          <GlobalSearchResults />
         </label>
         <div v-else class="flex-1" />
 

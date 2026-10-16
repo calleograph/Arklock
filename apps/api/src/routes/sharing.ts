@@ -198,7 +198,15 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .where(eq(signals.vaultId, vaultId))
       .orderBy(asc(signals.status), desc(signals.createdAt))
       .limit(1000);
-    const assignees = rows.map((r) => r.assignedTo).filter((x): x is string => !!x);
+    const objects = await db
+      .select({ id: entries.id, branchId: entries.branchId })
+      .from(entries)
+      .where(eq(entries.vaultId, vaultId));
+    const allowed = new Set(
+      objects.filter((entry) => access.entry(entry.id, entry.branchId)).map((entry) => entry.id),
+    );
+    const visible = rows.filter((row) => allowed.has(row.entryId));
+    const assignees = visible.map((r) => r.assignedTo).filter((x): x is string => !!x);
     const us = assignees.length
       ? await db
           .select({ id: users.id, name: users.displayName })
@@ -206,7 +214,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
           .where(inArray(users.id, assignees))
       : [];
     const names = new Map(us.map((u) => [u.id, u.name]));
-    return rows.map((s) => ({
+    return visible.map((s) => ({
       id: s.id,
       entryId: s.entryId,
       type: s.type,
@@ -228,9 +236,14 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .from(signals)
       .where(and(eq(signals.id, signalId), eq(signals.vaultId, vaultId)));
     if (!s) throw notFound();
+    const [entry] = await db
+      .select({ branchId: entries.branchId })
+      .from(entries)
+      .where(and(eq(entries.id, s.entryId), eq(entries.vaultId, vaultId)));
+    if (!entry || !access.entry(s.entryId, entry.branchId)) throw notFound();
     if (body.assignedTo) {
       const target = await requireVault(db, vaultId, body.assignedTo).catch(() => null);
-      if (!target || !target.isAdmin)
+      if (!target || !target.isAdmin || !target.entry(s.entryId, entry.branchId))
         throw new AppError(
           400,
           'bad_assignee',

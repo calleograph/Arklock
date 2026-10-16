@@ -4,9 +4,74 @@ import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
 import { errorMessage } from '../services/helpers';
 
-const { t } = useI18n();
+const { t } = useI18n({
+  useScope: 'local',
+  messages: {
+    ru: {
+      directory: {
+        profiles: 'Подключения каталогов',
+        add: 'Добавить подключение',
+        remove: 'Удалить подключение',
+        name: 'Название подключения',
+        confirm:
+          'Удалить подключение? Пользователи с завершённой регистрацией требуют сохранения подключения.',
+        inUse:
+          'В этом каталоге есть зарегистрированные пользователи. Отключите подключение вместо удаления.',
+        scheduled: 'Синхронизация при обслуживании сервера (каждые 6 часов)',
+        lastSync: 'Последняя синхронизация',
+        browse: 'Просмотреть каталог',
+        users: 'Пользователи',
+        groups: 'Группы',
+        ous: 'Подразделения (OU)',
+        search: 'Имя или почта',
+        base: 'DN подразделения для просмотра',
+        map: 'Связать с группой Arklock',
+        open: 'Открыть OU',
+        useBase: 'Использовать как базовый DN пользователей',
+        bounded: 'Показаны первые результаты. Уточните фильтр или подразделение.',
+        savedOnly:
+          'Проверка, просмотр и синхронизация используют сохранённые настройки. Ключи новых пользователей создаются в браузере при первом входе.',
+        mappingHint:
+          'Для привязанных групп членство пользователей этого каталога управляется каталогом. Изменение привязки сохраняйте перед синхронизацией.',
+        clearPassword: 'Удалить сохранённый служебный пароль',
+        errors: 'Ошибки синхронизации',
+      },
+    },
+    en: {
+      directory: {
+        profiles: 'Directory connections',
+        add: 'Add connection',
+        remove: 'Delete connection',
+        name: 'Connection name',
+        confirm: 'Delete this connection? Enrolled users require keeping their connection.',
+        inUse:
+          'Enrolled users depend on this directory. Disable the connection instead of deleting it.',
+        scheduled: 'Sync during server maintenance (every 6 hours)',
+        lastSync: 'Last sync',
+        browse: 'Browse directory',
+        users: 'Users',
+        groups: 'Groups',
+        ous: 'Organizational units (OU)',
+        search: 'Name or email',
+        base: 'Browse OU distinguished name',
+        map: 'Map to an Arklock group',
+        open: 'Open OU',
+        useBase: 'Use as user Base DN',
+        bounded: 'First results shown. Narrow the filter or OU.',
+        savedOnly:
+          'Diagnostics, browsing and sync use saved settings. New users create their encryption keys in the browser on first sign-in.',
+        mappingHint:
+          'Directory membership manages mapped groups for users of this connection. Save mapping changes before syncing.',
+        clearPassword: 'Clear saved service password',
+        errors: 'Sync errors',
+      },
+    },
+  },
+});
 
 interface Form {
+  name: string;
+  syncEnabled: boolean;
   enabled: boolean;
   url: string;
   startTls: boolean;
@@ -22,7 +87,9 @@ interface Form {
   autoProvision: boolean;
   groups: { dn: string; circleId: string }[];
 }
-const form = ref<Form>({
+const blankForm = (): Form => ({
+  name: 'LDAP',
+  syncEnabled: false,
   enabled: false,
   url: 'ldaps://',
   startTls: false,
@@ -39,6 +106,22 @@ const form = ref<Form>({
   autoProvision: true,
   groups: [],
 });
+const form = ref<Form>(blankForm());
+interface Profile extends Omit<Form, 'bindPassword'> {
+  id: string;
+  hasBindPassword: boolean;
+  lastSync: {
+    at: string;
+    total: number;
+    updated: number;
+    disabled: number;
+    errors: string[];
+  } | null;
+}
+const profiles = ref<Profile[]>([]);
+const selectedProfile = ref('default');
+const clearPassword = ref(false);
+const lastSync = ref<Profile['lastSync']>(null);
 const hasBindPassword = ref(false);
 const circles = ref<{ id: string; name: string }[]>([]);
 const error = ref('');
@@ -50,22 +133,55 @@ const lookupOut = ref<{
   user?: { dn: string; email: string; name: string; groups: string[] };
 } | null>(null);
 const busy = ref(false);
+const browseKind = ref<'users' | 'groups' | 'ous'>('users');
+const browseQuery = ref('');
+const browseBase = ref('');
+const browseOut = ref<{ dn: string; name: string; email: string; disabled: boolean }[]>([]);
+const truncated = ref(false);
+const profileQuery = () => `?profileId=${encodeURIComponent(selectedProfile.value)}`;
+
+function choose(id: string): void {
+  selectedProfile.value = id;
+  const profile = profiles.value.find((p) => p.id === id);
+  form.value = {
+    ...blankForm(),
+    ...profile,
+    groups: profile?.groups.map((g) => ({ ...g })) ?? [],
+    bindPassword: '',
+  };
+  hasBindPassword.value = !!profile?.hasBindPassword;
+  lastSync.value = profile?.lastSync ?? null;
+  clearPassword.value = false;
+  lookupOut.value = null;
+  browseOut.value = [];
+  browseBase.value = '';
+}
+function addProfile(): void {
+  choose(crypto.randomUUID());
+}
 
 async function load(): Promise<void> {
-  circles.value = await api('GET', '/admin/circles');
-  const r = await api<Record<string, unknown>>('GET', '/admin/ldap');
-  if (r.configured) {
-    form.value = { ...form.value, ...(r as Partial<Form>), bindPassword: '' };
-    hasBindPassword.value = r.hasBindPassword === true;
-  }
+  const r = await api<{ profiles: Profile[]; circles: { id: string; name: string }[] }>(
+    'GET',
+    '/admin/ldap/profiles',
+  );
+  circles.value = r.circles;
+  profiles.value = r.profiles;
+  choose(
+    profiles.value.some((p) => p.id === selectedProfile.value)
+      ? selectedProfile.value
+      : (profiles.value[0]?.id ?? 'default'),
+  );
 }
 onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
 
 function fail(e: unknown): void {
   error.value =
-    e instanceof ApiError && e.code === 'insecure_ldap'
-      ? t('ldap.allowPlaintext')
-      : errorMessage(e, t);
+    e instanceof ApiError && e.code === 'ldap_profile_in_use'
+      ? t('directory.inUse')
+      : e instanceof ApiError && e.code === 'insecure_ldap'
+        ? t('ldap.allowPlaintext')
+        : errorMessage(e, t);
 }
 
 async function wrap(fn: () => Promise<void>): Promise<void> {
@@ -84,9 +200,13 @@ async function wrap(fn: () => Promise<void>): Promise<void> {
 
 const save = () =>
   wrap(async () => {
-    await api('PUT', '/admin/ldap', {
+    await api('PUT', `/admin/ldap/profiles/${selectedProfile.value}`, {
       ...form.value,
-      bindPassword: form.value.bindPassword === '' ? undefined : form.value.bindPassword,
+      bindPassword: clearPassword.value
+        ? ''
+        : form.value.bindPassword === ''
+          ? undefined
+          : form.value.bindPassword,
     });
     notice.value = t('admin.saved');
     await load();
@@ -94,7 +214,10 @@ const save = () =>
 
 const test = () =>
   wrap(async () => {
-    const r = await api<{ ok: boolean; message?: string }>('POST', '/admin/ldap/test');
+    const r = await api<{ ok: boolean; message?: string }>(
+      'POST',
+      '/admin/ldap/test' + profileQuery(),
+    );
     result.value = r.ok ? t('ldap.ok') : `${t('ldap.fail')}: ${r.message ?? ''}`;
   });
 
@@ -102,7 +225,7 @@ const lookup = () =>
   wrap(async () => {
     const r = await api<{ ok: boolean; found?: boolean; message?: string; user?: never }>(
       'POST',
-      '/admin/ldap/lookup',
+      '/admin/ldap/lookup' + profileQuery(),
       { username: lookupName.value },
     );
     if (!r.ok) result.value = `${t('ldap.fail')}: ${r.message ?? ''}`;
@@ -113,15 +236,73 @@ const sync = () =>
   wrap(async () => {
     const r = await api<{ total: number; disabled: number; updated: number; errors: string[] }>(
       'POST',
-      '/admin/ldap/sync',
+      '/admin/ldap/sync' + profileQuery(),
     );
     result.value = t('ldap.syncResult', r);
+    await load();
+  });
+const remove = () =>
+  window.confirm(t('directory.confirm')) &&
+  wrap(async () => {
+    await api('DELETE', `/admin/ldap/profiles/${selectedProfile.value}`);
+    await load();
+  });
+const browse = () =>
+  wrap(async () => {
+    const r = await api<{
+      ok: boolean;
+      message?: string;
+      entries?: typeof browseOut.value;
+      truncated?: boolean;
+    }>('POST', '/admin/ldap/browse' + profileQuery(), {
+      kind: browseKind.value,
+      q: browseQuery.value,
+      baseDn: browseBase.value || undefined,
+    });
+    if (!r.ok) result.value = `${t('ldap.fail')}: ${r.message ?? ''}`;
+    browseOut.value = r.entries ?? [];
+    truncated.value = !!r.truncated;
   });
 </script>
 
 <template>
   <div class="space-y-4" data-testid="ldap-settings">
     <p class="text-sm text-slate-500">{{ t('ldap.hint') }}</p>
+    <div class="flex max-w-2xl flex-wrap items-end gap-2">
+      <label class="min-w-48 flex-1 text-sm"
+        >{{ t('directory.profiles') }}
+        <select
+          :value="selectedProfile"
+          class="input"
+          :disabled="busy"
+          data-testid="ldap-profile"
+          @change="choose(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+          <option v-if="!profiles.some((p) => p.id === selectedProfile)" :value="selectedProfile">
+            {{ t('directory.add') }}
+          </option>
+        </select>
+      </label>
+      <button
+        type="button"
+        class="btn"
+        :disabled="busy"
+        data-testid="ldap-add-profile"
+        @click="addProfile"
+      >
+        {{ t('directory.add') }}
+      </button>
+      <button
+        type="button"
+        class="btn"
+        :disabled="busy || !profiles.some((p) => p.id === selectedProfile)"
+        data-testid="ldap-delete-profile"
+        @click="remove"
+      >
+        {{ t('directory.remove') }}
+      </button>
+    </div>
     <p
       v-if="error"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -139,6 +320,15 @@ const sync = () =>
     </p>
 
     <form class="card max-w-2xl space-y-3 p-4 text-sm" @submit.prevent="save">
+      <label class="block"
+        >{{ t('directory.name')
+        }}<input
+          v-model="form.name"
+          required
+          maxlength="100"
+          class="input"
+          data-testid="ldap-profile-name"
+      /></label>
       <label class="flex items-center gap-2"
         ><input v-model="form.enabled" type="checkbox" data-testid="ldap-enabled" />
         {{ t('ldap.enabled') }}</label
@@ -147,6 +337,9 @@ const sync = () =>
         >{{ t('ldap.url')
         }}<input v-model="form.url" required class="input font-mono" data-testid="ldap-url"
       /></label>
+      <label v-if="hasBindPassword" class="flex items-center gap-2"
+        ><input v-model="clearPassword" type="checkbox" />{{ t('directory.clearPassword') }}</label
+      >
       <div class="flex flex-wrap gap-4">
         <label class="flex items-center gap-2"
           ><input v-model="form.startTls" type="checkbox" /> {{ t('ldap.startTls') }}</label
@@ -196,9 +389,15 @@ const sync = () =>
       <label class="flex items-center gap-2"
         ><input v-model="form.autoProvision" type="checkbox" /> {{ t('ldap.autoProvision') }}</label
       >
+      <label class="flex items-center gap-2"
+        ><input v-model="form.syncEnabled" type="checkbox" data-testid="ldap-scheduled-sync" />{{
+          t('directory.scheduled')
+        }}</label
+      >
 
       <div class="space-y-2">
         <div class="font-medium">{{ t('ldap.groups') }}</div>
+        <p class="text-xs text-slate-500">{{ t('directory.mappingHint') }}</p>
         <div v-for="(g, i) in form.groups" :key="i" class="flex gap-2">
           <input
             v-model="g.dn"
@@ -226,6 +425,18 @@ const sync = () =>
     </form>
 
     <div class="card max-w-2xl space-y-3 p-4 text-sm">
+      <p class="text-xs text-slate-500">{{ t('directory.savedOnly') }}</p>
+      <div v-if="lastSync" data-testid="ldap-last-sync">
+        {{ t('directory.lastSync') }}: {{ new Date(lastSync.at).toLocaleString() }} ·
+        {{ t('ldap.syncResult', lastSync) }}
+        <ul
+          v-if="lastSync.errors.length"
+          class="text-xs text-red-600"
+          :aria-label="t('directory.errors')"
+        >
+          <li v-for="(message, i) in lastSync.errors" :key="i">{{ message }}</li>
+        </ul>
+      </div>
       <div class="flex flex-wrap gap-2">
         <button type="button" class="btn" :disabled="busy" data-testid="ldap-test" @click="test">
           {{ t('ldap.test') }}
@@ -259,6 +470,70 @@ const sync = () =>
           </ul>
         </div>
       </div>
+      <form class="space-y-2 border-t border-slate-200 pt-3" @submit.prevent="browse">
+        <div class="flex gap-2">
+          <select
+            v-model="browseKind"
+            class="input w-48"
+            :aria-label="t('directory.browse')"
+            data-testid="ldap-browse-kind"
+          >
+            <option value="users">{{ t('directory.users') }}</option>
+            <option value="groups">{{ t('directory.groups') }}</option>
+            <option value="ous">{{ t('directory.ous') }}</option>
+          </select>
+          <input
+            v-model="browseQuery"
+            class="input"
+            :placeholder="t('directory.search')"
+            :aria-label="t('directory.search')"
+            data-testid="ldap-browse-query"
+          />
+        </div>
+        <input
+          v-model="browseBase"
+          class="input font-mono text-xs"
+          :placeholder="form.baseDn"
+          :aria-label="t('directory.base')"
+          data-testid="ldap-browse-base"
+        />
+        <button type="submit" class="btn" :disabled="busy" data-testid="ldap-browse">
+          {{ t('directory.browse') }}
+        </button>
+      </form>
+      <p v-if="truncated" class="text-xs text-amber-700">{{ t('directory.bounded') }}</p>
+      <ul class="max-h-80 divide-y divide-slate-200 overflow-auto" data-testid="ldap-browse-result">
+        <li v-for="entry in browseOut" :key="entry.dn" class="space-y-1 py-2">
+          <p>
+            {{ entry.name }} <span class="text-slate-500">{{ entry.email }}</span>
+          </p>
+          <p class="break-all font-mono text-xs text-slate-500">{{ entry.dn }}</p>
+          <button
+            v-if="browseKind === 'groups'"
+            type="button"
+            class="btn text-xs"
+            :disabled="!circles.length || form.groups.some((g) => g.dn === entry.dn)"
+            @click="form.groups.push({ dn: entry.dn, circleId: circles[0]!.id })"
+          >
+            {{ t('directory.map') }}
+          </button>
+          <div v-if="browseKind === 'ous'" class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="btn text-xs"
+              @click="
+                browseBase = entry.dn;
+                browse();
+              "
+            >
+              {{ t('directory.open') }}
+            </button>
+            <button type="button" class="btn text-xs" @click="form.baseDn = entry.dn">
+              {{ t('directory.useBase') }}
+            </button>
+          </div>
+        </li>
+      </ul>
     </div>
   </div>
 </template>

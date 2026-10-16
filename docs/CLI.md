@@ -26,7 +26,7 @@ node apps/cli/dist/main.js help        # или: npm link -w @arklock/cli  → �
 | Команда                                                                           | Что делает                                            |
 | --------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | `arklock config --server URL --token akt_…`                                       | сохранить адрес и токен (файл доступен только вам)    |
-| `arklock login --server URL --email EMAIL`                                        | войти по паролю и коду второго фактора                |
+| `arklock login --server URL --email ACCOUNT`                                      | войти по имени пользователя или почте и коду второго фактора |
 | `arklock whoami`, `arklock vaults`                                                | кто вошёл, какие хранилища доступны                   |
 | `arklock list [-q текст] [--vault имя] [--json]`                                  | список записей (с путём папок)                        |
 | `arklock get <запись> [--field password\|username\|url\|notes\|totp\|имя] [--json]` | прочитать запись или поле                             |

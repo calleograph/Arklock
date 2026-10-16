@@ -7,6 +7,8 @@ import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore, type MemberInfo } from '../stores/workspace';
+import EntrySettingsPanel from '../components/EntrySettingsPanel.vue';
+import VaultCorporateRecovery from '../components/VaultCorporateRecovery.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -251,6 +253,10 @@ void decryptEntry;
     <p v-if="!ws.keyLogOk" class="text-sm text-red-600" role="alert">
       {{ t('vault.keyLogBroken') }}
     </p>
+    <section class="card p-4" data-testid="vault-policy">
+      <EntrySettingsPanel :vault-id="id" :entry-id="id" target-type="vault" :active="true" />
+    </section>
+    <VaultCorporateRecovery :vault-id="id" />
 
     <div
       v-if="rotationHint"

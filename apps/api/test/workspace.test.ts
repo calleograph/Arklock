@@ -626,11 +626,12 @@ describe('revoking access and rotating the vault key', () => {
     const incomplete = await admin.req('POST', `/vaults/${v.id}/rotate`, {
       newKeyVersion: 2,
       keys,
-      entries: [{ id: entryId, ...rewrappedEntry }],
+      entries: [{ id: entryId, expectedVersion: records.version, ...rewrappedEntry }],
       revisions: [],
       branches: [
         {
           id: branch,
+          expectedVersion: br.version,
           nameCipher: await rewrapBranchName(br.nameCipher, v.key, newKey, v.id, branch, 1, 2),
         },
       ],
@@ -642,11 +643,12 @@ describe('revoking access and rotating the vault key', () => {
     const missingKey = await admin.req('POST', `/vaults/${v.id}/rotate`, {
       newKeyVersion: 2,
       keys: [keys[0]],
-      entries: [{ id: entryId, ...rewrappedEntry }],
+      entries: [{ id: entryId, expectedVersion: records.version, ...rewrappedEntry }],
       revisions: rewrappedRevs,
       branches: [
         {
           id: branch,
+          expectedVersion: br.version,
           nameCipher: await rewrapBranchName(br.nameCipher, v.key, newKey, v.id, branch, 1, 2),
         },
       ],
@@ -656,11 +658,12 @@ describe('revoking access and rotating the vault key', () => {
     const ok = await admin.req('POST', `/vaults/${v.id}/rotate`, {
       newKeyVersion: 2,
       keys,
-      entries: [{ id: entryId, ...rewrappedEntry }],
+      entries: [{ id: entryId, expectedVersion: records.version, ...rewrappedEntry }],
       revisions: rewrappedRevs,
       branches: [
         {
           id: branch,
+          expectedVersion: br.version,
           nameCipher: await rewrapBranchName(br.nameCipher, v.key, newKey, v.id, branch, 1, 2),
         },
       ],

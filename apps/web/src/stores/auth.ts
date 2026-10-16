@@ -151,12 +151,13 @@ export const useAuthStore = defineStore('auth', () => {
   async function signInLdap(
     username: string,
     password: string,
+    profileId?: string,
   ): Promise<'unlock' | 'mfa' | 'enroll'> {
     const res = await api<
       | SessionResponse
       | MfaChallengeResponse
       | { enroll: true; enrollToken: string; email: string; name: string }
-    >('POST', '/auth/ldap/login', { username, password }, { auth: false });
+    >('POST', '/auth/ldap/login', { username, password, profileId }, { auth: false });
     if ('enroll' in res) {
       ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
       return 'enroll';

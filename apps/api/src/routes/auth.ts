@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { and, count, eq, ne, isNull, sql } from 'drizzle-orm';
+import { and, count, eq, ne, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { assertKdfParams } from '@arklock/crypto';
@@ -43,6 +43,7 @@ import { desc } from 'drizzle-orm';
 import { AppError, notFound, parse } from '../errors.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
+import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
 
@@ -56,7 +57,7 @@ function checkKdf(ctx: AppContext, kdf: KdfIn): void {
 
 type Tx = Parameters<Parameters<AppContext['db']['transaction']>[0]>[0];
 
-/** Создание пользователя, записи журнала ключей и личного сейфа (одна транзакция вызывающего). */
+/** Создание пользователя, журнала ключей и разрешённого политикой личного сейфа. */
 export async function insertAccount(
   tx: Tx,
   body: RegisterRequest,
@@ -64,6 +65,7 @@ export async function insertAccount(
     role: 'admin' | 'member';
     authSource: 'local' | 'ldap' | 'oidc' | 'saml';
     externalId: string | null;
+    createCorporate?: boolean;
   },
 ): Promise<void> {
   const authSalt = randomB64url(16);
@@ -102,28 +104,44 @@ export async function insertAccount(
     prevHash,
     hash: await keyLogHash(prevHash, body.userId, body.publicKey, body.signPublicKey),
   });
+  if (opts.createCorporate) {
+    await insertLocker(tx, body.userId, body.signPublicKey, body.locker, true);
+  } else if (await personalLockersAllowed(tx, body.userId)) {
+    await insertLocker(tx, body.userId, body.signPublicKey, body.locker);
+  }
+}
+
+async function insertLocker(
+  tx: Tx,
+  userId: string,
+  signPublicKey: string,
+  locker: RegisterRequest['locker'],
+  corporate = false,
+): Promise<void> {
   const signOk = await verifyKeyGrant(
-    fromBase64Url(body.signPublicKey),
-    body.locker.signature,
-    body.locker.vaultId,
-    body.userId,
+    fromBase64Url(signPublicKey),
+    locker.signature,
+    locker.vaultId,
+    userId,
     1,
-    body.locker.sealedKey,
+    locker.sealedKey,
   ).catch(() => false);
   if (!signOk) throw new AppError(400, 'bad_signature', 'Key grant signature is invalid');
-  await tx
-    .insert(vaults)
-    .values({ id: body.locker.vaultId, kind: 'locker', keyVersion: 1, createdBy: body.userId });
-  await tx
-    .insert(vaultMembers)
-    .values({ vaultId: body.locker.vaultId, userId: body.userId, role: 'owner' });
-  await tx.insert(vaultKeys).values({
-    vaultId: body.locker.vaultId,
-    userId: body.userId,
+  await tx.insert(vaults).values({
+    id: locker.vaultId,
+    kind: corporate ? 'shared' : 'locker',
+    name: corporate ? 'Organization' : null,
     keyVersion: 1,
-    sealedKey: body.locker.sealedKey,
-    grantedBy: body.userId,
-    signature: body.locker.signature,
+    createdBy: userId,
+  });
+  await tx.insert(vaultMembers).values({ vaultId: locker.vaultId, userId, role: 'owner' });
+  await tx.insert(vaultKeys).values({
+    vaultId: locker.vaultId,
+    userId,
+    keyVersion: 1,
+    sealedKey: locker.sealedKey,
+    grantedBy: userId,
+    signature: locker.signature,
   });
 }
 
@@ -199,12 +217,23 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   });
 
   /** Публичные для вошедших пользователей политики (нужны интерфейсу для показа доступных действий). */
-  app.get('/auth/policy', { preHandler: auth }, async () => {
+  app.get('/auth/policy', { preHandler: auth }, async (req) => {
+    const { user } = authOf(req);
+    const personalAllowed = await personalLockersAllowed(db, user.id);
     const rows = await db.select().from(settings);
     const get = (k: string, d: unknown) => rows.find((r) => r.key === k)?.value ?? d;
     return {
       'vaults.creators': get('vaults.creators', 'admins'),
-      'vaults.personalLockers': get('vaults.personalLockers', true),
+      'vaults.personalLockers': personalAllowed,
+      'vaults.personalDataRestricted':
+        !personalAllowed &&
+        (
+          await db
+            .select({ id: vaults.id })
+            .from(vaults)
+            .where(and(eq(vaults.kind, 'locker'), eq(vaults.createdBy, user.id)))
+            .limit(1)
+        ).length > 0,
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
       'security.mfaRequired': get('security.mfaRequired', 'off'),
@@ -213,6 +242,30 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'storage.enabled': config.BLOB_DIR !== '',
       'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 1024),
     };
+  });
+
+  /** Provision only after explicit authorization; clients retain the private encryption keys. */
+  app.post('/auth/locker', { preHandler: auth }, async (req, reply) => {
+    const { user } = authOf(req);
+    const locker = parse(registerRequest.shape.locker, req.body);
+    await db.transaction(async (tx) => {
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, user.id)).for('update');
+      await requirePersonalLockerAllowed(tx, user.id);
+      const [existing] = await tx
+        .select({ id: vaults.id })
+        .from(vaults)
+        .where(
+          or(
+            eq(vaults.id, locker.vaultId),
+            and(eq(vaults.kind, 'locker'), eq(vaults.createdBy, user.id)),
+          ),
+        )
+        .limit(1);
+      if (existing) throw new AppError(409, 'already_exists', 'Personal vault already exists');
+      await insertLocker(tx, user.id, user.signPublicKey, locker);
+    });
+    await audit(db, `user:${user.id}`, 'vault.personal.create', `vault:${locker.vaultId}`);
+    return reply.status(201).send({ id: locker.vaultId });
   });
 
   /** События, которые происходят только на клиенте (экспорт открытых данных), фиксируются в журнале. */
@@ -307,6 +360,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           role: n === 0 ? 'admin' : (invite?.role ?? 'member'),
           authSource: 'local',
           externalId: null,
+          createCorporate: n === 0 && !(await personalLockersAllowed(tx, body.userId)),
         },
       );
       if (invite) {

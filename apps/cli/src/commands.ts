@@ -41,7 +41,7 @@ export const HELP = `Arklock — командная строка
 Использование: arklock <команда> [параметры]
 
   config --server URL --token akt_…   сохранить адрес сервера и токен API
-  login  --server URL --email EMAIL    войти по паролю (и коду второго фактора)
+  login  --server URL --email ACCOUNT  войти по паролю (адресу или имени пользователя)
   logout                               забыть сохранённые данные
   whoami                               кто вошёл и что видно
   vaults                               список хранилищ
@@ -216,7 +216,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
         const server = str(p, 'server') ?? io.env.ARKLOCK_SERVER ?? io.loadConfig().server;
         const email = str(p, 'email');
         if (!server || !email)
-          throw new CliError('Usage: arklock login --server URL --email EMAIL');
+          throw new CliError('Usage: arklock login --server URL --email ACCOUNT');
         const token = await passwordLogin(server, email, await password(io), {
           fetchFn: io.fetchFn,
           kdfFloor: io.kdfFloor,
