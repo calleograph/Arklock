@@ -298,6 +298,12 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  const token = await page.evaluate(() => sessionStorage.getItem('arklock.token'));
+  const personalPolicy = await page.request.put('/api/v1/admin/settings', {
+    headers: { authorization: `Bearer ${token}` },
+    data: { 'vaults.personalLockers': true },
+  });
+  expect(personalPolicy.status()).toBe(200);
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await tab(page, 'ldap');
