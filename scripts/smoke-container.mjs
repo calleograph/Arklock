@@ -76,8 +76,8 @@ async function login(email, password) {
 async function lockerKey(s) {
   const vaults = await call('GET', '/vaults', null, s.token);
   must(vaults.status === 200, 'list vaults');
-  const locker = vaults.json.find((v) => v.kind === 'locker');
-  must(locker, 'locker exists');
+  const locker = vaults.json.find((v) => v.key?.sealedKey);
+  must(locker, 'an accessible vault with its current key exists');
   const key = await openVaultKey(
     locker.key.sealedKey,
     s.privateKey,
@@ -194,7 +194,7 @@ async function verify() {
   const st = JSON.parse(readFileSync(STATE_FILE, 'utf8'));
   const s = await login(st.email, st.password);
   const { locker, key } = await lockerKey(s);
-  must(locker.id === st.vaultId, 'same locker');
+  must(locker.id === st.vaultId, 'same vault');
   const got = await call('GET', `/vaults/${locker.id}/entries/${st.entryId}`, null, s.token);
   must(got.status === 200, `entry still present (${got.status})`);
   const plain = await decryptEntry(got.json, key, locker.id, st.entryId);
