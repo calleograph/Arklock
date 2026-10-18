@@ -4,6 +4,7 @@ import { ReauthStore } from './auth/reauth.js';
 import { setAuditSink } from './audit.js';
 import { BlobStore } from './blobs.js';
 import { SyslogSink } from './syslog.js';
+import { WebhookSink } from './webhooks.js';
 import { EnrollStore } from './auth/enroll.js';
 import { LoginTickets } from './auth/tickets.js';
 import { MfaChallenges, type MfaPolicy } from './auth/mfa.js';
@@ -25,6 +26,7 @@ export interface AppContext {
   /** Билеты возврата после входа через OIDC / SAML. */
   tickets: LoginTickets;
   syslog: SyslogSink;
+  webhooks: WebhookSink;
   /** Кэш предельной длительности сеанса пользователей SAML (часы). */
   samlPolicy?: { hours: number; until: number };
   mfaPolicyCache?: { value: MfaPolicy; until: number };
@@ -33,7 +35,11 @@ export interface AppContext {
 export function createContext(config: Config, database: Database): AppContext {
   const windowMs = config.LOGIN_WINDOW_MINUTES * 60_000;
   const syslog = new SyslogSink(database.db);
-  setAuditSink(database.db, (ev) => void syslog.forward(ev));
+  const webhooks = new WebhookSink(database.db, config.APP_SECRET, config.NODE_ENV === 'test');
+  setAuditSink(database.db, (ev) => {
+    void syslog.forward(ev);
+    webhooks.forward(ev);
+  });
   return {
     config,
     database,
@@ -45,6 +51,7 @@ export function createContext(config: Config, database: Database): AppContext {
     enroll: new EnrollStore(),
     tickets: new LoginTickets(),
     syslog,
+    webhooks,
     attempts: {
       byEmail: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS, windowMs),
       byIp: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS * 5, windowMs),

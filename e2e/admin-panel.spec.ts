@@ -575,6 +575,14 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('offboarding-confirm').click();
   await expect(page.getByTestId('offboarding').getByRole('status')).toBeVisible();
   await expect(page.getByTestId('offboard-invited.person@example.com')).toHaveCount(0);
+
+  // вебхук: секрет подписи показывается один раз
+  await tab(page, 'webhooks');
+  await page.getByTestId('webhook-add').click();
+  await page.getByTestId('webhook-name').fill('SIEM');
+  await page.getByTestId('webhook-url').fill('https://siem.example.com/arklock');
+  await page.getByTestId('webhook-save').click();
+  await expect(page.getByTestId('webhook-secrets')).toContainText('SIEM');
 });
 
 // ---------------------------------------------------------------- SAML

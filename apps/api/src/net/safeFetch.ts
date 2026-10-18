@@ -47,6 +47,9 @@ export interface SafeFetchOptions {
   timeoutMs?: number;
   maxBytes?: number;
   headers?: Record<string, string>;
+  /** POST с телом (вебхуки); по умолчанию GET. */
+  method?: 'GET' | 'POST';
+  body?: string;
   /** Только для тестов: разрешить http и внутренние адреса. */
   allowInsecureForTests?: boolean;
 }
@@ -90,8 +93,15 @@ export async function safeGet(
         host: target,
         port: url.port || (isHttps ? 443 : 80),
         path: `${url.pathname}${url.search}`,
-        method: 'GET',
-        headers: { Host: url.host, 'User-Agent': 'arklock', ...opts.headers },
+        method: opts.method ?? 'GET',
+        headers: {
+          Host: url.host,
+          'User-Agent': 'arklock',
+          ...(opts.body !== undefined
+            ? { 'Content-Length': String(Buffer.byteLength(opts.body)) }
+            : {}),
+          ...opts.headers,
+        },
         servername: isHttps ? host : undefined, // SNI и проверка сертификата — по имени, соединение — по проверенному IP
         timeout: opts.timeoutMs ?? 10_000,
       },
@@ -117,6 +127,6 @@ export async function safeGet(
     );
     req.on('timeout', () => req.destroy(new UnsafeUrlError('request timed out')));
     req.on('error', reject);
-    req.end();
+    req.end(opts.body);
   });
 }

@@ -966,6 +966,7 @@ export default {
       sso: 'Single sign-on',
       saml: 'SAML 2.0',
       syslog: 'Log export (syslog)',
+      webhooks: 'Webhooks',
       invitations: 'New users',
       roles: 'Roles',
     },

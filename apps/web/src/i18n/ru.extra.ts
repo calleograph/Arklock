@@ -981,6 +981,7 @@ export default {
       sso: 'Единый вход (SSO)',
       saml: 'SAML 2.0',
       syslog: 'Отправка журнала (syslog)',
+      webhooks: 'Вебхуки',
       invitations: 'Новые пользователи',
       roles: 'Роли',
     },

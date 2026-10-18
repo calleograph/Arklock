@@ -9,6 +9,7 @@ import AdminSystem from '../components/AdminSystem.vue';
 import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
+import WebhookSettings from '../components/WebhookSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
@@ -44,6 +45,7 @@ const TAB_ICON: Record<string, IconName> = {
   saml: 'key',
   smtp: 'text',
   syslog: 'log',
+  webhooks: 'log',
   settings: 'settings',
   ledger: 'log',
 };
@@ -73,6 +75,7 @@ type Tab =
   | 'ldap'
   | 'sso'
   | 'syslog'
+  | 'webhooks'
   | 'invitations'
   | 'roles'
   | 'saml'
@@ -107,6 +110,7 @@ const TAB_PERM: Record<Tab, string> = {
   sso: 'admin.integrations',
   saml: 'admin.integrations',
   syslog: 'admin.integrations',
+  webhooks: 'admin.integrations',
   invitations: 'admin.invitations',
   roles: 'admin.roles',
 };
@@ -375,7 +379,7 @@ const GROUPS: { id: string; tabs: Tab[] }[] = [
       'certificates',
     ],
   },
-  { id: 'integrations', tabs: ['ldap', 'sso', 'saml', 'smtp', 'syslog'] },
+  { id: 'integrations', tabs: ['ldap', 'sso', 'saml', 'smtp', 'syslog', 'webhooks'] },
   { id: 'security', tabs: ['settings', 'ledger'] },
 ];
 const ALL_TABS: Tab[] = [
@@ -388,6 +392,7 @@ const ALL_TABS: Tab[] = [
   'sso',
   'saml',
   'syslog',
+  'webhooks',
   'invitations',
   'roles',
 ];
@@ -465,6 +470,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
         <RolesPanel v-if="tab === 'roles'" />
         <InvitationsPanel v-else-if="tab === 'invitations'" />
         <SyslogSettings v-else-if="tab === 'syslog'" />
+        <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />
         <SamlSettings v-else-if="tab === 'saml'" />
         <LdapSettings v-else-if="tab === 'ldap'" />
