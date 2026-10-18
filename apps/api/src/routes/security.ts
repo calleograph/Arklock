@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
