@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { CryptoAuthError, CryptoFormatError, generatePassphrase, utf8 } from '@arklock/crypto';
 import { api } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, vaultLabel } from '../services/helpers';
 import { openSink } from '../services/download';
 import {
   createCorporateRecoveryPackage,
@@ -192,7 +193,10 @@ function toggleEnabled(): void {
 <template>
   <section class="card space-y-4 p-4 sm:col-span-2 lg:col-span-3" data-testid="corporate-recovery">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 class="font-semibold">{{ t('corpRecovery.title') }}</h2>
+      <h2 class="inline-flex items-center gap-1 font-semibold">
+        {{ t('corpRecovery.title')
+        }}<InfoHint :text="t('hint.corpRecovery.text')" :details="t('hint.corpRecovery.details')" />
+      </h2>
       <button type="button" class="btn" :disabled="busy" @click="run(load)">
         {{ t('entryPanel.refresh') }}
       </button>
@@ -376,7 +380,7 @@ function toggleEnabled(): void {
               data-testid="recovery-vault-row"
             >
               <div>
-                <p class="break-all font-medium">{{ vault.name }}</p>
+                <p class="break-all font-medium">{{ vaultLabel(vault, t) }}</p>
                 <p
                   :class="
                     vault.enrolled

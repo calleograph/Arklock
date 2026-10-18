@@ -255,6 +255,7 @@ const initial = () =>
                           label: t('nav.settings'),
                           id: 'menu-settings',
                         },
+                        { to: '/help', icon: 'help', label: t('help.title'), id: 'menu-help' },
                       ]"
                       :key="item.to"
                       :to="item.to"

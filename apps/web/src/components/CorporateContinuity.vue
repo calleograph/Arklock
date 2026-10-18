@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, vaultLabel } from '../services/helpers';
 const { t } = useI18n();
 const vaults = ref<
   | { id: string; name: string; custodians: { userId: string; name: string }[]; recovery: string }[]
@@ -35,7 +35,7 @@ onMounted(async () => {
         class="flex flex-wrap items-center justify-between gap-2 py-3"
       >
         <div class="min-w-0 flex-1">
-          <p class="break-words font-medium">{{ v.name }}</p>
+          <p class="break-words font-medium">{{ vaultLabel(v, t) }}</p>
           <p
             :class="
               v.custodians.length < 2 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500'

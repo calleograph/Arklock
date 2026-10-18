@@ -46,7 +46,7 @@ export const ruCorporate = {
     oneCustodian: 'Единственный хранитель',
     enoughCustodians: 'Несколько хранителей',
     openVault: 'Управление доступом',
-    noVaults: 'Корпоративных сейфов пока нет.',
+    noVaults: 'Корпоративных сейфов пока нет. Создайте первый кнопкой «Новый сейф».',
     continuityLimit:
       'Проверка хранителей не заменяет резервные копии и проверку восстановления. Аварийный доступ возможен только для заранее подключённых сейфов при наличии офлайн-пакета и его парольной фразы.',
     recoveryStatus: {
@@ -108,7 +108,7 @@ export const enCorporate = {
     oneCustodian: 'Only one custodian',
     enoughCustodians: 'Multiple custodians',
     openVault: 'Manage access',
-    noVaults: 'No corporate vaults yet.',
+    noVaults: 'No corporate vaults yet. Create the first one with “New vault”.',
     continuityLimit:
       'Custodian checks do not replace backups and recovery drills. Emergency access requires prior vault enrollment and the offline package with its passphrase.',
     recoveryStatus: {

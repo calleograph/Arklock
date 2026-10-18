@@ -113,6 +113,7 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
     ['/admin/smtp', 'администрирование: почта'],
     ['/admin/updates', 'обновления'],
     ['/status', 'состояние'],
+    ['/help', 'помощь'],
   ] as const) {
     // переход внутри приложения: полная перезагрузка стёрла бы ключи
     await page.evaluate((p) => {
@@ -122,4 +123,19 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
     await page.waitForTimeout(600);
     await noHorizontalScroll(page, name);
   }
+
+  // подсказка «i»: нажатие раскрывает текст, Escape и нажатие вне подсказки закрывают
+  await page.evaluate(() => {
+    history.pushState({}, '', '/admin/settings');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  const hint = page.getByTestId('info-hint').first();
+  await hint.click();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  await noHorizontalScroll(page, 'подсказка');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await hint.click();
+  await page.getByRole('heading').first().click();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
 });

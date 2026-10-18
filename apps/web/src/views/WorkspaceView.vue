@@ -12,7 +12,7 @@ import FolderPanel from '../components/FolderPanel.vue';
 import SpacesPanel from '../components/SpacesPanel.vue';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
 import { searchText, type BranchItem, type EntryItem } from '../services/model';
 import { api } from '../services/api';
 
@@ -320,7 +320,7 @@ void router;
           data-testid="space-select"
           @change="ws.selectSpace(($event.target as HTMLSelectElement).value || null)"
         >
-          <option v-for="s in ws.spaces" :key="s.id" :value="s.id">{{ s.name }}</option>
+          <option v-for="s in ws.spaces" :key="s.id" :value="s.id">{{ spaceLabel(s, t) }}</option>
           <option v-if="ws.personalAllowed" value="">{{ t('spaces.personal') }}</option>
         </select></label
       >
@@ -351,7 +351,7 @@ void router;
             :key="v.id"
             :value="v.id"
           >
-            {{ v.name }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
+            {{ vaultLabel(v, t) }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
           </option>
         </optgroup>
       </select>
@@ -840,7 +840,7 @@ void router;
           >
             <option value="">{{ t('vault.entryMoveChoose') }}</option>
             <option v-for="v in moveTargets" :key="v.id" :value="v.id">
-              {{ v.kind === 'locker' ? t('vault.locker') : v.name }}
+              {{ v.kind === 'locker' ? t('vault.locker') : vaultLabel(v, t) }}
             </option>
           </select>
           <button

@@ -513,7 +513,7 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('role-save').click();
   const row = page.getByTestId('role-row').filter({ hasText: 'Аудитор журнала' });
   await expect(row).toBeVisible();
-  await expect(row).toContainText(/Журнал|Ledger/);
+  await expect(row).toContainText(/Журнал|Activity log/);
 
   // назначение приглашённому пользователю
   await tab(page, 'users');

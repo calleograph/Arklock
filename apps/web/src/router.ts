@@ -54,6 +54,7 @@ export const router = createRouter({
       meta: { requiresUnlock: true },
     },
     { path: '/status', name: 'status', component: StatusView },
+    { path: '/help', name: 'help', component: () => import('./views/HelpView.vue') },
     {
       path: '/admin/updates',
       name: 'updates',

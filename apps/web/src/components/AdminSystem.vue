@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError, apiBinary } from '../services/api';
@@ -877,8 +878,9 @@ const disks = computed(() => (data.value?.disks ?? []) as Json[]);
               data-testid="smtp-port"
           /></label>
           <label class="flex-1"
-            >{{ t('sys.smtp.security')
-            }}<select v-model="smtp.security" class="input" data-testid="smtp-security">
+            ><span class="inline-flex items-center gap-1"
+              >{{ t('sys.smtp.security') }}<InfoHint :text="t('hint.smtpSecurity.text')" /></span
+            ><select v-model="smtp.security" class="input" data-testid="smtp-security">
               <option value="starttls">STARTTLS</option>
               <option value="tls">TLS</option>
               <option value="none">{{ t('sys.smtp.none') }}</option>

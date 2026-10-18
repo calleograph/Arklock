@@ -90,10 +90,7 @@ test('a chosen 30-minute setting: reading keeps the vault open; 31 idle minutes 
 
   // выбор срока в настройках (переход внутри приложения, без перезагрузки — ключи сохраняются)
   await page.getByTestId('menu-toggle').click();
-  await page
-    .getByRole('link', { name: /^(Настройки|Settings)$/ })
-    .first()
-    .click();
+  await page.getByTestId('menu-settings').click();
   await page.getByTestId('autolock-30').click();
   await expect(page.getByTestId('autolock-30')).toHaveAttribute('aria-checked', 'true');
   await page.goBack();

@@ -120,7 +120,7 @@ try {
   await tid(page, 'add-entry').waitFor({ timeout: 90_000 });
   assert.equal(
     (await tid(page, 'vault-select').locator('option:checked').textContent()).trim(),
-    'Organization',
+    'Организация',
   );
   assert.equal(await tid(page, 'vault-select').locator('option').count(), 1);
   await tid(page, 'vault-overview').waitFor();
@@ -358,7 +358,7 @@ try {
         response.url().endsWith('/recover') &&
         response.request().method() === 'POST',
     ),
-    tid(page, 'recovery-vault-row').filter({ hasText: 'Organization' }).getByRole('button').click(),
+    tid(page, 'recovery-vault-row').filter({ hasText: 'Организация' }).getByRole('button').click(),
   ]);
   assert.equal(recovered.status(), 200);
   await page

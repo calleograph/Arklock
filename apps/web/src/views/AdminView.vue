@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, vaultLabel } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import LdapSettings from '../components/LdapSettings.vue';
@@ -12,6 +12,7 @@ import SyslogSettings from '../components/SyslogSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
+import InfoHint from '../components/InfoHint.vue';
 import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
@@ -710,7 +711,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                     {{ t('corporate.noGroupVaults') }}
                   </p>
                   <p v-for="v in assignedVaults" :key="v.id">
-                    {{ v.name }} ·
+                    {{ vaultLabel(v, t) }} ·
                     {{ v.customRoleId ? t('corporate.customRole') : t(`role.${v.role}`)
                     }}<span v-if="v.expiresAt"> · {{ fmt(v.expiresAt) }}</span>
                   </p>
@@ -755,8 +756,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
             </div>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.registration')
-              }}<select
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.registration') }}<InfoHint :text="t('hint.registration.text')" /></span
+              ><select
                 :value="settings['registration.mode']"
                 class="input w-auto"
                 data-testid="set-registration"
@@ -769,8 +771,10 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               </select></label
             >
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.vaultCreators')
-              }}<select
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.vaultCreators')
+                }}<InfoHint :text="t('hint.vaultCreators.text')" /></span
+              ><select
                 :value="settings['vaults.creators']"
                 class="input w-auto"
                 data-testid="set-creators"
@@ -791,8 +795,12 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
             </div>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('adminx.mfaRequired')
-              }}<select
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('adminx.mfaRequired')
+                }}<InfoHint
+                  :text="t('hint.mfaRequired.text')"
+                  :details="t('hint.mfaRequired.details')" /></span
+              ><select
                 :value="settings['security.mfaRequired']"
                 class="input w-auto"
                 data-testid="set-mfa"
@@ -806,8 +814,12 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               </select></label
             >
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.sessionIdle')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.sessionIdle')
+                }}<InfoHint
+                  :text="t('hint.sessionIdle.text')"
+                  :details="t('hint.sessionIdle.details')" /></span
+              ><input
                 :value="settings['session.idleHours']"
                 type="number"
                 min="0.25"
@@ -823,8 +835,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.sessionMax')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.sessionMax') }}<InfoHint :text="t('hint.sessionMax.text')" /></span
+              ><input
                 :value="settings['session.maxHours']"
                 type="number"
                 min="0"
@@ -847,8 +860,12 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
             </div>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('policy.minLength')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('policy.minLength')
+                }}<InfoHint
+                  :text="t('hint.minLength.text')"
+                  :details="t('hint.minLength.details')" /></span
+              ><input
                 :value="settings['policy.password.minLength']"
                 type="number"
                 min="0"
@@ -863,8 +880,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('policy.classesLabel')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('policy.classesLabel') }}<InfoHint :text="t('hint.classes.text')" /></span
+              ><input
                 :value="settings['policy.password.classes']"
                 type="number"
                 min="0"
@@ -879,8 +897,10 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.passwordMaxAge')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.passwordMaxAge')
+                }}<InfoHint :text="t('hint.passwordMaxAge.text')" /></span
+              ><input
                 :value="settings['security.passwordMaxAgeDays']"
                 type="number"
                 min="0"
@@ -904,8 +924,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
             </div>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('admin.trashDays')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.trashDays') }}<InfoHint :text="t('hint.trashDays.text')" /></span
+              ><input
                 :value="settings['trash.retentionDays']"
                 type="number"
                 min="1"
@@ -920,8 +941,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('adminx.attachMax')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('adminx.attachMax') }}<InfoHint :text="t('hint.attachMax.text')" /></span
+              ><input
                 :value="settings['storage.attachmentMaxMiB']"
                 type="number"
                 min="0"
@@ -936,8 +958,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('adminx.vaultQuota')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('adminx.vaultQuota') }}<InfoHint :text="t('hint.vaultQuota.text')" /></span
+              ><input
                 :value="settings['storage.vaultQuotaMiB']"
                 type="number"
                 min="0"
@@ -962,8 +985,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>
             </div>
             <label class="flex items-center justify-between gap-3"
-              >{{ t('invite.notify')
-              }}<input
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('invite.notify') }}<InfoHint :text="t('hint.notify.text')" /></span
+              ><input
                 type="checkbox"
                 :checked="settings['notifications.security'] !== false"
                 data-testid="set-notify"

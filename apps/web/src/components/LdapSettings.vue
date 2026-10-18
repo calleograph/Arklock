@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
@@ -14,7 +15,7 @@ const { t } = useI18n({
         remove: 'Удалить подключение',
         name: 'Название подключения',
         confirm:
-          'Удалить подключение? Пользователи с завершённой регистрацией требуют сохранения подключения.',
+          'Удалить подключение к каталогу? Это возможно, только если от него не зависят зарегистрированные пользователи.',
         inUse:
           'В этом каталоге есть зарегистрированные пользователи. Отключите подключение вместо удаления.',
         scheduled: 'Синхронизация при обслуживании сервера (каждые 6 часов)',
@@ -43,7 +44,8 @@ const { t } = useI18n({
         add: 'Add connection',
         remove: 'Delete connection',
         name: 'Connection name',
-        confirm: 'Delete this connection? Enrolled users require keeping their connection.',
+        confirm:
+          'Delete this directory connection? This is possible only if no registered users depend on it.',
         inUse:
           'Enrolled users depend on this directory. Disable the connection instead of deleting it.',
         scheduled: 'Sync during server maintenance (every 6 hours)',
@@ -349,8 +351,8 @@ const browse = () =>
         >
         <label class="flex items-center gap-2"
           ><input v-model="form.allowPlaintext" type="checkbox" data-testid="ldap-plaintext" />
-          {{ t('ldap.allowPlaintext') }}</label
-        >
+          {{ t('ldap.allowPlaintext') }}<InfoHint :text="t('hint.ldapPlaintext.text')"
+        /></label>
         <label class="flex items-center gap-2"
           ><input v-model="form.insecureTls" type="checkbox" /> {{ t('ldap.insecureTls') }}</label
         >
@@ -360,8 +362,9 @@ const browse = () =>
         }}<textarea v-model="form.caPem" rows="3" class="input font-mono text-xs" />
       </label>
       <label class="block"
-        >{{ t('ldap.bindDn')
-        }}<input v-model="form.bindDn" class="input font-mono" data-testid="ldap-binddn"
+        ><span class="inline-flex items-center gap-1"
+          >{{ t('ldap.bindDn') }}<InfoHint :text="t('hint.ldapBindDn.text')" /></span
+        ><input v-model="form.bindDn" class="input font-mono" data-testid="ldap-binddn"
       /></label>
       <label class="block"
         >{{ t('ldap.bindPassword')
@@ -374,12 +377,17 @@ const browse = () =>
           data-testid="ldap-bindpw"
       /></label>
       <label class="block"
-        >{{ t('ldap.baseDn')
-        }}<input v-model="form.baseDn" required class="input font-mono" data-testid="ldap-basedn"
+        ><span class="inline-flex items-center gap-1"
+          >{{ t('ldap.baseDn')
+          }}<InfoHint
+            :text="t('hint.ldapBaseDn.text')"
+            :details="t('hint.ldapBaseDn.details')" /></span
+        ><input v-model="form.baseDn" required class="input font-mono" data-testid="ldap-basedn"
       /></label>
       <label class="block"
-        >{{ t('ldap.userFilter')
-        }}<input v-model="form.userFilter" required class="input font-mono text-xs"
+        ><span class="inline-flex items-center gap-1"
+          >{{ t('ldap.userFilter') }}<InfoHint :text="t('hint.ldapUserFilter.text')" /></span
+        ><input v-model="form.userFilter" required class="input font-mono text-xs"
       /></label>
       <div class="flex gap-3">
         <label class="flex-1"

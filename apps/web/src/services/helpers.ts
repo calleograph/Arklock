@@ -59,7 +59,69 @@ export function errorMessage(e: unknown, t: T): string {
         return t('files.stale');
       case 'network_error':
         return t('error.network');
+      case 'forbidden':
+        return t('error.forbidden');
+      case 'not_found':
+        return t('error.notFound');
+      case 'validation_error':
+        return t('error.validation');
+      case 'reauth_required':
+        return t('error.reauth');
+      case 'personal_lockers_disabled':
+        return t('error.personalDisabled');
+      case 'key_missing':
+        return t('error.keyMissing');
+      case 'space_not_empty':
+        return t('error.spaceNotEmpty');
+      case 'space_archived':
+        return t('error.spaceArchived');
+      case 'default_space_required':
+        return t('error.defaultSpace');
+      case 'self_disable':
+        return t('error.selfDisable');
+      case 'mail_queue_full':
+        return t('error.mailQueueFull');
+      case 'smtp_not_configured':
+        return t('error.smtpNotConfigured');
+      case 'ldap_not_configured':
+        return t('error.ldapNotConfigured');
+      case 'ldap_unavailable':
+        return t('ldap.unavailable');
+      case 'public_url_required':
+        return t('error.publicUrl');
+      case 'not_in_trash':
+        return t('error.notInTrash');
+      case 'conflict':
+        return t('vault.conflict');
+      case 'update_in_progress':
+        return t('updates.errBusy');
+      case 'updater_unavailable':
+        return t('updates.errHelper');
+      case 'invalid_code':
+        return t('mfa.invalidCode');
+      case 'range_unavailable':
+        return t('inspector.unavailable');
     }
+    // коды без отдельного текста: объясняем по смыслу статуса, а не общей фразой
+    if (e.status === 403) return t('error.forbidden');
+    if (e.status === 404) return t('error.notFound');
+    if (e.status === 429) return t('auth.locked');
+    if (e.status >= 500) return t('error.server');
   }
   return hasWebCrypto() ? t('error.generic') : t('error.insecure');
+}
+
+/** Основное пространство создаётся с английским именем «Organization»: в интерфейсе показываем его на языке пользователя. */
+export function spaceLabel(s: { name: string; isDefault?: boolean }, t: T): string {
+  return s.isDefault && s.name === 'Organization' ? t('spaces.defaultName') : s.name;
+}
+
+/** Корпоративный сейф, созданный при первой регистрации, хранит английское имя «Organization»: показываем его на языке интерфейса. */
+export function vaultLabel(
+  v: { name: string | null; kind?: string },
+  t: (k: string) => string,
+): string {
+  return v.kind !== 'locker' && v.name === 'Organization'
+    ? t('spaces.defaultName')
+    : (v.name ?? '');
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -66,7 +67,10 @@ async function enroll(): Promise<void> {
     data-testid="vault-corporate-recovery"
   >
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 class="font-medium">{{ t('corpRecovery.title') }}</h2>
+      <h2 class="inline-flex items-center gap-1 font-medium">
+        {{ t('corpRecovery.title')
+        }}<InfoHint :text="t('hint.corpRecovery.text')" :details="t('hint.corpRecovery.details')" />
+      </h2>
       <button type="button" class="btn" :disabled="busy" @click="load">
         {{ t('entryPanel.refresh') }}
       </button>

@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { SpaceInfo } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 
 const emit = defineEmits<{ changed: [] }>();
@@ -33,7 +33,7 @@ const { t } = useI18n({
         add: 'Добавить',
         vaults: 'Сейфы пространства',
         move: 'Перенести',
-        empty: 'Сейфов нет',
+        empty: 'В этом пространстве пока нет сейфов.',
         archiveHint:
           'Архивирование блокирует использование сейфов и сохраняет зашифрованные данные и ключи. Ранее полученные копии ключей и секретов отозвать невозможно.',
         notEmpty: 'Пространство содержит сейфы. Перенесите их или используйте архивирование.',
@@ -63,7 +63,7 @@ const { t } = useI18n({
         add: 'Add',
         vaults: 'Space vaults',
         move: 'Move',
-        empty: 'No vaults',
+        empty: 'No vaults in this space yet.',
         archiveHint:
           'Archiving blocks vault use and preserves encrypted data and keys. Previously obtained copies of keys and secrets cannot be recalled.',
         notEmpty: 'This space contains vaults. Move them or archive the space.',
@@ -195,7 +195,7 @@ onMounted(() => run(load));
       >
         <option v-if="!detail" value="">{{ t('spaces.create') }}</option>
         <option v-for="s in spaces" :key="s.id" :value="s.id">
-          {{ s.name }}{{ s.archived ? ` (${t('spaces.archived')})` : '' }}
+          {{ spaceLabel(s, t) }}{{ s.archived ? ` (${t('spaces.archived')})` : '' }}
         </option>
       </select>
       <button
@@ -372,7 +372,7 @@ onMounted(() => run(load));
           :key="v.id"
           class="flex flex-wrap items-center gap-2 text-sm"
         >
-          <span class="flex-1">{{ v.name }}</span
+          <span class="flex-1">{{ vaultLabel(v, t) }}</span
           ><select
             v-model="moveTargets[v.id]"
             class="input max-w-xs"
@@ -383,7 +383,7 @@ onMounted(() => run(load));
               :key="s.id"
               :value="s.id"
             >
-              {{ s.name }}
+              {{ spaceLabel(s, t) }}
             </option></select
           ><button
             type="button"

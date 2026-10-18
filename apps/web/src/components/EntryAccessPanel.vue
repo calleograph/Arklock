@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -301,7 +302,11 @@ function sourceLabel(source: string): string {
         </label>
         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <label class="block"
-            ><span class="mb-1 block text-xs">{{ t('entryPanel.permission') }}</span
+            ><span class="mb-1 flex items-center gap-1 text-xs"
+              >{{ t('entryPanel.permission')
+              }}<InfoHint
+                :text="t('hint.accessLevels.text')"
+                :details="t('hint.accessLevels.details')" /></span
             ><select v-model="form.role" class="input">
               <option v-for="role in roles" :key="role" :value="role">
                 {{ t(`entryPanel.roles.${role}`) }}

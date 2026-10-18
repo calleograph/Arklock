@@ -1,9 +1,9 @@
 export default {
   app: { name: 'Arklock', tagline: 'Team password manager' },
   nav: {
-    vault: 'Locker',
-    security: 'Security',
-    status: 'System',
+    vault: 'Passwords',
+    security: 'Account security',
+    status: 'System status',
     updates: 'Updates',
     lock: 'Lock',
     signOut: 'Sign out',
@@ -28,7 +28,7 @@ export default {
     recover: 'Recover access',
     unlock: 'Unlock',
     unlockHint:
-      'Your session is active but keys were wiped from memory. Enter your master password.',
+      'Your session is open, but access to your data is locked. Enter your master password to continue.',
     passwordHint:
       'At least 12 characters. The master password cannot be looked up or reset on the server — remember it.',
     tooShort: 'Master password is too short',
@@ -59,8 +59,8 @@ export default {
     registrationClosedNote: 'New accounts are created by an administrator.',
   },
   vault: {
-    title: 'Personal locker',
-    empty: 'No entries yet',
+    title: 'Personal vault',
+    empty: 'No entries here yet. Create the first one to save a login and password.',
     add: 'Add entry',
     search: 'Search by title, username, address',
     entryTitle: 'Title',
@@ -71,12 +71,12 @@ export default {
     edit: 'Edit',
     conflict: 'The entry was changed elsewhere. Refresh the list and retry.',
     skipped: 'Could not decrypt {n} entries. They may be damaged or tampered with.',
-    noMatch: 'Nothing found',
+    noMatch: 'Nothing found. Check the query or choose another vault.',
     titleRequired: 'Enter a title',
     generate: 'Generate',
   },
   security: {
-    title: 'Security',
+    title: 'Account security',
     sessions: 'Active sessions',
     current: 'current',
     revoke: 'End',
@@ -131,8 +131,8 @@ export default {
   },
   ui: { theme: 'Theme', language: 'Language' },
   error: {
-    generic: 'Something went wrong. Try again',
-    network: 'Cannot reach the server',
+    generic: 'Something went wrong. Try again; if it keeps happening, contact your administrator.',
+    network: 'Cannot reach the server. Check your connection and try again.',
     insecure:
       'The browser does not allow encryption at this address. Open Arklock over HTTPS or via localhost (plain http://192.168.x.x does not work).',
   },

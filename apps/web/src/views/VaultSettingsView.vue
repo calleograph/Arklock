@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { decryptEntry, fingerprint, fromBase64Url } from '@arklock/crypto';
 import { api } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, vaultLabel } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore, type MemberInfo } from '../stores/workspace';
 import EntrySettingsPanel from '../components/EntrySettingsPanel.vue';
@@ -231,7 +232,7 @@ void decryptEntry;
 <template>
   <section v-if="vault" class="space-y-6">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-semibold">{{ t('settings.title') }}: {{ vault.name }}</h1>
+      <h1 class="text-xl font-semibold">{{ t('settings.title') }}: {{ vaultLabel(vault, t) }}</h1>
       <button type="button" class="btn" @click="router.push('/')">{{ t('settings.back') }}</button>
     </div>
     <p
@@ -277,7 +278,14 @@ void decryptEntry;
           <thead class="text-left text-xs text-slate-500">
             <tr>
               <th class="px-3 py-2">{{ t('common.name') }}</th>
-              <th>{{ t('settings.role') }}</th>
+              <th>
+                <span class="inline-flex items-center gap-1"
+                  >{{ t('settings.role')
+                  }}<InfoHint
+                    :text="t('hint.vaultRoles.text')"
+                    :details="t('hint.vaultRoles.details')"
+                /></span>
+              </th>
               <th>{{ t('settings.key') }}</th>
               <th>{{ t('settings.fingerprint') }}</th>
               <th />
