@@ -19,19 +19,21 @@ let originalEnvelope: string;
 
 beforeAll(async () => {
   fixture = await createTestApp();
-  admin = new TestClient(fixture.app, 'spaces-admin@example.com', 'spaces-password-1234');
+  const { app } = fixture;
+  admin = new TestClient(app, 'spaces-admin@example.com', 'spaces-password-1234');
   await admin.register();
   await admin.login();
   await fixture.database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
-  bob = new TestClient(fixture.app, 'spaces-bob@example.com', 'spaces-password-1234');
-  outsider = new TestClient(fixture.app, 'spaces-other@example.com', 'spaces-password-1234');
+  bob = new TestClient(app, 'spaces-bob@example.com', 'spaces-password-1234');
+  outsider = new TestClient(app, 'spaces-other@example.com', 'spaces-password-1234');
   for (const client of [bob, outsider]) {
     await client.register();
     await client.login();
   }
 });
 afterAll(async () => {
-  await fixture.app.close();
+  const { app } = fixture;
+  await app.close();
 });
 
 describe('corporate spaces', () => {
