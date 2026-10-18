@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import InfoHint from './InfoHint.vue';
+import CorporateRecoveryReplacement from './CorporateRecoveryReplacement.vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { CryptoAuthError, CryptoFormatError, generatePassphrase, utf8 } from '@arklock/crypto';
@@ -23,7 +24,14 @@ const auth = useAuthStore();
 const ws = useWorkspaceStore();
 const overview = ref<{
   recipient: RecoveryRecipient | null;
-  vaults: { id: string; name: string; keyVersion: number; enrolled: boolean }[];
+  pending?: RecoveryRecipient | null;
+  vaults: {
+    id: string;
+    name: string;
+    keyVersion: number;
+    enrolled: boolean;
+    pendingEnrolled?: boolean;
+  }[];
 } | null>(null);
 const fingerprint = ref('');
 const busy = ref(false);
@@ -411,6 +419,18 @@ function toggleEnabled(): void {
             </li>
           </ul>
         </fieldset>
+        <CorporateRecoveryReplacement
+          :pending="overview.pending ?? null"
+          :vaults="overview.vaults"
+          @changed="
+            (m: string) =>
+              run(async () => {
+                clearSecrets();
+                await load();
+                notice = m;
+              })
+          "
+        />
       </template>
     </template>
   </section>

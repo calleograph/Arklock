@@ -368,6 +368,33 @@ try {
   await tid(page, 'settings-tab-main').click();
   await tid(page, 'settings-tab-security').click();
   await shot(page, 'corporate-recovery-corporate');
+
+  // замена офлайн-пакета: подготовка, переподключение сейфа, завершение
+  const oldFingerprint = await tid(page, 'recovery-fingerprint').textContent();
+  const replacementPhrase = 'replacement-offline-recovery-passphrase-2';
+  await tid(page, 'replacement-phrase').fill(replacementPhrase);
+  await tid(page, 'replacement-prepare').click();
+  await tid(page, 'replacement-download').waitFor({ timeout: 90_000 });
+  await Promise.all([page.waitForEvent('download'), tid(page, 'replacement-download').click()]);
+  await page.getByTestId('recovery-replacement').getByRole('checkbox').check();
+  await tid(page, 'replacement-start').click();
+  await tid(page, 'replacement-complete').waitFor();
+  await tid(page, 'menu-toggle').click();
+  await tid(page, 'menu-vault').click();
+  await tid(page, 'btn-vault-settings').click();
+  await tid(page, 'vault-recovery-pending-confirm').check();
+  await tid(page, 'vault-recovery-pending-enroll').click();
+  await tid(page, 'vault-recovery-pending')
+    .getByText(/подключён к новому|connected to the new/)
+    .waitFor();
+  await tid(page, 'menu-toggle').click();
+  await tid(page, 'menu-full').click();
+  await tid(page, 'admin-tab-settings').click();
+  await tid(page, 'settings-tab-security').click();
+  await tid(page, 'replacement-complete').click();
+  await tid(page, 'replacement-prepare').waitFor();
+  assert.notEqual(await tid(page, 'recovery-fingerprint').textContent(), oldFingerprint);
+  console.log('проверено: замена офлайн-пакета восстановления');
   console.log(
     'проверено: офлайн-пакет, подключение, восстановление, очистка ключей при уходе со вкладки',
   );

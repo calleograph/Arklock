@@ -4,6 +4,7 @@ import type { Db } from './db/connect.js';
 import { settings } from './db/schema.js';
 
 export const CORPORATE_RECOVERY_KEY = 'recovery.corporateRecipient';
+export const CORPORATE_RECOVERY_PENDING_KEY = 'recovery.corporatePending';
 
 export async function corporateRecoveryRecipientOf(
   db: Db,

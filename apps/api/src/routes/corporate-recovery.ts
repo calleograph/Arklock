@@ -6,6 +6,7 @@ import {
   corporateRecoveryActivate,
   corporateRecoveryClaim,
   corporateRecoveryEnroll,
+  corporateRecoveryRecipient,
   uuid,
 } from '@arklock/contracts';
 import {
@@ -22,7 +23,11 @@ import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import type { Db } from '../db/connect.js';
-import { CORPORATE_RECOVERY_KEY, corporateRecoveryRecipientOf } from '../corporate-recovery.js';
+import {
+  CORPORATE_RECOVERY_KEY,
+  CORPORATE_RECOVERY_PENDING_KEY,
+  corporateRecoveryRecipientOf,
+} from '../corporate-recovery.js';
 import {
   corporateRecoveryChallenges,
   corporateRecoveryKeys,
@@ -54,6 +59,15 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
     if (auth.user.role !== 'admin') throw forbidden();
     return auth;
   }
+  /** Новый получатель, подготовленный для замены: действующим становится только после переподключения всех сейфов. */
+  async function pendingRecipient(connection: Db = db) {
+    const [row] = await connection
+      .select()
+      .from(settings)
+      .where(eq(settings.key, CORPORATE_RECOVERY_PENDING_KEY));
+    const parsed = corporateRecoveryRecipient.safeParse(row?.value);
+    return parsed.success ? parsed.data : null;
+  }
   async function recipientRequired(connection: Db = db) {
     const recipient = await corporateRecoveryRecipientOf(connection);
     if (!recipient)
@@ -65,6 +79,43 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
     if (!recipient.enabled)
       throw new AppError(409, 'recovery_disabled', 'Corporate recovery is disabled');
     return recipient;
+  }
+  async function validateNewRecipient(body: z.infer<typeof corporateRecoveryActivate>) {
+    const [account] = await db.select({ id: users.id }).from(users).where(eq(users.id, body.id));
+    if (account)
+      throw new AppError(
+        400,
+        'recovery_recipient_invalid',
+        'The recovery identity must be separate from user accounts',
+      );
+    const message = cryptoContext(
+      'corporate-recovery-activate',
+      body.id,
+      body.publicKey,
+      body.signPublicKey,
+    );
+    const valid = await verify(
+      fromBase64Url(body.signPublicKey),
+      fromBase64Url(body.proof),
+      utf8(message),
+    ).catch(() => false);
+    if (!valid)
+      throw new AppError(400, 'recovery_proof_invalid', 'Invalid recovery identity proof');
+    try {
+      await globalThis.crypto.subtle.importKey(
+        'raw',
+        fromBase64Url(body.publicKey),
+        { name: 'ECDH', namedCurve: 'P-256' },
+        false,
+        [],
+      );
+    } catch {
+      throw new AppError(
+        400,
+        'recovery_recipient_invalid',
+        'Invalid recovery encryption public key',
+      );
+    }
   }
   async function sharedVault(vaultId: string) {
     const [vault] = await db.select().from(vaults).where(eq(vaults.id, vaultId));
@@ -103,12 +154,22 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
         })
         .from(corporateRecoveryKeys),
     ]);
+    const pending = await pendingRecipient();
     return {
       recipient,
+      pending,
       vaults: shared.map((vault) => ({
         id: vault.id,
         name: vault.name ?? '',
         keyVersion: vault.keyVersion,
+        pendingEnrolled:
+          !!pending &&
+          rescues.some(
+            (rescue) =>
+              rescue.vaultId === vault.id &&
+              rescue.recipientId === pending.id &&
+              rescue.keyVersion === vault.keyVersion,
+          ),
         enrolled:
           !!recipient &&
           rescues.some(
@@ -124,41 +185,7 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
   app.post('/admin/corporate-recovery', async (req, reply) => {
     const { user } = fullAdmin(req);
     const body = parse(corporateRecoveryActivate, req.body);
-    const [account] = await db.select({ id: users.id }).from(users).where(eq(users.id, body.id));
-    if (account)
-      throw new AppError(
-        400,
-        'recovery_recipient_invalid',
-        'The recovery identity must be separate from user accounts',
-      );
-    const message = cryptoContext(
-      'corporate-recovery-activate',
-      body.id,
-      body.publicKey,
-      body.signPublicKey,
-    );
-    const valid = await verify(
-      fromBase64Url(body.signPublicKey),
-      fromBase64Url(body.proof),
-      utf8(message),
-    ).catch(() => false);
-    if (!valid)
-      throw new AppError(400, 'recovery_proof_invalid', 'Invalid recovery identity proof');
-    try {
-      await globalThis.crypto.subtle.importKey(
-        'raw',
-        fromBase64Url(body.publicKey),
-        { name: 'ECDH', namedCurve: 'P-256' },
-        false,
-        [],
-      );
-    } catch {
-      throw new AppError(
-        400,
-        'recovery_recipient_invalid',
-        'Invalid recovery encryption public key',
-      );
-    }
+    await validateNewRecipient(body);
     const recipient = {
       id: body.id,
       publicKey: body.publicKey,
@@ -183,6 +210,109 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
       packageSaved: true,
     });
     return reply.status(201).send({ recipient });
+  });
+
+  /** Замена получателя: подготовка нового получателя; прежний продолжает действовать до переподключения всех сейфов. */
+  app.post('/admin/corporate-recovery/replacement', async (req, reply) => {
+    const { user } = fullAdmin(req);
+    const body = parse(corporateRecoveryActivate, req.body);
+    const active = await recipientRequired();
+    if (body.id === active.id)
+      throw new AppError(400, 'recovery_recipient_invalid', 'Create a new offline package');
+    await validateNewRecipient(body);
+    const recipient = {
+      id: body.id,
+      publicKey: body.publicKey,
+      signPublicKey: body.signPublicKey,
+      createdAt: new Date().toISOString(),
+      createdBy: user.id,
+      enabled: true,
+    };
+    const inserted = await db
+      .insert(settings)
+      .values({ key: CORPORATE_RECOVERY_PENDING_KEY, value: recipient, updatedBy: user.id })
+      .onConflictDoNothing()
+      .returning({ key: settings.key });
+    if (!inserted.length)
+      throw new AppError(409, 'recovery_replacement_pending', 'A replacement is already prepared');
+    await audit(db, `user:${user.id}`, 'corporate.recovery.replace.start', `recovery:${body.id}`);
+    return reply.status(201).send({ pending: recipient });
+  });
+
+  app.delete('/admin/corporate-recovery/replacement', async (req, reply) => {
+    const { user } = fullAdmin(req);
+    await db.transaction(async (tx) => {
+      const pending = await pendingRecipient(tx);
+      if (!pending) throw notFound();
+      await tx
+        .delete(corporateRecoveryKeys)
+        .where(eq(corporateRecoveryKeys.recipientId, pending.id));
+      await tx.delete(settings).where(eq(settings.key, CORPORATE_RECOVERY_PENDING_KEY));
+      await audit(
+        tx,
+        `user:${user.id}`,
+        'corporate.recovery.replace.cancel',
+        `recovery:${pending.id}`,
+      );
+    });
+    return reply.status(204).send();
+  });
+
+  app.post('/admin/corporate-recovery/replacement/complete', async (req) => {
+    const { user } = fullAdmin(req);
+    return db.transaction(async (tx) => {
+      await tx
+        .select({ key: settings.key })
+        .from(settings)
+        .where(eq(settings.key, CORPORATE_RECOVERY_KEY))
+        .for('update');
+      const active = await recipientRequired(tx);
+      const pending = await pendingRecipient(tx);
+      if (!pending) throw notFound();
+      const [shared, rescues] = await Promise.all([
+        tx.select().from(vaults).where(eq(vaults.kind, 'shared')),
+        tx.select().from(corporateRecoveryKeys),
+      ]);
+      // сейф, защищённый прежним получателем, обязан быть защищён и новым: иначе замена оставила бы его без восстановления
+      const missing = shared.filter(
+        (v) =>
+          rescues.some((r) => r.vaultId === v.id && r.recipientId === active.id) &&
+          !rescues.some(
+            (r) =>
+              r.vaultId === v.id && r.recipientId === pending.id && r.keyVersion === v.keyVersion,
+          ),
+      );
+      if (missing.length)
+        throw new AppError(
+          409,
+          'recovery_replacement_incomplete',
+          'Connect these vaults to the new recipient first',
+          { vaults: missing.map((v) => ({ id: v.id, name: v.name ?? '' })) },
+        );
+      await tx
+        .update(settings)
+        .set({
+          value: { ...pending, enabled: active.enabled },
+          updatedBy: user.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(settings.key, CORPORATE_RECOVERY_KEY));
+      await tx
+        .delete(corporateRecoveryKeys)
+        .where(eq(corporateRecoveryKeys.recipientId, active.id));
+      await tx.delete(corporateRecoveryChallenges);
+      await tx.delete(settings).where(eq(settings.key, CORPORATE_RECOVERY_PENDING_KEY));
+      await audit(
+        tx,
+        `user:${user.id}`,
+        'corporate.recovery.replace.complete',
+        `recovery:${pending.id}`,
+        {
+          previous: active.id,
+        },
+      );
+      return { recipient: { ...pending, enabled: active.enabled } };
+    });
   });
 
   app.patch('/admin/corporate-recovery', async (req) => {
@@ -231,10 +361,13 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
           )
           .limit(1)
       : [];
+    const pending = await pendingRecipient();
     return {
       recipient,
       rescue: recipient ? await rescueOf(vaultId, recipient.id, vault.keyVersion) : null,
       enrolled: historical.length > 0,
+      pending,
+      pendingEnrolled: pending ? !!(await rescueOf(vaultId, pending.id, vault.keyVersion)) : false,
     };
   });
 
@@ -244,8 +377,15 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
     const body = parse(corporateRecoveryEnroll, req.body);
     const access = await requireVault(db, vaultId, user.id);
     if (!access.isAdmin) throw forbidden();
-    const recipient = await recipientRequired();
-    if (body.recipientId !== recipient.id)
+    const active = await recipientRequired();
+    const pending = await pendingRecipient();
+    const recipient =
+      body.recipientId === active.id
+        ? active
+        : pending && body.recipientId === pending.id
+          ? pending
+          : null;
+    if (!recipient)
       throw new AppError(409, 'recovery_recipient_changed', 'The recovery identity does not match');
     const valid = await verifyKeyGrant(
       fromBase64Url(user.signPublicKey),
@@ -263,6 +403,8 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
         .where(eq(settings.key, CORPORATE_RECOVERY_KEY))
         .for('update');
       await recipientRequired(tx);
+      if (recipient.id !== active.id && (await pendingRecipient(tx))?.id !== recipient.id)
+        throw new AppError(409, 'recovery_recipient_changed', 'The replacement was cancelled');
       const [vault] = await tx.select().from(vaults).where(eq(vaults.id, vaultId)).for('update');
       if (!vault || vault.kind !== 'shared') throw notFound();
       if (vault.keyVersion !== body.keyVersion)

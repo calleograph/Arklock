@@ -13,7 +13,12 @@ const vault = computed(() => ws.vaults.find((v) => v.id === props.vaultId));
 const data = ref<{
   recipient: RecoveryRecipient | null;
   rescue: { keyVersion: number; recipientId: string } | null;
+  enrolled?: boolean;
+  pending?: RecoveryRecipient | null;
+  pendingEnrolled?: boolean;
 } | null>(null);
+const pendingFingerprint = ref('');
+const pendingConfirmed = ref(false);
 const fingerprint = ref('');
 const confirmed = ref(false);
 const busy = ref(false);
@@ -32,6 +37,9 @@ async function load(): Promise<void> {
     fingerprint.value = data.value?.recipient
       ? await recoveryFingerprint(data.value.recipient)
       : '';
+    pendingFingerprint.value = data.value?.pending
+      ? await recoveryFingerprint(data.value.pending)
+      : '';
   } catch (e) {
     error.value = errorMessage(e, t);
   }
@@ -44,6 +52,20 @@ watch(
     void load();
   },
 );
+async function enrollPending(): Promise<void> {
+  if (busy.value || !pendingConfirmed.value || !data.value?.pending) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    await ws.enrollCorporateRecovery(props.vaultId, data.value.pending, true);
+    pendingConfirmed.value = false;
+    await load();
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
 async function enroll(): Promise<void> {
   if (busy.value || !confirmed.value || !data.value?.recipient) return;
   busy.value = true;
@@ -124,6 +146,36 @@ async function enroll(): Promise<void> {
           {{ t('corpRecovery.enroll') }}
         </button></template
       >
+      <div
+        v-if="data.pending && data.enrolled"
+        class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
+        data-testid="vault-recovery-pending"
+      >
+        <h3 class="font-medium">{{ t('corpReplace.vaultTitle') }}</h3>
+        <p class="break-all font-mono text-xs">{{ pendingFingerprint }}</p>
+        <p v-if="data.pendingEnrolled" class="text-emerald-700 dark:text-emerald-300">
+          {{ t('corpReplace.vaultDone') }}
+        </p>
+        <template v-else
+          ><label class="flex items-start gap-2"
+            ><input
+              v-model="pendingConfirmed"
+              type="checkbox"
+              :disabled="busy || !vault.unlocked"
+              class="mt-1"
+              data-testid="vault-recovery-pending-confirm"
+            />{{ t('corpReplace.vaultAck') }}</label
+          ><button
+            type="button"
+            class="btn-primary"
+            :disabled="busy || !pendingConfirmed || !vault.unlocked"
+            data-testid="vault-recovery-pending-enroll"
+            @click="enrollPending"
+          >
+            {{ t('corpReplace.vaultEnroll') }}
+          </button></template
+        >
+      </div>
     </template>
   </section>
 </template>

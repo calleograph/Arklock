@@ -250,6 +250,27 @@ export const ruHelp = {
     publicUrl: 'Сначала задайте публичный адрес сервера в настройках установки.',
     notInTrash: 'Запись уже не в корзине.',
   },
+  corpReplace: {
+    title: 'Замена офлайн-пакета восстановления',
+    intro:
+      'Если пакет или его парольная фраза утрачены или скомпрометированы, подготовьте новый. Прежний пакет действует, пока каждый защищённый сейф не будет переподключён к новому. После завершения замены старый пакет перестаёт работать.',
+    start: 'Подготовить замену',
+    pendingTitle: 'Замена подготовлена',
+    pendingHint:
+      'Попросите владельцев или администраторов каждого защищённого сейфа открыть его настройки и подключить новый пакет. Затем завершите замену.',
+    connected: 'подключён к новому пакету',
+    waiting: 'ожидает подключения',
+    complete: 'Завершить замену',
+    cancel: 'Отменить замену',
+    done: 'Замена завершена: действует новый офлайн-пакет.',
+    cancelled: 'Замена отменена, прежний пакет продолжает действовать.',
+    confirmCancel: 'Отменить замену? Подключения к новому пакету будут удалены.',
+    vaultTitle: 'Новый пакет восстановления (замена)',
+    vaultEnroll: 'Подключить сейф к новому пакету',
+    vaultDone: 'Сейф подключён к новому пакету.',
+    vaultAck:
+      'Я сверил(а) отпечаток нового пакета с тем, что показал администратор, и подключаю этот сейф к нему.',
+  },
   pin: {
     title: 'Быстрая разблокировка PIN-кодом',
     hint: 'После блокировки экрана можно открыть Arklock коротким PIN вместо мастер-пароля. Вход в систему по-прежнему требует мастер-пароль.',
@@ -525,6 +546,27 @@ export const enHelp = {
       'The directory is not configured. Fill in and save the settings on the “Directory (LDAP)” tab.',
     publicUrl: 'Set the server’s public address in the installation settings first.',
     notInTrash: 'The entry is no longer in the trash.',
+  },
+  corpReplace: {
+    title: 'Replacing the offline recovery package',
+    intro:
+      'If the package or its passphrase is lost or compromised, prepare a new one. The old package keeps working until every protected vault is reconnected to the new one. After the replacement is completed the old package stops working.',
+    start: 'Prepare a replacement',
+    pendingTitle: 'Replacement prepared',
+    pendingHint:
+      'Ask the owners or administrators of each protected vault to open its settings and connect the new package. Then complete the replacement.',
+    connected: 'connected to the new package',
+    waiting: 'waiting to be connected',
+    complete: 'Complete the replacement',
+    cancel: 'Cancel the replacement',
+    done: 'Replacement completed: the new offline package is now in force.',
+    cancelled: 'Replacement cancelled: the previous package stays in force.',
+    confirmCancel: 'Cancel the replacement? Connections to the new package will be removed.',
+    vaultTitle: 'New recovery package (replacement)',
+    vaultEnroll: 'Connect the vault to the new package',
+    vaultDone: 'The vault is connected to the new package.',
+    vaultAck:
+      'I compared the fingerprint of the new package with the one the administrator showed and connect this vault to it.',
   },
   pin: {
     title: 'Quick unlock with a PIN',

@@ -1236,6 +1236,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function enrollCorporateRecovery(
     vaultId: string,
     recipient: RecoveryRecipient,
+    pending = false,
   ): Promise<void> {
     return held(async () => {
       const vault = vaults.value.find((v) => v.id === vaultId);
@@ -1244,10 +1245,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('vault is not available for recovery enrollment');
       await loadKeyLog();
       if (!keyLogOk.value) throw new Error('key log verification failed');
-      const configured = await api<{ recipient: RecoveryRecipient | null }>(
-        'GET',
-        '/corporate-recovery',
-      );
+      // получатель сверяется с тем, что сейчас отдаёт сервер: подмена получателя между показом отпечатка и подключением отвергается
+      const configured = pending
+        ? {
+            recipient: (
+              await api<{ pending: RecoveryRecipient | null }>('GET', `/vaults/${vaultId}/recovery`)
+            ).pending,
+          }
+        : await api<{ recipient: RecoveryRecipient | null }>('GET', '/corporate-recovery');
       if (
         !configured.recipient ||
         configured.recipient.id !== recipient.id ||
