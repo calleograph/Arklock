@@ -163,6 +163,10 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         .onConflictDoNothing()
         .returning({ id: signals.id });
       created += res.length;
+      if (res.length)
+        await audit(db, `user:${user.id}`, 'signal.create', `signal:${res[0]!.id}`, {
+          vault: vaultId,
+        });
     }
     // Проблемы, которых при полной проверке больше нет, закрываются как устранённые.
     const keep = new Set(items.map((i) => `${i.entryId}:${i.type}`));

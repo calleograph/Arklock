@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { notifyUsers } from '../notifications.js';
 import { isEnrolled, resetMfaPolicyCache } from '../auth/mfa.js';
 import { resetSessionLimitsCache } from '../auth/session.js';
 import { adminGate } from '../auth/adminperm.js';
@@ -227,8 +228,17 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   app.delete('/admin/circles/:id', async (req, reply) => {
     const { user } = authOf(req);
     const { id } = parse(idParam, req.params);
+    const members = await db
+      .select({ id: circleMembers.userId })
+      .from(circleMembers)
+      .where(eq(circleMembers.circleId, id));
     const res = await db.delete(circles).where(eq(circles.id, id)).returning({ id: circles.id });
     if (!res.length) throw notFound();
+    await notifyUsers(
+      db,
+      members.map((row) => row.id),
+      { category: 'access', event: 'admin.circle.deleted', resourceType: 'circle', resourceId: id },
+    );
     await audit(db, `user:${user.id}`, 'admin.circle.delete', `circle:${id}`);
     return reply.status(204).send();
   });
@@ -250,9 +260,14 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     const [c] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, id));
     const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
     if (!c || !u) throw notFound();
-    await db.insert(circleMembers).values({ circleId: id, userId }).onConflictDoNothing();
+    const added = await db
+      .insert(circleMembers)
+      .values({ circleId: id, userId })
+      .onConflictDoNothing()
+      .returning({ id: circleMembers.userId });
     await audit(db, `user:${user.id}`, 'admin.circle.member.add', `circle:${id}`, {
       member: userId,
+      changed: added.length > 0,
     });
     return reply.status(204).send();
   });
@@ -291,6 +306,26 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
             .where(and(eq(circleMembers.circleId, id), inArray(circleMembers.userId, remove)))
             .returning({ userId: circleMembers.userId })
         : [];
+      await notifyUsers(
+        tx,
+        added.map((row) => row.userId),
+        {
+          category: 'access',
+          event: 'admin.circle.member.add',
+          resourceType: 'circle',
+          resourceId: id,
+        },
+      );
+      await notifyUsers(
+        tx,
+        removed.map((row) => row.userId),
+        {
+          category: 'access',
+          event: 'admin.circle.member.remove',
+          resourceType: 'circle',
+          resourceId: id,
+        },
+      );
       return { added: added.length, removed: removed.length };
     });
     await audit(db, `user:${user.id}`, 'admin.circle.members.update', `circle:${id}`, changed);

@@ -120,6 +120,8 @@ interface Profile extends Omit<Form, 'bindPassword'> {
 }
 const profiles = ref<Profile[]>([]);
 const selectedProfile = ref('default');
+/** Форма показывается после первой загрузки профилей: поздний ответ не должен затирать уже введённое. */
+const loaded = ref(false);
 const clearPassword = ref(false);
 const lastSync = ref<Profile['lastSync']>(null);
 const hasBindPassword = ref(false);
@@ -172,6 +174,7 @@ async function load(): Promise<void> {
       ? selectedProfile.value
       : (profiles.value[0]?.id ?? 'default'),
   );
+  loaded.value = true;
 }
 onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
 
@@ -319,7 +322,7 @@ const browse = () =>
       {{ notice }}
     </p>
 
-    <form class="card max-w-2xl space-y-3 p-4 text-sm" @submit.prevent="save">
+    <form v-if="loaded" class="card max-w-2xl space-y-3 p-4 text-sm" @submit.prevent="save">
       <label class="block"
         >{{ t('directory.name')
         }}<input

@@ -33,6 +33,7 @@ import type {
   EntryRecord,
   RevisionRecord,
   VaultInfo,
+  SpaceInfo,
 } from '@arklock/contracts';
 import { api, ApiError, apiBinary, apiStream } from '../services/api';
 import {
@@ -77,10 +78,13 @@ export interface MemberInfo {
   directExpiresAt: string | null;
   circles: { id: string; name: string; role: string }[];
   hasKey: boolean;
+  spaceAllowed?: boolean;
 }
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const vaults = ref<VaultView[]>([]);
+  const spaces = ref<SpaceInfo[]>([]);
+  const currentSpaceId = ref<string | null>(null);
   const currentId = ref<string | null>(null);
   const branches = shallowRef<BranchItem[]>([]);
   const entries = shallowRef<EntryItem[]>([]);
@@ -100,11 +104,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
   const locker = computed(() => vaults.value.find((v) => v.kind === 'locker') ?? null);
+  const spaceVaults = computed(() =>
+    vaults.value.filter((v) =>
+      currentSpaceId.value ? v.spaceId === currentSpaceId.value : v.kind === 'locker',
+    ),
+  );
 
   function clear(): void {
     for (const k of vaultKeys.values()) k.fill(0);
     vaultKeys.clear();
     vaults.value = [];
+    spaces.value = [];
+    currentSpaceId.value = null;
     searchQuery.value = '';
     currentId.value = null;
     branches.value = [];
@@ -163,6 +174,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function loadVaults(): Promise<void> {
     const auth = useAuthStore();
     const { privateKey, publicKey } = auth.keys();
+    spaces.value = await api<SpaceInfo[]>('GET', '/spaces');
     await loadKeyLog();
     const policy = await api<Record<string, unknown>>('GET', '/auth/policy').catch(
       (): Record<string, unknown> => ({}),
@@ -243,14 +255,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         vaultKeys.delete(id);
       }
     }
-    if (!currentId.value || !out.some((v) => v.id === currentId.value)) {
-      currentId.value = (out.find((v) => v.kind === 'shared') ?? out[0])?.id ?? null;
+    if (currentSpaceId.value && !spaces.value.some((s) => s.id === currentSpaceId.value))
+      currentSpaceId.value = null;
+    if (!currentSpaceId.value && !currentId.value) {
+      // Организация по умолчанию; если в ней для пользователя нет сейфов, а личный сейф есть — открываем личное пространство
+      const home = spaces.value.find((s) => s.isDefault) ?? spaces.value[0];
+      const homeHasVaults = !!home && out.some((v) => v.spaceId === home.id);
+      currentSpaceId.value =
+        home && (homeHasVaults || !out.some((v) => v.kind === 'locker')) ? home.id : null;
     }
+    if (!currentId.value || !out.some((v) => v.id === currentId.value)) {
+      currentId.value = spaceVaults.value[0]?.id ?? null;
+    }
+    if (current.value) currentSpaceId.value = current.value.spaceId ?? null;
     void distributeAllPending();
   }
 
   async function select(id: string): Promise<void> {
+    currentSpaceId.value = vaults.value.find((v) => v.id === id)?.spaceId ?? null;
     currentId.value = id;
+    await loadTree();
+  }
+
+  async function selectSpace(id: string | null): Promise<void> {
+    currentSpaceId.value = id;
+    currentId.value = spaceVaults.value[0]?.id ?? null;
     await loadTree();
   }
 
@@ -745,6 +774,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const sealedKey = await sealVaultKeyFor(key, publicKey, id, auth.user!.id, 1);
     await api('POST', '/vaults', {
       id,
+      spaceId: currentSpaceId.value ?? undefined,
       name,
       sealedKey,
       signature: await signKeyGrant(signPrivateKey, id, auth.user!.id, 1, sealedKey),
@@ -952,7 +982,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         attOut.push({ id: att.id, wrappedKey: fresh.wrappedKey, metaCipher: fresh.metaCipher });
       }
       const m = await members(vaultId);
-      const holders = m.members;
+      const holders = m.members.filter((u) => u.spaceAllowed !== false);
       const keys = [];
       for (const u of holders)
         keys.push({ userId: u.userId, ...(await keyGrantFor(vaultId, u, newVersion, newKey)) });
@@ -1337,6 +1367,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   return {
     vaults,
+    spaces,
+    currentSpaceId,
+    spaceVaults,
     current,
     currentId,
     searchQuery,
@@ -1352,6 +1385,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     clear,
     loadVaults,
     select,
+    selectSpace,
     loadTree,
     searchEverywhere,
     saveEntry,

@@ -7,6 +7,7 @@ import { useWorkspaceStore } from './stores/workspace';
 import { applyTheme, DEFAULT_THEME, isTheme, PREVIEW, storedTheme, THEMES } from './services/theme';
 import Icon from './components/Icon.vue';
 import GlobalSearchResults from './components/GlobalSearchResults.vue';
+import NotificationBell from './components/NotificationBell.vue';
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
@@ -184,6 +185,7 @@ const initial = () =>
           </div>
 
           <template v-if="auth.isSignedIn && auth.unlocked">
+            <NotificationBell />
             <button
               type="button"
               class="btn-ghost"

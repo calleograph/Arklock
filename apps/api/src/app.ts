@@ -13,6 +13,8 @@ import { registerInvitationRoutes } from './routes/admin-invitations.js';
 import { registerAdminSyslogRoutes } from './routes/admin-syslog.js';
 import { registerAdminOpsRoutes } from './routes/admin-ops.js';
 import { registerAdminSystemRoutes } from './routes/admin-system.js';
+import { registerAdminSmtpRoutes } from './routes/admin-smtp.js';
+import { deliverQueuedMail } from './mail/send.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
 import { registerContinuityRoutes } from './routes/continuity.js';
 import { registerCorporateRecoveryRoutes } from './routes/corporate-recovery.js';
@@ -29,6 +31,8 @@ import { registerContentRoutes } from './routes/content.js';
 import { registerSecurityRoutes } from './routes/security.js';
 import { registerSharingRoutes } from './routes/sharing.js';
 import { registerVaultRoutes } from './routes/vaults.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
+import { registerSpaceRoutes } from './routes/spaces.js';
 
 export interface AppDeps {
   config: Config;
@@ -135,6 +139,8 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerLdapRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerMfaRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerNotificationRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerSpaceRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContentRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAttachmentRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSharingRoutes, { prefix: API_PREFIX, ctx });
@@ -145,6 +151,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminSyslogRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminOpsRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminSmtpRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContinuityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerCorporateRecoveryRoutes, { prefix: API_PREFIX, ctx });
@@ -162,7 +169,30 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     app.setNotFoundHandler((req, reply) => reply.status(404).send(notFound(req.id)));
   }
 
+  const mailAbort = new AbortController();
+  let mailRun: Promise<void> | null = null;
+  const runMail = () => {
+    if (!mailRun && !mailAbort.signal.aborted)
+      mailRun = deliverQueuedMail(ctx, new Date(), mailAbort.signal)
+        .catch(() => {
+          app.log.error('mail delivery queue failed');
+        })
+        .finally(() => {
+          mailRun = null;
+        });
+    return mailRun;
+  };
+  const mailTimer = setInterval(() => {
+    void runMail();
+  }, 10_000);
+  mailTimer.unref();
+  app.addHook('onReady', async () => {
+    await runMail();
+  });
   app.addHook('onClose', async () => {
+    clearInterval(mailTimer);
+    mailAbort.abort();
+    await mailRun;
     await database.close();
   });
   return app;

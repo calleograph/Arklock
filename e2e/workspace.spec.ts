@@ -423,6 +423,13 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   void login;
 });
 
+/** Второй корпоративный сейф «Цель» (создаётся в сценарии переноса): личные сейфы по умолчанию выключены. */
+const targetVault = (sel: Locator, name = 'Цель') =>
+  sel
+    .locator('option', { hasText: name })
+    .getAttribute('value')
+    .then((v) => v!);
+
 test('an entry moves to another vault: re-encrypted for the target, the source copy goes to the trash', async ({
   browser,
 }) => {
@@ -446,6 +453,10 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
   await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Цель');
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText('Цель');
+  await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Перенос');
   await page.getByTestId('name-ok').click();
   await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText('Перенос');
@@ -456,7 +467,7 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   });
 
   await page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' }).click();
-  await page.getByTestId('move-target').selectOption({ label: 'Личный сейф' });
+  await page.getByTestId('move-target').selectOption({ label: 'Цель' });
   await page.getByTestId('btn-move').click();
   await expect(page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' })).toHaveCount(
     0,
@@ -470,7 +481,7 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   await page.getByTestId('scope-all').click();
 
   // в личном сейфе запись открывается тем же паролем: её перешифровали ключом целевого сейфа
-  await page.getByTestId('vault-select').selectOption({ label: 'Личный сейф' });
+  await page.getByTestId('vault-select').selectOption({ label: 'Цель' });
   await page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' }).click();
   await page.getByTestId('btn-reveal').click();
   await expect(page.getByTestId('view-password')).toHaveText('Move-Secret-42!bb');
@@ -499,18 +510,15 @@ test('the generator follows the chosen options; the generated password is saved 
 
 test('an entry with an attachment moves to another vault; the file keeps its content', async () => {
   const page = adminPage;
-  // личный сейф в интерфейсе подписан по языку (ru: «Личный сейф», en: «Personal locker»)
-  const personal = (sel: Locator) =>
-    sel
-      .locator('option', { hasText: /Личный сейф|Personal locker/ })
-      .getAttribute('value')
-      .then((v) => v!);
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
-  await page
-    .getByTestId('vault-select')
-    .selectOption(await personal(page.getByTestId('vault-select')));
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Приёмник файлов');
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(
+    'Приёмник файлов',
+  );
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Файлы перенос');
   await page.getByTestId('name-ok').click();
@@ -531,7 +539,7 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   await expect(page.getByTestId('file-row')).toContainText('перенос.txt');
 
   await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
-  const targetVaultId = await personal(page.getByTestId('move-target'));
+  const targetVaultId = await targetVault(page.getByTestId('move-target'), 'Приёмник файлов');
   await page.getByTestId('move-target').selectOption(targetVaultId);
   // A corrupted target must leave the source intact and remove the incomplete copy.
   const targetContent = `**/vaults/${targetVaultId}/attachments/*/content`;
@@ -551,7 +559,7 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   // в личном сейфе файл открывается и совпадает побайтно
   await page
     .getByTestId('vault-select')
-    .selectOption(await personal(page.getByTestId('vault-select')));
+    .selectOption(await targetVault(page.getByTestId('vault-select'), 'Приёмник файлов'));
   await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' })).toHaveCount(1);
   await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
   await page.getByTestId('tab-files').click();

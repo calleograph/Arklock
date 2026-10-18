@@ -9,6 +9,7 @@ import type { AppContext } from '../context.js';
 import { circles, invitations, users } from '../db/schema.js';
 import { AppError, notFound, parse } from '../errors.js';
 import { sendMail } from '../mail/send.js';
+import { renderMail } from '../mail/templates.js';
 import { invitationTokenHash, newActivationCode } from '../activation.js';
 
 const createSchema = z.object({
@@ -104,13 +105,13 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const base = config.APP_PUBLIC_URL?.replace(/\/$/, '') ?? '';
     const link = `${base}/login?invite=${encodeURIComponent(token)}`;
     let emailed = false;
-    if (body.sendEmail)
-      emailed = await sendMail(
-        ctx,
-        body.email,
-        'Arklock: приглашение / invitation',
-        `Вас пригласили в Arklock. Создайте учётную запись по ссылке (действует ${body.expiresInDays} дн.):\n${link}\n\nYou have been invited to Arklock. Create your account here (valid for ${body.expiresInDays} days):\n${link}\n`,
-      );
+    if (body.sendEmail) {
+      const rendered = await renderMail(ctx, 'invitation', {
+        link,
+        days: String(body.expiresInDays),
+      });
+      emailed = await sendMail(ctx, body.email, rendered.subject, rendered.text, 'invitation');
+    }
     await audit(db, `user:${user.id}`, 'admin.invitation.create', `invitation:${id}`, { emailed });
     return reply.status(201).send({ id, code: token, link, emailed });
   });

@@ -16,6 +16,12 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'vault', component: WorkspaceView, meta: { requiresUnlock: true } },
     {
+      path: '/notifications',
+      name: 'notifications',
+      component: () => import('./views/NotificationsView.vue'),
+      meta: { requiresUnlock: true },
+    },
+    {
       path: '/vault/:id/settings',
       name: 'vault-settings',
       component: VaultSettingsView,

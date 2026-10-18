@@ -1,5 +1,6 @@
 import type { Db } from './db/connect.js';
 import { ledger } from './db/schema.js';
+import { notifyAudit } from './notifications.js';
 
 export interface AuditSinkEvent {
   at: Date;
@@ -27,6 +28,13 @@ export async function audit(
     .values({ actor, action, target: target ?? null, detail: detail ?? null })
     .returning({ at: ledger.at });
   sinks.get(db)?.({
+    at: row?.at ?? new Date(),
+    actor,
+    action,
+    target: target ?? null,
+    detail: detail ?? null,
+  });
+  await notifyAudit(db, {
     at: row?.at ?? new Date(),
     actor,
     action,

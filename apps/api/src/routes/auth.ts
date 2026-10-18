@@ -44,6 +44,7 @@ import { AppError, notFound, parse } from '../errors.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
 import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
+import { DEFAULT_SPACE_ID } from '../spaces.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
 
@@ -130,6 +131,7 @@ async function insertLocker(
   await tx.insert(vaults).values({
     id: locker.vaultId,
     kind: corporate ? 'shared' : 'locker',
+    spaceId: corporate ? DEFAULT_SPACE_ID : null,
     name: corporate ? 'Organization' : null,
     keyVersion: 1,
     createdBy: userId,

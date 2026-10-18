@@ -14,6 +14,7 @@ import type { VaultInfo, VaultRole } from '@arklock/contracts';
 import { loadAccess, loadRoleDefs, requireVault } from '../access.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
+import { notifyUsers } from '../notifications.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { corporateRecoveryRecipientOf } from '../corporate-recovery.js';
@@ -29,6 +30,7 @@ import {
   keyLog,
   pins,
   settings,
+  spaces,
   users,
   vaultCircles,
   vaultKeys,
@@ -38,6 +40,7 @@ import {
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsOfVault, blobSuffix, rotationSuffix } from './attachments.js';
 import { lockVaultForWrite } from '../vault-mutation.js';
+import { DEFAULT_SPACE_ID, requireSpace } from '../spaces.js';
 
 export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (
   app,
@@ -170,6 +173,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       out.push({
         id: v.id,
         kind: v.kind,
+        spaceId: v.spaceId,
         name: v.name,
         keyVersion: v.keyVersion,
         role: a.role,
@@ -203,9 +207,13 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (dupe) throw new AppError(409, 'already_exists', 'Vault already exists');
     await assertGrantSignature(user.id, body.id, user.id, 1, body.sealedKey, body.signature);
     await db.transaction(async (tx) => {
+      const spaceId = body.spaceId ?? DEFAULT_SPACE_ID;
+      await tx.select().from(spaces).where(eq(spaces.id, spaceId)).for('update');
+      await requireSpace(tx, spaceId, user.id);
       await tx.insert(vaults).values({
         id: body.id,
         kind: 'shared',
+        spaceId,
         name: body.name,
         keyVersion: 1,
         createdBy: user.id,
@@ -377,6 +385,8 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           )
       : [];
     const hasKey = new Set(keys.map((k) => k.userId));
+    const allowedUsers = new Set<string>();
+    for (const u of us) if ((await loadAccess(db, vaultId, u.id)).isMember) allowedUsers.add(u.id);
     return {
       keyVersion: v.keyVersion,
       members: us.map((u) => ({
@@ -398,6 +408,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             expiresAt: c.expiresAt?.toISOString() ?? null,
           })),
         hasKey: hasKey.has(u.id),
+        spaceAllowed: allowedUsers.has(u.id),
       })),
       circles: vc.map((c) => ({
         id: c.circleId,
@@ -422,6 +433,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     assertCanAssign(access, newPerms);
     const [target] = await db.select().from(users).where(eq(users.id, userId));
     if (!target || target.disabledAt) throw notFound();
+    await requireSpace(db, v.spaceId!, userId);
     const [existing] = await db
       .select({ role: vaultMembers.role, customRoleId: vaultMembers.customRoleId })
       .from(vaultMembers)
@@ -655,7 +667,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         k.signature,
       );
     }
-    await db
+    const issued = await db
       .insert(vaultKeys)
       .values(
         body.keys.map((k) => ({
@@ -667,7 +679,19 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           signature: k.signature,
         })),
       )
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ id: vaultKeys.userId });
+    await notifyUsers(
+      db,
+      issued.map((row) => row.id),
+      {
+        category: 'access',
+        event: 'vault.key.issued',
+        vaultId,
+        resourceType: 'vault',
+        resourceId: vaultId,
+      },
+    );
     await audit(db, `user:${user.id}`, 'vault.keys.grant', `vault:${vaultId}`, {
       count: body.keys.length,
     });

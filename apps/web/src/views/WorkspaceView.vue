@@ -9,13 +9,26 @@ import EntryPanel from '../components/EntryPanel.vue';
 import TransferDialog from '../components/TransferDialog.vue';
 import VaultOverview from '../components/VaultOverview.vue';
 import FolderPanel from '../components/FolderPanel.vue';
+import SpacesPanel from '../components/SpacesPanel.vue';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
 import { errorMessage } from '../services/helpers';
 import { searchText, type BranchItem, type EntryItem } from '../services/model';
 import { api } from '../services/api';
 
-const { t } = useI18n();
+const { t } = useI18n({
+  useScope: 'local',
+  messages: {
+    ru: {
+      spaces: {
+        title: 'Пространство',
+        manage: 'Управление пространствами',
+        personal: 'Личное пространство',
+      },
+    },
+    en: { spaces: { title: 'Space', manage: 'Manage spaces', personal: 'Personal space' } },
+  },
+});
 const confirmBox = (m: string) => window.confirm(m);
 const ws = useWorkspaceStore();
 const auth = useAuthStore();
@@ -34,6 +47,11 @@ const sort = ref<'title' | 'updated'>('title');
 const selected = ref<Set<string>>(new Set());
 const openId = ref<string | null>(null);
 const creating = ref(false);
+const showSpaces = ref(false);
+async function refreshSpaces(): Promise<void> {
+  await ws.loadVaults();
+  await ws.loadTree();
+}
 const mobileView = ref<'folders' | 'list' | 'details'>('list');
 const detailPanel = ref<HTMLElement | null>(null);
 const error = ref('');
@@ -113,7 +131,9 @@ const canWrite = computed(
 );
 const isVaultAdmin = computed(() => !!vault.value?.canManageMembers);
 const selectedBranch = computed(() => ws.branches.find((b) => b.id === branchSel.value) ?? null);
-const canCreateVault = computed(() => auth.user?.role === 'admin' || creatorsPolicy.value);
+const canCreateVault = computed(
+  () => !!ws.currentSpaceId && (auth.user?.role === 'admin' || creatorsPolicy.value),
+);
 
 const branchById = computed(() => new Map(ws.branches.map((b) => [b.id, b])));
 const roots = computed(() =>
@@ -291,6 +311,24 @@ void router;
 
 <template>
   <section class="space-y-3">
+    <div class="flex flex-wrap items-end gap-2">
+      <label class="min-w-48 text-sm"
+        >{{ t('spaces.title')
+        }}<select
+          class="input"
+          :value="ws.currentSpaceId ?? ''"
+          data-testid="space-select"
+          @change="ws.selectSpace(($event.target as HTMLSelectElement).value || null)"
+        >
+          <option v-for="s in ws.spaces" :key="s.id" :value="s.id">{{ s.name }}</option>
+          <option v-if="ws.personalAllowed" value="">{{ t('spaces.personal') }}</option>
+        </select></label
+      >
+      <button type="button" class="btn" data-testid="spaces-open" @click="showSpaces = !showSpaces">
+        {{ t('spaces.manage') }}
+      </button>
+    </div>
+    <SpacesPanel v-if="showSpaces" @changed="refreshSpaces" />
     <div class="flex flex-wrap items-center gap-2">
       <select
         class="input max-w-xs"
@@ -298,18 +336,18 @@ void router;
         data-testid="vault-select"
         @change="ws.select(($event.target as HTMLSelectElement).value)"
       >
-        <optgroup :label="t('vault.groupPersonal')">
+        <optgroup v-if="!ws.currentSpaceId && ws.personalAllowed" :label="t('vault.groupPersonal')">
           <option
-            v-for="v in ws.vaults.filter((x) => x.kind === 'locker')"
+            v-for="v in ws.spaceVaults.filter((x) => x.kind === 'locker')"
             :key="v.id"
             :value="v.id"
           >
             {{ t('vault.locker') }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
           </option>
         </optgroup>
-        <optgroup :label="t('vault.groupShared')">
+        <optgroup v-if="ws.currentSpaceId" :label="t('vault.groupShared')">
           <option
-            v-for="v in ws.vaults.filter((x) => x.kind !== 'locker')"
+            v-for="v in ws.spaceVaults.filter((x) => x.kind !== 'locker')"
             :key="v.id"
             :value="v.id"
           >

@@ -10,15 +10,13 @@ import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
-import { AppError, parse } from '../errors.js';
-import { smtpSession, SmtpError, type SmtpConfig } from '../mail/smtp.js';
+import { parse } from '../errors.js';
+import type { SmtpConfig } from '../mail/smtp.js';
 import { diskInfo, type Level } from '../resources.js';
-import { openSetting, sealSetting } from '../secretbox.js';
 import { blobSuffix, sweepBlobs } from './attachments.js';
 
 const startedAt = Date.now();
 const SMTP_KEY = 'smtp.config';
-const SMTP_PURPOSE = 'smtp-password';
 
 interface StoredSmtp {
   host: string;
@@ -28,16 +26,6 @@ interface StoredSmtp {
   passwordCipher: string;
   from: string;
 }
-
-const smtpPut = z.object({
-  host: z.string().trim().min(1).max(253),
-  port: z.number().int().min(1).max(65535),
-  security: z.enum(['none', 'starttls', 'tls']),
-  user: z.string().trim().max(200).default(''),
-  /** Не передан — прежний пароль сохраняется; пустая строка — пароль удаляется. */
-  password: z.string().max(500).optional(),
-  from: z.string().trim().min(3).max(254),
-});
 
 export interface Check {
   id: string;
@@ -522,109 +510,5 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       targets.map(async (t) => ({ label: t.label, ...(await probeCertificate(t.host, t.port)) })),
     );
     return { items, publicUrl: config.APP_PUBLIC_URL || null };
-  });
-
-  // ------------------------------------------------------------------ почта
-
-  const loadSmtp = async () => {
-    const [row] = await db.select().from(settings).where(eq(settings.key, SMTP_KEY));
-    return (row?.value as StoredSmtp | undefined) ?? null;
-  };
-  const toConfig = (s: StoredSmtp): SmtpConfig => ({
-    host: s.host,
-    port: s.port,
-    security: s.security,
-    user: s.user,
-    from: s.from,
-    password: s.passwordCipher
-      ? openSetting(config.APP_SECRET, SMTP_PURPOSE, s.passwordCipher)
-      : '',
-    allowSelfSigned: config.NODE_ENV === 'test',
-  });
-
-  app.get('/admin/smtp', async () => {
-    const s = await loadSmtp();
-    return s
-      ? {
-          configured: true,
-          host: s.host,
-          port: s.port,
-          security: s.security,
-          user: s.user,
-          from: s.from,
-          hasPassword: !!s.passwordCipher,
-        }
-      : { configured: false };
-  });
-
-  app.put('/admin/smtp', async (req) => {
-    const { user } = authOf(req);
-    const body = parse(smtpPut, req.body);
-    const prev = await loadSmtp();
-    const passwordCipher =
-      body.password === undefined
-        ? (prev?.passwordCipher ?? '')
-        : body.password === ''
-          ? ''
-          : sealSetting(config.APP_SECRET, SMTP_PURPOSE, body.password);
-    const value: StoredSmtp = {
-      host: body.host,
-      port: body.port,
-      security: body.security,
-      user: body.user,
-      passwordCipher,
-      from: body.from,
-    };
-    await db
-      .insert(settings)
-      .values({ key: SMTP_KEY, value: value as never, updatedBy: user.id })
-      .onConflictDoUpdate({
-        target: settings.key,
-        set: { value: value as never, updatedAt: new Date(), updatedBy: user.id },
-      });
-    await audit(db, `user:${user.id}`, 'admin.smtp.save', null, {
-      host: body.host,
-      port: body.port,
-    });
-    return { ok: true };
-  });
-
-  const smtpFailure = (e: unknown) =>
-    e instanceof SmtpError
-      ? { ok: false, code: e.code, message: e.message }
-      : { ok: false, code: 'error', message: e instanceof Error ? e.message : String(e) };
-
-  /** Проверка соединения и входа без отправки письма. */
-  app.post('/admin/smtp/test', async (req) => {
-    const { user } = authOf(req);
-    const s = await loadSmtp();
-    if (!s) throw new AppError(409, 'smtp_not_configured', 'SMTP is not configured');
-    try {
-      const r = await smtpSession(toConfig(s), null);
-      await audit(db, `user:${user.id}`, 'admin.smtp.test', null, { ok: true });
-      return { ok: true, banner: r.banner.slice(0, 200) };
-    } catch (e) {
-      await audit(db, `user:${user.id}`, 'admin.smtp.test', null, { ok: false });
-      return smtpFailure(e);
-    }
-  });
-
-  app.post('/admin/smtp/send-test', async (req) => {
-    const { user } = authOf(req);
-    const body = parse(z.object({ to: z.string().trim().min(3).max(254) }), req.body);
-    const s = await loadSmtp();
-    if (!s) throw new AppError(409, 'smtp_not_configured', 'SMTP is not configured');
-    try {
-      await smtpSession(toConfig(s), {
-        to: body.to,
-        subject: 'Arklock: тестовое письмо',
-        text: 'Это тестовое письмо Arklock. Если вы его читаете, отправка почты настроена верно.',
-      });
-      await audit(db, `user:${user.id}`, 'admin.smtp.send-test', null, { ok: true });
-      return { ok: true };
-    } catch (e) {
-      await audit(db, `user:${user.id}`, 'admin.smtp.send-test', null, { ok: false });
-      return smtpFailure(e);
-    }
   });
 };

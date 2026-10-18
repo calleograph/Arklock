@@ -14,6 +14,7 @@ import {
 import { notFound } from './errors.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole, type RoleDef } from './perms.js';
 import { personalLockersAllowed } from './personal-lockers.js';
+import { spaceAccess } from './spaces.js';
 
 /** Эффективное право на ветвь или запись. */
 export type Access = 'reader' | 'editor' | 'manager';
@@ -154,7 +155,10 @@ export async function loadAccess(
   userId: string,
   now: Date = new Date(),
 ): Promise<VaultAccess> {
-  const [vault] = await db.select({ kind: vaults.kind }).from(vaults).where(eq(vaults.id, vaultId));
+  const [vault] = await db
+    .select({ kind: vaults.kind, spaceId: vaults.spaceId })
+    .from(vaults)
+    .where(eq(vaults.id, vaultId));
   const [user] = await db
     .select({ disabledAt: users.disabledAt })
     .from(users)
@@ -164,6 +168,8 @@ export async function loadAccess(
     return new VaultAccess(vaultId, userId, null, new Map(), new Map());
   }
   if (!vault) return new VaultAccess(vaultId, userId, null, new Map(), new Map());
+  if (vault.kind === 'shared' && !(await spaceAccess(db, vault.spaceId, userId)).member)
+    return new VaultAccess(vaultId, userId, null, new Map(), new Map());
   const nowMs = now.getTime();
   const [direct] = await db
     .select({

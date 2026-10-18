@@ -116,10 +116,23 @@ export const sessions = pgTable(
   ],
 );
 
+/** Membership in a space scopes vault access but never grants vault keys. */
+export const spaces = pgTable('spaces', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  archived: boolean('archived').notNull().default(false),
+  publicToOrg: boolean('public_to_org').notNull().default(false),
+  isDefault: boolean('is_default').notNull().default(false),
+  createdBy: uuid('created_by'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+});
+
 /** Хранилища: личный сейф (locker) и общие (shared). */
 export const vaults = pgTable('vaults', {
   id: uuid('id').primaryKey(),
   kind: text('kind', { enum: ['locker', 'shared'] }).notNull(),
+  spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'restrict' }),
   /** Название общего хранилища (открытый текст — решение зафиксировано в docs/security). У сейфа пусто. */
   name: text('name'),
   keyVersion: integer('key_version').notNull().default(1),
@@ -546,4 +559,95 @@ export const roles = pgTable(
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('roles_name_scope_idx').on(t.name, t.scope)],
+);
+
+/** Outgoing mail payloads are encrypted; delivery logs contain only address, template and safe result codes. */
+export const mailQueue = pgTable(
+  'mail_queue',
+  {
+    id: uuid('id').primaryKey(),
+    profileId: text('profile_id').notNull(),
+    to: text('recipient').notNull(),
+    type: text('type', { enum: ['invitation', 'security', 'test'] }).notNull(),
+    status: text('status', { enum: ['queued', 'sending', 'sent', 'failed'] })
+      .notNull()
+      .default('queued'),
+    payloadCipher: text('payload_cipher').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),
+    lockedAt: ts('locked_at'),
+    lockToken: uuid('lock_token'),
+    lastCode: text('last_code'),
+    lastSmtpStatus: integer('last_smtp_status'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+    deliveredAt: ts('delivered_at'),
+    expiresAt: ts('expires_at').notNull(),
+  },
+  (t) => [
+    index('mail_queue_due_idx').on(t.status, t.nextAttemptAt),
+    index('mail_queue_created_idx').on(t.createdAt),
+  ],
+);
+
+/** Notifications contain event codes and object IDs only; never audit details, secrets or shared-link URLs. */
+export const userNotifications = pgTable(
+  'user_notifications',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    category: text('category', { enum: ['access', 'security', 'sharing', 'system'] }).notNull(),
+    event: text('event').notNull(),
+    vaultId: uuid('vault_id'),
+    resourceType: text('resource_type').notNull(),
+    resourceId: uuid('resource_id'),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    readAt: ts('read_at'),
+    archivedAt: ts('archived_at'),
+  },
+  (t) => [index('notifications_user_id_idx').on(t.userId, t.id)],
+);
+
+export const notificationPreferences = pgTable('notification_preferences', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  access: boolean('access').notNull().default(true),
+  security: boolean('security').notNull().default(true),
+  sharing: boolean('sharing').notNull().default(true),
+  system: boolean('system').notNull().default(true),
+});
+
+export const spaceMembers = pgTable(
+  'space_members',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['member', 'admin'] })
+      .notNull()
+      .default('member'),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
+);
+
+export const spaceCircles = pgTable(
+  'space_circles',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    circleId: uuid('circle_id')
+      .notNull()
+      .references(() => circles.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['member', 'admin'] })
+      .notNull()
+      .default('member'),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.circleId] })],
 );

@@ -17,6 +17,7 @@ export class SmtpError extends Error {
   constructor(
     message: string,
     readonly code: string,
+    readonly smtpStatus?: number,
   ) {
     super(message);
   }
@@ -38,6 +39,11 @@ class Reader {
   attach(sock: Sock): void {
     this.sock = sock;
     sock.on('data', (d: Buffer) => {
+      if (this.buf.length + this.lines.join('').length + d.length > 65536) {
+        this.fail(new SmtpError('SMTP response is too large', 'protocol'));
+        sock.destroy();
+        return;
+      }
       this.buf += d.toString('utf8');
       let i: number;
       while ((i = this.buf.indexOf('\r\n')) >= 0) {
@@ -97,6 +103,7 @@ export interface Mail {
   to: string;
   subject: string;
   text: string;
+  id?: string;
 }
 
 /**
@@ -107,31 +114,53 @@ export async function smtpSession(
   cfg: SmtpConfig,
   mail: Mail | null,
   timeoutMs = 15_000,
+  signal?: AbortSignal,
 ): Promise<{ banner: string; features: string[] }> {
+  if (signal?.aborted) throw new SmtpError('Mail delivery stopped', 'aborted');
+  if (mail) {
+    clean(mail.to);
+    clean(mail.subject);
+  }
   const tlsOpts = {
     host: cfg.host,
     port: cfg.port,
     servername: cfg.host,
     rejectUnauthorized: !cfg.allowSelfSigned,
   };
-  let sock: Sock = await withTimeout(
-    new Promise<Sock>((resolve, reject) => {
-      const s: Sock =
-        cfg.security === 'tls'
-          ? tls.connect(tlsOpts, () => resolve(s))
-          : net.connect({ host: cfg.host, port: cfg.port }, () => resolve(s));
-      s.once('error', (e) =>
-        reject(new SmtpError(`Cannot connect: ${(e as Error).message}`, 'connect')),
-      );
-    }),
-    timeoutMs,
-    'connect',
-  );
+  let pendingSocket: Sock | undefined;
+  const abort = () => pendingSocket?.destroy(new SmtpError('Mail delivery stopped', 'aborted'));
+  signal?.addEventListener('abort', abort, { once: true });
+  let sock: Sock;
+  try {
+    sock = await withTimeout(
+      new Promise<Sock>((resolve, reject) => {
+        const s: Sock =
+          cfg.security === 'tls'
+            ? tls.connect(tlsOpts, () => resolve(s))
+            : net.connect({ host: cfg.host, port: cfg.port }, () => resolve(s));
+        pendingSocket = s;
+        s.once('error', (e) =>
+          reject(new SmtpError(`Cannot connect: ${(e as Error).message}`, 'connect')),
+        );
+      }),
+      timeoutMs,
+      'connect',
+    );
+  } catch (error) {
+    pendingSocket?.destroy();
+    signal?.removeEventListener('abort', abort);
+    throw error;
+  }
   const reader = new Reader(sock);
   const send = (line: string) => sock.write(line + '\r\n');
   const expect = async (ok: number[], what: string) => {
     const r = await withTimeout(reader.next(), timeoutMs, what);
-    if (!ok.includes(r.code)) throw new SmtpError(`${what}: ${r.text.slice(0, 200)}`, 'protocol');
+    if (!ok.includes(r.code))
+      throw new SmtpError(
+        `${what} failed${r.code > 0 ? ` (SMTP ${r.code})` : ''}`,
+        signal?.aborted ? 'aborted' : r.code < 0 ? 'closed' : 'protocol',
+        r.code > 0 ? r.code : undefined,
+      );
     return r;
   };
   try {
@@ -153,6 +182,7 @@ export async function smtpSession(
         'TLS',
       );
       sock = upgraded;
+      pendingSocket = upgraded;
       reader.attach(upgraded);
       send(`EHLO arklock.local`);
       caps = (await expect([250], 'EHLO')).text;
@@ -189,6 +219,7 @@ export async function smtpSession(
         `To: ${clean(mail.to)}`,
         `Subject: =?UTF-8?B?${b64(clean(mail.subject))}?=`,
         `Date: ${new Date().toUTCString()}`,
+        ...(mail.id ? [`Message-ID: <${clean(mail.id)}@arklock.local>`] : []),
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=utf-8',
         'Content-Transfer-Encoding: base64',
@@ -203,6 +234,7 @@ export async function smtpSession(
     send('QUIT');
     return { banner, features };
   } finally {
+    signal?.removeEventListener('abort', abort);
     sock.destroy();
   }
 }

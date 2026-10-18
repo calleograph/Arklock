@@ -14,6 +14,7 @@ const signature = b64url(80, 100);
 export const vaultInfo = z.object({
   id: uuid,
   kind: z.enum(['locker', 'shared']),
+  spaceId: uuid.nullable().optional(),
   name: z.string().nullable(),
   /** Текущая версия ключа хранилища. */
   keyVersion: z.number().int(),
@@ -39,6 +40,7 @@ export type VaultInfo = z.infer<typeof vaultInfo>;
 
 export const createVaultRequest = z.object({
   id: uuid,
+  spaceId: uuid.optional(),
   name: z.string().trim().min(1).max(100),
   sealedKey: sealedBox,
   signature,

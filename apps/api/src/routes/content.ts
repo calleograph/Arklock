@@ -884,6 +884,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     await audit(db, `user:${user.id}`, 'grant.put', `${body.targetType}:${body.targetId}`, {
       vault: vaultId,
       subject: body.subjectId,
+      subjectType: body.subjectType,
       role: body.role,
     });
     return reply.status(200).send({ id: row!.id });
@@ -909,6 +910,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     await audit(db, `user:${user.id}`, 'grant.delete', `${g.targetType}:${g.targetId}`, {
       vault: vaultId,
       subject: g.subjectId,
+      subjectType: g.subjectType,
     });
     return reply.status(204).send();
   });

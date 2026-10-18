@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
+import NotificationPreferences from '../components/NotificationPreferences.vue';
 import { DEFAULT_THEME, isTheme, PREVIEW, THEMES, type ThemeId } from '../services/theme';
 import { errorMessage } from '../services/helpers';
 import {
@@ -143,6 +144,7 @@ function setLocale(value: 'ru' | 'en'): void {
       </div>
     </div>
 
+    <NotificationPreferences />
     <div>
       <h2>{{ t('prefs.account') }}</h2>
       <RouterLink to="/security" class="btn mt-3">{{ t('prefs.security') }}</RouterLink>
