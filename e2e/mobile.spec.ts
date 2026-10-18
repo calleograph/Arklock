@@ -11,21 +11,24 @@ test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true
 test.describe.configure({ mode: 'serial' });
 
 /** Страница не должна прокручиваться вбок: широкие таблицы живут в собственных контейнерах. */
-async function noHorizontalScroll(page: Page, where: string): Promise<void> {
+async function noHorizontalScroll(page: Page, where: string, width = 390): Promise<void> {
   const over = await page.evaluate(() => ({
     doc: document.documentElement.scrollWidth,
     // в мобильной эмуляции innerWidth растягивается под содержимое, поэтому сравниваем с заданной шириной экрана
-    view: 390,
+    view: 0,
   }));
+  over.view = width;
   if (over.doc > over.view + 1) {
-    const offenders = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('body *'))
-        .filter((e) => e.getBoundingClientRect().right > 391)
-        .slice(0, 6)
-        .map(
-          (e) =>
-            `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 60)} ${Math.round(e.getBoundingClientRect().right)}`,
-        ),
+    const offenders = await page.evaluate(
+      (w) =>
+        Array.from(document.querySelectorAll('body *'))
+          .filter((e) => e.getBoundingClientRect().right > w + 1)
+          .slice(0, 6)
+          .map(
+            (e) =>
+              `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 60)} ${Math.round(e.getBoundingClientRect().right)}`,
+          ),
+      width,
     );
     console.log('OFFENDERS', where, JSON.stringify(offenders));
   }
@@ -138,4 +141,18 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
   await hint.click();
   await page.getByRole('heading').first().click();
   await expect(page.getByRole('tooltip')).toHaveCount(0);
+
+  // планшет и все темы: ни одна из основных страниц не шире экрана
+  await page.setViewportSize({ width: 820, height: 1100 });
+  for (const theme of ['light', 'dark', 'forest', 'emerald', 'sunset', 'corporate']) {
+    await page.evaluate((th) => (document.documentElement.dataset.theme = th), theme);
+    for (const path of ['/help', '/admin/settings', '/settings']) {
+      await page.evaluate((p) => {
+        history.pushState({}, '', p);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }, path);
+      await page.waitForTimeout(300);
+      await noHorizontalScroll(page, `планшет ${theme} ${path}`, 820);
+    }
+  }
 });
