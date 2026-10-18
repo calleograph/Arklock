@@ -13,6 +13,7 @@ import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
+import OffboardingPanel from '../components/OffboardingPanel.vue';
 import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
@@ -176,6 +177,7 @@ const patchUser = (u: U, body: object) =>
         await api('PATCH', `/admin/users/${u.id}`, { ...body, acknowledgeAccessRisk: true });
     }
   }, loadUsers);
+const offboarding = ref<U | null>(null);
 const endSessions = (u: U) =>
   run(() => api('POST', `/admin/users/${u.id}/revoke-sessions`), loadUsers);
 
@@ -475,6 +477,15 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               <option value="disabled">{{ t('admin.disabled') }}</option>
             </select>
           </div>
+          <OffboardingPanel
+            v-if="offboarding"
+            :key="offboarding.id"
+            :user="{ id: offboarding.id, name: offboarding.name }"
+            :candidates="users.filter((x) => !x.disabled && x.id !== offboarding?.id)"
+            :is-full="isFull()"
+            @close="offboarding = null"
+            @done="loadUsers"
+          />
           <table class="min-w-full text-sm" data-testid="users-table">
             <thead class="text-left text-xs text-slate-500">
               <tr>
@@ -551,6 +562,15 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                     @click="patchUser(u, { disabled: !u.disabled })"
                   >
                     {{ u.disabled ? t('admin.enable') : t('admin.disable') }}
+                  </button>
+                  <button
+                    v-if="!u.disabled && u.id !== auth.user?.id && (isFull() || u.role !== 'admin')"
+                    type="button"
+                    class="btn-danger ml-1"
+                    :data-testid="`offboard-${u.email}`"
+                    @click="offboarding = u"
+                  >
+                    {{ t('admin.offboard') }}
                   </button>
                 </td>
               </tr>

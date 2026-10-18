@@ -984,6 +984,7 @@ export default {
     endSessions: 'End sessions',
     enable: 'Enable',
     disable: 'Disable',
+    offboard: 'Offboard',
     description: 'Description',
     create: 'Create',
     confirmDelete: 'Delete the group? Its members lose the access they received through it.',

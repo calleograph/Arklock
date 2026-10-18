@@ -1,0 +1,258 @@
+import { and, count, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
+import { uuid } from '@arklock/contracts';
+import { audit } from '../audit.js';
+import { adminGate } from '../auth/adminperm.js';
+import { authOf, requireAuth } from '../auth/session.js';
+import type { AppContext } from '../context.js';
+import type { Db } from '../db/connect.js';
+import { corporateAccessRisks } from '../corporate-continuity.js';
+import {
+  apiTokens,
+  circleMembers,
+  entries,
+  grants,
+  handoffs,
+  sessions,
+  spaceMembers,
+  users,
+  vaultKeys,
+  vaultMembers,
+  vaults,
+} from '../db/schema.js';
+import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { notifyUsers } from '../notifications.js';
+
+/** Корпоративные сейфы сотрудника: роль, число живых записей и другие действующие владельцы. */
+async function heldVaults(db: Db, userId: string) {
+  const mine = await db
+    .select({
+      id: vaults.id,
+      name: vaults.name,
+      role: vaultMembers.role,
+      keyVersion: vaults.keyVersion,
+    })
+    .from(vaultMembers)
+    .innerJoin(vaults, eq(vaults.id, vaultMembers.vaultId))
+    .where(and(eq(vaultMembers.userId, userId), eq(vaults.kind, 'shared')));
+  const out = [];
+  for (const v of mine) {
+    const [{ n } = { n: 0 }] = await db
+      .select({ n: count() })
+      .from(entries)
+      .where(and(eq(entries.vaultId, v.id), isNull(entries.deletedAt)));
+    const owners = await db
+      .select({ id: vaultMembers.userId })
+      .from(vaultMembers)
+      .innerJoin(users, eq(users.id, vaultMembers.userId))
+      .where(
+        and(
+          eq(vaultMembers.vaultId, v.id),
+          eq(vaultMembers.role, 'owner'),
+          ne(vaultMembers.userId, userId),
+          isNull(users.disabledAt),
+        ),
+      );
+    out.push({
+      id: v.id,
+      name: v.name ?? '',
+      role: v.role,
+      entries: n,
+      otherOwners: owners.length,
+      lastOwner: v.role === 'owner' && owners.length === 0,
+    });
+  }
+  return out;
+}
+
+export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (
+  app,
+  { ctx },
+) => {
+  const { db } = ctx;
+  app.addHook('preHandler', requireAuth(ctx));
+  app.addHook('preHandler', (req) => adminGate(ctx, req));
+  const idParam = z.object({ id: uuid });
+
+  /** Что связано с сотрудником: без содержимого и ключей, только состав и числа. */
+  app.get('/admin/users/:id/offboarding', async (req) => {
+    const { id } = parse(idParam, req.params);
+    const [target] = await db.select().from(users).where(eq(users.id, id));
+    if (!target) throw notFound();
+    const [[tokens], [links], [sess]] = await Promise.all([
+      db
+        .select({ n: count() })
+        .from(apiTokens)
+        .where(and(eq(apiTokens.userId, id), isNull(apiTokens.revokedAt))),
+      db
+        .select({ n: count() })
+        .from(handoffs)
+        .where(and(eq(handoffs.createdBy, id), isNull(handoffs.revokedAt))),
+      db
+        .select({ n: count() })
+        .from(sessions)
+        .where(and(eq(sessions.userId, id), isNull(sessions.revokedAt))),
+    ]);
+    return {
+      user: { id, name: target.displayName, email: target.email, disabled: !!target.disabledAt },
+      vaults: await heldVaults(db, id),
+      accessRisks: await corporateAccessRisks(db, id),
+      apiTokens: tokens?.n ?? 0,
+      externalLinks: links?.n ?? 0,
+      sessions: sess?.n ?? 0,
+    };
+  });
+
+  app.post('/admin/users/:id/offboard', async (req) => {
+    const { user } = authOf(req);
+    const { id } = parse(idParam, req.params);
+    const body = parse(
+      z.object({
+        /** Передача владения: сейф → новый владелец, уже имеющий текущий ключ сейфа. */
+        transfers: z
+          .array(z.object({ vaultId: uuid, toUserId: uuid }))
+          .max(200)
+          .default([]),
+        acknowledgeAccessRisk: z.boolean().optional(),
+      }),
+      req.body,
+    );
+    if (id === user.id) throw new AppError(409, 'self_disable', 'You cannot offboard yourself');
+    const [target] = await db.select().from(users).where(eq(users.id, id));
+    if (!target) throw notFound();
+    if (target.disabledAt) throw new AppError(409, 'conflict', 'The account is already disabled');
+    // выдача владения — решение полного администратора: делегат не должен получать им доступ к сейфам
+    if (user.role !== 'admin' && (target.role === 'admin' || body.transfers.length))
+      throw forbidden();
+    if (target.role === 'admin') {
+      const [{ n } = { n: 0 }] = await db
+        .select({ n: count() })
+        .from(users)
+        .where(and(eq(users.role, 'admin'), isNull(users.disabledAt), ne(users.id, id)));
+      if (n === 0)
+        throw new AppError(409, 'last_admin', 'The last active administrator cannot be offboarded');
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      const held = await heldVaults(txDb, id);
+      const newOwners = new Set<string>();
+      for (const t of body.transfers) {
+        const v = held.find((h) => h.id === t.vaultId);
+        if (!v || t.toUserId === id) throw new AppError(400, 'validation_error', 'Bad transfer');
+        const [vault] = await tx.select().from(vaults).where(eq(vaults.id, t.vaultId));
+        const [heir] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .innerJoin(
+            vaultMembers,
+            and(eq(vaultMembers.userId, users.id), eq(vaultMembers.vaultId, t.vaultId)),
+          )
+          .innerJoin(
+            vaultKeys,
+            and(
+              eq(vaultKeys.userId, users.id),
+              eq(vaultKeys.vaultId, t.vaultId),
+              eq(vaultKeys.keyVersion, vault!.keyVersion),
+            ),
+          )
+          .where(and(eq(users.id, t.toUserId), isNull(users.disabledAt)));
+        if (!heir)
+          throw new AppError(
+            409,
+            'key_missing',
+            'The new owner must be an active vault member with the current key',
+          );
+        await tx
+          .update(vaultMembers)
+          .set({ role: 'owner', customRoleId: null, expiresAt: null })
+          .where(and(eq(vaultMembers.vaultId, t.vaultId), eq(vaultMembers.userId, t.toUserId)));
+        newOwners.add(t.toUserId);
+      }
+      const after = await heldVaults(txDb, id);
+      const orphaned = after.filter((v) => v.lastOwner);
+      if (orphaned.length)
+        throw new AppError(409, 'last_owner', 'Transfer ownership of these vaults first', {
+          vaults: orphaned.map((v) => ({ id: v.id, name: v.name })),
+        });
+      const risks = await corporateAccessRisks(txDb, id);
+      if (risks.length && !body.acknowledgeAccessRisk)
+        throw new AppError(
+          409,
+          'corporate_access_at_risk',
+          'Transfer corporate vault access before offboarding, or acknowledge the risk',
+          { vaults: risks },
+        );
+
+      const vaultIds = after.map((v) => v.id);
+      if (vaultIds.length) {
+        await tx
+          .delete(vaultMembers)
+          .where(and(eq(vaultMembers.userId, id), inArray(vaultMembers.vaultId, vaultIds)));
+        await tx
+          .delete(vaultKeys)
+          .where(and(eq(vaultKeys.userId, id), inArray(vaultKeys.vaultId, vaultIds)));
+      }
+      await tx.delete(circleMembers).where(eq(circleMembers.userId, id));
+      await tx.delete(spaceMembers).where(eq(spaceMembers.userId, id));
+      await tx.delete(grants).where(and(eq(grants.subjectType, 'user'), eq(grants.subjectId, id)));
+      const now = new Date();
+      const tokens = await tx
+        .update(apiTokens)
+        .set({ revokedAt: now })
+        .where(and(eq(apiTokens.userId, id), isNull(apiTokens.revokedAt)))
+        .returning({ id: apiTokens.id });
+      const links = await tx
+        .update(handoffs)
+        .set({ revokedAt: now })
+        .where(and(eq(handoffs.createdBy, id), isNull(handoffs.revokedAt)))
+        .returning({ id: handoffs.id });
+      await tx
+        .update(sessions)
+        .set({ revokedAt: now })
+        .where(and(eq(sessions.userId, id), isNull(sessions.revokedAt)));
+      await tx
+        .update(users)
+        .set({ disabledAt: now, adminRoleId: null, updatedAt: now })
+        .where(eq(users.id, id));
+      return { after, tokens: tokens.length, links: links.length, newOwners: [...newOwners] };
+    });
+
+    // участники затронутых сейфов узнают, что ключ сейфа стоит заменить
+    const managers = result.after.length
+      ? await db
+          .select({ id: vaultMembers.userId })
+          .from(vaultMembers)
+          .where(
+            and(
+              inArray(
+                vaultMembers.vaultId,
+                result.after.map((v) => v.id),
+              ),
+              or(eq(vaultMembers.role, 'owner'), eq(vaultMembers.role, 'admin')),
+            ),
+          )
+      : [];
+    await notifyUsers(db, [...new Set([...managers.map((m) => m.id), ...result.newOwners])], {
+      category: 'access',
+      event: 'admin.user.offboarded',
+      resourceType: 'user',
+      resourceId: id,
+    });
+    await audit(db, `user:${user.id}`, 'admin.user.offboard', `user:${id}`, {
+      vaults: result.after.length,
+      transfers: body.transfers.length,
+      tokensRevoked: result.tokens,
+      linksRevoked: result.links,
+      accessRiskAcknowledged: body.acknowledgeAccessRisk === true,
+    });
+    return {
+      id,
+      /** Сейфы, ключ которых сотрудник мог сохранить: стоит выполнить ротацию ключа и сменить хранившиеся там пароли. */
+      rotateVaults: result.after.map((v) => ({ id: v.id, name: v.name, entries: v.entries })),
+      tokensRevoked: result.tokens,
+      linksRevoked: result.links,
+    };
+  });
+};

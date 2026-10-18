@@ -17,6 +17,7 @@ import { registerAdminSmtpRoutes } from './routes/admin-smtp.js';
 import { deliverQueuedMail } from './mail/send.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
 import { registerContinuityRoutes } from './routes/continuity.js';
+import { registerOffboardingRoutes } from './routes/admin-offboarding.js';
 import { registerCorporateRecoveryRoutes } from './routes/corporate-recovery.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
 import { registerTokenRoutes } from './routes/tokens.js';
@@ -154,6 +155,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminSmtpRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContinuityRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerOffboardingRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerCorporateRecoveryRoutes, { prefix: API_PREFIX, ctx });
 
   const webDist = config.WEB_DIST ? path.resolve(config.WEB_DIST) : '';

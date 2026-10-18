@@ -998,6 +998,7 @@ export default {
     endSessions: 'Завершить сеансы',
     enable: 'Включить',
     disable: 'Отключить',
+    offboard: 'Уволить',
     description: 'Описание',
     create: 'Создать',
     confirmDelete:

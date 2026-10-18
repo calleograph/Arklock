@@ -567,6 +567,14 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('role-delete-Аудитор журнала').click(); // первое нажатие — подтверждение
   await page.getByTestId('role-delete-Аудитор журнала').click();
   await expect(page.getByTestId('roles-error')).toBeVisible();
+
+  // увольнение: предпросмотр, подтверждение, блокировка
+  await tab(page, 'users');
+  await page.getByTestId('offboard-invited.person@example.com').click();
+  await expect(page.getByTestId('offboarding')).toBeVisible();
+  await page.getByTestId('offboarding-confirm').click();
+  await expect(page.getByTestId('offboarding').getByRole('status')).toBeVisible();
+  await expect(page.getByTestId('offboard-invited.person@example.com')).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- SAML
