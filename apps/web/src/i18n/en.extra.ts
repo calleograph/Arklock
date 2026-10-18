@@ -41,6 +41,9 @@ export default {
       admin_circle_member_add: 'You were added to a group',
       admin_circle_member_remove: 'You were removed from a group',
       admin_circle_deleted: 'Your group was deleted',
+      admin_user_offboarded: 'An employee was offboarded: check owners and rotate the vault key',
+      ldap_custody_at_risk:
+        'The directory disabled an employee who held a vault key: prepare access',
       signal_create: 'New security event for an entry',
       signal_update: 'A security event for an entry was updated',
       handoff_create: 'An external secret-sharing link was created',

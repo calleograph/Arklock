@@ -1,7 +1,9 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/connect.js';
 import { circleMembers, circles, sessions, settings, users } from '../db/schema.js';
 import { audit } from '../audit.js';
+import { corporateAccessRisks } from '../corporate-continuity.js';
+import { notifyUsers } from '../notifications.js';
 import { circlesFor, ldapLookup, type LdapConfig } from './ldap.js';
 import {
   ldapBindSecret,
@@ -67,6 +69,7 @@ export async function syncLdapProfile(
   );
   const secret = ldapBindSecret(profile, appSecret);
   let disabled = 0;
+  const newlyDisabled: string[] = [];
   let updated = 0;
   const errors: string[] = [];
   for (const user of linked) {
@@ -86,7 +89,10 @@ export async function syncLdapProfile(
             .update(sessions)
             .set({ revokedAt: new Date() })
             .where(eq(sessions.userId, user.id));
-          if (!user.disabledAt) disabled++;
+          if (!user.disabledAt) {
+            disabled++;
+            newlyDisabled.push(user.id);
+          }
         } else {
           await syncCirclesFor(tx, user.id, current, found.groups);
           updated++;
@@ -96,7 +102,33 @@ export async function syncLdapProfile(
       errors.push(`${user.email}: ${(e as Error).message}`.slice(0, 200));
     }
   }
-  const result = { total: linked.length, disabled, updated, errors, at: new Date().toISOString() };
+  // отключение в каталоге не должно тихо лишать организацию единственного хранителя ключа сейфа
+  let custodyRisks = 0;
+  for (const id of newlyDisabled) custodyRisks += (await corporateAccessRisks(db, id)).length;
+  if (custodyRisks) {
+    const admins = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)));
+    await notifyUsers(
+      db,
+      admins.map((a) => a.id),
+      {
+        category: 'security',
+        event: 'ldap.custody-at-risk',
+        resourceType: 'ldap',
+        resourceId: profile.id,
+      },
+    );
+  }
+  const result = {
+    total: linked.length,
+    disabled,
+    updated,
+    errors,
+    custodyRisks,
+    at: new Date().toISOString(),
+  };
   const key = `ldap.sync.${profile.id}`;
   await db
     .insert(settings)
@@ -105,6 +137,7 @@ export async function syncLdapProfile(
   await audit(db, actor, 'admin.ldap.sync', `ldap:${profile.id}`, {
     disabled,
     updated,
+    custodyRisks,
     errors: errors.length,
   });
   return result;

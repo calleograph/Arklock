@@ -428,7 +428,7 @@ describe('sign-in through the directory', () => {
     directory[0]!.uac = '514';
     try {
       const r = (await admin.req('POST', '/admin/ldap/sync')).json();
-      expect(r).toMatchObject({ total: 1, disabled: 1 });
+      expect(r).toMatchObject({ total: 1, disabled: 1, custodyRisks: 0 });
       expect(
         (await app.inject({ url: '/api/v1/vaults', headers: { authorization: `Bearer ${tok}` } }))
           .statusCode,
