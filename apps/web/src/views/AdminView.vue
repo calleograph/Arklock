@@ -184,6 +184,7 @@ interface C {
   id: string;
   name: string;
   description: string;
+  adminRoleId?: string | null;
   members: number;
 }
 const circles = ref<C[]>([]);
@@ -602,6 +603,29 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                     >· {{ c.members }} {{ t('admin.membersN') }}</span
                   >
                 </button>
+                <span v-if="isFull() && adminRoles.length" class="inline-flex items-center gap-1">
+                  <select
+                    :value="c.adminRoleId ?? ''"
+                    class="input w-auto"
+                    :aria-label="`${t('admin.adminRole')}: ${c.name}`"
+                    :data-testid="`circle-admin-role-${c.name}`"
+                    @change="
+                      run(async () => {
+                        await api('PATCH', `/admin/circles/${c.id}`, {
+                          adminRoleId: ($event.target as HTMLSelectElement).value || null,
+                        });
+                        await loadCircles();
+                      })
+                    "
+                  >
+                    <option value="">{{ t('admin.noAdminRole') }}</option>
+                    <option v-for="r in adminRoles" :key="r.id" :value="r.id">{{ r.name }}</option>
+                  </select>
+                  <InfoHint
+                    :text="t('hint.groupAdminRole.text')"
+                    :details="t('hint.groupAdminRole.details')"
+                  />
+                </span>
                 <button
                   type="button"
                   class="btn"

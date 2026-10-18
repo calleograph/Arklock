@@ -371,6 +371,51 @@ describe('delegated administration', () => {
     expect((await dave.req('GET', '/admin/roles')).statusCode).toBe(403);
   });
 
+  it('an administrative role given to a group applies to its members and ends with membership', async () => {
+    const users = (await owner.req('GET', '/admin/users')).json() as {
+      id: string;
+      email: string;
+    }[];
+    const d = users.find((u) => u.email === 'dave@example.com')!;
+    const groupRole = (
+      await owner.req('POST', '/admin/roles', {
+        name: 'GroupLedger',
+        scope: 'admin',
+        allow: ['admin.ledger', 'admin.circles'],
+      })
+    ).json().id;
+    const g = (await owner.req('POST', '/admin/circles', { name: 'Domain admins' })).json().id;
+    const plain = (await owner.req('POST', '/admin/circles', { name: 'Plain' })).json().id;
+    await dave.login();
+    expect((await dave.req('GET', '/admin/ledger')).statusCode).toBe(403);
+    expect(
+      (await owner.req('PATCH', `/admin/circles/${g}`, { adminRoleId: groupRole })).statusCode,
+    ).toBe(200);
+    expect((await owner.req('PUT', `/admin/circles/${g}/members/${d.id}`)).statusCode).toBe(204);
+    // права берутся из группы без повторного входа и входят в профиль
+    expect((await dave.req('GET', '/admin/ledger')).statusCode).toBe(200);
+    expect((await dave.req('GET', '/auth/me')).json().user.delegated).toBe(true);
+    // делегат не назначает роль группе, не меняет её состав и не приглашает в неё
+    expect(
+      (await dave.req('PATCH', `/admin/circles/${plain}`, { adminRoleId: groupRole })).statusCode,
+    ).toBe(403);
+    expect((await dave.req('PUT', `/admin/circles/${g}/members/${d.id}`)).statusCode).toBe(403);
+    expect(
+      (await dave.req('PATCH', `/admin/circles/${g}/members`, { add: [], remove: [d.id] }))
+        .statusCode,
+    ).toBe(403);
+    expect((await dave.req('DELETE', `/admin/circles/${g}/members/${d.id}`)).statusCode).toBe(403);
+    expect(
+      (await dave.req('PATCH', `/admin/circles/${plain}`, { name: 'Plain 2' })).statusCode,
+    ).toBe(200);
+    // роль, назначенная группе, нельзя удалить
+    expect((await owner.req('DELETE', `/admin/roles/${groupRole}`)).statusCode).toBe(409);
+    // исключение из группы немедленно закрывает доступ
+    expect((await owner.req('DELETE', `/admin/circles/${g}/members/${d.id}`)).statusCode).toBe(204);
+    expect((await dave.req('GET', '/admin/ledger')).statusCode).toBe(403);
+    expect((await dave.req('GET', '/auth/me')).json().user.delegated).toBe(false);
+  });
+
   it('every administrative route is mapped to a permission', () => {
     const routes = app.routeTable.filter((r) => r.url.startsWith('/api/v1/admin'));
     const unmapped = routes.filter(

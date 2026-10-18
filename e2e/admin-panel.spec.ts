@@ -533,6 +533,30 @@ test('custom roles: an administrative role opens only its own sections for a del
   await expect(guest.getByTestId('admin-tab-ledger')).toBeVisible();
   await expect(guest.getByTestId('admin-tab-users')).toHaveCount(0);
   await expect(guest.getByTestId('admin-tab-roles')).toHaveCount(0);
+  // та же роль через группу: снимаем прямое назначение, участник группы сохраняет доступ, исключение закрывает его
+  await select.selectOption('');
+  await tab(page, 'circles');
+  await page.getByTestId('circle-name').fill('Аудиторы журнала');
+  await page.getByTestId('circle-create').click();
+  await page
+    .getByTestId('circle-admin-role-Аудиторы журнала')
+    .selectOption({ label: 'Аудитор журнала' });
+  await page.getByTestId('circle-Аудиторы журнала').click();
+  const person = page
+    .getByTestId('circle-add-user')
+    .locator('option', { hasText: 'invited.person' });
+  await page.getByTestId('circle-add-user').selectOption((await person.getAttribute('value'))!);
+  await page.getByTestId('circle-add').click();
+  // снятие прямой роли завершило сеанс: входим заново
+  await guest.goto('/login');
+  await guest.getByTestId('email').fill('invited.person@example.com');
+  await guest.getByTestId('password').fill('invited-master-password-e2e-1');
+  await guest.getByTestId('submit').click();
+  await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await guest.getByTestId('menu-toggle').click();
+  await guest.getByTestId('menu-full').click();
+  await expect(guest.getByTestId('admin-tab-ledger')).toBeVisible();
+  await expect(guest.getByTestId('admin-tab-users')).toHaveCount(0);
   // роль, назначенную пользователю, удалить нельзя
   await page.reload();
   await page.getByTestId('password').fill(ADMIN.password);

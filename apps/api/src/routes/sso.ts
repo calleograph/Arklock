@@ -303,7 +303,11 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         via: out.via,
       });
       reply.status(200);
-      return { token: sess.token, expiresAt: sess.expiresAt.toISOString(), user: bundle(u) };
+      return {
+        token: sess.token,
+        expiresAt: sess.expiresAt.toISOString(),
+        user: await bundle(ctx, u),
+      };
     },
   );
 
@@ -390,6 +394,10 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     );
     await audit(db, `user:${body.userId}`, `auth.${ident.source}.enroll`, `user:${body.userId}`);
     reply.status(201);
-    return { token: sess.token, expiresAt: sess.expiresAt.toISOString(), user: bundle(u!) };
+    return {
+      token: sess.token,
+      expiresAt: sess.expiresAt.toISOString(),
+      user: await bundle(ctx, u!),
+    };
   });
 };

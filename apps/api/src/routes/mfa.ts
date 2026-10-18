@@ -201,7 +201,7 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     const s = await createSession(ctx, u.id, ipOf(req), req.headers['user-agent'] ?? null);
     await audit(db, `user:${u.id}`, 'auth.login', `session:${s.id}`, { ip: ipOf(req), mfa: kind });
     reply.status(200);
-    return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: bundle(u) };
+    return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: await bundle(ctx, u) };
   });
 
   /** Сброс второго фактора администратором (потеря устройства и резервных кодов). */

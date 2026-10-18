@@ -294,6 +294,6 @@ export const registerWebauthnRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
       mfa: 'webauthn',
     });
     reply.status(200);
-    return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: bundle(u) };
+    return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: await bundle(ctx, u) };
   });
 };

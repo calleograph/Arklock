@@ -412,7 +412,11 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         via: 'ldap',
       });
       reply.status(200);
-      return { token: sess.token, expiresAt: sess.expiresAt.toISOString(), user: bundle(linked) };
+      return {
+        token: sess.token,
+        expiresAt: sess.expiresAt.toISOString(),
+        user: await bundle(ctx, linked),
+      };
     },
   );
 };

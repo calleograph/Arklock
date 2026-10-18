@@ -74,6 +74,16 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   });
   const idParam = z.object({ id: uuid });
 
+  /** Состав группы с административной ролью меняет только полный администратор: иначе делегат мог бы выдать себе полномочия. */
+  async function assertCircleWritable(user: { role: string }, circleId: string): Promise<void> {
+    if (user.role === 'admin') return;
+    const [c] = await db
+      .select({ r: circles.adminRoleId })
+      .from(circles)
+      .where(eq(circles.id, circleId));
+    if (c?.r) throw forbidden();
+  }
+
   // ------------------------------------------------------------------ пользователи
 
   app.get('/admin/users', async () => {
@@ -194,6 +204,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       id: c.id,
       name: c.name,
       description: c.description,
+      adminRoleId: c.adminRoleId,
       members: m.get(c.id) ?? 0,
     }));
   });
@@ -214,14 +225,27 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   app.patch('/admin/circles/:id', async (req) => {
     const { user } = authOf(req);
     const { id } = parse(idParam, req.params);
-    const body = parse(circleWrite.partial(), req.body);
+    const { adminRoleId, ...body } = parse(
+      circleWrite.partial().extend({ adminRoleId: uuid.nullable().optional() }),
+      req.body,
+    );
+    if (adminRoleId !== undefined) {
+      if (user.role !== 'admin') throw forbidden();
+      if (adminRoleId) {
+        const [r] = await db.select().from(roles).where(eq(roles.id, adminRoleId));
+        if (!r || r.scope !== 'admin')
+          throw new AppError(400, 'validation_error', 'Unknown administrative role');
+      }
+    } else await assertCircleWritable(user, id);
     const res = await db
       .update(circles)
-      .set(body)
+      .set({ ...body, ...(adminRoleId !== undefined ? { adminRoleId } : {}) })
       .where(eq(circles.id, id))
       .returning({ id: circles.id });
     if (!res.length) throw notFound();
-    await audit(db, `user:${user.id}`, 'admin.circle.update', `circle:${id}`);
+    await audit(db, `user:${user.id}`, 'admin.circle.update', `circle:${id}`, {
+      adminRole: adminRoleId ?? null,
+    });
     return { id };
   });
 
@@ -257,6 +281,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   app.put('/admin/circles/:id/members/:userId', async (req, reply) => {
     const { user } = authOf(req);
     const { id, userId } = parse(z.object({ id: uuid, userId: uuid }), req.params);
+    await assertCircleWritable(user, id);
     const [c] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, id));
     const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
     if (!c || !u) throw notFound();
@@ -286,6 +311,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     const remove = [...new Set(body.remove)];
     if (add.some((uid) => remove.includes(uid)))
       throw new AppError(400, 'validation_error', 'A user cannot be both added and removed');
+    await assertCircleWritable(user, id);
     const [circle] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, id));
     if (!circle) throw notFound();
     const found = add.length
@@ -352,6 +378,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   app.delete('/admin/circles/:id/members/:userId', async (req, reply) => {
     const { user } = authOf(req);
     const { id, userId } = parse(z.object({ id: uuid, userId: uuid }), req.params);
+    await assertCircleWritable(user, id);
     const res = await db
       .delete(circleMembers)
       .where(and(eq(circleMembers.circleId, id), eq(circleMembers.userId, userId)))

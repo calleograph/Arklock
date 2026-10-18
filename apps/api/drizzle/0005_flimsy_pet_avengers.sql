@@ -1,0 +1,1 @@
+ALTER TABLE "circles" ADD COLUMN "admin_role_id" uuid;

@@ -231,6 +231,8 @@ export const circles = pgTable(
     id: uuid('id').primaryKey(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
+    /** Административная роль, которую получают все участники группы (в том числе доменной). */
+    adminRoleId: uuid('admin_role_id'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },
   (t) => [uniqueIndex('circles_name_idx').on(t.name)],

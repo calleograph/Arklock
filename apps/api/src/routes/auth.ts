@@ -147,13 +147,13 @@ async function insertLocker(
   });
 }
 
-export function bundle(u: typeof users.$inferSelect): UserBundle {
+export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Promise<UserBundle> {
   return {
     id: u.id,
     email: u.email,
     displayName: u.displayName,
     role: u.role,
-    delegated: u.role !== 'admin' && !!u.adminRoleId,
+    delegated: u.role !== 'admin' && (await adminPermsOf(ctx, u)).size > 0,
     theme: u.theme,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
@@ -412,7 +412,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const s = await createSession(ctx, u.id, ipOf(req), req.headers['user-agent'] ?? null);
     await audit(db, `user:${u.id}`, 'auth.login', `session:${s.id}`, { ip: ipOf(req) });
     reply.status(200);
-    return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: bundle(u) };
+    return { token: s.token, expiresAt: s.expiresAt.toISOString(), user: await bundle(ctx, u) };
   });
 
   app.post('/auth/logout', { preHandler: auth }, async (req, reply) => {
@@ -445,7 +445,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   app.get('/auth/me', { preHandler: auth }, async (req) => {
     const { user, session } = authOf(req);
     return {
-      user: bundle(user),
+      user: await bundle(ctx, user),
       sessionId: session.id,
       expiresAt: session.expiresAt.toISOString(),
     };

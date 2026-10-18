@@ -190,6 +190,11 @@ export const ruHelp = {
       details:
         'Явный запрет сильнее разрешения. Он закрывает доступ на сервере, но не отзывает секреты, которые человек уже сохранил.',
     },
+    groupAdminRole: {
+      text: 'Все участники группы, в том числе пришедшие из каталога, получают разделы этой административной роли. Содержимое сейфов роль не открывает.',
+      details:
+        'Полномочия действуют, пока человек состоит в группе. Исключение из группы закрывает их сразу. Состав такой группы меняет только полный администратор.',
+    },
     corpRecovery: {
       text: 'Заранее сохранённый офлайн-пакет позволяет уполномоченному администратору вернуть доступ к корпоративным сейфам, если все владельцы недоступны. Личные сейфы он не затрагивает.',
       details:
@@ -427,6 +432,11 @@ export const enHelp = {
       text: 'Read — view entries and show passwords. Edit — change entries and files. Manage — also members and rights.',
       details:
         'An explicit deny beats an allow. It closes access on the server but does not take back secrets a person already saved.',
+    },
+    groupAdminRole: {
+      text: 'Every group member, including people who come from the directory, gets the sections of this administrative role. The role does not open vault contents.',
+      details:
+        'The rights last while the person is in the group. Removing them from the group ends the rights at once. Only a full administrator changes the members of such a group.',
     },
     corpRecovery: {
       text: 'A pre-saved offline package lets an authorized administrator restore access to corporate vaults when every owner is unavailable. It does not touch personal vaults.',

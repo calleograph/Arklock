@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { accountIdentifier, email, uuid } from '@arklock/contracts';
@@ -7,7 +7,7 @@ import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { circles, invitations, users } from '../db/schema.js';
-import { AppError, notFound, parse } from '../errors.js';
+import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { sendMail } from '../mail/send.js';
 import { renderMail } from '../mail/templates.js';
 import { invitationTokenHash, newActivationCode } from '../activation.js';
@@ -77,6 +77,13 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
         .where(inArray(circles.id, body.circleIds));
       if (known.length !== new Set(body.circleIds).size)
         throw new AppError(400, 'validation_error', 'Unknown circle');
+      if (user.role !== 'admin') {
+        const [priv] = await db
+          .select({ id: circles.id })
+          .from(circles)
+          .where(and(inArray(circles.id, body.circleIds), isNotNull(circles.adminRoleId)));
+        if (priv) throw forbidden();
+      }
     }
     // повторное приглашение отзывает предыдущие неиспользованные для этого адреса
     await db

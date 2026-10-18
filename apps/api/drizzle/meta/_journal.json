@@ -36,6 +36,13 @@
       "when": 1792186149804,
       "tag": "0004_faulty_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792311933149,
+      "tag": "0005_flimsy_pet_avengers",
+      "breakpoints": true
     }
   ]
 }
