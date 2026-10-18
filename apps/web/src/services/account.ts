@@ -242,6 +242,14 @@ export async function unlock(
   }
 }
 
+/** Ключи из мастер-пароля для PIN-кода: вызывающий обязан обнулить оба массива. */
+export async function masterKeysFor(user: UserBundle, password: string) {
+  return (await keysFor(user.email, password)).keys;
+}
+
+/** Открывает аккаунт готовым ключом обёртки (быстрая разблокировка PIN-кодом); ключ обнуляет вызывающий. */
+export const unlockWithWrapKey = unwrapAll;
+
 /** Ключ проверки мастер-пароля для операций, требующих его повторного ввода (например, отключение MFA). */
 export async function authKeyFor(user: UserBundle, password: string): Promise<string> {
   const { keys } = await keysFor(user.email, password);

@@ -41,6 +41,7 @@ const SETTINGS: Record<string, z.ZodType> = {
   'storage.attachmentMaxMiB': z.number().int().min(0).max(102_400),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
   'notifications.security': z.boolean(),
+  'security.pinUnlock': z.boolean(),
   'policy.password.minLength': z.number().int().min(0).max(128),
   'policy.password.classes': z.number().int().min(0).max(4),
 };
@@ -58,6 +59,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'storage.attachmentMaxMiB': 1024,
   'storage.vaultQuotaMiB': 0,
   'notifications.security': true,
+  'security.pinUnlock': false,
   'policy.password.minLength': 0,
   'policy.password.classes': 0,
 };

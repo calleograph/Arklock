@@ -563,6 +563,28 @@ export const roles = pgTable(
   (t) => [uniqueIndex('roles_name_scope_idx').on(t.name, t.scope)],
 );
 
+/**
+ * Устройства с быстрой разблокировкой PIN-кодом. Сервер хранит проверочный хэш PIN и запечатанную долю ключа;
+ * доля выдаётся только после верного PIN и не более пяти неудачных попыток подряд, затем устройство удаляется.
+ */
+export const pinDevices = pgTable(
+  'pin_devices',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    verifierSalt: text('verifier_salt').notNull(),
+    verifierHash: text('verifier_hash').notNull(),
+    shareSealed: text('share_sealed').notNull(),
+    failures: integer('failures').notNull().default(0),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    lastUsedAt: ts('last_used_at'),
+  },
+  (t) => [index('pin_devices_user_idx').on(t.userId)],
+);
+
 /** Outgoing mail payloads are encrypted; delivery logs contain only address, template and safe result codes. */
 export const mailQueue = pgTable(
   'mail_queue',

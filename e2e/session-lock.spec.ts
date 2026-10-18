@@ -107,3 +107,59 @@ test('a chosen 30-minute setting: reading keeps the vault open; 31 idle minutes 
   await idle(page, 31 * MIN);
   await expect(page).toHaveURL(/\/unlock$/);
 });
+
+test('PIN unlock: off until the administrator allows it; wrong PIN is counted; master password still works', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByTestId('email').fill(EMAIL);
+  await page.getByTestId('password').fill(MASTER);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
+
+  // настройка выключена: у сотрудника нет формы PIN
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-settings').click();
+  await expect(page.getByTestId('pin-settings')).toContainText(/не включил|not turned on/);
+  await expect(page.getByTestId('pin-enable')).toHaveCount(0);
+
+  // администратор разрешает (переход внутри приложения, ключи сохраняются)
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-settings').click();
+  await page.getByTestId('settings-tab-security').click();
+  await page.getByTestId('set-pin').check();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-settings').click();
+  await page.reload();
+  await page.getByTestId('password').fill(MASTER);
+  await page.getByTestId('submit').click();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-settings').click();
+  await page.getByTestId('pin-password').fill(MASTER);
+  await page.getByTestId('pin-new').fill('482916');
+  await page.getByTestId('pin-repeat').fill('482916');
+  await page.getByTestId('pin-enable').click();
+  await expect(page.getByTestId('pin-disable')).toBeVisible({ timeout: 60_000 });
+
+  // блокировка: неверный PIN уменьшает число попыток, верный открывает сейф
+  await page.getByTestId('lock').click();
+  await expect(page).toHaveURL(/\/unlock$/);
+  await page.getByTestId('pin-input').fill('111111');
+  await page.getByTestId('pin-submit').click();
+  await expect(page.getByRole('alert')).toContainText(/4/, { timeout: 60_000 });
+  await page.getByTestId('pin-input').fill('482916');
+  await page.getByTestId('pin-submit').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
+
+  // отключение возвращает только мастер-пароль
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-settings').click();
+  await page.getByTestId('pin-disable').click();
+  await expect(page.getByTestId('pin-enable')).toBeVisible();
+  await page.getByTestId('lock').click();
+  await expect(page.getByTestId('pin-input')).toHaveCount(0);
+  await page.getByTestId('password').fill(MASTER);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
+});

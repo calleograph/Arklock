@@ -31,6 +31,7 @@ import {
   circleMembers,
   invitations,
   keyLog,
+  pinDevices,
   sessions,
   settings,
   users,
@@ -524,6 +525,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       .where(
         and(eq(sessions.userId, user.id), ne(sessions.id, session.id), isNull(sessions.revokedAt)),
       );
+    // PIN-устройства хранят ключ старого мастер-пароля: после смены они бесполезны и удаляются
+    await db.delete(pinDevices).where(eq(pinDevices.userId, user.id));
     await audit(db, `user:${user.id}`, 'auth.password.change');
     void notifySecurity(
       ctx,
@@ -600,6 +603,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, u.id), isNull(sessions.revokedAt)));
+      await tx.delete(pinDevices).where(eq(pinDevices.userId, u.id));
     });
     await audit(db, `user:${u.id}`, 'auth.recovery.complete', `user:${u.id}`, { ip: ipOf(req) });
     return reply.status(204).send();

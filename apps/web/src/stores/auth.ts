@@ -9,6 +9,7 @@ import {
   setUnauthorizedHandler,
 } from '../services/api';
 import * as account from '../services/account';
+import * as pinService from '../services/pin';
 import { useWorkspaceStore } from './workspace';
 import { applyTheme, type ThemeId } from '../services/theme';
 import { autoLockMinutes, idleExpired } from '../services/autolock';
@@ -276,6 +277,11 @@ export const useAuthStore = defineStore('auth', () => {
     setUnlocked(await account.unlock(user.value, password));
   }
 
+  async function unlockWithPin(pin: string): Promise<void> {
+    if (!user.value) throw new Error('no user');
+    setUnlocked(await pinService.unlockWithPin(user.value, pin));
+  }
+
   async function signOut(): Promise<void> {
     try {
       await api('POST', '/auth/logout');
@@ -335,6 +341,7 @@ export const useAuthStore = defineStore('auth', () => {
     ldapIdentity,
     hasLdapChallenge,
     unlock,
+    unlockWithPin,
     signOut,
     restore,
     clearSession,

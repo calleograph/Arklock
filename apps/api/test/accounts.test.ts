@@ -17,7 +17,7 @@ import {
   generateRecoveryKey,
   timingSafeEqual,
 } from '@arklock/crypto';
-import { entries, ledger, sessions, settings } from '../src/db/schema.js';
+import { entries, ledger, pinDevices, sessions, settings } from '../src/db/schema.js';
 import { MIN_KDF } from '@arklock/crypto';
 import { FAST, TestClient, createTestApp } from './helpers.js';
 
@@ -345,6 +345,15 @@ describe('password change and account recovery', () => {
     const other = new TestClient(app, 'dave@example.com', 'dave-old-password');
     await other.login();
     const oldPrivate = c.privateKey;
+    // PIN-устройство хранит ключ старого пароля: после смены оно должно исчезнуть
+    await database.db.insert(pinDevices).values({
+      id: crypto.randomUUID(),
+      userId: c.userId,
+      name: 'Ноутбук',
+      verifierSalt: 'x',
+      verifierHash: 'x',
+      shareSealed: 'x',
+    });
 
     const { keys: oldKeys, params } = await c.derive();
     const salt = generateSalt();
@@ -373,6 +382,7 @@ describe('password change and account recovery', () => {
       },
     });
     expect(res.statusCode).toBe(204);
+    expect(await database.db.select().from(pinDevices)).toHaveLength(0);
     expect(
       (await app.inject({ url: '/api/v1/vaults', headers: other.authHeader() })).statusCode,
     ).toBe(401);

@@ -190,6 +190,11 @@ export const ruHelp = {
       details:
         'Явный запрет сильнее разрешения. Он закрывает доступ на сервере, но не отзывает секреты, которые человек уже сохранил.',
     },
+    pinUnlock: {
+      text: 'Разрешает сотрудникам открывать Arklock после блокировки коротким PIN. PIN не заменяет мастер-пароль при входе.',
+      details:
+        'Сервер выдаёт часть ключа только после верного PIN и удаляет устройство после пяти неверных попыток. Смена мастер-пароля отключает все PIN. Выключение настройки сразу запрещает разблокировку PIN.',
+    },
     groupAdminRole: {
       text: 'Все участники группы, в том числе пришедшие из каталога, получают разделы этой административной роли. Содержимое сейфов роль не открывает.',
       details:
@@ -228,6 +233,12 @@ export const ruHelp = {
     personalDisabled: 'Личные сейфы отключены политикой организации.',
     keyMissing:
       'Доступ к записям ещё не готов: ключ сейфа не передан. Он будет передан, как только уполномоченный участник откроет Arklock.',
+    pinWrong: 'Неверный PIN. Осталось попыток: {n}.',
+    pinLocked: 'Слишком много неверных попыток: PIN отключён. Введите мастер-пароль.',
+    pinDisabled:
+      'Быстрая разблокировка PIN-кодом отключена администратором. Введите мастер-пароль.',
+    pinGone: 'PIN на этом устройстве больше не действует. Введите мастер-пароль.',
+    lastOwner: 'Сначала назначьте нового владельца сейфа.',
     spaceNotEmpty: 'В пространстве есть сейфы. Перенесите их или заархивируйте пространство.',
     spaceArchived: 'Пространство в архиве: сначала верните его из архива.',
     defaultSpace: 'Основное пространство нельзя удалить или изменить таким образом.',
@@ -238,6 +249,28 @@ export const ruHelp = {
       'Каталог не настроен. Заполните и сохраните параметры на вкладке «Каталог (LDAP)».',
     publicUrl: 'Сначала задайте публичный адрес сервера в настройках установки.',
     notInTrash: 'Запись уже не в корзине.',
+  },
+  pin: {
+    title: 'Быстрая разблокировка PIN-кодом',
+    hint: 'После блокировки экрана можно открыть Arklock коротким PIN вместо мастер-пароля. Вход в систему по-прежнему требует мастер-пароль.',
+    off: 'Администратор не включил разблокировку PIN-кодом.',
+    password: 'Мастер-пароль',
+    pin: 'PIN (от 6 до 12 цифр)',
+    repeat: 'Повторите PIN',
+    enable: 'Включить на этом устройстве',
+    disable: 'Отключить на этом устройстве',
+    active: 'PIN включён на этом устройстве.',
+    saved: 'PIN включён.',
+    removed: 'PIN отключён.',
+    format: 'PIN — от 6 до 12 цифр.',
+    mismatch: 'PIN-коды не совпадают.',
+    devices: 'Устройства с PIN',
+    lastUsed: 'использовалось',
+    never: 'ещё не использовалось',
+    remove: 'Удалить',
+    unlockWith: 'Разблокировать PIN-кодом',
+    orPassword: 'Или введите мастер-пароль:',
+    policy: 'Быстрая разблокировка PIN-кодом',
   },
   spaces: { defaultName: 'Организация' },
 };
@@ -433,6 +466,11 @@ export const enHelp = {
       details:
         'An explicit deny beats an allow. It closes access on the server but does not take back secrets a person already saved.',
     },
+    pinUnlock: {
+      text: 'Lets employees open Arklock after a lock with a short PIN. The PIN does not replace the master password for signing in.',
+      details:
+        'The server releases part of the key only after the right PIN and deletes the device after five wrong attempts. Changing the master password turns off every PIN. Turning the setting off blocks PIN unlock at once.',
+    },
     groupAdminRole: {
       text: 'Every group member, including people who come from the directory, gets the sections of this administrative role. The role does not open vault contents.',
       details:
@@ -471,6 +509,12 @@ export const enHelp = {
     personalDisabled: 'Personal vaults are turned off by your organization’s policy.',
     keyMissing:
       'Access to entries is not ready yet: the vault key has not been passed on. It will be as soon as an authorized member opens Arklock.',
+    pinWrong: 'Wrong PIN. Attempts left: {n}.',
+    pinLocked: 'Too many wrong attempts: the PIN is switched off. Enter your master password.',
+    pinDisabled:
+      'Quick unlock with a PIN is turned off by the administrator. Enter your master password.',
+    pinGone: 'The PIN no longer works on this device. Enter your master password.',
+    lastOwner: 'Assign a new owner of the vault first.',
     spaceNotEmpty: 'The space still has vaults. Move them or archive the space.',
     spaceArchived: 'The space is archived: restore it from the archive first.',
     defaultSpace: 'The default space cannot be deleted or changed this way.',
@@ -481,6 +525,28 @@ export const enHelp = {
       'The directory is not configured. Fill in and save the settings on the “Directory (LDAP)” tab.',
     publicUrl: 'Set the server’s public address in the installation settings first.',
     notInTrash: 'The entry is no longer in the trash.',
+  },
+  pin: {
+    title: 'Quick unlock with a PIN',
+    hint: 'After the screen locks you can open Arklock with a short PIN instead of the master password. Signing in still needs the master password.',
+    off: 'The administrator has not turned on PIN unlock.',
+    password: 'Master password',
+    pin: 'PIN (6 to 12 digits)',
+    repeat: 'Repeat the PIN',
+    enable: 'Turn on for this device',
+    disable: 'Turn off for this device',
+    active: 'A PIN is set up on this device.',
+    saved: 'PIN turned on.',
+    removed: 'PIN turned off.',
+    format: 'The PIN must be 6 to 12 digits.',
+    mismatch: 'The PINs do not match.',
+    devices: 'Devices with a PIN',
+    lastUsed: 'last used',
+    never: 'not used yet',
+    remove: 'Delete',
+    unlockWith: 'Unlock with the PIN',
+    orPassword: 'Or enter the master password:',
+    policy: 'Quick unlock with a PIN',
   },
   spaces: { defaultName: 'Organization' },
 };

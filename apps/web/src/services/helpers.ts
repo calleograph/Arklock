@@ -71,6 +71,18 @@ export function errorMessage(e: unknown, t: T): string {
         return t('error.personalDisabled');
       case 'key_missing':
         return t('error.keyMissing');
+      case 'invalid_pin':
+        return t('error.pinWrong', {
+          n: (e.details as { remaining?: number } | undefined)?.remaining ?? 0,
+        });
+      case 'pin_locked':
+        return t('error.pinLocked');
+      case 'pin_disabled':
+        return t('error.pinDisabled');
+      case 'pin_gone':
+        return t('error.pinGone');
+      case 'last_owner':
+        return t('error.lastOwner');
       case 'space_not_empty':
         return t('error.spaceNotEmpty');
       case 'space_archived':

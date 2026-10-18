@@ -874,6 +874,20 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
             >
             <label class="flex items-center justify-between gap-3"
               ><span class="inline-flex items-center gap-1"
+                >{{ t('pin.policy')
+                }}<InfoHint
+                  :text="t('hint.pinUnlock.text')"
+                  :details="t('hint.pinUnlock.details')" /></span
+              ><input
+                type="checkbox"
+                :checked="settings['security.pinUnlock'] === true"
+                data-testid="set-pin"
+                @change="
+                  saveSetting('security.pinUnlock', ($event.target as HTMLInputElement).checked)
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.sessionIdle')
                 }}<InfoHint
                   :text="t('hint.sessionIdle.text')"

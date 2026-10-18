@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import NotificationPreferences from '../components/NotificationPreferences.vue';
+import PinSettings from '../components/PinSettings.vue';
 import { DEFAULT_THEME, isTheme, PREVIEW, THEMES, type ThemeId } from '../services/theme';
 import { errorMessage } from '../services/helpers';
 import {
@@ -127,6 +128,8 @@ function setLocale(value: 'ru' | 'en'): void {
         </button>
       </div>
     </div>
+
+    <PinSettings />
 
     <div>
       <h2>{{ t('prefs.language') }}</h2>

@@ -14,6 +14,7 @@ import {
   entries,
   grants,
   handoffs,
+  pinDevices,
   sessions,
   spaceMembers,
   users,
@@ -194,6 +195,7 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
           .delete(vaultKeys)
           .where(and(eq(vaultKeys.userId, id), inArray(vaultKeys.vaultId, vaultIds)));
       }
+      await tx.delete(pinDevices).where(eq(pinDevices.userId, id));
       await tx.delete(circleMembers).where(eq(circleMembers.userId, id));
       await tx.delete(spaceMembers).where(eq(spaceMembers.userId, id));
       await tx.delete(grants).where(and(eq(grants.subjectType, 'user'), eq(grants.subjectId, id)));

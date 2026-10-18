@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import { externalStartUrl } from '../services/ssoBinding';
 import * as account from '../services/account';
+import { hasPin } from '../services/pin';
 import { errorMessage, hasWebCrypto } from '../services/helpers';
 import { api, ApiError } from '../services/api';
 
@@ -189,6 +190,25 @@ async function useKey(): Promise<void> {
   }
 }
 
+const pin = ref('');
+/** Поле PIN показывается, пока на устройстве есть зашифрованный PIN-ключ; сервер может его отменить. */
+const pinTick = ref(0);
+const pinAvailable = computed(() => pinTick.value >= 0 && !!auth.user && hasPin(auth.user.id));
+async function submitPin(): Promise<void> {
+  error.value = '';
+  busy.value = true;
+  try {
+    await auth.unlockWithPin(pin.value);
+    pin.value = '';
+    await router.replace('/');
+  } catch (e) {
+    pin.value = '';
+    pinTick.value++;
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
 async function submit(): Promise<void> {
   error.value = '';
   if (!hasWebCrypto()) {
@@ -412,6 +432,29 @@ async function copyRecovery(): Promise<void> {
       <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
         {{ t('auth.unlockHint') }}
       </p>
+      <div v-if="mode === 'unlock' && pinAvailable" class="space-y-2" data-testid="pin-unlock">
+        <label class="block text-sm"
+          ><span class="mb-1 block">{{ t('pin.pin') }}</span
+          ><input
+            v-model="pin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            class="field"
+            data-testid="pin-input"
+            @keydown.enter.prevent="submitPin"
+        /></label>
+        <button
+          type="button"
+          class="btn-primary w-full"
+          :disabled="busy || !pin"
+          data-testid="pin-submit"
+          @click="submitPin"
+        >
+          {{ t('pin.unlockWith') }}
+        </button>
+        <p class="text-xs text-slate-500">{{ t('pin.orPassword') }}</p>
+      </div>
       <p
         v-if="inviteEmail"
         class="rounded-md bg-emerald-50 p-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
