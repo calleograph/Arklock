@@ -143,6 +143,25 @@ describe('breach-check range service', () => {
     expect(JSON.stringify(log)).toContain('security.rangeUrl');
   });
 
+  it('several providers are merged with summed counts; one failing provider fails the whole check', async () => {
+    mode = 'ok';
+    const a = `http://127.0.0.1:${port}/range/`;
+    const b = `http://127.0.0.1:${port}/other/`;
+    expect(
+      (await admin.req('PUT', '/admin/security/range', { urls: [a, b, a] })).json().urls,
+    ).toEqual([a, b]);
+    const res = await admin.req('GET', '/security/range/5BAA6');
+    expect(res.statusCode).toBe(200);
+    const lines = res.body.split('\r\n');
+    expect(lines).toHaveLength(150);
+    expect(lines[1]).toMatch(/:4$/); // 2 + 2
+    mode = 'error';
+    expect((await admin.req('GET', '/security/range/5BAA6')).statusCode).toBe(502);
+    mode = 'ok';
+    expect((await admin.req('PUT', '/admin/security/range', { urls: [] })).statusCode).toBe(400);
+    await admin.req('PUT', '/admin/security/range', { urls: [a] });
+  });
+
   it('an unavailable service yields an explicit error, never a false "safe"', async () => {
     mode = 'error';
     const res = await admin.req('GET', '/security/range/5BAA6');

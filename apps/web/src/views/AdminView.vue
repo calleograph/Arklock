@@ -274,9 +274,14 @@ const resetMfa = (u: { id: string }) =>
 const settings = ref<Record<string, unknown>>({});
 const rangeUrl = ref('');
 const rangeResult = ref('');
+const rangeList = () =>
+  rangeUrl.value
+    .split('\n')
+    .map((u) => u.trim())
+    .filter(Boolean);
 const loadSettings = async () => {
   settings.value = await api('GET', '/admin/settings');
-  rangeUrl.value = (await api<{ url: string }>('GET', '/admin/security/range')).url;
+  rangeUrl.value = (await api<{ urls: string[] }>('GET', '/admin/security/range')).urls.join('\n');
 };
 const saveSetting = (key: string, value: unknown) =>
   run(async () => {
@@ -285,18 +290,22 @@ const saveSetting = (key: string, value: unknown) =>
   }, loadSettings);
 const testRange = () =>
   run(async () => {
-    const r = await api<{ ok: boolean; reason?: string; lines?: number }>(
-      'POST',
-      '/admin/security/range/test',
-      { url: rangeUrl.value },
-    );
-    rangeResult.value = r.ok
-      ? t('admin.rangeOk', { n: r.lines ?? 0 })
-      : t('admin.rangeFail', { r: r.reason ?? '' });
+    const out: string[] = [];
+    for (const url of rangeList()) {
+      const r = await api<{ ok: boolean; reason?: string; lines?: number }>(
+        'POST',
+        '/admin/security/range/test',
+        { url },
+      );
+      out.push(
+        `${url}: ${r.ok ? t('admin.rangeOk', { n: r.lines ?? 0 }) : t('admin.rangeFail', { r: r.reason ?? '' })}`,
+      );
+    }
+    rangeResult.value = out.join('\n');
   });
 const saveRange = () =>
   run(async () => {
-    await api('PUT', '/admin/security/range', { url: rangeUrl.value });
+    await api('PUT', '/admin/security/range', { urls: rangeList() });
     notice.value = t('admin.saved');
   }, loadSettings);
 
@@ -1043,7 +1052,12 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
           <div class="card space-y-2 p-4 text-sm">
             <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
             <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
-            <input v-model="rangeUrl" class="input font-mono" data-testid="range-url" />
+            <textarea
+              v-model="rangeUrl"
+              rows="2"
+              class="input font-mono"
+              data-testid="range-url"
+            ></textarea>
             <div class="flex gap-2">
               <button type="button" class="btn" data-testid="range-test" @click="testRange">
                 {{ t('admin.test') }}</button
@@ -1056,7 +1070,9 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 {{ t('common.save') }}
               </button>
             </div>
-            <p v-if="rangeResult" data-testid="range-result">{{ rangeResult }}</p>
+            <p v-if="rangeResult" class="whitespace-pre-line break-all" data-testid="range-result">
+              {{ rangeResult }}
+            </p>
           </div>
         </div>
 

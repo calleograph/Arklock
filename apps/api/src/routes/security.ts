@@ -31,10 +31,15 @@ export const registerSecurityRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   const limiter = new AttemptLimiter(600, 60_000);
   const insecure = config.NODE_ENV === 'test';
 
-  async function rangeUrl(): Promise<string> {
-    const [s] = await db.select().from(settings).where(eq(settings.key, 'security.rangeUrl'));
-    return typeof s?.value === 'string' ? s.value : DEFAULT_RANGE_URL;
+  /** Провайдеры проверки утечек по порядку; прежняя настройка с одним адресом остаётся действующей. */
+  async function rangeUrls(): Promise<string[]> {
+    const rows = await db.select().from(settings);
+    const list = rows.find((r) => r.key === 'security.rangeUrls')?.value;
+    if (Array.isArray(list) && list.length) return list.filter((u) => typeof u === 'string');
+    const one = rows.find((r) => r.key === 'security.rangeUrl')?.value;
+    return [typeof one === 'string' ? one : DEFAULT_RANGE_URL];
   }
+  const rangeUrl = async () => (await rangeUrls())[0]!;
 
   async function query(prefix: string, base?: string) {
     const url = validateRangeUrl(base ?? (await rangeUrl()), insecure) + prefix;
@@ -55,10 +60,23 @@ export const registerSecurityRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
       throw new AppError(429, 'too_many_attempts', 'Too many requests');
     limiter.fail(user.id);
     try {
-      const res = await query(prefix.toUpperCase());
-      if (res.status !== 200)
+      // Несколько провайдеров: ответы объединяются, счётчики суммируются. Если любой не ответил, проверка не считается пройденной.
+      const urls = await rangeUrls();
+      const answers = await Promise.all(urls.map((u) => query(prefix.toUpperCase(), u)));
+      if (answers.some((r) => r.status !== 200))
         throw new AppError(502, 'range_unavailable', 'The breach-check service returned an error');
-      return reply.type('text/plain; charset=utf-8').send(res.body);
+      if (answers.length === 1)
+        return reply.type('text/plain; charset=utf-8').send(answers[0]!.body);
+      const seen = new Map<string, number>();
+      for (const a of answers)
+        for (const line of a.body.split('\n')) {
+          const [suffix, n] = line.trim().split(':');
+          if (suffix && /^\d+$/.test(n ?? ''))
+            seen.set(suffix, (seen.get(suffix) ?? 0) + Number(n));
+        }
+      return reply
+        .type('text/plain; charset=utf-8')
+        .send([...seen].map(([s, n]) => `${s}:${n}`).join('\r\n'));
     } catch (e) {
       if (e instanceof AppError) throw e;
       // Недоступность — не «пароль безопасен»: клиент получает явную ошибку и показывает «не удалось проверить».
@@ -74,6 +92,7 @@ export const registerSecurityRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
 
   app.get('/admin/security/range', { preHandler: [requireAuth(ctx), adminOnly] }, async () => ({
     url: await rangeUrl(),
+    urls: await rangeUrls(),
     default: DEFAULT_RANGE_URL,
   }));
 
@@ -103,25 +122,33 @@ export const registerSecurityRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
 
   app.put('/admin/security/range', { preHandler: [requireAuth(ctx), adminOnly] }, async (req) => {
     const { user } = authOf(req);
-    const { url } = parse(z.object({ url: z.string().max(500) }), req.body);
-    let normalized: string;
+    const body = parse(
+      z.object({
+        url: z.string().max(500).optional(),
+        urls: z.array(z.string().max(500)).min(1).max(5).optional(),
+      }),
+      req.body,
+    );
+    const input = body.urls ?? (body.url ? [body.url] : []);
+    if (!input.length) throw new AppError(400, 'validation_error', 'An address is required');
+    let normalized: string[];
     try {
-      normalized = validateRangeUrl(url, insecure);
+      normalized = [...new Set(input.map((u) => validateRangeUrl(u, insecure)))];
     } catch (e) {
       throw new AppError(400, 'invalid_url', e instanceof Error ? e.message : 'invalid URL');
     }
-    const old = await rangeUrl();
+    const old = (await rangeUrls()).join(' ');
     await db
       .insert(settings)
-      .values({ key: 'security.rangeUrl', value: normalized, updatedBy: user.id })
+      .values({ key: 'security.rangeUrls', value: normalized, updatedBy: user.id })
       .onConflictDoUpdate({
         target: settings.key,
         set: { value: normalized, updatedAt: new Date(), updatedBy: user.id },
       });
     await audit(db, `user:${user.id}`, 'admin.setting.change', 'security.rangeUrl', {
       old,
-      new: normalized,
+      new: normalized.join(' '),
     });
-    return { url: normalized };
+    return { url: normalized[0]!, urls: normalized };
   });
 };

@@ -1005,7 +1005,7 @@ export default {
     passwordMaxAge: 'Maximum password age, days (0 — do not check)',
     rangeTitle: 'Compromised password check',
     rangeHint:
-      'Range API address (HTTPS only, internal addresses are refused). Only the first 5 characters of the SHA-1 are sent.',
+      'Range API addresses, one per line (up to five; HTTPS only, internal addresses are refused). Answers are merged; if any service does not answer, the check counts as not done. Only the first 5 characters of the SHA-1 are sent.',
     test: 'Test connection',
     rangeOk: 'Connection works, response format is valid ({n} lines)',
     rangeFail: 'Failed: {r}',
