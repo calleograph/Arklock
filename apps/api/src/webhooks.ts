@@ -7,6 +7,7 @@ import { safeGet } from './net/safeFetch.js';
 import { openSetting } from './secretbox.js';
 
 export const WEBHOOKS_KEY = 'webhooks.config';
+const MAX_IN_FLIGHT = 100;
 export const webhookSecretPurpose = (id: string) => `webhook-secret:${id}`;
 
 export interface WebhookConfig {
@@ -39,6 +40,8 @@ export class WebhookSink {
   private hooks: WebhookConfig[] | null = null;
   private loadedAt = 0;
   readonly status = new Map<string, WebhookStatus>();
+  /** Доставки в работе по вебхуку: медленный получатель не должен копить соединения без предела. */
+  private readonly inFlight = new Map<string, number>();
 
   constructor(
     private readonly db: Db,
@@ -92,7 +95,9 @@ export class WebhookSink {
         const code = await this.deliver(hook, ev.action, {
           actor: ev.actor,
           target: ev.target,
-          detail: ev.detail,
+          // IP-адрес остаётся в журнале и не уходит во внешнюю систему
+          detail:
+            ev.detail && Object.fromEntries(Object.entries(ev.detail).filter(([k]) => k !== 'ip')),
         });
         if (code >= 200 && code < 300) {
           st.sent++;
@@ -116,7 +121,18 @@ export class WebhookSink {
         for (const h of hooks) {
           if (!h.enabled) continue;
           if (h.prefixes.length && !h.prefixes.some((p) => ev.action.startsWith(p))) continue;
-          void this.deliverWithRetry(h, ev);
+          const busy = this.inFlight.get(h.id) ?? 0;
+          if (busy >= MAX_IN_FLIGHT) {
+            const st = this.statusOf(h.id);
+            st.failed++;
+            st.lastError = 'too many pending deliveries';
+            this.status.set(h.id, st);
+            continue;
+          }
+          this.inFlight.set(h.id, busy + 1);
+          void this.deliverWithRetry(h, ev).finally(() =>
+            this.inFlight.set(h.id, (this.inFlight.get(h.id) ?? 1) - 1),
+          );
         }
       })
       .catch(() => undefined);

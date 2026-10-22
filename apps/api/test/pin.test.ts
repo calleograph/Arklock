@@ -88,3 +88,22 @@ it('the administrator policy is enforced by the server and a device can be remov
   expect((await admin.req('DELETE', `/auth/pin/${id}`)).statusCode).toBe(204);
   expect((await admin.req('DELETE', `/auth/pin/${id}`)).statusCode).toBe(404);
 });
+
+it('parallel guesses cannot check more than five PINs', async () => {
+  const made = await admin.req('POST', '/auth/pin', {
+    name: 'Планшет',
+    currentAuthKey: await master(),
+    authKey: key('d'),
+  });
+  const id = made.json().deviceId as string;
+  const codes = await Promise.all(
+    Array.from({ length: 30 }, () =>
+      admin.req('POST', `/auth/pin/${id}/unlock`, { authKey: key('e') }).then((r) => r.statusCode),
+    ),
+  );
+  expect(codes.filter((c) => c === 401).length).toBeLessThanOrEqual(4);
+  // устройство удалено: верный PIN больше не принимается
+  expect(
+    (await admin.req('POST', `/auth/pin/${id}/unlock`, { authKey: key('d') })).statusCode,
+  ).toBe(404);
+});

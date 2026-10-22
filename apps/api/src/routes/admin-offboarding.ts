@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
@@ -136,6 +136,8 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     }
 
     const result = await db.transaction(async (tx) => {
+      // увольнения выполняются по одному: иначе двое совладельцев могли бы оставить сейф без владельца
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('arklock.offboard'))`);
       const txDb = tx as unknown as Db;
       const held = await heldVaults(txDb, id);
       const newOwners = new Set<string>();

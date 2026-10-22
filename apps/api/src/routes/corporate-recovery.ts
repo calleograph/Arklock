@@ -242,6 +242,12 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
   app.delete('/admin/corporate-recovery/replacement', async (req, reply) => {
     const { user } = fullAdmin(req);
     await db.transaction(async (tx) => {
+      // та же блокировка, что у завершения: иначе отмена могла бы удалить конверты только что вступившего пакета
+      await tx
+        .select({ key: settings.key })
+        .from(settings)
+        .where(eq(settings.key, CORPORATE_RECOVERY_KEY))
+        .for('update');
       const pending = await pendingRecipient(tx);
       if (!pending) throw notFound();
       await tx

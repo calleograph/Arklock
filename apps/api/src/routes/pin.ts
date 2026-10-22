@@ -1,4 +1,4 @@
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, lt, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
@@ -83,25 +83,39 @@ export const registerPinRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     const { id } = parse(z.object({ id: uuid }), req.params);
     const { authKey } = parse(z.object({ authKey: proof }), req.body);
     await requirePolicy();
+    // Попытка резервируется атомарно до проверки: параллельные запросы не могут проверить больше пяти PIN
     const [d] = await db
-      .select()
-      .from(pinDevices)
-      .where(and(eq(pinDevices.id, id), eq(pinDevices.userId, user.id)));
-    if (!d) throw new AppError(404, 'pin_gone', 'PIN unlock is no longer set up on this device');
+      .update(pinDevices)
+      .set({ failures: sql`${pinDevices.failures} + 1` })
+      .where(
+        and(
+          eq(pinDevices.id, id),
+          eq(pinDevices.userId, user.id),
+          lt(pinDevices.failures, PIN_MAX_FAILURES),
+        ),
+      )
+      .returning();
+    const lock = async () => {
+      await db.delete(pinDevices).where(eq(pinDevices.id, id));
+      await audit(db, `user:${user.id}`, 'auth.pin.locked', `pin:${id}`);
+      return new AppError(
+        423,
+        'pin_locked',
+        'Too many wrong PIN attempts: use the master password',
+      );
+    };
+    if (!d) {
+      const [exists] = await db
+        .select({ id: pinDevices.id })
+        .from(pinDevices)
+        .where(and(eq(pinDevices.id, id), eq(pinDevices.userId, user.id)));
+      if (exists) throw await lock();
+      throw new AppError(404, 'pin_gone', 'PIN unlock is no longer set up on this device');
+    }
     if (!verifyProof(d.verifierSalt, authKey, d.verifierHash)) {
-      const failures = d.failures + 1;
-      if (failures >= PIN_MAX_FAILURES) {
-        await db.delete(pinDevices).where(eq(pinDevices.id, id));
-        await audit(db, `user:${user.id}`, 'auth.pin.locked', `pin:${id}`);
-        throw new AppError(
-          423,
-          'pin_locked',
-          'Too many wrong PIN attempts: use the master password',
-        );
-      }
-      await db.update(pinDevices).set({ failures }).where(eq(pinDevices.id, id));
+      if (d.failures >= PIN_MAX_FAILURES) throw await lock();
       throw new AppError(401, 'invalid_pin', 'Wrong PIN', {
-        remaining: PIN_MAX_FAILURES - failures,
+        remaining: PIN_MAX_FAILURES - d.failures,
       });
     }
     await db
