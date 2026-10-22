@@ -250,6 +250,13 @@ export const ruHelp = {
     publicUrl: 'Сначала задайте публичный адрес сервера в настройках установки.',
     notInTrash: 'Запись уже не в корзине.',
   },
+  ws: {
+    vault: 'Сейф',
+    actions: 'Действия',
+    actionsTitle: 'Действия с сейфом и пространством',
+    entryActions: 'Ещё действия с записью',
+    moveEntry: 'Перенести в другой сейф',
+  },
   corpReplace: {
     title: 'Замена офлайн-пакета восстановления',
     intro:
@@ -546,6 +553,13 @@ export const enHelp = {
       'The directory is not configured. Fill in and save the settings on the “Directory (LDAP)” tab.',
     publicUrl: 'Set the server’s public address in the installation settings first.',
     notInTrash: 'The entry is no longer in the trash.',
+  },
+  ws: {
+    vault: 'Vault',
+    actions: 'Actions',
+    actionsTitle: 'Vault and space actions',
+    entryActions: 'More entry actions',
+    moveEntry: 'Move to another vault',
   },
   corpReplace: {
     title: 'Replacing the offline recovery package',

@@ -59,16 +59,25 @@ const error = ref('');
 const busy = ref(false);
 const tab = ref<'details' | 'access' | 'journal' | 'settings'>('details');
 const subTab = ref<'files' | 'history' | 'share' | null>(null);
-const tabs = ['details', 'access', 'journal', 'settings'] as const;
+const tabs = ['details', 'files', 'access', 'journal', 'settings'] as const;
+/** Вкладка «Файлы» — это данные записи с открытым списком вложений. */
+const shownTab = computed(() =>
+  tab.value === 'details' && subTab.value === 'files' ? 'files' : tab.value,
+);
 function selectTab(value: (typeof tabs)[number]): void {
+  error.value = '';
+  if (value === 'files') {
+    tab.value = 'details';
+    void openFiles();
+    return;
+  }
   tab.value = value;
   subTab.value = null;
-  error.value = '';
 }
 function tabKey(event: KeyboardEvent): void {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
   event.preventDefault();
-  const index = tabs.indexOf(tab.value);
+  const index = tabs.indexOf(shownTab.value);
   const next =
     event.key === 'Home'
       ? 0
@@ -77,7 +86,7 @@ function tabKey(event: KeyboardEvent): void {
         : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
   selectTab(tabs[next]!);
   (event.currentTarget as HTMLElement)
-    .querySelector<HTMLButtonElement>(`[data-entry-tab="${tab.value}"]`)
+    .querySelector<HTMLButtonElement>(`[data-entry-tab="${shownTab.value}"]`)
     ?.focus();
 }
 const branchChoice = ref<string | null>(props.item?.branchId ?? props.branchId);
@@ -589,11 +598,12 @@ void api;
               data-testid="btn-pin"
               @click="ws.setPinned(item, !item.pinned)"
             />
+            <slot name="actions" />
           </div>
         </div>
 
         <div
-          class="mb-3 grid grid-cols-4 gap-1 border-b border-slate-200 text-sm dark:border-slate-800"
+          class="mb-3 grid grid-cols-5 gap-0.5 border-b border-slate-200 text-[13px] dark:border-slate-800"
           role="tablist"
           :aria-label="t('entryPanel.tabsLabel')"
           @keydown="tabKey"
@@ -604,11 +614,15 @@ void api;
             :key="value"
             type="button"
             role="tab"
-            class="min-w-0 px-1 py-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500 sm:px-3"
-            :class="tab === value ? 'border-b-2 border-brand-500 font-medium' : 'text-slate-500'"
-            :aria-selected="tab === value"
-            :aria-controls="`entry-panel-${value}`"
-            :tabindex="tab === value ? 0 : -1"
+            class="-mb-px min-w-0 truncate px-0.5 py-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+            :class="
+              shownTab === value
+                ? 'border-b-2 border-brand-500 font-medium'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            "
+            :aria-selected="shownTab === value"
+            :aria-controls="`entry-panel-${value === 'files' ? 'details' : value}`"
+            :tabindex="shownTab === value ? 0 : -1"
             :data-entry-tab="value"
             :data-testid="`tab-${value}`"
             @click="selectTab(value)"
@@ -616,28 +630,26 @@ void api;
             {{ t(`entryPanel.tabs.${value}`) }}
           </button>
         </div>
-        <div class="mb-3 flex flex-wrap gap-2 text-sm">
-          <template v-if="tab === 'details'">
-            <button type="button" class="btn" :aria-pressed="!subTab" @click="subTab = null">
-              {{ t('entryPanel.tabs.details') }}
-            </button>
+        <!-- Второй уровень — переключатель вида внутри вкладки, а не ещё одна кнопка-действие -->
+        <div
+          v-if="tab === 'access' || tab === 'journal'"
+          class="mb-3 inline-flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800"
+          role="group"
+        >
+          <template v-if="tab === 'access'">
             <button
               type="button"
-              class="btn"
-              :aria-pressed="subTab === 'files'"
-              data-testid="tab-files"
-              @click="openFiles"
+              class="seg"
+              :class="{ 'seg-on': !subTab }"
+              :aria-pressed="!subTab"
+              @click="subTab = null"
             >
-              {{ t('files.tab') }}
-            </button>
-          </template>
-          <template v-else-if="tab === 'access'">
-            <button type="button" class="btn" :aria-pressed="!subTab" @click="subTab = null">
               {{ t('entryPanel.actualAccess') }}
             </button>
             <button
               type="button"
-              class="btn"
+              class="seg"
+              :class="{ 'seg-on': subTab === 'share' }"
               :aria-pressed="subTab === 'share'"
               data-testid="tab-share"
               @click="subTab = 'share'"
@@ -645,13 +657,20 @@ void api;
               {{ t('vault.share') }}
             </button>
           </template>
-          <template v-else-if="tab === 'journal'">
-            <button type="button" class="btn" :aria-pressed="!subTab" @click="subTab = null">
+          <template v-else>
+            <button
+              type="button"
+              class="seg"
+              :class="{ 'seg-on': !subTab }"
+              :aria-pressed="!subTab"
+              @click="subTab = null"
+            >
               {{ t('entryPanel.events') }}
             </button>
             <button
               type="button"
-              class="btn"
+              class="seg"
+              :class="{ 'seg-on': subTab === 'history' }"
               :aria-pressed="subTab === 'history'"
               data-testid="tab-history"
               @click="loadHistory"

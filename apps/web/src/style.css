@@ -289,6 +289,13 @@ dialog::backdrop {
       0 1px 2px rgb(15 35 60 / 0.04),
       0 10px 28px -16px rgb(15 35 60 / 0.12);
   }
+  /* сегментированный переключатель вида внутри вкладки */
+  .seg {
+    @apply rounded-md px-3 py-1 font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100;
+  }
+  .seg-on {
+    @apply bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100;
+  }
   .badge {
     @apply inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
   }

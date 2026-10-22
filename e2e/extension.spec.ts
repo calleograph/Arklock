@@ -142,6 +142,22 @@ test('the extension signs in, finds the entry for the page and fills the form; a
   await popup.getByTestId('entry').first().getByTestId('totp').click();
   await expect(popup.getByTestId('totp-out')).toContainText(/^\d{6}/);
 
+  // 4б. Вкладка ушла на другой источник после открытия окна (перенаправление): пароль не заполняется
+  const other = http.createServer((_req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.end(FORM);
+  });
+  await new Promise<void>((r) => other.listen(0, '127.0.0.1', r));
+  try {
+    await page.goto(`http://127.0.0.1:${(other.address() as AddressInfo).port}/login`);
+    await popup.getByTestId('entry').first().getByTestId('fill').click();
+    await expect(popup.getByTestId('status')).toContainText(/changed|сменилась/);
+    await expect(page.locator('#p')).toHaveValue('');
+  } finally {
+    other.close();
+  }
+  await page.goto(`http://127.0.0.1:${sitePort}/login`);
+
   // 5. Запись для другого сайта: заполнение требует подтверждения и по отказу не выполняется
   await page.locator('#u').fill('');
   await page.locator('#p').fill('');

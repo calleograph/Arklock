@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import BranchNode from '../components/BranchNode.vue';
 import Icon from '../components/Icon.vue';
 import IconButton from '../components/IconButton.vue';
+import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
 import EntryPanel from '../components/EntryPanel.vue';
 import TransferDialog from '../components/TransferDialog.vue';
 import VaultOverview from '../components/VaultOverview.vue';
@@ -239,6 +240,43 @@ async function run(fn: () => Promise<unknown>): Promise<void> {
 
 /** Сейф, в который переносится открытая запись (только открытые ключом и не текущий). */
 const moveTo = ref('');
+const moving = ref(false);
+watch(openId, () => (moving.value = false));
+const entryActions = computed<ActionItem[]>(() => [
+  ...(moveTargets.value.length
+    ? [{ id: 'move', label: t('ws.moveEntry'), icon: 'sync' as const, testid: 'entry-move' }]
+    : []),
+  { id: 'trash', label: t('vault.toTrash'), icon: 'trash', danger: true, testid: 'btn-trash' },
+]);
+function onEntryAction(id: string): void {
+  if (id === 'move') moving.value = true;
+  else if (id === 'trash') void run(() => ws.trashEntry(opened.value!));
+}
+const vaultActions = computed<ActionItem[]>(() => [
+  ...(isVaultAdmin.value && vault.value?.kind === 'shared'
+    ? [
+        {
+          id: 'settings',
+          label: t('vault.settings'),
+          icon: 'settings' as const,
+          testid: 'btn-vault-settings',
+        },
+      ]
+    : []),
+  ...(canCreateVault.value
+    ? [{ id: 'new', label: t('vault.newVault'), icon: 'plus' as const, testid: 'btn-new-vault' }]
+    : []),
+  { id: 'spaces', label: t('spaces.manage'), icon: 'folder', testid: 'spaces-open' },
+  { id: 'transfer', label: t('transfer.title'), icon: 'sync', testid: 'btn-transfer' },
+  { id: 'inspector', label: t('inspector.title'), icon: 'shield', testid: 'btn-inspector' },
+]);
+function onVaultAction(id: string): void {
+  if (id === 'settings') void router.push(`/vault/${vault.value!.id}/settings`);
+  else if (id === 'new') void newVault();
+  else if (id === 'spaces') showSpaces.value = !showSpaces.value;
+  else if (id === 'transfer') showTransfer.value = true;
+  else if (id === 'inspector') void router.push('/inspector');
+}
 const moveTargets = computed(() =>
   ws.vaults.filter((v) => v.unlocked && !v.problem && v.id !== ws.currentId),
 );
@@ -247,6 +285,7 @@ async function moveNow(): Promise<void> {
   try {
     await ws.moveEntry(opened.value!, moveTo.value);
     moveTo.value = '';
+    moving.value = false;
   } catch (e) {
     const code = e instanceof Error ? e.message : '';
     error.value =
@@ -311,11 +350,11 @@ void router;
 
 <template>
   <section class="space-y-3">
-    <div class="flex flex-wrap items-end gap-2">
-      <label class="min-w-48 text-sm"
+    <div class="flex flex-wrap items-end gap-2" data-testid="workspace-toolbar">
+      <label class="min-w-0 flex-1 text-xs font-medium text-slate-500 sm:flex-none"
         >{{ t('spaces.title')
         }}<select
-          class="input"
+          class="input mt-1 sm:w-56"
           :value="ws.currentSpaceId ?? ''"
           data-testid="space-select"
           @change="ws.selectSpace(($event.target as HTMLSelectElement).value || null)"
@@ -324,64 +363,47 @@ void router;
           <option v-if="ws.personalAllowed" value="">{{ t('spaces.personal') }}</option>
         </select></label
       >
-      <button type="button" class="btn" data-testid="spaces-open" @click="showSpaces = !showSpaces">
-        {{ t('spaces.manage') }}
-      </button>
+      <label class="min-w-0 flex-1 text-xs font-medium text-slate-500 sm:flex-none"
+        >{{ t('ws.vault')
+        }}<select
+          class="input mt-1 sm:w-64"
+          :value="ws.currentId"
+          data-testid="vault-select"
+          @change="ws.select(($event.target as HTMLSelectElement).value)"
+        >
+          <optgroup
+            v-if="!ws.currentSpaceId && ws.personalAllowed"
+            :label="t('vault.groupPersonal')"
+          >
+            <option
+              v-for="v in ws.spaceVaults.filter((x) => x.kind === 'locker')"
+              :key="v.id"
+              :value="v.id"
+            >
+              {{ t('vault.locker') }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
+            </option>
+          </optgroup>
+          <optgroup v-if="ws.currentSpaceId" :label="t('vault.groupShared')">
+            <option
+              v-for="v in ws.spaceVaults.filter((x) => x.kind !== 'locker')"
+              :key="v.id"
+              :value="v.id"
+            >
+              {{ vaultLabel(v, t) }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
+            </option>
+          </optgroup>
+        </select></label
+      >
+      <ActionMenu
+        :label="t('ws.actions')"
+        :title="t('ws.actionsTitle')"
+        align="left"
+        :items="vaultActions"
+        data-testid="vault-actions"
+        @select="onVaultAction"
+      />
     </div>
     <SpacesPanel v-if="showSpaces" @changed="refreshSpaces" />
-    <div class="flex flex-wrap items-center gap-2">
-      <select
-        class="input max-w-xs"
-        :value="ws.currentId"
-        data-testid="vault-select"
-        @change="ws.select(($event.target as HTMLSelectElement).value)"
-      >
-        <optgroup v-if="!ws.currentSpaceId && ws.personalAllowed" :label="t('vault.groupPersonal')">
-          <option
-            v-for="v in ws.spaceVaults.filter((x) => x.kind === 'locker')"
-            :key="v.id"
-            :value="v.id"
-          >
-            {{ t('vault.locker') }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
-          </option>
-        </optgroup>
-        <optgroup v-if="ws.currentSpaceId" :label="t('vault.groupShared')">
-          <option
-            v-for="v in ws.spaceVaults.filter((x) => x.kind !== 'locker')"
-            :key="v.id"
-            :value="v.id"
-          >
-            {{ vaultLabel(v, t) }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
-          </option>
-        </optgroup>
-      </select>
-      <button
-        v-if="canCreateVault"
-        type="button"
-        class="btn"
-        data-testid="btn-new-vault"
-        @click="newVault"
-      >
-        {{ t('vault.newVault') }}
-      </button>
-      <button
-        v-if="isVaultAdmin && vault?.kind === 'shared'"
-        type="button"
-        class="btn"
-        data-testid="btn-vault-settings"
-        @click="router.push(`/vault/${vault.id}/settings`)"
-      >
-        {{ t('vault.settings') }}
-      </button>
-      <div class="ml-auto flex gap-2">
-        <button type="button" class="btn" data-testid="btn-transfer" @click="showTransfer = true">
-          {{ t('transfer.title') }}
-        </button>
-        <button type="button" class="btn" @click="router.push('/inspector')">
-          {{ t('inspector.title') }}
-        </button>
-      </div>
-    </div>
 
     <p
       v-if="!ws.keyLogOk"
@@ -561,29 +583,6 @@ void router;
 
       <!-- Список -->
       <div class="min-w-0 space-y-2" :class="mobileView === 'list' ? '' : 'hidden lg:block'">
-        <section
-          v-if="
-            !branchSel &&
-            scope === 'all' &&
-            !query &&
-            ws.entries.some((e) => e.pinned && !e.data.archived)
-          "
-          class="card p-3"
-          data-testid="home-favorites"
-        >
-          <h2 class="mb-2 text-sm font-semibold">{{ t('corporate.favorites') }}</h2>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="e in ws.entries.filter((item) => item.pinned && !item.data.archived)"
-              :key="e.id"
-              type="button"
-              class="btn max-w-full"
-              @click="open(e)"
-            >
-              <Icon name="star" class="shrink-0" /><span class="truncate">{{ e.data.title }}</span>
-            </button>
-          </div>
-        </section>
         <div class="flex flex-wrap gap-2">
           <select v-model="kindFilter" class="input w-auto" data-testid="kind-filter">
             <option value="">{{ t('vault.allKinds') }}</option>
@@ -599,14 +598,15 @@ void router;
             <option value="title">{{ t('vault.sortTitle') }}</option>
             <option value="updated">{{ t('vault.sortUpdated') }}</option>
           </select>
-          <IconButton
+          <button
             v-if="canWrite && scope !== 'trash'"
-            icon="plus"
-            :label="t('vault.add')"
-            class="!bg-brand-500 !text-white hover:!bg-brand-600"
+            type="button"
+            class="btn-primary ml-auto"
             data-testid="add-entry"
             @click="newEntry"
-          />
+          >
+            <Icon name="plus" /> {{ t('vault.add') }}
+          </button>
         </div>
 
         <div
@@ -791,7 +791,17 @@ void router;
           @saved="onSaved"
           @cancel="creating = false"
           @changed="() => (openId = openId)"
-        />
+        >
+          <template #actions>
+            <ActionMenu
+              v-if="opened && scope !== 'trash' && opened.access !== 'reader'"
+              :title="t('ws.entryActions')"
+              :items="entryActions"
+              data-testid="entry-actions"
+              @select="onEntryAction"
+            />
+          </template>
+        </EntryPanel>
         <FolderPanel
           v-else-if="selectedBranch"
           :key="selectedBranch.id"
@@ -817,19 +827,9 @@ void router;
             {{ t('vault.purge') }}
           </button>
         </div>
-        <div v-else-if="opened && opened.access !== 'reader'">
-          <button
-            type="button"
-            class="btn-danger"
-            data-testid="btn-trash"
-            @click="run(() => ws.trashEntry(opened!))"
-          >
-            <Icon name="trash" /> {{ t('vault.toTrash') }}
-          </button>
-        </div>
         <div
-          v-if="opened && opened.access !== 'reader' && moveTargets.length"
-          class="flex flex-wrap items-center gap-2"
+          v-if="moving && opened && opened.access !== 'reader' && moveTargets.length"
+          class="card flex flex-wrap items-center gap-2 p-3"
           data-testid="move-entry"
         >
           <select
@@ -851,6 +851,9 @@ void router;
             @click="moveNow"
           >
             {{ t('vault.entryMoveAction') }}
+          </button>
+          <button type="button" class="btn" @click="moving = false">
+            {{ t('common.cancel') }}
           </button>
         </div>
       </div>

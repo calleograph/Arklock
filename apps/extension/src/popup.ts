@@ -277,12 +277,16 @@ async function fill(e: Entry, status: HTMLElement): Promise<void> {
     const [res] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: fillInPage,
-      args: [e.username, e.password],
+      args: [e.username, e.password, new URL(tab.url).origin],
     });
     const r = res?.result;
     status.className = r && (r.user || r.password) ? 'ok' : 'err';
-    status.textContent =
-      r && (r.user || r.password)
+    status.textContent = r?.moved
+      ? T(
+          'The page changed: open the extension again',
+          'Страница сменилась: откройте расширение заново',
+        )
+      : r && (r.user || r.password)
         ? T('Filled', 'Заполнено')
         : T('No login form found on the page', 'На странице нет формы входа');
   } catch {

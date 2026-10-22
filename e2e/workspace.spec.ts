@@ -221,6 +221,7 @@ test('administrator builds a structure and works with entries', async ({ browser
   await expect(page.getByTestId('view-password')).toHaveText('Tr0ub4dor&3-qq');
 
   // корзина и восстановление
+  await page.getByTestId('entry-actions').click();
   await page.getByTestId('btn-trash').click();
   await expect(page.getByTestId('entry-row')).toHaveCount(1);
   await page.getByTestId('scope-trash').click();
@@ -292,6 +293,7 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
 
 test('import (CSV), encrypted export and the security inspector', async () => {
   const page = adminPage;
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-transfer').click();
   const csv =
     'title,username,password,url,folder\n"Wi-Fi 1",guest,password,,Офис\n"Wi-Fi 2",guest,password,,Офис\n"Wi-Fi 1",guest,password,,Офис\n"VPN",me,Zq8!vN3#xLp0wRt5,https://vpn.example.com,Офис\n';
@@ -325,7 +327,8 @@ test('import (CSV), encrypted export and the security inspector', async () => {
   // инспектор: слабый пароль «password» найден локально, без отправки паролей
   const bodies: string[] = [];
   page.on('request', (r) => r.postData() && bodies.push(r.postData()!));
-  await page.getByRole('button', { name: /Инспектор|Security inspector/ }).click();
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-inspector').click();
   await expect(page.getByTestId('count-weak')).not.toHaveText('0');
   await expect(page.getByTestId('count-reused')).toHaveText('2');
   expect(bodies.join('')).not.toContain('Zq8!vN3');
@@ -352,6 +355,7 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Команда');
   await page.getByTestId('name-ok').click();
@@ -378,6 +382,7 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await bigFileRoundTrip(page);
 
   // добавление участника
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-vault-settings').click();
   await page.getByTestId('member-search').fill('member');
   await page.getByTestId(`add-${MEMBER.email}`).click();
@@ -452,10 +457,12 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Цель');
   await page.getByTestId('name-ok').click();
   await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText('Цель');
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Перенос');
   await page.getByTestId('name-ok').click();
@@ -467,6 +474,8 @@ test('an entry moves to another vault: re-encrypted for the target, the source c
   });
 
   await page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' }).click();
+  await page.getByTestId('entry-actions').click();
+  await page.getByTestId('entry-move').click();
   await page.getByTestId('move-target').selectOption({ label: 'Цель' });
   await page.getByTestId('btn-move').click();
   await expect(page.getByTestId('entry-row').filter({ hasText: 'Переносимая запись' })).toHaveCount(
@@ -513,12 +522,14 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('vault-select')).toBeVisible();
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Приёмник файлов');
   await page.getByTestId('name-ok').click();
   await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(
     'Приёмник файлов',
   );
+  await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-new-vault').click();
   await page.getByTestId('name-input').fill('Файлы перенос');
   await page.getByTestId('name-ok').click();
@@ -539,6 +550,8 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   await expect(page.getByTestId('file-row')).toContainText('перенос.txt');
 
   await page.getByTestId('entry-row').filter({ hasText: 'Запись с файлом' }).click();
+  await page.getByTestId('entry-actions').click();
+  await page.getByTestId('entry-move').click();
   const targetVaultId = await targetVault(page.getByTestId('move-target'), 'Приёмник файлов');
   await page.getByTestId('move-target').selectOption(targetVaultId);
   // A corrupted target must leave the source intact and remove the incomplete copy.

@@ -45,7 +45,7 @@ const TAB_ICON: Record<string, IconName> = {
   saml: 'key',
   smtp: 'text',
   syslog: 'log',
-  webhooks: 'log',
+  webhooks: 'external',
   settings: 'settings',
   ledger: 'log',
 };
@@ -445,7 +445,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
               to="/admin/updates"
               data-testid="nav-updates"
               class="nav-link w-full whitespace-nowrap"
-              >{{ t('nav.updates') }}</RouterLink
+              ><Icon name="sync" class="size-4 opacity-80" /> {{ t('nav.updates') }}</RouterLink
             >
           </div>
         </div>

@@ -116,7 +116,13 @@ export default {
   },
   entryPanel: {
     tabsLabel: 'Разделы записи',
-    tabs: { details: 'Данные', access: 'Доступ', journal: 'Журнал', settings: 'Настройки' },
+    tabs: {
+      details: 'Данные',
+      files: 'Файлы',
+      access: 'Доступ',
+      journal: 'Журнал',
+      settings: 'Настройки',
+    },
     roles: {
       reader: 'Чтение',
       editor: 'Редактирование',

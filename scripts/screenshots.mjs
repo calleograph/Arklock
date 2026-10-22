@@ -180,6 +180,7 @@ try {
   await tid(page, 'btn-pin').click();
 
   const originalVaultId = await tid(page, 'vault-select').inputValue();
+  await tid(page, 'vault-actions').click();
   await tid(page, 'btn-new-vault').click();
   await tid(page, 'name-input').fill('Проверка переноса');
   await tid(page, 'name-ok').click();
@@ -197,6 +198,8 @@ try {
     buffer: Buffer.from('synthetic attachment round trip'),
   });
   await tid(page, 'file-row').waitFor();
+  await tid(page, 'entry-actions').click();
+  await tid(page, 'entry-move').click();
   await tid(page, 'move-target').selectOption(originalVaultId);
   const contentRoute = `**/vaults/${originalVaultId}/attachments/*/content`;
   await page.route(contentRoute, async (route) => {
@@ -234,6 +237,7 @@ try {
   ]);
   const { readFile } = await import('node:fs/promises');
   assert.equal(await readFile(await download.path(), 'utf8'), 'synthetic attachment round trip');
+  await tid(page, 'entry-actions').click();
   await tid(page, 'btn-trash').click();
   await tid(page, 'entry-row')
     .filter({ hasText: 'Проверка вложений' })
@@ -327,6 +331,7 @@ try {
   await tid(page, 'recovery-fingerprint').waitFor();
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-vault').click();
+  await tid(page, 'vault-actions').click();
   await tid(page, 'btn-vault-settings').click();
   await tid(page, 'vault-recovery-confirm').check();
   await tid(page, 'vault-recovery-enroll').click();
@@ -381,6 +386,7 @@ try {
   await tid(page, 'replacement-complete').waitFor();
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-vault').click();
+  await tid(page, 'vault-actions').click();
   await tid(page, 'btn-vault-settings').click();
   await tid(page, 'vault-recovery-pending-confirm').check();
   await tid(page, 'vault-recovery-pending-enroll').click();

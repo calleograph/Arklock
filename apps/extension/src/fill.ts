@@ -1,11 +1,15 @@
 /**
  * Функция заполнения формы. Выполняется ВНУТРИ страницы (chrome.scripting.executeScript), поэтому самодостаточна:
  * не обращается к внешним переменным модуля. Заполняет только видимые поля, по действию пользователя.
+ * `origin` — адрес, который пользователь видел и одобрил в окне расширения: если вкладка за это время ушла
+ * на другой сайт (перенаправление), ничего не заполняется.
  */
 export function fillInPage(
   username: string,
   password: string,
-): { user: boolean; password: boolean } {
+  origin: string,
+): { user: boolean; password: boolean; moved?: boolean } {
+  if (location.origin !== origin) return { user: false, password: false, moved: true };
   const visible = (el: Element): boolean => {
     const r = (el as HTMLElement).getClientRects();
     const s = getComputedStyle(el);

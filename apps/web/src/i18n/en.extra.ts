@@ -115,7 +115,13 @@ export default {
   },
   entryPanel: {
     tabsLabel: 'Entry sections',
-    tabs: { details: 'Data', access: 'Access', journal: 'Journal', settings: 'Settings' },
+    tabs: {
+      details: 'Data',
+      files: 'Files',
+      access: 'Access',
+      journal: 'Journal',
+      settings: 'Settings',
+    },
     roles: { reader: 'Read', editor: 'Edit', manager: 'Manage', owner: 'Owner', none: 'Denied' },
     yourAccess: 'Your permissions',
     actualAccess: 'Effective access',
