@@ -128,6 +128,9 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
     ['/security', 'безопасность'],
     ['/admin/users', 'администрирование: пользователи'],
     ['/admin/settings', 'администрирование: настройки'],
+    // разделы настроек с таблицами и формами: fieldset без min-inline-size: 0 распирал страницу
+    ['/admin/settings?section=security', 'администрирование: настройки безопасности'],
+    ['/admin/settings?section=storage', 'администрирование: сейфы и файлы'],
     ['/admin/backups', 'администрирование: копии'],
     ['/admin/ldap', 'администрирование: каталог'],
     ['/admin/sso', 'администрирование: SSO'],

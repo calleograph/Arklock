@@ -248,6 +248,8 @@ export const handoffCreate = z.object({
     .min(1)
     .max(60 * 24 * 30),
   maxViews: z.number().int().min(1).max(100),
+  /** Ссылка действует столько минут после первого открытия (например, 5): получатель может открыть её снова, пока окно не закрылось. */
+  openWindowMinutes: z.number().int().min(1).max(1440).optional(),
 });
 
 export const signalsPost = z.object({

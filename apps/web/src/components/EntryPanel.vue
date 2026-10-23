@@ -166,7 +166,7 @@ watch(
     files.value = null;
     confirmFile.value = '';
     link.value = '';
-    share.value = { passphrase: '', minutes: 60, views: 1, notes: false };
+    share.value = { passphrase: '', minutes: 60, views: 1, notes: false, window: 0 };
     showGenerator.value = false;
   },
 );
@@ -557,7 +557,26 @@ const fmtSize = (n: number) =>
 
 // ---- ссылка передачи
 const link = ref('');
-const share = ref({ passphrase: '', minutes: 60, views: 1, notes: false });
+const share = ref({ passphrase: '', minutes: 60, views: 1, notes: false, window: 0 });
+// ограничения организации: варианты срока и просмотров не выходят за них (сервер проверяет сам)
+const linkCaps = ref({ minutes: 0, views: 100 });
+const MINUTES = [15, 60, 1440, 10080];
+const VIEWS = [1, 3, 10];
+const minuteOptions = computed(() =>
+  MINUTES.filter((m) => !linkCaps.value.minutes || m <= linkCaps.value.minutes),
+);
+const viewOptions = computed(() => VIEWS.filter((v) => v <= linkCaps.value.views));
+async function openShare(): Promise<void> {
+  subTab.value = 'share';
+  const p = await api<Record<string, unknown>>('GET', '/auth/policy').catch(() => ({}));
+  linkCaps.value = {
+    minutes: Number((p as Record<string, unknown>)['links.maxMinutes'] ?? 0),
+    views: Number((p as Record<string, unknown>)['links.maxViews'] ?? 100),
+  };
+  if (!minuteOptions.value.includes(share.value.minutes))
+    share.value.minutes = minuteOptions.value.at(-1) ?? linkCaps.value.minutes;
+  if (!viewOptions.value.includes(share.value.views)) share.value.views = 1;
+}
 async function createLink(): Promise<void> {
   const item = props.item;
   if (!item) return;
@@ -569,6 +588,7 @@ async function createLink(): Promise<void> {
       expiresInMinutes: Number(share.value.minutes),
       maxViews: Number(share.value.views),
       includeNotes: share.value.notes,
+      openWindowMinutes: Number(share.value.window) || undefined,
     });
     if (props.item?.id === item.id) link.value = created;
   } catch (e) {
@@ -718,7 +738,7 @@ const fmt = (iso: string) => when(iso);
                 :class="{ 'seg-on': subTab === 'share' }"
                 :aria-pressed="subTab === 'share'"
                 data-testid="tab-share"
-                @click="subTab = 'share'"
+                @click="openShare"
               >
                 {{ t('vault.share') }}
               </button>
@@ -1022,21 +1042,39 @@ const fmt = (iso: string) => when(iso);
                 <label class="block"
                   ><span class="mb-1 block text-xs">{{ t('vault.linkLifetime') }}</span>
                   <select v-model="share.minutes" class="input" data-testid="share-minutes">
-                    <option :value="15">15 {{ t('vault.min') }}</option>
-                    <option :value="60">1 {{ t('vault.hour') }}</option>
-                    <option :value="1440">24 {{ t('vault.hour') }}</option>
-                    <option :value="10080">7 {{ t('vault.days') }}</option>
+                    <option v-for="m in minuteOptions" :key="m" :value="m">
+                      {{
+                        m < 60
+                          ? `${m} ${t('vault.min')}`
+                          : m < 10080
+                            ? `${m / 60} ${t('vault.hour')}`
+                            : `${m / 1440} ${t('vault.days')}`
+                      }}
+                    </option>
+                    <option
+                      v-if="!minuteOptions.length && linkCaps.minutes"
+                      :value="linkCaps.minutes"
+                    >
+                      {{ linkCaps.minutes }} {{ t('vault.min') }}
+                    </option>
                   </select></label
                 >
                 <label class="block"
                   ><span class="mb-1 block text-xs">{{ t('vault.linkViews') }}</span>
                   <select v-model="share.views" class="input" data-testid="share-views">
-                    <option :value="1">1</option>
-                    <option :value="3">3</option>
-                    <option :value="10">10</option>
+                    <option v-for="v in viewOptions" :key="v" :value="v">{{ v }}</option>
                   </select></label
                 >
               </div>
+              <label class="block"
+                ><span class="mb-1 block text-xs">{{ t('vault.linkWindow') }}</span>
+                <select v-model="share.window" class="input" data-testid="share-window">
+                  <option :value="0">{{ t('vault.linkWindowNone') }}</option>
+                  <option :value="5">5 {{ t('vault.min') }}</option>
+                  <option :value="15">15 {{ t('vault.min') }}</option>
+                  <option :value="60">1 {{ t('vault.hour') }}</option>
+                </select></label
+              >
               <label class="block"
                 ><span class="mb-1 block text-xs">{{ t('vault.linkPassphrase') }}</span>
                 <input

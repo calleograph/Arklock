@@ -764,6 +764,50 @@ describe('handoff links', () => {
     expect((await open(short.id)).statusCode).toBe(404);
   });
 
+  it('a link with an open window works for N minutes after the first open, then closes for good', async () => {
+    const { res, id } = await create(admin, { maxViews: 10, openWindowMinutes: 5 });
+    expect(res.statusCode).toBe(201);
+    expect((await app.inject(`/api/v1/handoffs/${id}/meta`)).json().openWindowMinutes).toBe(5);
+    expect((await open(id)).statusCode).toBe(200);
+    expect((await open(id)).statusCode).toBe(200); // в окне — снова можно
+    const { handoffs } = await import('../src/db/schema.js');
+    const { eq } = await import('drizzle-orm');
+    await database.db
+      .update(handoffs)
+      .set({ firstOpenedAt: new Date(Date.now() - 6 * 60_000) })
+      .where(eq(handoffs.id, id));
+    expect((await open(id)).statusCode).toBe(404);
+    expect((await app.inject(`/api/v1/handoffs/${id}/meta`)).statusCode).toBe(404);
+    const mine = (await admin.req('GET', '/handoffs')).json();
+    expect(mine.find((h: { id: string }) => h.id === id).status).toBe('expired');
+    // обслуживание стирает шифртекст закрытой ссылки, не дожидаясь общего срока
+    const { runMaintenance } = await import('../src/maintenance.js');
+    await runMaintenance(database.db);
+    const [row] = await database.db.select().from(handoffs).where(eq(handoffs.id, id));
+    expect(row!.ciphertext).toBe('');
+  });
+
+  it('organization limits on links are enforced by the server; the recipient sees the organization note', async () => {
+    const put = (body: object) => admin.req('PUT', '/admin/settings', body);
+    expect(
+      (await put({ 'links.maxMinutes': 30, 'links.maxViews': 3, 'links.notice': 'Не пересылайте' }))
+        .statusCode,
+    ).toBe(200);
+    const tooLong = await create(admin, { expiresInMinutes: 60 });
+    expect(tooLong.res.statusCode).toBe(400);
+    expect(tooLong.res.json().error.code).toBe('link_limit');
+    expect((await create(admin, { expiresInMinutes: 30, maxViews: 4 })).res.statusCode).toBe(400);
+    const ok = await create(admin, { expiresInMinutes: 30, maxViews: 3 });
+    expect(ok.res.statusCode).toBe(201);
+    expect((await app.inject(`/api/v1/handoffs/${ok.id}/meta`)).json().notice).toBe(
+      'Не пересылайте',
+    );
+    expect((await admin.req('GET', '/auth/policy')).json()['links.maxViews']).toBe(3);
+    expect(
+      (await put({ 'links.maxMinutes': 0, 'links.maxViews': 100, 'links.notice': '' })).statusCode,
+    ).toBe(200);
+  });
+
   it('rejects malformed requests', async () => {
     expect((await create(admin, { maxViews: 0 })).res.statusCode).toBe(400);
     expect((await create(admin, { expiresInMinutes: 60 * 24 * 31 })).res.statusCode).toBe(400);

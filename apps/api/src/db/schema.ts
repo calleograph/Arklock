@@ -431,6 +431,9 @@ export const handoffs = pgTable(
     expiresAt: ts('expires_at').notNull(),
     maxViews: integer('max_views').notNull(),
     views: integer('views').notNull().default(0),
+    /** Окно после первого открытия, минут: после него ссылка закрывается, даже если просмотры остались. */
+    openWindowMinutes: integer('open_window_minutes'),
+    firstOpenedAt: ts('first_opened_at'),
     revokedAt: ts('revoked_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
   },

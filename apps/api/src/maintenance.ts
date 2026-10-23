@@ -1,4 +1,4 @@
-import { eq, lt, or, and, isNotNull } from 'drizzle-orm';
+import { eq, lt, or, and, isNotNull, sql } from 'drizzle-orm';
 import type { BlobStore } from './blobs.js';
 import type { Db } from './db/connect.js';
 import { handoffs, sessions, settings } from './db/schema.js';
@@ -31,6 +31,13 @@ export async function runMaintenance(
     .delete(handoffs)
     .where(lt(handoffs.expiresAt, old))
     .returning({ id: handoffs.id });
+  // окно после первого открытия закрылось — шифртекст больше не нужен (как после последнего просмотра)
+  await db
+    .update(handoffs)
+    .set({ ciphertext: '' })
+    .where(
+      sql`${handoffs.openWindowMinutes} is not null and ${handoffs.firstOpenedAt} + ${handoffs.openWindowMinutes} * interval '1 minute' <= ${now} and ${handoffs.ciphertext} <> ''`,
+    );
   const files = blobs ? await sweepBlobs({ db, blobs }, now) : { orphans: 0, pending: 0 };
   return { trash, sessions: sess.length, handoffs: hand.length, files };
 }

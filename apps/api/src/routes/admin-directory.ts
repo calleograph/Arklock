@@ -47,6 +47,11 @@ const SETTINGS: Record<string, z.ZodType> = {
   'security.reloadUnlock': z.boolean(),
   'policy.password.minLength': z.number().int().min(0).max(128),
   'policy.password.classes': z.number().int().min(0).max(4),
+  /** Ограничения ссылок передачи: предельный срок, минут (0 — без своего ограничения), и число просмотров. */
+  'links.maxMinutes': z.number().int().min(0).max(43_200),
+  'links.maxViews': z.number().int().min(1).max(100),
+  /** Примечание организации, которое получатель видит на странице ссылки. */
+  'links.notice': z.string().trim().max(500),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
@@ -66,6 +71,9 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'security.reloadUnlock': true,
   'policy.password.minLength': 0,
   'policy.password.classes': 0,
+  'links.maxMinutes': 0,
+  'links.maxViews': 100,
+  'links.notice': '',
 };
 
 /** Пользователи, круги, настройки и журнал — только для администратора. */

@@ -6,7 +6,7 @@ import { requireVault } from '../access.js';
 import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { entries, handoffs, ledger, signals, users, vaults } from '../db/schema.js';
+import { entries, handoffs, ledger, settings, signals, users, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { AttemptLimiter } from '../rateLimit.js';
 
@@ -25,14 +25,34 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
 
   // ---- публичная часть (без входа)
 
+  /** Окно после первого открытия закрылось: ссылка больше не действует, даже если просмотры остались. */
+  const windowClosed = (h: typeof handoffs.$inferSelect, now = Date.now()) =>
+    !!h.openWindowMinutes &&
+    !!h.firstOpenedAt &&
+    h.firstOpenedAt.getTime() + h.openWindowMinutes * 60_000 <= now;
+  const setting = async <T>(key: string, fallback: T): Promise<T> =>
+    ((await db.select().from(settings).where(eq(settings.key, key)))[0]?.value as T) ?? fallback;
+
   app.get('/handoffs/:id/meta', async (req) => {
     const { id } = parse(idParam, req.params);
     const [h] = await db.select().from(handoffs).where(eq(handoffs.id, id));
     // Одинаковый ответ для несуществующих, истёкших и отозванных ссылок: ничего лишнего не раскрываем.
-    if (!h || h.revokedAt || h.expiresAt.getTime() <= Date.now() || h.views >= h.maxViews) {
+    if (
+      !h ||
+      h.revokedAt ||
+      h.expiresAt.getTime() <= Date.now() ||
+      h.views >= h.maxViews ||
+      windowClosed(h)
+    ) {
       throw new AppError(404, 'handoff_unavailable', 'The link is not available');
     }
-    return { hasPassphrase: h.hasPassphrase, label: '', remainingViews: h.maxViews - h.views };
+    return {
+      hasPassphrase: h.hasPassphrase,
+      label: '',
+      remainingViews: h.maxViews - h.views,
+      openWindowMinutes: h.openWindowMinutes,
+      notice: await setting('links.notice', ''),
+    };
   });
 
   app.post('/handoffs/:id/open', async (req) => {
@@ -42,15 +62,20 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       throw new AppError(429, 'too_many_attempts', 'Too many attempts, try again later');
     }
     // Атомарный учёт просмотра: два одновременных запроса не превысят лимит.
+    // окно после первого открытия проверяется в том же условном обновлении, что и число просмотров
     const rows = await db
       .update(handoffs)
-      .set({ views: sql`${handoffs.views} + 1` })
+      .set({
+        views: sql`${handoffs.views} + 1`,
+        firstOpenedAt: sql`coalesce(${handoffs.firstOpenedAt}, now())`,
+      })
       .where(
         and(
           eq(handoffs.id, id),
           isNull(handoffs.revokedAt),
           gt(handoffs.expiresAt, new Date()),
           lt(handoffs.views, handoffs.maxViews),
+          sql`(${handoffs.openWindowMinutes} is null or ${handoffs.firstOpenedAt} is null or ${handoffs.firstOpenedAt} + ${handoffs.openWindowMinutes} * interval '1 minute' > now())`,
         ),
       )
       .returning();
@@ -78,6 +103,15 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .from(handoffs)
       .where(eq(handoffs.id, body.id));
     if (dupe) throw new AppError(409, 'already_exists', 'Link already exists');
+    // ограничения организации проверяет сервер: клиент мог бы прислать любой срок
+    const maxMinutes = await setting('links.maxMinutes', 0);
+    const maxViews = await setting('links.maxViews', 100);
+    if ((maxMinutes > 0 && body.expiresInMinutes > maxMinutes) || body.maxViews > maxViews) {
+      throw new AppError(400, 'link_limit', 'The link exceeds the organization limits', {
+        maxMinutes,
+        maxViews,
+      });
+    }
     await db.insert(handoffs).values({
       id: body.id,
       createdBy: user.id,
@@ -86,6 +120,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       hasPassphrase: body.hasPassphrase,
       expiresAt: new Date(Date.now() + body.expiresInMinutes * 60_000),
       maxViews: body.maxViews,
+      openWindowMinutes: body.openWindowMinutes ?? null,
     });
     await audit(db, `user:${user.id}`, 'handoff.create', `handoff:${body.id}`, {
       maxViews: body.maxViews,
@@ -110,11 +145,13 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       expiresAt: h.expiresAt.toISOString(),
       maxViews: h.maxViews,
       views: h.views,
+      openWindowMinutes: h.openWindowMinutes,
+      firstOpenedAt: h.firstOpenedAt?.toISOString() ?? null,
       status: h.revokedAt
         ? 'revoked'
         : h.views >= h.maxViews
           ? 'used'
-          : h.expiresAt.getTime() <= now
+          : h.expiresAt.getTime() <= now || windowClosed(h, now)
             ? 'expired'
             : 'active',
     }));

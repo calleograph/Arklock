@@ -308,6 +308,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'policy.password.classes': get('policy.password.classes', 0),
       'storage.enabled': config.BLOB_DIR !== '',
       'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 1024),
+      'links.maxMinutes': get('links.maxMinutes', 0),
+      'links.maxViews': get('links.maxViews', 100),
     };
   });
 

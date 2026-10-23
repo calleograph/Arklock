@@ -1254,6 +1254,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       expiresInMinutes: number;
       maxViews: number;
       includeNotes: boolean;
+      openWindowMinutes?: number;
     },
   ): Promise<string> {
     const id = crypto.randomUUID();
@@ -1274,6 +1275,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       hasPassphrase: !!opts.passphrase,
       expiresInMinutes: opts.expiresInMinutes,
       maxViews: opts.maxViews,
+      ...(opts.openWindowMinutes ? { openWindowMinutes: opts.openWindowMinutes } : {}),
     });
     return `${location.origin}/h/${id}#${pkg.fragment}`;
   }

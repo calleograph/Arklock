@@ -28,6 +28,9 @@ const payload = ref<Payload | null>(null);
 const error = ref('');
 const show = ref(false);
 const left = computed(() => remaining.value);
+// примечание организации и окно после первого открытия — из сведений о ссылке
+const notice = ref('');
+const windowMinutes = ref<number | null>(null);
 
 onMounted(async () => {
   if (!fragment) {
@@ -35,14 +38,16 @@ onMounted(async () => {
     return;
   }
   try {
-    const meta = await api<{ hasPassphrase: boolean; remainingViews: number }>(
-      'GET',
-      `/handoffs/${id}/meta`,
-      undefined,
-      { auth: false },
-    );
+    const meta = await api<{
+      hasPassphrase: boolean;
+      remainingViews: number;
+      notice?: string;
+      openWindowMinutes?: number | null;
+    }>('GET', `/handoffs/${id}/meta`, undefined, { auth: false });
     hasPassphrase.value = meta.hasPassphrase;
     remaining.value = meta.remainingViews;
+    notice.value = meta.notice ?? '';
+    windowMinutes.value = meta.openWindowMinutes ?? null;
     state.value = 'ready';
   } catch {
     state.value = 'gone';
@@ -102,6 +107,12 @@ async function copy(v: string): Promise<void> {
 
     <div v-else-if="state === 'ready'" class="card space-y-3 p-4">
       <p class="text-sm">{{ t('handoff.intro', { n: left }) }}</p>
+      <p v-if="windowMinutes" class="text-xs text-slate-500" data-testid="handoff-window">
+        {{ t('handoff.window', { n: windowMinutes }) }}
+      </p>
+      <p v-if="notice" class="notice notice-warn text-sm" data-testid="handoff-notice">
+        {{ notice }}
+      </p>
       <input
         v-if="hasPassphrase"
         v-model="passphrase"

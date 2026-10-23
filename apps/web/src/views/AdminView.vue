@@ -1115,6 +1115,53 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           </section>
           <section
             class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-links"
+            v-show="settingsTab === 'security'"
+          >
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.links') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.linksHint') }}</p>
+            </div>
+            <label class="flex items-center justify-between gap-3"
+              ><span>{{ t('admin.linksMaxMinutes') }}</span
+              ><input
+                :value="settings['links.maxMinutes'] ?? 0"
+                type="number"
+                min="0"
+                max="43200"
+                class="input w-28"
+                data-testid="set-links-minutes"
+                @change="
+                  saveSetting('links.maxMinutes', Number(($event.target as HTMLInputElement).value))
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              ><span>{{ t('admin.linksMaxViews') }}</span
+              ><input
+                :value="settings['links.maxViews'] ?? 100"
+                type="number"
+                min="1"
+                max="100"
+                class="input w-28"
+                data-testid="set-links-views"
+                @change="
+                  saveSetting('links.maxViews', Number(($event.target as HTMLInputElement).value))
+                "
+            /></label>
+            <label class="block"
+              ><span class="field-label">{{ t('admin.linksNotice') }}</span
+              ><textarea
+                :value="String(settings['links.notice'] ?? '')"
+                rows="2"
+                maxlength="500"
+                class="input"
+                data-testid="set-links-notice"
+                @change="saveSetting('links.notice', ($event.target as HTMLTextAreaElement).value)"
+              />
+            </label>
+          </section>
+          <section
+            class="card space-y-3 p-4 text-sm"
             data-testid="settings-group-storage"
             v-show="settingsTab === 'storage'"
           >

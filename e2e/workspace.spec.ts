@@ -434,6 +434,20 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
   const bare = await (await browser.newContext()).newPage();
   await bare.goto(sharedLink.split('#')[0]!);
   await expect(bare.getByTestId('handoff-bad')).toBeVisible();
+
+  // ссылка на 3 просмотра с окном 5 минут после первого открытия: получатель видит условие и открывает дважды
+  await page.getByTestId('share-views').selectOption('3');
+  await page.getByTestId('share-window').selectOption('5');
+  await page.getByTestId('btn-create-link').click();
+  await expect(page.getByTestId('share-link')).not.toHaveText(sharedLink);
+  const windowed = (await page.getByTestId('share-link').textContent())!.trim();
+  for (let i = 0; i < 2; i++) {
+    const g = await (await browser.newContext()).newPage();
+    await g.goto(windowed);
+    await expect(g.getByTestId('handoff-window')).toContainText('5');
+    await g.getByTestId('handoff-open').click();
+    await expect(g.getByTestId('handoff-username')).toHaveText('me@example.com');
+  }
 });
 
 test('import (CSV), encrypted export and the security inspector', async () => {
