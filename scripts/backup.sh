@@ -68,6 +68,17 @@ restore_test() { # restore_test ФАЙЛ — восстановление во �
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'; dc exec -T db psql -U arklock -d postgres -qc 'DROP DATABASE IF EXISTS $db WITH (FORCE)' >/dev/null 2>&1 || true" RETURN
   decrypt_to "$f" "$tmp" 2>/dev/null || { fail "Не удалось расшифровать копию"; return 1; }
+  # временные базы прерванных проверок (помощник остановлен посреди работы) занимают место — убираем их
+  local old need free
+  for old in $(dc exec -T db psql -U arklock -d postgres -qtAc "select datname from pg_database where datname like 'arklock_restore_test_%'" | tr -d '\r'); do
+    dc exec -T db psql -U arklock -d postgres -qc "DROP DATABASE IF EXISTS \"$old\" WITH (FORCE)" >/dev/null 2>&1 || true
+  done
+  # временная база ложится на тот же том, что и рабочая: без двойного запаса места проверка сама остановила бы запись в рабочую
+  # в КиБ: awk в образе базы печатает большие произведения в экспоненциальной записи
+  need="$(dc exec -T db psql -U arklock -d postgres -qtAc "select pg_database_size('arklock') * 2 / 1024" | tr -d '[:space:]')"
+  free="$(dc exec -T db sh -c 'df -Pk "${PGDATA:-/var/lib/postgresql/data}"' | awk 'NR==2 {print $4}')"
+  [[ "$need" =~ ^[0-9]+$ ]] && [[ "$free" =~ ^[0-9]+$ ]] && [ "$free" -ge "$need" ] \
+    || { fail "Мало места на томе базы для пробного восстановления: нужно $((${need:-0} / 1024)) МБ, свободно $((${free:-0} / 1024)) МБ"; return 1; }
   dc exec -T db psql -U arklock -d postgres -v ON_ERROR_STOP=1 -qc "CREATE DATABASE $db OWNER arklock" >/dev/null \
     || { fail "Не удалось создать временную базу для проверки"; return 1; }
   dc exec -T db pg_restore -U arklock -d "$db" --no-owner --exit-on-error < "$tmp/db.dump" >/dev/null 2>&1 \
@@ -87,6 +98,8 @@ if [ -n "$VERIFY" ]; then
   exit $?
 fi
 if [ -n "$RESTORE_TEST" ]; then
+  # одна проверка за раз: иначе уборка старых временных баз удалила бы базу соседней проверки
+  acquire_lock
   mkdir -p "$DATA_ROOT/tmp"
   dc ps -q db | grep -q . || die "Контейнер базы данных не запущен"
   restore_test "$RESTORE_TEST"

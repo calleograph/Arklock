@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { toBase64Url } from '@arklock/crypto';
 import { normalizePublicUrl } from '../src/public-url.js';
 import { settings } from '../src/db/schema.js';
 import { createTestApp, TestClient } from './helpers.js';
@@ -21,6 +22,18 @@ beforeAll(async () => {
   await member.login();
 });
 afterAll(async () => fixture.app.close());
+
+/** Изменение адреса — с подтверждением мастер-паролем (как откат и удаление копий). */
+async function put(publicUrl: string | null) {
+  const authKey = toBase64Url((await admin.derive()).keys.authKey);
+  const token = (await admin.req('POST', '/admin/reauth', { authKey })).json().token as string;
+  return fixture.app.inject({
+    method: 'PUT',
+    url: '/api/v1/admin/network',
+    headers: { ...admin.authHeader(), 'x-reauth-token': token },
+    payload: { publicUrl },
+  });
+}
 
 it('accepts only an origin over HTTPS (HTTP only for localhost)', () => {
   expect(normalizePublicUrl('https://Ark.Example.com/')).toBe('https://ark.example.com');
@@ -45,7 +58,12 @@ it('shows where each value comes from; only a full administrator changes the add
     https: true,
   });
   expect(v.listen).toMatchObject({ bind: '127.0.0.1', port: 8443 });
-  const bad = await admin.req('PUT', '/admin/network', { publicUrl: 'http://ark.example.com' });
+  // без подтверждения мастер-паролем адрес не меняется
+  expect(
+    (await admin.req('PUT', '/admin/network', { publicUrl: 'https://evil.example.com' })).json()
+      .error.code,
+  ).toBe('reauth_required');
+  const bad = await put('http://ark.example.com');
   expect(bad.statusCode).toBe(400);
   // причина приходит кодом, чтобы интерфейс объяснил её пользователю
   expect(bad.json()).toMatchObject({
@@ -54,7 +72,7 @@ it('shows where each value comes from; only a full administrator changes the add
 });
 
 it('a new address applies at once (invitation links, passkeys) and clearing it returns to the install value', async () => {
-  const set = await admin.req('PUT', '/admin/network', { publicUrl: 'https://ark.example.com/' });
+  const set = await put('https://ark.example.com/');
   expect(set.statusCode).toBe(200);
   expect(set.json().publicUrl).toMatchObject({ value: 'https://ark.example.com', source: 'panel' });
   const inv = (
@@ -64,7 +82,7 @@ it('a new address applies at once (invitation links, passkeys) and clearing it r
     })
   ).json();
   expect(inv.link ?? inv.url ?? JSON.stringify(inv)).toContain('https://ark.example.com');
-  const cleared = (await admin.req('PUT', '/admin/network', { publicUrl: null })).json();
+  const cleared = (await put(null)).json();
   expect(cleared.publicUrl).toMatchObject({
     value: 'https://install.example.com',
     source: 'install',

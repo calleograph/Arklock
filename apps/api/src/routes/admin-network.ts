@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { SAML_SETTING_KEY } from '../auth/saml.js';
+import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { settings, webauthnCredentials } from '../db/schema.js';
@@ -58,6 +59,8 @@ export const registerAdminNetworkRoutes: FastifyPluginAsync<{ ctx: AppContext }>
   app.put('/admin/network', async (req) => {
     const { user } = authOf(req);
     if (user.role !== 'admin') throw forbidden();
+    // от адреса зависят ссылки в письмах и приглашениях: подмена адреса чужим сеансом — фишинг
+    requireReauth(ctx, req);
     const body = parse(z.object({ publicUrl: z.string().max(300).nullable() }), req.body);
     let value: string | null = null;
     if (body.publicUrl) {

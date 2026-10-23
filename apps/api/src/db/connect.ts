@@ -6,6 +6,9 @@ import * as schema from './schema.js';
 
 export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 
+/** Строки результата db.execute: pg отдаёт { rows }, PGlite — сам массив. */
+export const rowsOf = <T>(r: unknown): T[] => (r as { rows?: T[] }).rows ?? (r as T[]);
+
 export interface Database {
   db: Db;
   /** Применяет миграции из каталога drizzle/. Повторный вызов безопасен. */

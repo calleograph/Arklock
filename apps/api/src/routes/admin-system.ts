@@ -10,6 +10,7 @@ import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { rowsOf } from '../db/connect.js';
 import { publicUrlOf } from '../public-url.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
 import { parse } from '../errors.js';
@@ -114,9 +115,7 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
   async function dbSize(): Promise<number | null> {
     try {
       const r = await db.execute(sql`select pg_database_size(current_database())::float8 as n`);
-      const rows =
-        (r as unknown as { rows?: { n: number }[] }).rows ?? (r as unknown as { n: number }[]);
-      return Number(rows[0]?.n ?? 0);
+      return Number(rowsOf<{ n: number }>(r)[0]?.n ?? 0);
     } catch {
       return null;
     }
@@ -125,9 +124,7 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
   async function migrations(): Promise<number | null> {
     try {
       const r = await db.execute(sql`select count(*)::int as n from drizzle.__drizzle_migrations`);
-      const rows =
-        (r as unknown as { rows?: { n: number }[] }).rows ?? (r as unknown as { n: number }[]);
-      return Number(rows[0]?.n ?? 0);
+      return Number(rowsOf<{ n: number }>(r)[0]?.n ?? 0);
     } catch {
       return null;
     }

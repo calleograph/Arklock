@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
+import { confirmStepUp, stepUpHeaders } from '../services/stepup';
+import { useAuthStore } from '../stores/auth';
 import { errorMessage } from '../services/helpers';
 import InfoHint from './InfoHint.vue';
 
@@ -25,6 +27,10 @@ const notice = ref('');
 const busy = ref(false);
 const editing = ref(false);
 const here = location.origin;
+const auth = useAuthStore();
+// смена адреса меняет ссылки в письмах и приглашениях: подтверждение мастер-паролем, как у отката и удаления копий
+const password = ref('');
+const needPassword = ref(!stepUpHeaders());
 
 async function load(): Promise<void> {
   try {
@@ -46,11 +52,17 @@ async function save(value: string | null): Promise<void> {
   error.value = '';
   notice.value = '';
   try {
-    v.value = await api<View>('PUT', '/admin/network', { publicUrl: value });
+    const headers =
+      stepUpHeaders() ?? (auth.user ? await confirmStepUp(auth.user, password.value) : {});
+    password.value = '';
+    needPassword.value = false;
+    v.value = await api<View>('PUT', '/admin/network', { publicUrl: value }, { headers });
     draft.value = v.value.publicUrl.value ?? '';
     editing.value = false;
     notice.value = t('network.saved');
   } catch (e) {
+    // подтверждение истекло (15 минут): снова спросить мастер-пароль
+    if (e instanceof ApiError && e.code === 'reauth_required') needPassword.value = true;
     const reason = e instanceof ApiError && (e.details as { reason?: string } | undefined)?.reason;
     error.value = reason ? t(`network.invalid.${reason}`) : errorMessage(e, t);
   } finally {
@@ -134,11 +146,20 @@ const useCurrent = () => (draft.value = here);
             <li v-if="v.dependents.saml">{{ t('network.effectSaml') }}</li>
             <li>{{ t('network.effectLinks') }}</li>
           </ul>
+          <label v-if="needPassword" class="block max-w-sm"
+            ><span class="field-label">{{ t('chief.password') }}</span>
+            <input
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              class="input"
+              data-testid="network-password"
+          /></label>
           <div class="flex flex-wrap gap-2">
             <button
               type="submit"
               class="btn-primary"
-              :disabled="busy || !changing"
+              :disabled="busy || !changing || (needPassword && !password)"
               data-testid="network-save"
             >
               {{ t('common.save') }}
@@ -154,6 +175,7 @@ const useCurrent = () => (draft.value = here);
               v-if="v.publicUrl.source === 'panel' && v.publicUrl.install"
               type="button"
               class="btn-ghost"
+              :disabled="busy || (needPassword && !password)"
               @click="save(null)"
             >
               {{ t('network.resetToInstall', { url: v.publicUrl.install }) }}

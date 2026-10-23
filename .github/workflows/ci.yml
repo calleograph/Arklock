@@ -339,6 +339,11 @@ jobs:
           sudo ./scripts/admin-reset.sh end-sessions "$user" --env "$CFG/arklock.env"
           sudo ./scripts/admin-reset.sh reset-mfa "$user" --yes --env "$CFG/arklock.env"
           sudo ./scripts/admin-reset.sh enable "$user" --env "$CFG/arklock.env"
+          # главного администратора назначает оператор, если прежний недоступен: ровно один главный, неизвестный адрес — отказ
+          sudo ./scripts/admin-reset.sh chief "$user" --yes --env "$CFG/arklock.env"
+          test "$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d arklock -qtA -c "select count(*) from users where chief")" = 1
+          sudo ./scripts/admin-reset.sh list --env "$CFG/arklock.env" | grep "$user" | grep -q 'admin    да'
+          if sudo ./scripts/admin-reset.sh chief nobody@example.com --yes --env "$CFG/arklock.env"; then echo "unknown user accepted"; exit 1; fi
           # внедрение в адрес отвергается до обращения к базе; новый код настройки при наличии пользователей не выдаётся
           if sudo ./scripts/admin-reset.sh reset-mfa "x'; drop table users; --@example.com" --yes --env "$CFG/arklock.env"; then echo "injection accepted"; exit 1; fi
           if sudo ./scripts/admin-reset.sh new-setup-token --env "$CFG/arklock.env"; then echo "setup token issued although users exist"; exit 1; fi

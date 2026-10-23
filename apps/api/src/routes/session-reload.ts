@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -34,19 +34,20 @@ export const registerSessionReloadRoutes: FastifyPluginAsync<{ ctx: AppContext }
     const { session } = human(req);
     if (!(await enabled()))
       throw new AppError(403, 'reload_disabled', 'Unlocking after a page reload is disabled');
-    // одна доля на сеанс: вкладки одного сеанса делят её, иначе новая вкладка ломала бы F5 в соседней
+    // одна доля на сеанс: вкладки одного сеанса делят её, иначе новая вкладка ломала бы F5 в соседней;
+    // запись только если доли ещё нет — две вкладки одновременно не перезапишут друг друга
+    const share = randomB64url(32);
+    const [won] = await db
+      .update(sessions)
+      .set({ reloadShare: sealSetting(ctx.config.APP_SECRET, purpose(session.id), share) })
+      .where(and(eq(sessions.id, session.id), isNull(sessions.reloadShare)))
+      .returning({ id: sessions.id });
+    if (won) return { share };
     const [row] = await db
       .select({ share: sessions.reloadShare })
       .from(sessions)
       .where(eq(sessions.id, session.id));
-    if (row?.share)
-      return { share: openSetting(ctx.config.APP_SECRET, purpose(session.id), row.share) };
-    const share = randomB64url(32);
-    await db
-      .update(sessions)
-      .set({ reloadShare: sealSetting(ctx.config.APP_SECRET, purpose(session.id), share) })
-      .where(eq(sessions.id, session.id));
-    return { share };
+    return { share: openSetting(ctx.config.APP_SECRET, purpose(session.id), row!.share!) };
   });
 
   app.get('/auth/session/reload-key', async (req) => {

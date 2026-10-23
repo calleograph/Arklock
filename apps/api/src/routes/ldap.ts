@@ -404,7 +404,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             'The directory configuration changed; start sign-in again',
           );
         await syncCirclesFor(tx, linked.id, current, ident.groups);
-        await syncProfileFor(tx, linked.id, ident);
+        await syncProfileFor(tx, linked.id, ident, current);
       });
       if (await isEnrolled(ctx, linked.id)) {
         reply.status(200);

@@ -17,6 +17,7 @@ import { audit } from '../audit.js';
 import { notifyUsers } from '../notifications.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { rowsOf } from '../db/connect.js';
 import { corporateRecoveryRecipientOf } from '../corporate-recovery.js';
 import {
   attachments,
@@ -40,7 +41,7 @@ import {
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsOfVault, blobSuffix, rotationSuffix } from './attachments.js';
 import { lockVaultForWrite } from '../vault-mutation.js';
-import { DEFAULT_SPACE_ID, requireSpace } from '../spaces.js';
+import { DEFAULT_SPACE_ID, requireSpace, spaceAccess } from '../spaces.js';
 
 export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (
   app,
@@ -165,9 +166,20 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       .innerJoin(users, eq(users.id, vaultKeys.grantedBy))
       .where(and(eq(vaultKeys.userId, user.id), inArray(vaultKeys.vaultId, ids)))
       .orderBy(desc(vaultKeys.keyVersion));
+    // группы и членство в пространствах читаются один раз на весь список, а не для каждого сейфа
+    const circleIds = (
+      await db
+        .select({ id: circleMembers.circleId })
+        .from(circleMembers)
+        .where(eq(circleMembers.userId, user.id))
+    ).map((c) => c.id);
+    const spaceMember = new Map<string, boolean>();
+    for (const sid of new Set(vs.map((v) => v.spaceId).filter((x): x is string => !!x)))
+      spaceMember.set(sid, (await spaceAccess(db, sid, user.id)).member);
     const out: VaultInfo[] = [];
+    const now = new Date();
     for (const v of vs) {
-      const a = await loadAccess(db, v.id, user.id);
+      const a = await loadAccess(db, v.id, user.id, now, { vault: v, circleIds, spaceMember });
       if (!a.role) continue;
       const k = keys.find((x) => x.k.vaultId === v.id);
       out.push({
@@ -626,8 +638,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           (g.subject_type = 'user' and g.subject_id = u.id) or
           (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = u.id))))
       ) and not exists (select 1 from vault_keys k where k.vault_id = ${vaultId} and k.user_id = u.id and k.key_version = ${v.keyVersion})`);
-    const rows =
-      (ids as unknown as { rows?: { id: string }[] }).rows ?? (ids as unknown as { id: string }[]);
+    const rows = rowsOf<{ id: string }>(ids);
     const list: string[] = [];
     for (const r of rows) if ((await loadAccess(db, vaultId, r.id)).isMember) list.push(r.id);
     const us = list.length ? await db.select().from(users).where(inArray(users.id, list)) : [];
@@ -850,10 +861,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         or exists (select 1 from grants g where g.vault_id = ${vaultId} and (
           (g.subject_type = 'user' and g.subject_id = u.id) or
           (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = u.id)))))`);
-      const candidates = (
-        (holders as unknown as { rows?: { id: string }[] }).rows ??
-        (holders as unknown as { id: string }[])
-      ).map((r) => r.id);
+      const candidates = rowsOf<{ id: string }>(holders).map((r) => r.id);
       const hrows: string[] = [];
       for (const id of candidates) if ((await loadAccess(tx, vaultId, id)).isMember) hrows.push(id);
       if (

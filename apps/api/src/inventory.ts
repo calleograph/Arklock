@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import type { AppContext } from './context.js';
+import { rowsOf } from './db/connect.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,9 +38,7 @@ export async function inventory(ctx: AppContext) {
   let database: string | null = null;
   try {
     const r = await ctx.db.execute(sql`select version() as v`);
-    const rows =
-      (r as unknown as { rows?: { v: string }[] }).rows ?? (r as unknown as { v: string }[]);
-    database = rows[0]?.v ?? null;
+    database = rowsOf<{ v: string }>(r)[0]?.v ?? null;
   } catch {
     database = null;
   }

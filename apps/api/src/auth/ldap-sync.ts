@@ -4,7 +4,13 @@ import { circleMembers, circles, sessions, settings, users } from '../db/schema.
 import { audit } from '../audit.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 import { notifyUsers } from '../notifications.js';
-import { circlesFor, ldapLookup, type DirectoryUser, type LdapConfig } from './ldap.js';
+import {
+  circlesFor,
+  ldapLookup,
+  profileAttrs,
+  type DirectoryUser,
+  type LdapConfig,
+} from './ldap.js';
 import {
   ldapBindSecret,
   ldapExternalId,
@@ -21,6 +27,7 @@ export async function syncProfileFor(
   db: Db,
   userId: string,
   found: Pick<DirectoryUser, 'name' | 'profile'>,
+  cfg: LdapConfig,
 ): Promise<void> {
   const [u] = await db
     .select({ source: users.profileSource })
@@ -35,7 +42,14 @@ export async function syncProfileFor(
       set[k] = v;
       source[k] = 'ldap';
     }
-  if (Object.keys(set).length)
+  // атрибут больше не берётся из каталога — поле снова можно менять в панели
+  let unlocked = false;
+  for (const [k, attr] of Object.entries(profileAttrs(cfg)))
+    if (!attr && source[k]) {
+      delete source[k];
+      unlocked = true;
+    }
+  if (Object.keys(set).length || unlocked)
     await db
       .update(users)
       .set({ ...set, profileSource: source })
@@ -124,7 +138,7 @@ export async function syncLdapProfile(
           }
         } else {
           await syncCirclesFor(tx, user.id, current, found.groups);
-          await syncProfileFor(tx, user.id, found);
+          await syncProfileFor(tx, user.id, found, current);
           updated++;
         }
       });

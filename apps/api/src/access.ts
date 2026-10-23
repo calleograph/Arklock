@@ -149,16 +149,27 @@ export async function loadRoleDefs(db: Db): Promise<Map<string, RoleDef & { name
   );
 }
 
+/** Уже прочитанное для списка сейфов: одно и то же не запрашивается заново для каждого сейфа. */
+export interface AccessPrefetch {
+  vault: { kind: 'locker' | 'shared'; spaceId: string | null };
+  circleIds: string[];
+  /** Членство пользователя в пространствах; нет записи — проверяется запросом. */
+  spaceMember: Map<string, boolean>;
+}
+
 export async function loadAccess(
   db: Db,
   vaultId: string,
   userId: string,
   now: Date = new Date(),
+  pre?: AccessPrefetch,
 ): Promise<VaultAccess> {
-  const [vault] = await db
-    .select({ kind: vaults.kind, spaceId: vaults.spaceId })
-    .from(vaults)
-    .where(eq(vaults.id, vaultId));
+  const [vault] = pre
+    ? [pre.vault]
+    : await db
+        .select({ kind: vaults.kind, spaceId: vaults.spaceId })
+        .from(vaults)
+        .where(eq(vaults.id, vaultId));
   const [user] = await db
     .select({ disabledAt: users.disabledAt })
     .from(users)
@@ -168,7 +179,13 @@ export async function loadAccess(
     return new VaultAccess(vaultId, userId, null, new Map(), new Map());
   }
   if (!vault) return new VaultAccess(vaultId, userId, null, new Map(), new Map());
-  if (vault.kind === 'shared' && !(await spaceAccess(db, vault.spaceId, userId)).member)
+  if (
+    vault.kind === 'shared' &&
+    !(
+      pre?.spaceMember.get(vault.spaceId ?? '') ??
+      (await spaceAccess(db, vault.spaceId, userId)).member
+    )
+  )
     return new VaultAccess(vaultId, userId, null, new Map(), new Map());
   const nowMs = now.getTime();
   const [direct] = await db
@@ -179,11 +196,14 @@ export async function loadAccess(
     })
     .from(vaultMembers)
     .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
-  const circleRows = await db
-    .select({ circleId: circleMembers.circleId })
-    .from(circleMembers)
-    .where(eq(circleMembers.userId, userId));
-  const circleIds = circleRows.map((c) => c.circleId);
+  const circleIds =
+    pre?.circleIds ??
+    (
+      await db
+        .select({ circleId: circleMembers.circleId })
+        .from(circleMembers)
+        .where(eq(circleMembers.userId, userId))
+    ).map((c) => c.circleId);
 
   type Assign = { role: VaultRole; customRoleId: string | null };
   const assigns: Assign[] = [];

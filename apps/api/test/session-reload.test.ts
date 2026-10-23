@@ -27,6 +27,13 @@ it('a session holds one reload share that only this session can read; locking er
   expect((await other.req('GET', '/auth/session/reload-key')).statusCode).toBe(404);
   expect((await user.req('DELETE', '/auth/session/reload-key')).statusCode).toBe(204);
   expect((await user.req('GET', '/auth/session/reload-key')).statusCode).toBe(404);
+  // две вкладки разблокируются одновременно — обе получают одну долю
+  const [a, b] = await Promise.all([
+    user.req('PUT', '/auth/session/reload-key'),
+    user.req('PUT', '/auth/session/reload-key'),
+  ]);
+  expect(a.json().share).toBe(b.json().share);
+  expect((await user.req('GET', '/auth/session/reload-key')).json().share).toBe(a.json().share);
 });
 
 it('API tokens cannot use it, the administrator can turn it off, and signing out ends it', async () => {

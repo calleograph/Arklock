@@ -396,7 +396,18 @@ describe('sign-in through the directory', () => {
     expect(await row()).toMatchObject({ title: 'Lead engineer', department: 'Platform' });
     person.title = saved;
     person.department = 'Research';
-    // поле из каталога в панели не меняется; не пришедшее из каталога — меняется
+    // атрибут телефона перестали брать из каталога — после входа поле снова меняется в панели
+    expect((await admin.req('PUT', '/admin/ldap', cfg({ phoneAttr: '' }))).statusCode).toBe(200);
+    expect((await ldapLogin('alice', 'alice-ldap-pass')).statusCode).toBe(200);
+    expect((await row()).profileSource).not.toHaveProperty('phone');
+    expect(
+      (
+        await admin.req('PATCH', `/admin/users/${alice.userId}/profile`, {
+          phone: '+1 202 555 0100',
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await admin.req('PUT', '/admin/ldap', cfg())).statusCode).toBe(200);
     const refused = await admin.req('PATCH', `/admin/users/${alice.userId}/profile`, {
       title: 'Manual',
     });

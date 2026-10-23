@@ -591,7 +591,6 @@ async function toggleArchive(): Promise<void> {
 }
 
 const fmt = (iso: string) => when(iso);
-void api;
 </script>
 
 <template>
@@ -1355,7 +1354,6 @@ void api;
           </div>
         </form>
         <p v-else class="text-sm text-slate-500">{{ t('vault.selectEntry') }}</p>
-        <span class="hidden">{{ vault.id }}</span>
       </div>
     </section>
   </Teleport>
