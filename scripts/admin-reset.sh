@@ -60,7 +60,7 @@ case "$CMD" in
     printf '%-40s %-8s %-9s %-9s %s\n' "ПОЧТА" "РОЛЬ" "ГЛАВНЫЙ" "ВКЛЮЧЁН" "ВТОРОЙ ФАКТОР"
     sql "" "select email || '|' || role || '|' || chief || '|' || (disabled_at is null) || '|' || (exists(select 1 from mfa_factors f where f.user_id = u.id) or exists(select 1 from webauthn_credentials w where w.user_id = u.id)) from users u where role = 'admin' or admin_role_id is not null order by email" \
       | while IFS='|' read -r email role chief enabled mfa; do
-          printf '%-40s %-8s %-9s %-9s %s\n' "$email" "$role" "$([ "$chief" = t ] && echo да || echo нет)" "$([ "$enabled" = t ] && echo да || echo нет)" "$([ "$mfa" = t ] && echo да || echo нет)"
+          printf '%-40s %-8s %-9s %-9s %s\n' "$email" "$role" "$([ "$chief" = true ] && echo да || echo нет)" "$([ "$enabled" = true ] && echo да || echo нет)" "$([ "$mfa" = true ] && echo да || echo нет)"
         done
     ;;
   reset-mfa)
