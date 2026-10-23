@@ -11,6 +11,8 @@ local
 github.com
 githubusercontent.com
 ghcr.io
+# значки состояния на странице проекта (публичный сервис, без данных организации)
+shields.io
 npmjs.org
 npmjs.com
 nodejs.org
