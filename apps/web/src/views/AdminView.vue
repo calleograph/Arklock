@@ -15,6 +15,7 @@ import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
 import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
 import ContextMenu from '../components/ContextMenu.vue';
+import AutomationPanel from '../components/AutomationPanel.vue';
 import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
@@ -63,6 +64,7 @@ const TAB_ICON: Record<string, IconName> = {
   updates: 'sync',
   settings: 'settings',
   ledger: 'log',
+  automation: 'bell',
 };
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
@@ -96,6 +98,7 @@ type Tab =
   | 'saml'
   | 'updates'
   | 'organization'
+  | 'automation'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -132,6 +135,7 @@ const TAB_PERM: Record<Tab, string> = {
   invitations: 'admin.invitations',
   roles: 'admin.roles',
   updates: 'admin.updates',
+  automation: 'admin.settings',
 };
 const adminPerms = ref<{ full: boolean; permissions: string[] } | null>(null);
 const canTab = (x: Tab) =>
@@ -471,7 +475,7 @@ const GROUPS: { id: string; tabs: Tab[] }[] = [
     ],
   },
   { id: 'integrations', tabs: ['ldap', 'sso', 'saml', 'smtp', 'syslog', 'webhooks'] },
-  { id: 'security', tabs: ['settings', 'ledger'] },
+  { id: 'security', tabs: ['settings', 'ledger', 'automation'] },
 ];
 const ALL_TABS: Tab[] = [
   'users',
@@ -488,6 +492,7 @@ const ALL_TABS: Tab[] = [
   'roles',
   'updates',
   'organization',
+  'automation',
 ];
 onMounted(async () => {
   try {
@@ -575,7 +580,8 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           {{ notice }}
         </p>
 
-        <RolesPanel v-if="tab === 'roles'" />
+        <AutomationPanel v-if="tab === 'automation'" />
+        <RolesPanel v-else-if="tab === 'roles'" />
         <InvitationsPanel v-else-if="tab === 'invitations'" />
         <SyslogSettings v-else-if="tab === 'syslog'" />
         <UpdatesView v-else-if="tab === 'updates'" />

@@ -1,5 +1,6 @@
 import type { Db } from './db/connect.js';
 import { ledger } from './db/schema.js';
+import { fireAutomation, triggersOf } from './automation.js';
 import { notifyAudit } from './notifications.js';
 
 export interface AuditSinkEvent {
@@ -34,11 +35,15 @@ export async function audit(
     target: target ?? null,
     detail: detail ?? null,
   });
-  await notifyAudit(db, {
+  const ev = {
     at: row?.at ?? new Date(),
     actor,
     action,
     target: target ?? null,
     detail: detail ?? null,
-  });
+  };
+  await notifyAudit(db, ev);
+  // правила автоматизации — в своей точке сохранения: их сбой не отменяет действие, вызвавшее событие
+  if (triggersOf(action).length)
+    await db.transaction((tx) => fireAutomation(tx as unknown as Db, ev)).catch(() => undefined);
 }

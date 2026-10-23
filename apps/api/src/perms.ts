@@ -118,7 +118,7 @@ export const ADMIN_PATHS: [RegExp, AdminPerm][] = [
   [/^\/api\/v1\/admin\/users\/[^/]+\/mfa-reset$/, 'admin.users'],
   [/^\/api\/v1\/admin\/users(\/|$)/, 'admin.users'],
   [/^\/api\/v1\/admin\/circles(\/|$)/, 'admin.circles'],
-  [/^\/api\/v1\/admin\/(settings|security\/range)(\/|$)/, 'admin.settings'],
+  [/^\/api\/v1\/admin\/(settings|security\/range|automation)(\/|$)/, 'admin.settings'],
   [/^\/api\/v1\/admin\/ledger(\/|$)/, 'admin.ledger'],
   [
     /^\/api\/v1\/admin\/(overview|resources|containers|storage|diagnostics|certificates|logs)(\/|$)/,

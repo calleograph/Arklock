@@ -17,6 +17,7 @@ import { registerAdminNetworkRoutes } from './routes/admin-network.js';
 import { registerChiefRoutes } from './routes/chief.js';
 import { registerSessionReloadRoutes } from './routes/session-reload.js';
 import { registerAdminWebhookRoutes } from './routes/admin-webhooks.js';
+import { registerAdminAutomationRoutes } from './routes/admin-automation.js';
 import { registerAdminOpsRoutes } from './routes/admin-ops.js';
 import { registerAdminSystemRoutes } from './routes/admin-system.js';
 import { registerAdminSmtpRoutes } from './routes/admin-smtp.js';
@@ -158,6 +159,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerInvitationRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSyslogRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminWebhookRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminAutomationRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerPinRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminNetworkRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerChiefRoutes, { prefix: API_PREFIX, ctx });

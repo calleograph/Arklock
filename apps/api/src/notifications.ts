@@ -24,6 +24,8 @@ export interface NotificationEvent {
   vaultId?: string | null;
   resourceType: string;
   resourceId?: string | null;
+  /** Несекретные подробности для текста (например, название правила автоматизации). */
+  detail?: Record<string, string | null>;
 }
 /** Recipients are selected by actual mutations, never by client supplied notification text. */
 async function safelyNotify(db: Db, operation: (tx: Db) => Promise<void>): Promise<boolean> {

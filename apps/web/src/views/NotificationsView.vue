@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ledgerAction } from '../services/ledger';
 import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -23,6 +24,11 @@ const busy = ref(false);
 const loaded = ref(false);
 const error = ref('');
 function message(row: NotificationRow): string {
+  if (row.event === 'automation.rule' && row.detail?.rule)
+    return t('notifications.ruleFired', {
+      rule: row.detail.rule,
+      action: row.detail.action ? ledgerAction(row.detail.action, t, te) : '',
+    });
   const key = `notifications.events.${row.event.replaceAll('.', '_').replaceAll('-', '_')}`;
   return te(key) ? t(key) : t('notifications.event');
 }

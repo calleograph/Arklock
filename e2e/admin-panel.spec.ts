@@ -246,6 +246,22 @@ test('administration sections show real data and perform real operations', async
   await expect(page.getByTestId('ledger-user')).toBeVisible({ timeout: 60_000 });
   await page.getByTestId('ledger-user-clear').click();
   await expect(page.getByTestId('ledger-user')).toHaveCount(0);
+
+  // правила автоматизации: создать, увидеть в списке, выключить, удалить
+  await tab(page, 'automation');
+  await page.getByTestId('rule-add').click();
+  await page.getByTestId('rule-name').fill('Ссылки передачи');
+  await page.getByTestId('rule-trigger').selectOption('link.create');
+  await expect(page.getByTestId('rule-admins')).toBeChecked();
+  await page.getByTestId('rule-save').click();
+  const ruleRow = page.getByTestId('rule-row').filter({ hasText: 'Ссылки передачи' });
+  await expect(ruleRow).toContainText(/Ещё не срабатывало|Has not fired yet/);
+  await page.getByTestId('rule-enabled-Ссылки передачи').uncheck();
+  await expect(page.getByTestId('rule-enabled-Ссылки передачи')).not.toBeChecked();
+  page.once('dialog', (d) => void d.accept());
+  await ruleRow.getByRole('button', { name: /Действия с правилом|Rule actions/ }).click();
+  await page.getByTestId('rule-delete-Ссылки передачи').click();
+  await expect(ruleRow).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- вход через каталог

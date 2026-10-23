@@ -293,3 +293,34 @@ export interface AttachmentRecord {
   size: number;
   createdAt: string;
 }
+
+/**
+ * Триггеры правил автоматизации: событие журнала действий. Несколько кодов — одно действие
+ * (например, удаление записи по одной и массовое). События «сообщено браузером» сервер не доказывает.
+ */
+export const AUTOMATION_TRIGGERS = {
+  'entry.reveal': ['entry.client.reveal'],
+  'entry.copy': ['entry.client.copy'],
+  'entry.open': ['entry.client.open'],
+  'entry.update': ['entry.update', 'entry.revert'],
+  'entry.delete': ['entry.delete', 'entry.bulk.trash'],
+  'entry.purge': ['entry.purge', 'entry.bulk.purge', 'branch.purge'],
+  'branch.delete': ['branch.delete'],
+  'access.change': ['grant.put', 'grant.delete', 'vault.member.put', 'vault.member.remove'],
+  'link.create': ['handoff.create'],
+  'link.open': ['handoff.open'],
+  'file.download': ['attachment.download'],
+  'user.offboard': ['admin.user.offboard'],
+  'signal.create': ['signal.create'],
+  'auth.login': ['auth.login'],
+} as const;
+export type AutomationTrigger = keyof typeof AUTOMATION_TRIGGERS;
+export const automationRuleWrite = z.object({
+  name: z.string().trim().min(1).max(100),
+  enabled: z.boolean().default(true),
+  trigger: z.enum(Object.keys(AUTOMATION_TRIGGERS) as [AutomationTrigger, ...AutomationTrigger[]]),
+  vaultId: uuid.nullable().default(null),
+  actorCircleId: uuid.nullable().default(null),
+  notifyCircles: z.array(uuid).max(50).default([]),
+  notifyAdmins: z.boolean().default(false),
+});

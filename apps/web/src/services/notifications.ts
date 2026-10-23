@@ -7,6 +7,8 @@ export interface NotificationRow {
   vaultId: string | null;
   resourceType: string;
   resourceId: string | null;
+  /** Несекретные подробности: у правила автоматизации — его название и действие журнала. */
+  detail?: { rule?: string; action?: string } | null;
   createdAt: string;
   readAt: string | null;
   archivedAt: string | null;

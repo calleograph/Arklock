@@ -673,12 +673,31 @@ export const userNotifications = pgTable(
     vaultId: uuid('vault_id'),
     resourceType: text('resource_type').notNull(),
     resourceId: uuid('resource_id'),
+    /** Несекретные подробности для текста уведомления (например, название сработавшего правила). */
+    detail: jsonb('detail'),
     createdAt: ts('created_at').notNull().defaultNow(),
     readAt: ts('read_at'),
     archivedAt: ts('archived_at'),
   },
   (t) => [index('notifications_user_id_idx').on(t.userId, t.id)],
 );
+
+/** Правила автоматизации: событие журнала (с условиями) — уведомить получателей. */
+export const automationRules = pgTable('automation_rules', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull(),
+  enabled: boolean('enabled').notNull().default(true),
+  /** Триггер из списка AUTOMATION_TRIGGERS (contracts). */
+  trigger: text('trigger').notNull(),
+  vaultId: uuid('vault_id').references(() => vaults.id, { onDelete: 'cascade' }),
+  actorCircleId: uuid('actor_circle_id').references(() => circles.id, { onDelete: 'cascade' }),
+  notifyCircles: jsonb('notify_circles').$type<string[]>().notNull().default([]),
+  notifyAdmins: boolean('notify_admins').notNull().default(false),
+  createdBy: uuid('created_by'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  firedAt: ts('fired_at'),
+  fired: integer('fired').notNull().default(0),
+});
 
 export const notificationPreferences = pgTable('notification_preferences', {
   userId: uuid('user_id')
