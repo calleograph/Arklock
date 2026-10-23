@@ -140,6 +140,42 @@ describe('updates overview', () => {
     expect(body.remote.status).toBe('up_to_date');
   });
 
+  it('lists the versions actually running: runtime, database, host and server dependencies', async () => {
+    writeFileSync(
+      path.join(dir, 'containers.json'),
+      JSON.stringify({
+        items: [],
+        host: { docker: '27.3.1', compose: '2.29.7', os: 'Ubuntu 24.04.1 LTS', kernel: '' },
+        at: '2026-10-11T10:00:00Z',
+      }),
+    );
+    const res = await app.inject({
+      url: '/api/v1/admin/updates/inventory',
+      headers: admin.authHeader(),
+    });
+    expect(res.statusCode).toBe(200);
+    const inv = res.json();
+    expect(inv.runtime.node).toBe(process.versions.node);
+    expect(inv.database).toMatch(/PostgreSQL/);
+    expect(inv.host).toEqual({
+      docker: '27.3.1',
+      compose: '2.29.7',
+      os: 'Ubuntu 24.04.1 LTS',
+      kernel: null,
+    });
+    const fastify = inv.dependencies.find((d: { name: string }) => d.name === 'fastify');
+    expect(fastify.version).toBe(
+      JSON.parse(readFileSync('node_modules/fastify/package.json', 'utf8')).version,
+    );
+    expect(inv.dependencies.some((d: { name: string }) => d.name.startsWith('@arklock/'))).toBe(
+      false,
+    );
+    expect(
+      (await app.inject({ url: '/api/v1/admin/updates/inventory', headers: member.authHeader() }))
+        .statusCode,
+    ).toBe(403);
+  });
+
   it('treats a stale heartbeat as a stopped helper', async () => {
     heartbeat(120);
     const body = (

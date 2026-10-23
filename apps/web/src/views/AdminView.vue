@@ -359,6 +359,13 @@ const LEDGER_KINDS = [
   'space.',
   'admin.',
 ] as const;
+// объект без имени: вид и начало идентификатора (полный — во всплывающей подсказке)
+const targetText = (l: L) => {
+  if (l.targetName) return l.targetName;
+  const m = /^([a-z]+):([0-9a-f]{8})[0-9a-f-]{28}$/.exec(l.target ?? '');
+  const key = m ? `admin.ledgerTarget.${m[1]}` : '';
+  return m && te(key) ? `${t(key)} ${m[2]}` : (l.target ?? '');
+};
 const actionText = (a: string) => {
   const k = a.replace(/[.-]/g, '_');
   for (const key of [`ledgerAction.${k}`, `entryPanel.actions.${k}`]) if (te(key)) return t(key);
@@ -1216,7 +1223,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             <input
               v-model="filter.q"
               type="search"
-              class="input w-56"
+              class="input w-72"
               :placeholder="t('admin.ledgerSearch')"
               :aria-label="t('admin.ledgerSearch')"
               data-testid="ledger-search"
@@ -1263,7 +1270,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     :class="l.targetName ? '' : 'font-mono'"
                     :title="l.target ?? ''"
                   >
-                    {{ l.targetName ?? l.target }}
+                    {{ targetText(l) }}
                   </td>
                 </tr>
               </tbody>

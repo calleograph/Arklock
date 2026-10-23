@@ -6,8 +6,11 @@ import type { UpdatesOverview } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
+import InstallInventory from '../components/InstallInventory.vue';
 
-const { t } = useI18n();
+const { t, te } = useI18n();
+const label = (group: string, v: string) =>
+  te(`updates.${group}.${v}`) ? t(`updates.${group}.${v}`) : v;
 const auth = useAuthStore();
 
 const data = ref<UpdatesOverview | null>(null);
@@ -368,15 +371,19 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             class="flex justify-between gap-3 px-4 py-2"
           >
             <span
-              >{{ fmt(h.at) }} · {{ h.action }} {{ h.versionFrom ?? '' }} →
-              {{ h.versionTo ?? '' }}</span
+              >{{ fmt(h.at) }} · {{ label('historyAction', h.action) }}
+              <template v-if="h.versionTo"
+                >{{ h.versionFrom ?? '' }} → {{ h.versionTo }}</template
+              ></span
             >
             <span :class="h.result === 'success' ? 'text-emerald-600' : 'text-red-600'">{{
-              h.result
+              label('historyResult', h.result)
             }}</span>
           </li>
         </ul>
       </div>
+
+      <InstallInventory />
     </template>
 
     <div

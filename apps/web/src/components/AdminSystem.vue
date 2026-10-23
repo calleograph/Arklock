@@ -21,7 +21,21 @@ type Section =
   | 'smtp';
 const props = defineProps<{ section: Section }>();
 
-const { t } = useI18n();
+const { t, te } = useI18n();
+// диагностика приходит кодами состояния; текст на языке пользователя — из словаря
+type Diag = { id: string; state: string; params?: Record<string, string | number> };
+const diagBase = (c: Diag) => `diag.${c.state.replace(/-/g, '_')}`;
+const diagParams = (c: Diag) => ({
+  ...c.params,
+  ...(c.params?.name ? { name: t(`diag.disk.names.${c.params.name}`) } : {}),
+  ...(c.params?.scope ? { scope: t(`diag.mfa_policy.scope.${c.params.scope}`) } : {}),
+});
+const diagTitle = (c: Diag) =>
+  t(`diag.${c.state.split('.')[0]!.replace(/-/g, '_')}.title`, diagParams(c));
+const diagText = (c: Diag, part: 'detail' | 'cause' | 'fix') => {
+  const key = `${diagBase(c)}.${part}`;
+  return te(key) ? t(key, diagParams(c)) : '';
+};
 const auth = useAuthStore();
 const error = ref('');
 const notice = ref('');
@@ -827,22 +841,22 @@ const DIAG_LINK: Record<string, string> = {
       <div class="card divide-y divide-slate-200 text-sm dark:divide-slate-800">
         <div v-for="c in data.checks" :key="c.id" class="px-3 py-2" data-testid="diag-row">
           <div class="flex justify-between gap-2">
-            <span class="font-medium">{{ c.title }}</span
+            <span class="font-medium">{{ diagTitle(c) }}</span
             ><span :class="levelClass(c.level)">{{ levelText(c.level) }}</span>
           </div>
-          <div class="text-slate-600 dark:text-slate-300">{{ c.detail }}</div>
-          <div v-if="c.cause" class="text-xs text-slate-500">
-            {{ t('sys.diag.cause') }}: {{ c.cause }}
+          <div class="text-slate-600 dark:text-slate-300">{{ diagText(c, 'detail') }}</div>
+          <div v-if="diagText(c, 'cause')" class="text-xs text-slate-500">
+            {{ t('sys.diag.cause') }}: {{ diagText(c, 'cause') }}
           </div>
-          <div v-if="c.recommendation" class="text-xs text-slate-500">
-            {{ t('sys.diag.fix') }}: {{ c.recommendation }}
+          <div v-if="diagText(c, 'fix')" class="text-xs text-slate-500">
+            {{ t('sys.diag.fix') }}: {{ diagText(c, 'fix') }}
           </div>
           <RouterLink
             v-if="c.level !== 'ok' && DIAG_LINK[c.id]"
             :to="DIAG_LINK[c.id]!"
             class="mt-1 inline-block text-xs font-medium text-brand-600 underline"
             :data-testid="`diag-go-${c.id}`"
-            :aria-label="`${t('sys.diag.go')}: ${c.title}`"
+            :aria-label="`${t('sys.diag.go')}: ${diagTitle(c)}`"
             >{{ t('sys.diag.go') }} →</RouterLink
           >
         </div>

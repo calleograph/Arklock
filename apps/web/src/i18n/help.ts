@@ -315,6 +315,112 @@ export const ruHelp = {
     erase: 'Удалить безвозвратно',
     erased: 'Личный сейф удалён.',
   },
+  diag: {
+    database: {
+      title: 'База данных',
+      ok: { detail: 'Доступна, применено миграций: {n}' },
+      unreadable: {
+        detail: 'Не удалось прочитать журнал миграций',
+        cause: 'База недоступна или схема не создана',
+        fix: 'Проверьте контейнер базы и журналы приложения (scripts/logs.sh)',
+      },
+    },
+    disk: {
+      title: 'Свободное место: {name}',
+      names: { attachments: 'вложения', temp: 'временные файлы' },
+      ok: { detail: 'Занято {pct}%, свободно {freeMb} МБ' },
+      low: {
+        detail: 'Занято {pct}%, свободно {freeMb} МБ',
+        cause: 'Мало свободного места',
+        fix: 'Освободите место или расширьте диск, удалите старые резервные копии',
+      },
+    },
+    blobs: {
+      title: 'Каталог вложений',
+      ok: { detail: 'Доступен для записи' },
+      off: {
+        detail: 'Не настроен (BLOB_DIR пуст): вложения недоступны',
+        cause: 'Каталог вложений не передан приложению',
+        fix: 'Запустите приложение через install.sh или compose.yaml этой версии',
+      },
+      readonly: {
+        detail: 'Недоступен для записи',
+        cause: 'Неверные права: приложение работает от пользователя node (uid 1000)',
+        fix: 'chown 1000:1000 на каталог blobs в каталоге данных',
+      },
+    },
+    blobs_consistency: {
+      title: 'Сверка вложений',
+      ok: { detail: 'Файлов: {n}, расхождений нет' },
+      missing: {
+        detail: 'Записей без файла: {n}',
+        cause: 'Файлы удалены вручную или не восстановлены из копии',
+        fix: 'Восстановите каталог blobs из резервной копии',
+      },
+      orphans: {
+        detail: 'Файлов без записи: {n}',
+        cause: 'Прерванные загрузки или удаление во время сбоя',
+        fix: 'Запустите «Сверку» в разделе файлов вложений: она удалит такие файлы',
+      },
+    },
+    public_url: {
+      title: 'Публичный адрес',
+      ok: { detail: '{url}' },
+      unset: {
+        detail: 'Не задан',
+        cause: 'Не указан адрес, по которому сотрудники открывают Arklock',
+        fix: 'Укажите его: Администрирование → Настройки → Сеть и доступ',
+      },
+      http: {
+        detail: '{url}',
+        cause: 'Адрес без HTTPS: мастер-пароль и токены передаются открыто',
+        fix: 'Настройте HTTPS на reverse proxy',
+      },
+    },
+    helper: {
+      title: 'Помощник обновлений',
+      ok: { detail: 'Работает' },
+      none: {
+        detail: 'Не настроен',
+        cause: 'Каталог обмена не передан приложению',
+        fix: 'Установите помощника: scripts/updater.sh install',
+      },
+      down: {
+        detail: 'Не отвечает',
+        cause: 'Служба остановлена',
+        fix: 'scripts/updater.sh repair',
+      },
+    },
+    smtp: {
+      title: 'Почта (SMTP)',
+      ok: { detail: 'Настроена: {host}' },
+      none: {
+        detail: 'Не настроена',
+        cause: 'Нет данных SMTP-сервера',
+        fix: 'Раздел «Почта»: укажите сервер и отправьте тестовое письмо',
+      },
+    },
+    mfa_policy: {
+      title: 'Двухфакторная аутентификация',
+      scope: { all: 'для всех', admins: 'для администраторов' },
+      ok: { detail: 'Обязательна {scope}' },
+      off: {
+        detail: 'Не обязательна',
+        cause: 'Политика не включена',
+        fix: 'Администрирование → Настройки → Безопасность → «Обязательная двухфакторная аутентификация»',
+      },
+    },
+  },
+  inventory: {
+    title: 'Компоненты установки',
+    containerOs: 'ОС контейнера',
+    database: 'База данных',
+    hostOs: 'ОС сервера',
+    kernel: 'Ядро',
+    deps: 'Зависимости сервера: {n}',
+    hint: 'Фактические версии работающей установки. Обновление Arklock меняет только их состав в образе выпуска; систему сервера, Docker и мажорную версию PostgreSQL оно не трогает. Полный состав выпуска —',
+    sbom: 'SBOM в выпуске',
+  },
   ledgerAction: {
     admin_backup_download: 'Выгрузка резервной копии',
     admin_backup_offsite_config: 'Настройка удалённого места для копий',
@@ -444,7 +550,7 @@ export const ruHelp = {
     structure: 'Обзор организации',
     structureHint:
       'Пространства и сейфы: только метаданные, без записей и ключей. Личные сейфы не показаны.',
-    find: 'Найти сейф, пространство или владельца',
+    find: 'Сейф, пространство или владелец',
     nothing: 'Ничего не найдено.',
     archived: 'в архиве',
     open: 'открыто организации',
@@ -934,6 +1040,112 @@ export const enHelp = {
     erase: 'Delete for good',
     erased: 'The personal vault was deleted.',
   },
+  diag: {
+    database: {
+      title: 'Database',
+      ok: { detail: 'Available, migrations applied: {n}' },
+      unreadable: {
+        detail: 'The migration journal could not be read',
+        cause: 'The database is unavailable or the schema was not created',
+        fix: 'Check the database container and the application logs (scripts/logs.sh)',
+      },
+    },
+    disk: {
+      title: 'Free space: {name}',
+      names: { attachments: 'attachments', temp: 'temporary files' },
+      ok: { detail: '{pct}% used, {freeMb} MB free' },
+      low: {
+        detail: '{pct}% used, {freeMb} MB free',
+        cause: 'Low free space',
+        fix: 'Free up or extend the disk, remove old backups',
+      },
+    },
+    blobs: {
+      title: 'Attachment directory',
+      ok: { detail: 'Writable' },
+      off: {
+        detail: 'Not configured (BLOB_DIR is empty): attachments are unavailable',
+        cause: 'The attachment directory was not passed to the application',
+        fix: 'Start the application with install.sh or compose.yaml of this version',
+      },
+      readonly: {
+        detail: 'Not writable',
+        cause: 'Wrong permissions: the application runs as user node (uid 1000)',
+        fix: 'chown 1000:1000 the blobs directory in the data directory',
+      },
+    },
+    blobs_consistency: {
+      title: 'Attachment reconciliation',
+      ok: { detail: 'Files: {n}, no mismatches' },
+      missing: {
+        detail: 'Records without a file: {n}',
+        cause: 'Files were deleted by hand or not restored from a backup',
+        fix: 'Restore the blobs directory from a backup',
+      },
+      orphans: {
+        detail: 'Files without a record: {n}',
+        cause: 'Interrupted uploads or deletion during a failure',
+        fix: 'Run Reconcile in the attachment files section: it removes such files',
+      },
+    },
+    public_url: {
+      title: 'Public address',
+      ok: { detail: '{url}' },
+      unset: {
+        detail: 'Not set',
+        cause: 'The address employees use to open Arklock is not set',
+        fix: 'Set it: Administration → Settings → Network and access',
+      },
+      http: {
+        detail: '{url}',
+        cause: 'No HTTPS: the master password and tokens travel in the clear',
+        fix: 'Set up HTTPS on the reverse proxy',
+      },
+    },
+    helper: {
+      title: 'Update helper',
+      ok: { detail: 'Running' },
+      none: {
+        detail: 'Not configured',
+        cause: 'The exchange directory was not passed to the application',
+        fix: 'Install the helper: scripts/updater.sh install',
+      },
+      down: {
+        detail: 'Not responding',
+        cause: 'The service is stopped',
+        fix: 'scripts/updater.sh repair',
+      },
+    },
+    smtp: {
+      title: 'Mail (SMTP)',
+      ok: { detail: 'Configured: {host}' },
+      none: {
+        detail: 'Not configured',
+        cause: 'No SMTP server details',
+        fix: 'Mail section: enter the server and send a test message',
+      },
+    },
+    mfa_policy: {
+      title: 'Two-factor authentication',
+      scope: { all: 'for everyone', admins: 'for administrators' },
+      ok: { detail: 'Required {scope}' },
+      off: {
+        detail: 'Not required',
+        cause: 'The policy is not enabled',
+        fix: 'Administration → Settings → Security → “Require two-factor authentication”',
+      },
+    },
+  },
+  inventory: {
+    title: 'Installed components',
+    containerOs: 'Container OS',
+    database: 'Database',
+    hostOs: 'Server OS',
+    kernel: 'Kernel',
+    deps: 'Server dependencies: {n}',
+    hint: 'Versions actually running. An Arklock update changes only what is inside the release image; it does not touch the server system, Docker or the PostgreSQL major version. Full release contents —',
+    sbom: 'SBOM in the release',
+  },
   ledgerAction: {
     admin_backup_download: 'Backup downloaded',
     admin_backup_offsite_config: 'Offsite backup settings changed',
@@ -1063,7 +1275,7 @@ export const enHelp = {
     structure: 'Organization overview',
     structureHint:
       'Spaces and vaults: metadata only, no entries or keys. Personal vaults are not shown.',
-    find: 'Find a vault, space or owner',
+    find: 'Vault, space or owner',
     nothing: 'Nothing found.',
     archived: 'archived',
     open: 'open to the organization',

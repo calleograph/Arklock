@@ -2,6 +2,7 @@
 # backup.sh — зашифрованная резервная копия экземпляра Arklock.
 #   scripts/backup.sh [--env ФАЙЛ] [--keep N] [--label МЕТКА]
 #   scripts/backup.sh --verify ФАЙЛ        проверить существующую копию (расшифровка, целостность, читаемость дампа)
+#   scripts/backup.sh --restore-test ФАЙЛ  пробное восстановление во временную базу; рабочая база не затрагивается
 #
 # В копию входят: дамп PostgreSQL (зашифрованные клиентом записи, ключи пользователей, настройки, журнал),
 # файл конфигурации и манифест версии. Всё упаковывается и шифруется (GnuPG, AES-256, симметричный ключ из
@@ -13,14 +14,15 @@ set -euo pipefail
 # shellcheck source=lib/common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-KEEP=14; LABEL=""; VERIFY=""
+KEEP=14; LABEL=""; VERIFY=""; RESTORE_TEST=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --env) export ENV_FILE="$2"; shift 2 ;;
     --keep) KEEP="$2"; shift 2 ;;
     --label) LABEL="-$2"; shift 2 ;;
     --verify) VERIFY="$2"; shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --restore-test) RESTORE_TEST="$2"; shift 2 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "Неизвестный параметр: $1" ;;
   esac
 done
@@ -57,9 +59,38 @@ verify_bundle() { # verify_bundle ФАЙЛ — полная проверка к�
   return 0
 }
 
+restore_test() { # restore_test ФАЙЛ — восстановление во временную базу и сверка с манифестом копии
+  local f="$1" tmp db counts want users vaults entries keys mig
+  verify_bundle "$f" || return 1
+  tmp="$(mktemp -d "$DATA_ROOT/tmp/restore-test.XXXXXX")"
+  chmod 700 "$tmp"
+  db="arklock_restore_test_$$"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'; dc exec -T db psql -U arklock -d postgres -qc 'DROP DATABASE IF EXISTS $db WITH (FORCE)' >/dev/null 2>&1 || true" RETURN
+  decrypt_to "$f" "$tmp" 2>/dev/null || { fail "Не удалось расшифровать копию"; return 1; }
+  dc exec -T db psql -U arklock -d postgres -v ON_ERROR_STOP=1 -qc "CREATE DATABASE $db OWNER arklock" >/dev/null \
+    || { fail "Не удалось создать временную базу для проверки"; return 1; }
+  dc exec -T db pg_restore -U arklock -d "$db" --no-owner --exit-on-error < "$tmp/db.dump" >/dev/null 2>&1 \
+    || { fail "Восстановление во временную базу не удалось (pg_restore)"; return 1; }
+  counts="$(dc exec -T db psql -U arklock -d "$db" -tAF' ' -c \
+    'select (select count(*) from users), (select count(*) from vaults), (select count(*) from entries), (select count(*) from vault_keys), (select count(*) from drizzle.__drizzle_migrations)' | tr -d '\r')" \
+    || { fail "Восстановленная база не читается"; return 1; }
+  read -r users vaults entries keys mig <<< "$counts"
+  want="$(sed -n 's/.*"migrations": *\([0-9]*\).*/\1/p' "$tmp/manifest.json")"
+  [ -z "$want" ] || [ "$want" = "$mig" ] || { fail "Миграций в базе $mig, в манифесте $want"; return 1; }
+  [ "${users:-0}" -ge 1 ] || { fail "В восстановленной базе нет учётных записей"; return 1; }
+  ok "Пробное восстановление прошло: учётных записей $users, сейфов $vaults, записей $entries, ключей $keys, миграций $mig. Временная база удалена."
+}
+
 if [ -n "$VERIFY" ]; then
   mkdir -p "$DATA_ROOT/tmp"
   verify_bundle "$VERIFY"
+  exit $?
+fi
+if [ -n "$RESTORE_TEST" ]; then
+  mkdir -p "$DATA_ROOT/tmp"
+  dc ps -q db | grep -q . || die "Контейнер базы данных не запущен"
+  restore_test "$RESTORE_TEST"
   exit $?
 fi
 

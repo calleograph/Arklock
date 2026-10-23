@@ -17,6 +17,7 @@ import {
   roles,
   sessions,
   settings,
+  spaces,
   users,
   vaults,
   vaultCircles,
@@ -563,9 +564,51 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           .from(users)
           .where(inArray(users.id, ids))
       : [];
+    const idsOf = (prefix: string) => [
+      ...new Set(
+        rows
+          .map((r) => r.target ?? '')
+          .filter((x) => x.startsWith(prefix) && /^[a-z]+:[0-9a-f-]{36}$/.test(x))
+          .map((x) => x.slice(prefix.length)),
+      ),
+    ];
+    const [vaultNames, spaceNames, circleNames] = await Promise.all([
+      idsOf('vault:').length
+        ? db
+            .select({ id: vaults.id, name: vaults.name, kind: vaults.kind })
+            .from(vaults)
+            .where(inArray(vaults.id, idsOf('vault:')))
+        : [],
+      idsOf('space:').length
+        ? db
+            .select({ id: spaces.id, name: spaces.name })
+            .from(spaces)
+            .where(inArray(spaces.id, idsOf('space:')))
+        : [],
+      idsOf('circle:').length
+        ? db
+            .select({ id: circles.id, name: circles.name })
+            .from(circles)
+            .where(inArray(circles.id, idsOf('circle:')))
+        : [],
+    ]);
+    // названия сейфов, пространств и групп — метаданные, их администратор и так видит; записи зашифрованы и остаются кодом
     const nameOf = (ref: string | null) => {
-      const p = ref?.startsWith('user:') ? people.find((x) => x.id === ref.slice(5)) : undefined;
-      return p ? `${p.name} <${p.email}>` : null;
+      if (!ref) return null;
+      const [kind, id] = ref.split(':') as [string, string | undefined];
+      if (kind === 'user') {
+        const p = people.find((x) => x.id === id);
+        return p ? `${p.name} <${p.email}>` : null;
+      }
+      const named =
+        kind === 'vault'
+          ? vaultNames.find((x) => x.id === id && x.kind === 'shared')
+          : kind === 'space'
+            ? spaceNames.find((x) => x.id === id)
+            : kind === 'circle'
+              ? circleNames.find((x) => x.id === id)
+              : undefined;
+      return named?.name ?? null;
     };
     const items = rows.map((r) => ({
       id: r.id,

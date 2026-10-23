@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
@@ -234,6 +234,22 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
     const { vaultId, entryId } = parse(entryParams, req.params);
     const body = parse(entryClientEvent, req.body);
     await readableEntry(vaultId, entryId, user.id);
+    // повторное открытие той же карточки тем же сотрудником в течение 5 минут журнал не засоряет
+    if (body.action === 'open') {
+      const [recent] = await db
+        .select({ id: ledger.id })
+        .from(ledger)
+        .where(
+          and(
+            eq(ledger.target, `entry:${entryId}`),
+            eq(ledger.actor, `user:${user.id}`),
+            eq(ledger.action, 'entry.client.open'),
+            gt(ledger.at, new Date(Date.now() - 5 * 60_000)),
+          ),
+        )
+        .limit(1);
+      if (recent) return reply.status(204).send();
+    }
     await audit(db, `user:${user.id}`, `entry.client.${body.action}`, `entry:${entryId}`, {
       vault: vaultId,
       field: body.field ?? null,

@@ -5,6 +5,7 @@ import tls from 'node:tls';
 import { count, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import type { DiagnosticState } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -31,10 +32,9 @@ interface StoredSmtp {
 export interface Check {
   id: string;
   level: Level;
-  title: string;
-  detail: string;
-  cause?: string;
-  recommendation?: string;
+  /** Код состояния; текст на языке пользователя строит интерфейс. */
+  state: DiagnosticState;
+  params?: Record<string, string | number>;
 }
 
 export interface CertInfo {
@@ -290,129 +290,53 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   app.get('/admin/diagnostics', async () => {
     const checks: Check[] = [];
-    const add = (c: Check) => checks.push(c);
+    const add = (
+      id: string,
+      level: Level,
+      state: DiagnosticState,
+      params?: Record<string, string | number>,
+    ) => checks.push({ id, level, state, ...(params ? { params } : {}) });
 
     const migs = await migrations();
-    add(
-      migs === null
-        ? {
-            id: 'database',
-            level: 'fail',
-            title: 'База данных',
-            detail: 'Не удалось прочитать журнал миграций',
-            cause: 'База недоступна или схема не создана',
-            recommendation: 'Проверьте контейнер базы и журналы приложения (scripts/logs.sh)',
-          }
-        : {
-            id: 'database',
-            level: 'ok',
-            title: 'База данных',
-            detail: `Доступна, применено миграций: ${migs}`,
-          },
-    );
+    if (migs === null) add('database', 'fail', 'database.unreadable');
+    else add('database', 'ok', 'database.ok', { n: migs });
 
     for (const d of (
       await Promise.all([
         blobs.enabled ? diskInfo('attachments', blobs.dir) : null,
         diskInfo('temp', os.tmpdir()),
       ])
-    ).filter((x): x is NonNullable<typeof x> => !!x)) {
-      add({
-        id: `disk-${d.id}`,
-        level: d.level,
-        title: `Свободное место: ${d.id}`,
-        detail: `Занято ${d.usedPct}%, свободно ${Math.round(d.freeBytes / 1024 ** 2)} МБ`,
-        ...(d.level !== 'ok'
-          ? {
-              cause: 'Мало свободного места',
-              recommendation: 'Освободите место или расширьте диск, удалите старые резервные копии',
-            }
-          : {}),
+    ).filter((x): x is NonNullable<typeof x> => !!x))
+      add(`disk-${d.id}`, d.level, d.level === 'ok' ? 'disk.ok' : 'disk.low', {
+        name: d.id,
+        pct: d.usedPct,
+        freeMb: Math.round(d.freeBytes / 1024 ** 2),
       });
-    }
 
-    if (!blobs.enabled) {
-      add({
-        id: 'blobs',
-        level: 'warn',
-        title: 'Хранилище вложений',
-        detail: 'Не настроено (BLOB_DIR пуст): вложения недоступны',
-        cause: 'Каталог вложений не передан приложению',
-        recommendation: 'Запустите приложение через install.sh или compose.yaml этой версии',
-      });
-    } else {
+    if (!blobs.enabled) add('blobs', 'warn', 'blobs.off');
+    else {
       const probe = path.join(blobs.dir, `.probe-${process.pid}`);
       try {
         await access(blobs.dir, constants.W_OK);
         await writeFile(probe, 'x');
         await rm(probe, { force: true });
-        add({
-          id: 'blobs',
-          level: 'ok',
-          title: 'Хранилище вложений',
-          detail: `Каталог доступен для записи`,
-        });
+        add('blobs', 'ok', 'blobs.ok');
       } catch {
-        add({
-          id: 'blobs',
-          level: 'fail',
-          title: 'Хранилище вложений',
-          detail: 'Каталог недоступен для записи',
-          cause: 'Неверные права: приложение работает от пользователя node (uid 1000)',
-          recommendation: 'chown 1000:1000 на каталог blobs в каталоге данных',
-        });
+        add('blobs', 'fail', 'blobs.readonly');
       }
       const s = await blobStats();
-      add(
-        s.missing > 0
-          ? {
-              id: 'blobs-consistency',
-              level: 'fail',
-              title: 'Сверка вложений',
-              detail: `Записей без файла: ${s.missing}`,
-              cause: 'Файлы удалены вручную или не восстановлены из копии',
-              recommendation: 'Восстановите каталог blobs из резервной копии',
-            }
-          : s.orphans > 0
-            ? {
-                id: 'blobs-consistency',
-                level: 'warn',
-                title: 'Сверка вложений',
-                detail: `Файлов без записи: ${s.orphans}`,
-                cause: 'Прерванные загрузки или удаление во время сбоя',
-                recommendation: 'Раздел «Хранилища» → «Сверка» удалит такие файлы',
-              }
-            : {
-                id: 'blobs-consistency',
-                level: 'ok',
-                title: 'Сверка вложений',
-                detail: `Файлов: ${s.files}, расхождений нет`,
-              },
-      );
+      if (s.missing > 0)
+        add('blobs-consistency', 'fail', 'blobs-consistency.missing', { n: s.missing });
+      else if (s.orphans > 0)
+        add('blobs-consistency', 'warn', 'blobs-consistency.orphans', { n: s.orphans });
+      else add('blobs-consistency', 'ok', 'blobs-consistency.ok', { n: s.files });
     }
 
     const pub = publicUrlOf(ctx);
-    add(
-      !pub
-        ? {
-            id: 'public-url',
-            level: 'warn',
-            title: 'Публичный адрес',
-            detail: 'Не задан',
-            cause: 'Не указан адрес, по которому сотрудники открывают Arklock',
-            recommendation: 'Укажите его: Администрирование → Настройки → Сеть и доступ',
-          }
-        : !pub.startsWith('https://')
-          ? {
-              id: 'public-url',
-              level: 'fail',
-              title: 'Публичный адрес',
-              detail: pub,
-              cause: 'Адрес без HTTPS: мастер-пароль и токены передаются открыто',
-              recommendation: 'Настройте HTTPS на reverse proxy',
-            }
-          : { id: 'public-url', level: 'ok', title: 'Публичный адрес', detail: pub },
-    );
+    if (!pub) add('public-url', 'warn', 'public-url.unset');
+    else if (!pub.startsWith('https://'))
+      add('public-url', 'fail', 'public-url.http', { url: pub });
+    else add('public-url', 'ok', 'public-url.ok', { url: pub });
 
     const upd = ctx.updater.configured
       ? await ctx.updater.overview({
@@ -422,66 +346,18 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
           channel: config.UPDATE_CHANNEL,
         })
       : null;
-    add(
-      !upd
-        ? {
-            id: 'helper',
-            level: 'warn',
-            title: 'Помощник обновлений',
-            detail: 'Не настроен',
-            cause: 'Каталог обмена не передан приложению',
-            recommendation: 'Установите помощника: scripts/updater.sh install',
-          }
-        : upd.helper.alive
-          ? { id: 'helper', level: 'ok', title: 'Помощник обновлений', detail: 'Работает' }
-          : {
-              id: 'helper',
-              level: 'warn',
-              title: 'Помощник обновлений',
-              detail: 'Не отвечает',
-              cause: 'Служба остановлена',
-              recommendation: 'scripts/updater.sh repair',
-            },
-    );
+    if (!upd) add('helper', 'warn', 'helper.none');
+    else if (upd.helper.alive) add('helper', 'ok', 'helper.ok');
+    else add('helper', 'warn', 'helper.down');
 
     const [row] = await db.select().from(settings).where(eq(settings.key, SMTP_KEY));
-    add(
-      row
-        ? {
-            id: 'smtp',
-            level: 'ok',
-            title: 'Почта (SMTP)',
-            detail: `Настроена: ${(row.value as StoredSmtp).host}`,
-          }
-        : {
-            id: 'smtp',
-            level: 'warn',
-            title: 'Почта (SMTP)',
-            detail: 'Не настроена',
-            cause: 'Нет данных SMTP-сервера',
-            recommendation: 'Раздел «Почта»: укажите сервер и отправьте тестовое письмо',
-          },
-    );
+    if (row) add('smtp', 'ok', 'smtp.ok', { host: (row.value as StoredSmtp).host });
+    else add('smtp', 'warn', 'smtp.none');
 
     const [mfa] = await db.select().from(settings).where(eq(settings.key, 'security.mfaRequired'));
-    add(
-      mfa?.value === 'all' || mfa?.value === 'admins'
-        ? {
-            id: 'mfa-policy',
-            level: 'ok',
-            title: 'Двухфакторная аутентификация',
-            detail: `Обязательна: ${String(mfa.value)}`,
-          }
-        : {
-            id: 'mfa-policy',
-            level: 'warn',
-            title: 'Двухфакторная аутентификация',
-            detail: 'Не обязательна',
-            cause: 'Политика не включена',
-            recommendation:
-              'Администрирование → Настройки → Безопасность → «Обязательная двухфакторная аутентификация»',
-          },
-    );
+    if (mfa?.value === 'all' || mfa?.value === 'admins')
+      add('mfa-policy', 'ok', 'mfa-policy.ok', { scope: String(mfa.value) });
+    else add('mfa-policy', 'warn', 'mfa-policy.off');
 
     const worst = checks.some((c) => c.level === 'fail')
       ? 'fail'

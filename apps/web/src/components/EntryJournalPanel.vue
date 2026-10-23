@@ -102,7 +102,7 @@ const shown = computed(() => {
           <span class="font-medium">{{ actionLabel(row.action) }}</span
           ><time class="text-xs text-slate-500" :datetime="row.at">{{ when(row.at) }}</time>
         </div>
-        <p class="break-all text-xs text-slate-500">
+        <p class="text-xs text-slate-500 [overflow-wrap:anywhere]">
           {{ row.actorName || row.actor || t('entryPanel.system')
           }}<span v-if="row.clientReported"> · {{ t('entryPanel.clientReported') }}</span
           ><span v-if="row.detail?.field"> · {{ t(`entryPanel.fields.${row.detail.field}`) }}</span>

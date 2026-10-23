@@ -2,13 +2,15 @@
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage, vaultLabel, when } from '../services/helpers';
+import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
+import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
 
 /** Карточка сотрудника: статус, группы, сеансы и сейфы в одном месте — без перехода по разделам. */
 const props = defineProps<{ userId: string; adminRoles: { id: string; name: string }[] }>();
 const emit = defineEmits<{ close: []; offboard: []; changed: [] }>();
 const { t } = useI18n();
+const auth = useAuthStore();
 
 interface Profile {
   user: {
@@ -27,7 +29,7 @@ interface Profile {
     createdAt: string;
   };
   mfa: { totp: boolean; passkey: boolean };
-  spaces: { id: string; name: string }[];
+  spaces: { id: string; name: string; isDefault: boolean }[];
   groups: { id: string; name: string; adminRoleId: string | null }[];
   sessionList: { id: string; lastSeenAt: string; ip: string | null; userAgent: string | null }[];
   vaults: { id: string; name: string; role: string; entries: number }[];
@@ -126,7 +128,7 @@ async function endSessions(): Promise<void> {
         </div>
         <div class="flex shrink-0 gap-2">
           <button
-            v-if="!p.user.disabled"
+            v-if="!p.user.disabled && !p.user.chief && p.user.id !== auth.user?.id"
             type="button"
             class="btn-danger"
             data-testid="profile-offboard"
@@ -187,7 +189,7 @@ async function endSessions(): Promise<void> {
         <div>
           <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.spaces') }}</h3>
           <ul v-if="p.spaces.length" class="flex flex-wrap gap-1" data-testid="profile-spaces">
-            <li v-for="s in p.spaces" :key="s.id" class="badge">{{ s.name }}</li>
+            <li v-for="s in p.spaces" :key="s.id" class="badge">{{ spaceLabel(s, t) }}</li>
           </ul>
           <p v-else class="text-slate-500">{{ t('profile.noSpaces') }}</p>
         </div>

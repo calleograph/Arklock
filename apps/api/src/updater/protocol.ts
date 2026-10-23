@@ -67,6 +67,8 @@ export interface ContainerSnapshot {
     cpu: string;
     memory: string;
   }[];
+  /** Версии на хосте, которые помощник видит, а приложение в контейнере — нет. */
+  host: { docker: string | null; compose: string | null; os: string | null; kernel: string | null };
 }
 
 export interface BackupSnapshot {
@@ -282,6 +284,7 @@ export class UpdaterChannel {
   async containers(): Promise<ContainerSnapshot> {
     const raw = await readJson<Record<string, unknown>>(this.p('containers.json'));
     const items = Array.isArray(raw?.items) ? (raw.items as Record<string, unknown>[]) : [];
+    const host = raw?.host as Record<string, unknown> | undefined;
     return {
       at: str(raw?.at),
       items: items.map((i) => ({
@@ -294,6 +297,12 @@ export class UpdaterChannel {
         cpu: str(i.cpu) ?? '',
         memory: str(i.memory) ?? '',
       })),
+      host: {
+        docker: str(host?.docker) || null,
+        compose: str(host?.compose) || null,
+        os: str(host?.os) || null,
+        kernel: str(host?.kernel) || null,
+      },
     };
   }
 

@@ -1,0 +1,1 @@
+CREATE INDEX "ledger_target_idx" ON "ledger" USING btree ("target","id");

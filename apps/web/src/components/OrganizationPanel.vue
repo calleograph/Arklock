@@ -186,7 +186,7 @@ async function cancel(): Promise<void> {
         <input
           v-model="query"
           type="search"
-          class="input w-full sm:w-64"
+          class="input w-full sm:w-80"
           :placeholder="t('chief.find')"
           :aria-label="t('chief.find')"
         />
@@ -209,9 +209,9 @@ async function cancel(): Promise<void> {
               <tr>
                 <th class="py-1 pr-3">{{ t('chief.vault') }}</th>
                 <th class="pr-3">{{ t('chief.owners') }}</th>
-                <th class="pr-3 text-right">{{ t('chief.members') }}</th>
-                <th class="pr-3 text-right">{{ t('chief.groups') }}</th>
-                <th class="pr-3 text-right">{{ t('chief.entries') }}</th>
+                <th class="pr-3">{{ t('chief.members') }}</th>
+                <th class="pr-3">{{ t('chief.groups') }}</th>
+                <th class="pr-3">{{ t('chief.entries') }}</th>
                 <th>{{ t('chief.lastChange') }}</th>
               </tr>
             </thead>
@@ -224,9 +224,9 @@ async function cancel(): Promise<void> {
               >
                 <td class="py-1 pr-3 font-medium">{{ vaultLabel(v, t) }}</td>
                 <td class="pr-3">{{ v.owners.join(', ') || '—' }}</td>
-                <td class="pr-3 text-right tabular-nums">{{ v.members }}</td>
-                <td class="pr-3 text-right tabular-nums">{{ v.groups }}</td>
-                <td class="pr-3 text-right tabular-nums">{{ v.entries }}</td>
+                <td class="pr-3 tabular-nums">{{ v.members }}</td>
+                <td class="pr-3 tabular-nums">{{ v.groups }}</td>
+                <td class="pr-3 tabular-nums">{{ v.entries }}</td>
                 <td class="whitespace-nowrap text-xs">
                   {{ v.lastChange ? when(v.lastChange) : '—' }}
                 </td>

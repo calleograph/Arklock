@@ -35,7 +35,8 @@ export const ledger = pgTable(
     target: text('target'),
     detail: jsonb('detail'),
   },
-  (t) => [index('ledger_at_idx').on(t.at)],
+  // журнал объекта выбирает события по target: без индекса — полный просмотр журнала
+  (t) => [index('ledger_at_idx').on(t.at), index('ledger_target_idx').on(t.target, t.id)],
 );
 
 /**

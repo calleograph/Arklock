@@ -126,9 +126,10 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
           ),
         ),
     ]);
-    const memberOf: { id: string; name: string }[] = [];
+    const memberOf: { id: string; name: string; isDefault: boolean }[] = [];
     for (const s of await db.select().from(spaces))
-      if ((await spaceAccess(db, s.id, id)).member) memberOf.push({ id: s.id, name: s.name });
+      if ((await spaceAccess(db, s.id, id)).member)
+        memberOf.push({ id: s.id, name: s.name, isDefault: s.isDefault });
     return {
       user: {
         id,

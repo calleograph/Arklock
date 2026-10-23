@@ -56,7 +56,7 @@ test('register, store an entry, update to the new release from the browser', asy
 
   await runUpdate(page);
   await expect(page.getByTestId('progress-state')).toHaveText('success', { timeout: 420_000 });
-  await expect(page.getByTestId('history')).toContainText('update');
+  await expect(page.getByTestId('history')).toContainText(/update|обновление/i);
 
   // После обновления приложение перезапущено: перезагружаем страницу — сеанс и ключи сохраняются, данные на месте.
   await page.reload();

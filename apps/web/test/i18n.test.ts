@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DIAGNOSTIC_STATES } from '@arklock/contracts';
 import { i18n } from '../src/i18n';
 import { ApiError } from '../src/services/api';
 import { errorMessage } from '../src/services/helpers';
@@ -55,6 +56,21 @@ describe('единый словарь терминов', () => {
         if (!(m[1]! in ru) && !local.has(m[1]!.split('.')[0])) missing.add(`${f}: ${m[1]}`);
     }
     expect([...missing]).toEqual([]);
+  });
+
+  it('у каждого состояния диагностики есть заголовок и описание на обоих языках', () => {
+    for (const state of DIAGNOSTIC_STATES) {
+      const key = state.replace(/-/g, '_');
+      for (const dict of [ru, en]) {
+        expect(dict[`diag.${key.split('.')[0]}.title`], state).toBeTruthy();
+        expect(dict[`diag.${key}.detail`], state).toBeTruthy();
+        // у проблем — причина и что делать
+        if (!state.endsWith('.ok')) {
+          expect(dict[`diag.${key}.cause`], state).toBeTruthy();
+          expect(dict[`diag.${key}.fix`], state).toBeTruthy();
+        }
+      }
+    }
   });
 
   it('у каждого раздела администрирования есть название', () => {

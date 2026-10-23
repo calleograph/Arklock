@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DIAGNOSTIC_STATES } from '@arklock/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { settings, attachments } from '../src/db/schema.js';
@@ -180,26 +181,25 @@ describe('overview, resources, storage, diagnostics', () => {
     expect(st.status).toBe('fail');
     const d = (await admin.req('GET', '/admin/diagnostics')).json();
     const c = d.checks.find((x: { id: string }) => x.id === 'blobs-consistency');
-    expect(c.level).toBe('fail');
-    expect(c.cause).toBeTruthy();
-    expect(c.recommendation).toBeTruthy();
+    expect(c).toMatchObject({
+      level: 'fail',
+      state: 'blobs-consistency.missing',
+      params: { n: 1 },
+    });
     expect(d.level).toBe('fail');
     await database.db.delete(attachments);
   });
 
-  it('diagnostics have a title, detail and, for problems, a cause and a recommendation', async () => {
+  it('every diagnostic carries a known state code, and its level matches the state', async () => {
     const d = (await admin.req('GET', '/admin/diagnostics')).json();
     expect(d.checks.length).toBeGreaterThanOrEqual(6);
     for (const c of d.checks) {
       expect(['ok', 'warn', 'fail']).toContain(c.level);
-      expect(c.title).toBeTruthy();
-      expect(c.detail).toBeTruthy();
-      if (c.level !== 'ok') {
-        expect(c.cause, c.id).toBeTruthy();
-        expect(c.recommendation, c.id).toBeTruthy();
-      }
+      // тексты строит интерфейс по коду: сервер не отдаёт фраз на одном языке
+      expect(DIAGNOSTIC_STATES).toContain(c.state);
+      expect(c.state.endsWith('.ok'), c.id).toBe(c.level === 'ok');
+      expect(c.title).toBeUndefined();
     }
-    expect(d.checks.find((c: { id: string }) => c.id === 'database').level).toBe('ok');
   });
 });
 

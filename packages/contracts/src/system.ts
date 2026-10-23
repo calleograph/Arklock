@@ -17,3 +17,31 @@ export const versionResponse = z.object({
   channel: z.enum(['stable', 'edge']),
 });
 export type VersionResponse = z.infer<typeof versionResponse>;
+
+/**
+ * Состояния проверок диагностики: «проверка.состояние». Сервер передаёт код и параметры,
+ * тексты на языке пользователя — в словаре интерфейса (тест словаря требует перевод для каждого).
+ */
+export const DIAGNOSTIC_STATES = [
+  'database.ok',
+  'database.unreadable',
+  'disk.ok',
+  'disk.low',
+  'blobs.ok',
+  'blobs.off',
+  'blobs.readonly',
+  'blobs-consistency.ok',
+  'blobs-consistency.missing',
+  'blobs-consistency.orphans',
+  'public-url.ok',
+  'public-url.unset',
+  'public-url.http',
+  'helper.ok',
+  'helper.none',
+  'helper.down',
+  'smtp.ok',
+  'smtp.none',
+  'mfa-policy.ok',
+  'mfa-policy.off',
+] as const;
+export type DiagnosticState = (typeof DIAGNOSTIC_STATES)[number];

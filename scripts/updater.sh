@@ -228,8 +228,9 @@ run_ops_action() {
     backup_verify)
       ST_NAME="Проверка копии"; write_status
       own_backup "$REQ_FILE" || { ST_MSG="Копия не найдена"; return 1; }
-      run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --verify "$(backup_path "$REQ_FILE")" || rc=$?
-      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE корректна" || echo "Копия $REQ_FILE НЕ прошла проверку")" ;;
+      # проверка из панели — пробное восстановление во временную базу (рабочая база не затрагивается)
+      run_logged "$REPO_ROOT/scripts/backup.sh" --env "$ENV_FILE" --restore-test "$(backup_path "$REQ_FILE")" || rc=$?
+      ST_MSG="$([ "$rc" -eq 0 ] && echo "Копия $REQ_FILE восстановлена во временную базу и проверена" || echo "Копия $REQ_FILE НЕ прошла проверку восстановлением")" ;;
     backup_import)
       # копия, загруженная в веб-интерфейсе, лежит в каталоге обмена; имя файла проверено при приёме запроса
       ST_NAME="Загрузка копии"; write_status
@@ -439,7 +440,12 @@ publish_containers() {
       printf '{"service":"%s","image":"%s","state":"%s","health":"%s","started_at":"%s","restarts":%s,"cpu":"%s","memory":"%s"}' \
         "$(jstr "$svc")" "$(jstr "$img")" "$(jstr "$st")" "$(jstr "$health")" "$(jstr "$started")" "${restarts:-0}" "$(jstr "$cpu")" "$(jstr "$mem")"
     done
-    printf '],"at":"%s"}\n' "$(date -u +%FT%TZ)"
+    printf '],"host":{"docker":"%s","compose":"%s","os":"%s","kernel":"%s"}' \
+      "$(jstr "$(docker version --format '{{.Server.Version}}' 2>/dev/null)")" \
+      "$(jstr "$(docker compose version --short 2>/dev/null)")" \
+      "$(jstr "$(. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}")")" \
+      "$(jstr "$(uname -r 2>/dev/null)")"
+    printf ',"at":"%s"}\n' "$(date -u +%FT%TZ)"
   } | atomic_write "$CH/containers.json"
 }
 

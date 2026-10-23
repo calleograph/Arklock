@@ -157,10 +157,10 @@ export default {
     refresh: 'Refresh',
     noEvents: 'No events yet.',
     noMatches: 'Nothing found.',
-    journalSearch: 'Search the journal: action, person, date',
+    journalSearch: 'Search the journal',
     system: 'System',
     journalHint:
-      'Showing the latest 100 events. Reveal and copy events are reported by the Arklock client; the server cannot verify actions inside the browser.',
+      'Showing the latest 100 events. Opening the card, revealing and copying are reported by the browser: the server cannot verify actions inside it. Reopening the same card within 5 minutes is not recorded again.',
     clientReported: 'Client reported',
     fields: {
       password: 'Password',
@@ -1041,6 +1041,16 @@ export default {
     rangeFail: 'Failed: {r}',
     actionPrefix: 'Event kind',
     ledgerSearch: 'Person, action or object',
+    ledgerTarget: {
+      entry: 'Entry',
+      branch: 'Folder',
+      vault: 'Vault',
+      session: 'Session',
+      request: 'Request',
+      invitation: 'Invitation',
+      handoff: 'Link',
+      role: 'Role',
+    },
     ledgerKind: {
       all: 'All events',
       auth: 'Sign-in and sessions',

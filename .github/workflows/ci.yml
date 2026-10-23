@@ -231,6 +231,14 @@ jobs:
           f="$(sudo sh -c 'ls -1t /var/lib/arklock-ci/backups/*.bak.gpg' | head -n 1)"
           echo "BACKUP=$f" >> "$GITHUB_ENV"
           sudo ./scripts/backup.sh --env "$CFG/arklock.env" --verify "$f"
+          # пробное восстановление во временную базу: данные на месте, рабочая база и её содержимое не меняются
+          before="$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d arklock -tAc 'select count(*) from entries')"
+          sudo ./scripts/backup.sh --env "$CFG/arklock.env" --restore-test "$f" | tee /tmp/restore-test.log
+          grep -q 'Пробное восстановление прошло' /tmp/restore-test.log
+          after="$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d arklock -tAc 'select count(*) from entries')"
+          [ "$before" = "$after" ] || { echo "working database changed"; exit 1; }
+          left="$(sudo docker compose --project-name "$PROJ" exec -T db psql -U arklock -d postgres -tAc "select count(*) from pg_database where datname like 'arklock_restore_test_%'")"
+          [ "$left" = "0" ] || { echo "temporary database left behind"; exit 1; }
           # копия зашифрована: ни логин пользователя, ни пароль записи в открытом виде в ней не встречаются
           user="$(node -p "require('./smoke-state.json').email")"
           secret="$(node -p "require('./smoke-state.json').secret.password")"
@@ -302,6 +310,7 @@ jobs:
           sudo cp "$BACKUP" /tmp/corrupt.bak.gpg
           sudo sh -c 'printf "X" | dd of=/tmp/corrupt.bak.gpg bs=1 seek=300 conv=notrunc 2>/dev/null'
           if sudo ./scripts/backup.sh --env "$CFG/arklock.env" --verify /tmp/corrupt.bak.gpg; then echo "corrupted backup accepted"; exit 1; fi
+          if sudo ./scripts/backup.sh --env "$CFG/arklock.env" --restore-test /tmp/corrupt.bak.gpg; then echo "corrupted backup restored"; exit 1; fi
       - name: Disaster - destroy the database, re-install, restore from the remote copy
         run: |
           export ARKLOCK_REMOTE_CONF="$CFG/remote.conf"

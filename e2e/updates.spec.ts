@@ -81,7 +81,7 @@ test('administrator checks for updates and applies one from the browser', async 
   await expect(page.getByTestId('updates-progress')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId('progress-state')).toHaveText('running');
   await expect(page.getByTestId('progress-state')).toHaveText('success', { timeout: 30_000 });
-  await expect(page.getByTestId('history')).toContainText('update');
+  await expect(page.getByTestId('history')).toContainText(/update|обновление/i);
 
   // Откат может вернуть старую версию и данные — он требует повышенного подтверждения; неверный пароль отклоняется.
   await page.getByTestId('btn-rollback').click();

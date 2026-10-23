@@ -7,6 +7,7 @@ import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { AppError, parse } from '../errors.js';
+import { inventory } from '../inventory.js';
 import { verifyProof } from '../security.js';
 import { RequestPendingError } from '../updater/protocol.js';
 
@@ -53,6 +54,7 @@ export const registerAdminRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   }
 
   app.get('/admin/updates', async () => overview());
+  app.get('/admin/updates/inventory', async () => inventory(ctx));
 
   app.post('/admin/updates', async (req: FastifyRequest, reply: FastifyReply) => {
     const { user } = authOf(req);

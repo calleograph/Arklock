@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-23. Версия в VERSION и пакетах: **1.24.0**. Состав выпуска описан в CHANGELOG → 1.24.0.
+Последнее обновление: 2026-10-23. Версия в VERSION и пакетах: **1.25.0**. Состав выпуска описан в CHANGELOG → 1.25.0.
 
 ## Назначение и архитектура
 
@@ -36,6 +36,7 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 - Главный администратор (`users.chief`, уникальный частичный индекс; `routes/chief.ts`): назначение полных администраторов, передача роли с подтверждением преемника мастер-паролем, обзор организации `/admin/structure`. Повторное подтверждение — общая `requireReauth` в `auth/reauth.ts`.
 - Карточка сотрудника: `users.title/department/phone/profile_source`, синхронизация из LDAP `syncProfileFor` (`auth/ldap-sync.ts`), правка `PATCH /admin/users/:id/profile`.
 - Журнал: событие `entry.client.open`, поиск в журнале объекта, имена и поиск по сотруднику в `/admin/ledger`, подписи всех действий (`ledgerAction` в `i18n/help.ts`).
+- Состав установки (`inventory.ts`, `/admin/updates/inventory`, раздел «Компоненты установки»), SBOM к выпуску; пробное восстановление копии (`backup.sh --restore-test`, кнопка «Проверить»); диагностика кодами состояний (`DIAGNOSTIC_STATES` в contracts), тексты RU/EN в словаре.
 - CLI, токены API, расширение Chromium/Firefox, PWA и адаптивный интерфейс.
 
 ## Размещение и эксплуатация
