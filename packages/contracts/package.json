@@ -16,7 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "zod": "^4.1.0"
+    "zod": "^4.6.7"
   },
   "license": "AGPL-3.0-only"
 }
