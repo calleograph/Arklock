@@ -334,6 +334,12 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('scope-favorites').click();
   await expect(mailRow).toHaveCount(1);
   await page.getByTestId('scope-all').click();
+  // «Изменить» из меню открывает форму записи сразу
+  await mailRow.click({ button: 'right' });
+  await page.getByTestId('ctx-edit').click();
+  await expect(page.getByTestId('f-title')).toHaveValue('Почта');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('entry-form')).toHaveCount(0);
 
   // сводка сейфа: показатель ведёт к отфильтрованному списку, фильтр в адресе и сбрасывается
   await addEntry(page, { title: 'Слабый доступ', username: 'w', password: '123456' });
@@ -346,6 +352,26 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('issue-filter-clear').click();
   await expect(page.getByTestId('issue-filter')).toHaveCount(0);
   expect(await page.getByTestId('entry-row').count()).toBeGreaterThan(1);
+
+  // метка проблемы в строке; копия записи из меню, затем корзина и удаление навсегда из меню
+  const weakRow = page.getByTestId('entry-row').filter({ hasText: 'Слабый доступ' });
+  await expect(weakRow.getByTestId('row-issue')).toBeVisible();
+  await weakRow.click({ button: 'right' });
+  await page.getByTestId('ctx-clone').click();
+  await expect(page.getByTestId('f-title')).toHaveValue(/^Слабый доступ \(/);
+  await page.getByTestId('f-save').click();
+  const copyRow = page.getByTestId('entry-row').filter({ hasText: /Слабый доступ \(/ });
+  await expect(copyRow).toHaveCount(1);
+  await expect(copyRow.getByTestId('row-issue')).toBeVisible();
+  await copyRow.click({ button: 'right' });
+  await page.getByTestId('ctx-trash').click();
+  await expect(copyRow).toHaveCount(0);
+  await page.getByTestId('scope-trash').click();
+  await copyRow.click({ button: 'right' });
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('ctx-purge').click();
+  await expect(copyRow).toHaveCount(0);
+  await page.getByTestId('scope-all').click();
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {

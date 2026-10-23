@@ -465,7 +465,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     };
     if (existing && existing.data.password !== clean.password)
       clean.passwordChangedAt = new Date().toISOString();
-    if (!existing && clean.password) clean.passwordChangedAt = new Date().toISOString();
+    if (!existing && clean.password && !clean.passwordChangedAt)
+      clean.passwordChangedAt = new Date().toISOString();
     const enc = await encryptEntry(clean, key, vault.id, id, vault.keyVersion);
     const rec = existing
       ? await api<EntryRecord>('PUT', `/vaults/${vault.id}/entries/${id}`, {

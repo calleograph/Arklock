@@ -413,6 +413,7 @@ export const ruHelp = {
   },
   ctx: {
     open: 'Открыть',
+    edit: 'Изменить',
     copyUsername: 'Копировать логин',
     copyPassword: 'Копировать пароль',
     copyUrl: 'Копировать адрес',
@@ -420,6 +421,9 @@ export const ruHelp = {
     unpin: 'Убрать из избранного',
     archive: 'В архив',
     unarchive: 'Вернуть из архива',
+    clone: 'Создать копию',
+    cloneTitle: '{title} (копия)',
+    addHere: 'Новая запись в этой папке',
   },
   overview: {
     checkLeaks: 'Проверить',
@@ -1189,6 +1193,7 @@ export const enHelp = {
   },
   ctx: {
     open: 'Open',
+    edit: 'Edit',
     copyUsername: 'Copy username',
     copyPassword: 'Copy password',
     copyUrl: 'Copy address',
@@ -1196,6 +1201,9 @@ export const enHelp = {
     unpin: 'Remove from favourites',
     archive: 'Archive',
     unarchive: 'Restore from archive',
+    clone: 'Duplicate',
+    cloneTitle: '{title} (copy)',
+    addHere: 'New entry in this folder',
   },
   overview: {
     checkLeaks: 'Check',

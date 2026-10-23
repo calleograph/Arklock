@@ -108,6 +108,21 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
   await expect(page.getByTestId('view-title')).toBeVisible();
   await noHorizontalScroll(page, 'просмотр записи');
 
+  // долгое нажатие на строку открывает меню записи; отпускание пальца не открывает карточку
+  await page.getByTestId('mobile-view-list').click();
+  const row = page.getByTestId('entry-row').first();
+  const box = (await row.boundingBox())!;
+  const at = { pointerType: 'touch', clientX: box.x + 60, clientY: box.y + 20, isPrimary: true };
+  await row.dispatchEvent('pointerdown', at);
+  await expect(page.getByTestId('context-menu')).toBeVisible();
+  await row.dispatchEvent('pointerup', at);
+  await row.dispatchEvent('click', at);
+  await expect(page.getByTestId('context-menu')).toBeVisible();
+  await expect(page.getByTestId('mobile-view-list')).toHaveAttribute('aria-pressed', 'true');
+  await noHorizontalScroll(page, 'меню записи');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('context-menu')).toHaveCount(0);
+
   for (const [path, name] of [
     ['/settings', 'настройки'],
     ['/security', 'безопасность'],

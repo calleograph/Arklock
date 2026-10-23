@@ -39,6 +39,10 @@ const props = defineProps<{
   /** Выбранная запись; null — создание новой. */
   item: EntryItem | null;
   creating: boolean;
+  /** запись-образец: новая запись создаётся её копией */
+  template?: EntryItem | null;
+  /** открыть запись сразу в режиме изменения («Изменить» из меню) */
+  edit?: boolean;
   branchId: string | null;
   vault: VaultView;
   branches: BranchItem[];
@@ -54,8 +58,19 @@ const { t } = useI18n();
 const clone = <T,>(v: T): T => structuredClone(v);
 const ws = useWorkspaceStore();
 
-const editing = ref(props.creating);
-const form = ref<EntryData>(props.item ? clone(normalizeEntry(props.item.data)) : blankEntry());
+const editing = ref(props.creating || props.edit);
+function initialForm(): EntryData {
+  if (props.item) return clone(normalizeEntry(props.item.data));
+  const src = props.template?.data;
+  return src
+    ? {
+        ...clone(normalizeEntry(src)),
+        title: t('ctx.cloneTitle', { title: src.title }),
+        archived: false,
+      }
+    : blankEntry();
+}
+const form = ref<EntryData>(initialForm());
 const tagsText = ref(form.value.tags.join(', '));
 const showPw = ref(false);
 const revealed = ref<Set<number>>(new Set());
@@ -127,15 +142,17 @@ function tabKey(event: KeyboardEvent): void {
     .querySelector<HTMLButtonElement>(`[data-entry-tab="${shownTab.value}"]`)
     ?.focus();
 }
-const branchChoice = ref<string | null>(props.item?.branchId ?? props.branchId);
+const branchChoice = ref<string | null>(
+  props.item?.branchId ?? props.template?.branchId ?? props.branchId,
+);
 
 // Сброс вкладок и состояния только при смене записи или режима. Строковый ключ: массив в геттере
 // считался бы изменённым при каждом обновлении объекта записи (фоновая перезагрузка) и сбрасывал бы вкладку.
 watch(
-  () => `${props.item?.id ?? ''}|${props.creating}`,
+  () => `${props.item?.id ?? ''}|${props.creating}|${props.edit}`,
   () => {
-    editing.value = props.creating;
-    form.value = props.item ? clone(normalizeEntry(props.item.data)) : blankEntry();
+    editing.value = props.creating || props.edit;
+    form.value = initialForm();
     tagsText.value = form.value.tags.join(', ');
     moreOpen.value = hasExtras();
     iconOpen.value = false;
@@ -144,7 +161,7 @@ watch(
     error.value = '';
     tab.value = 'details';
     subTab.value = null;
-    branchChoice.value = props.item?.branchId ?? props.branchId;
+    branchChoice.value = props.item?.branchId ?? props.template?.branchId ?? props.branchId;
     history.value = null;
     files.value = null;
     confirmFile.value = '';
@@ -152,6 +169,14 @@ watch(
     share.value = { passphrase: '', minutes: 60, views: 1, notes: false };
     showGenerator.value = false;
   },
+);
+// Форма — модальное окно: фокус переходит в неё, иначе он остаётся на исчезнувшей кнопке и Escape не работает.
+watch(
+  editing,
+  (on) => {
+    if (on) void nextTick(() => document.getElementById('f-title')?.focus({ preventScroll: true }));
+  },
+  { immediate: true },
 );
 // Обновлённые данные той же записи подставляются в форму, если её не редактируют.
 watch(
@@ -379,6 +404,9 @@ async function save(): Promise<void> {
       .map((x) => x.trim())
       .filter(Boolean);
     form.value.fields = form.value.fields.filter((f) => f.name.trim());
+    // копия с тем же паролем сохраняет его возраст; новый пароль — новый отсчёт
+    if (props.template && form.value.password !== props.template.data.password)
+      delete form.value.passwordChangedAt;
     const saved = await ws.saveEntry(form.value, props.item ?? undefined, branchChoice.value);
     editing.value = false;
     emit('saved', saved);

@@ -67,11 +67,21 @@ function setIssueFilter(type: IssueType | null): void {
   }
   void router.replace({ query });
 }
+// проблемы по записям — метка в строке списка
+const rowIssues = computed(() => {
+  const m = new Map<string, IssueType[]>();
+  for (const i of vi.issues.value) m.set(i.entryId, [...(m.get(i.entryId) ?? []), i.type]);
+  return m;
+});
+const issueText = (id: string) =>
+  (rowIssues.value.get(id) ?? []).map((x) => t(`issue.${x}`)).join(', ');
 const tagFilter = ref('');
 const sort = ref<'title' | 'updated'>('title');
 const selected = ref<Set<string>>(new Set());
 const openId = ref<string | null>(null);
 const creating = ref(false);
+// «Создать копию»: новая запись открывается заполненной данными этой записи
+const cloneOf = ref<EntryItem | null>(null);
 const showSpaces = ref(false);
 async function refreshSpaces(): Promise<void> {
   await ws.loadVaults();
@@ -277,13 +287,39 @@ const opened = computed(
   () => [...ws.entries, ...ws.trash.entries].find((e) => e.id === openId.value) ?? null,
 );
 
-function open(e: EntryItem): void {
+// «Изменить» из меню открывает карточку сразу в режиме изменения
+const editNow = ref<string | null>(null);
+function open(e: EntryItem, edit = false): void {
   creating.value = false;
+  editNow.value = edit ? e.id : null;
   openId.value = e.id;
   showDetails();
 }
-function newEntry(): void {
+// флаг одноразовый: переход к другой записи любым путём его снимает
+watch(openId, (id) => id !== editNow.value && (editNow.value = null));
+// долгое нажатие на телефоне открывает то же меню: iOS не присылает contextmenu
+let pressTimer = 0;
+let pressedLong = false;
+function pressStart(ev: PointerEvent, e: EntryItem): void {
+  if (ev.pointerType !== 'touch') return;
+  pressedLong = false;
+  const { clientX: x, clientY: y } = ev;
+  pressTimer = window.setTimeout(() => {
+    pressedLong = true;
+    ctxMenu.value = { x, y, entry: e };
+  }, 550);
+}
+function pressEnd(): void {
+  clearTimeout(pressTimer);
+}
+function rowClick(e: EntryItem): void {
+  // отпускание пальца после долгого нажатия — не открытие записи
+  if (pressedLong) pressedLong = false;
+  else open(e);
+}
+function newEntry(from: EntryItem | null = null): void {
   openId.value = null;
+  cloneOf.value = from;
   creating.value = true;
   showDetails();
 }
@@ -323,6 +359,9 @@ const entryActions = computed<ActionItem[]>(() => [
   ...(moveTargets.value.length
     ? [{ id: 'move', label: t('ws.moveEntry'), icon: 'sync' as const, testid: 'entry-move' }]
     : []),
+  ...(canWrite.value
+    ? [{ id: 'clone', label: t('ctx.clone'), icon: 'copy' as const, testid: 'entry-clone' }]
+    : []),
   { id: 'trash', label: t('vault.toTrash'), icon: 'trash', danger: true, testid: 'btn-trash' },
 ]);
 // меню записи по правой кнопке: частые действия без открытия карточки
@@ -334,9 +373,26 @@ function openEntryMenu(ev: MouseEvent, e: EntryItem): void {
 const ctxItems = computed<ActionItem[]>(() => {
   const e = ctxMenu.value?.entry;
   if (!e) return [];
-  const edit = e.access !== 'reader' && scope.value !== 'trash';
+  if (scope.value === 'trash')
+    return e.access === 'reader'
+      ? [{ id: 'open', label: t('ctx.open'), icon: 'external', testid: 'ctx-open' }]
+      : [
+          { id: 'open', label: t('ctx.open'), icon: 'external', testid: 'ctx-open' },
+          { id: 'restore', label: t('vault.restore'), icon: 'sync', testid: 'ctx-restore' },
+          {
+            id: 'purge',
+            label: t('vault.purge'),
+            icon: 'trash',
+            danger: true,
+            testid: 'ctx-purge',
+          },
+        ];
+  const edit = e.access !== 'reader';
   return [
     { id: 'open', label: t('ctx.open'), icon: 'external', testid: 'ctx-open' },
+    ...(edit
+      ? [{ id: 'edit', label: t('ctx.edit'), icon: 'edit' as const, testid: 'ctx-edit' }]
+      : []),
     ...(e.data.username
       ? [
           {
@@ -360,15 +416,14 @@ const ctxItems = computed<ActionItem[]>(() => {
     ...(e.data.url
       ? [{ id: 'copy-url', label: t('ctx.copyUrl'), icon: 'copy' as const, testid: 'ctx-copy-url' }]
       : []),
-    ...(scope.value !== 'trash'
-      ? [
-          {
-            id: 'pin',
-            label: e.pinned ? t('ctx.unpin') : t('ctx.pin'),
-            icon: 'star' as const,
-            testid: 'ctx-pin',
-          },
-        ]
+    {
+      id: 'pin',
+      label: e.pinned ? t('ctx.unpin') : t('ctx.pin'),
+      icon: 'star' as const,
+      testid: 'ctx-pin',
+    },
+    ...(canWrite.value
+      ? [{ id: 'clone', label: t('ctx.clone'), icon: 'copy' as const, testid: 'ctx-clone' }]
       : []),
     ...(edit
       ? [
@@ -404,10 +459,14 @@ function onCtx(id: string): void {
   const e = ctxMenu.value?.entry;
   if (!e) return;
   if (id === 'open') open(e);
+  else if (id === 'edit') open(e, true);
   else if (id === 'copy-username') void run(() => copyFromMenu(e, e.data.username, 'username'));
   else if (id === 'copy-password') void run(() => copyFromMenu(e, e.data.password, 'password'));
   else if (id === 'copy-url') void run(() => copyFromMenu(e, e.data.url, 'custom'));
   else if (id === 'pin') void run(() => ws.setPinned(e, !e.pinned));
+  else if (id === 'clone') newEntry(e);
+  else if (id === 'restore') void run(() => ws.restoreEntry(e));
+  else if (id === 'purge') confirmBox(t('vault.confirmPurge')) && void run(() => ws.purgeEntry(e));
   else if (id === 'archive')
     void run(() => ws.saveEntry({ ...e.data, archived: !e.data.archived }, e));
   else if (id === 'trash') void run(() => ws.trashEntry(e));
@@ -415,6 +474,7 @@ function onCtx(id: string): void {
 
 function onEntryAction(id: string): void {
   if (id === 'move') moving.value = true;
+  else if (id === 'clone') newEntry(opened.value);
   else if (id === 'trash') void run(() => ws.trashEntry(opened.value!));
 }
 const vaultActions = computed<ActionItem[]>(() => [
@@ -808,7 +868,7 @@ void router;
             class="btn-primary sm:ml-auto"
             :aria-label="t('vault.add')"
             data-testid="add-entry"
-            @click="newEntry"
+            @click="newEntry()"
           >
             <Icon name="plus" /> <span class="max-sm:hidden">{{ t('vault.add') }}</span>
           </button>
@@ -942,7 +1002,7 @@ void router;
                   "
                   type="button"
                   class="btn-primary"
-                  @click="newEntry"
+                  @click="newEntry()"
                 >
                   <Icon name="plus" /> {{ t('vault.add') }}
                 </button>
@@ -951,7 +1011,7 @@ void router;
             <li
               v-for="(e, i) in list"
               :key="e.id"
-              class="entry-row rise group flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
+              class="entry-row rise group flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors [-webkit-touch-callout:none] hover:bg-slate-50 max-lg:select-none dark:hover:bg-slate-800/50"
               :class="[
                 openId === e.id
                   ? 'bg-brand-50 hover:bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand-500)] dark:hover:bg-brand-50'
@@ -962,8 +1022,12 @@ void router;
               data-testid="entry-row"
               draggable="true"
               @dragstart="dragId = e.id"
-              @click="open(e)"
+              @click="rowClick(e)"
               @contextmenu.prevent="openEntryMenu($event, e)"
+              @pointerdown="pressStart($event, e)"
+              @pointerup="pressEnd"
+              @pointercancel="pressEnd"
+              @pointerleave="pressEnd"
             >
               <input
                 type="checkbox"
@@ -979,7 +1043,7 @@ void router;
                 <button
                   type="button"
                   class="flex w-full min-w-0 items-center gap-1.5 text-left font-medium"
-                  @click.stop="open(e)"
+                  @click.stop="rowClick(e)"
                 >
                   <span class="truncate">{{ e.data.title }}</span>
                   <Icon
@@ -988,10 +1052,24 @@ void router;
                     class="size-3.5 shrink-0 fill-amber-400 text-amber-500"
                     :aria-label="t('vault.favorites')"
                   />
+                  <span
+                    v-if="rowIssues.has(e.id)"
+                    class="size-2 shrink-0 rounded-full"
+                    :class="
+                      rowIssues.get(e.id)!.includes('compromised') ? 'bg-red-500' : 'bg-amber-500'
+                    "
+                    role="img"
+                    :aria-label="issueText(e.id)"
+                    :title="issueText(e.id)"
+                    data-testid="row-issue"
+                  />
                 </button>
                 <div class="truncate text-xs text-slate-500">
-                  {{ e.data.username }}<span v-if="e.data.url"> · {{ e.data.url }}</span
-                  ><span v-if="e.branchId"> · {{ pathOf(e.branchId) }}</span>
+                  {{
+                    [e.data.username, e.data.url, e.branchId && pathOf(e.branchId)]
+                      .filter(Boolean)
+                      .join(' · ')
+                  }}
                 </div>
               </div>
               <span class="badge shrink-0 max-sm:hidden">{{ t(`kind.${e.data.kind}`) }}</span>
@@ -1009,8 +1087,10 @@ void router;
       >
         <EntryPanel
           v-if="opened || creating"
-          :key="(opened?.id ?? 'new') + (creating ? 'c' : '')"
+          :key="(opened?.id ?? 'new') + (creating ? 'c' + (cloneOf?.id ?? '') : '')"
           :item="creating ? null : opened"
+          :template="creating ? cloneOf : null"
+          :edit="!creating && !!opened && editNow === opened.id"
           :creating="creating"
           :branch-id="branchSel"
           :vault="vault"
@@ -1156,6 +1236,15 @@ void router;
           @click="newSubfolder(menuBranch!)"
         >
           <Icon name="folder-plus" /> {{ t('ws.newSubfolder') }}
+        </button>
+        <button
+          v-if="canWrite"
+          type="button"
+          class="btn w-full"
+          data-testid="folder-add-entry"
+          @click="((scope = 'all'), (branchSel = menuBranch!.id), (menuBranch = null), newEntry())"
+        >
+          <Icon name="plus" /> {{ t('ctx.addHere') }}
         </button>
         <button
           type="button"
