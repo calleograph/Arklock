@@ -236,7 +236,7 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
     await readableEntry(vaultId, entryId, user.id);
     await audit(db, `user:${user.id}`, `entry.client.${body.action}`, `entry:${entryId}`, {
       vault: vaultId,
-      field: body.field,
+      field: body.field ?? null,
       clientReported: true,
     });
     return reply.status(204).send();

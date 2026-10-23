@@ -740,3 +740,71 @@ test('themes: all six apply to the whole interface, are saved in the profile and
   await other.reload();
   await expect(other.locator('html')).toHaveAttribute('data-theme', 'forest');
 });
+
+test('the chief administrator sees the organization, edits a card and hands the role to a successor who confirms it', async ({
+  page,
+  browser,
+}) => {
+  const SUCCESSOR = { email: 'successor@example.com', password: 'successor-master-password-1' };
+  await page.goto('/login');
+  await page.getByTestId('email').fill(ADMIN.email);
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.goto('/admin/organization');
+  await expect(page.getByTestId('chief-current')).toContainText(ADMIN.name);
+  await expect(page.getByTestId('structure-vault').first()).toBeVisible();
+
+  // преемник — новый сотрудник: приглашение и активация своим мастер-паролем
+  await tab(page, 'invitations');
+  await page.getByTestId('invite-name').fill('Ольга Преемник');
+  await page.getByTestId('invite-email').fill(SUCCESSOR.email);
+  await page.getByTestId('invite-create').click();
+  const code = (await page.getByTestId('invite-code').innerText()).trim();
+  const successor = await (await browser.newContext()).newPage();
+  await successor.goto('/login');
+  await successor.getByTestId('to-activate').click();
+  await successor.getByTestId('email').fill(SUCCESSOR.email);
+  await successor.getByTestId('activation-code').fill(code);
+  await successor.getByTestId('submit').click();
+  await expect(successor.getByTestId('name')).toHaveValue('Ольга Преемник', { timeout: 30_000 });
+  await successor.getByTestId('password').fill(SUCCESSOR.password);
+  await successor.getByTestId('repeat').fill(SUCCESSOR.password);
+  await successor.getByTestId('submit').click();
+  await successor.getByTestId('recovery-saved').check({ timeout: 90_000 });
+  await successor.getByTestId('recovery-continue').click();
+  await expect(successor.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+
+  // карточка сотрудника: справочные поля задаются вручную для локальной учётной записи
+  await tab(page, 'users');
+  await expect(page.getByTestId('chief-badge')).toHaveCount(1);
+  await page.getByTestId(`profile-open-${SUCCESSOR.email}`).click();
+  await page.getByTestId('profile-edit').click();
+  await page.getByTestId('profile-edit-title').fill('Аналитик');
+  await page.getByTestId('profile-save').click();
+  await expect(page.getByTestId('profile-card')).toContainText('Аналитик');
+
+  // передача роли: предложение подтверждается мастер-паролем главного администратора
+  await tab(page, 'organization');
+  await page.getByTestId('chief-transfer').click();
+  const pick = page.getByTestId('chief-successor');
+  const successorId = await pick
+    .locator('option', { hasText: SUCCESSOR.email })
+    .getAttribute('value');
+  await pick.selectOption(successorId!);
+  await page.getByTestId('chief-password').fill(ADMIN.password);
+  await page.getByTestId('chief-offer-send').click();
+  await expect(page.getByTestId('chief-offer')).toContainText('Ольга Преемник');
+
+  // преемник принимает роль своим мастер-паролем в «Безопасности»
+  await successor.goto('/security');
+  await successor.getByTestId('chief-accept-password').fill(SUCCESSOR.password);
+  await successor.getByTestId('chief-accept').click();
+  await expect(successor.getByTestId('chief-accepted')).toBeVisible();
+  await successor.goto('/admin/organization');
+  await expect(successor.getByTestId('chief-current')).toContainText('Ольга Преемник');
+
+  // сеансы прежнего главного администратора завершены
+  await page.reload();
+  await expect(page.getByTestId('submit')).toBeVisible({ timeout: 30_000 });
+});

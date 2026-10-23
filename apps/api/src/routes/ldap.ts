@@ -29,7 +29,12 @@ import {
   writeLdapProfiles,
   type LdapProfile,
 } from '../auth/ldap-profiles.js';
-import { revokeLdapProfileSessions, syncCirclesFor, syncLdapProfile } from '../auth/ldap-sync.js';
+import {
+  revokeLdapProfileSessions,
+  syncCirclesFor,
+  syncLdapProfile,
+  syncProfileFor,
+} from '../auth/ldap-sync.js';
 export { syncCirclesFor } from '../auth/ldap-sync.js';
 export { LDAP_SETTING_KEY } from '../auth/ldap-profiles.js';
 
@@ -55,6 +60,9 @@ const putSchema = z.object({
   userFilter: z.string().trim().max(500).default(DEFAULT_USER_FILTER),
   emailAttr: z.string().trim().min(1).max(100).default('mail'),
   nameAttr: z.string().trim().min(1).max(100).default('cn'),
+  titleAttr: z.string().trim().max(100).default('title'),
+  departmentAttr: z.string().trim().max(100).default('department'),
+  phoneAttr: z.string().trim().max(100).default('telephoneNumber'),
   groups: z
     .array(z.object({ dn: z.string().trim().min(1).max(500), circleId: uuid }))
     .max(200)
@@ -396,6 +404,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             'The directory configuration changed; start sign-in again',
           );
         await syncCirclesFor(tx, linked.id, current, ident.groups);
+        await syncProfileFor(tx, linked.id, ident);
       });
       if (await isEnrolled(ctx, linked.id)) {
         reply.status(200);

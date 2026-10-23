@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-23. Версия в VERSION и пакетах: **1.23.0**. Состав выпуска описан в CHANGELOG → 1.23.0.
+Последнее обновление: 2026-10-23. Версия в VERSION и пакетах: **1.24.0**. Состав выпуска описан в CHANGELOG → 1.24.0.
 
 ## Назначение и архитектура
 
@@ -33,6 +33,9 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 - Единый словарь терминов RU/EN (проверяется тестом `apps/web/test/i18n.test.ts`), компонент подсказки `InfoHint.vue`, страница `/help`, человеческие сообщения об ошибках (`errorMessage` в `services/helpers.ts`); имя корпоративного сейфа «Organization» показывается локализованным (`vaultLabel`, `spaceLabel`).
 - Публичный адрес задаётся в панели (`system.publicUrl`, `public-url.ts`, `routes/admin-network.ts`, «Настройки → Сеть и доступ»), главнее `APP_PUBLIC_URL`, без перезапуска. Обзор обновлений сравнивает найденную версию с работающей по SemVer (`semverGreater`); версия интерфейса зашита в сборку (`__APP_VERSION__`).
 - Прежний личный сейф: предупреждение только при наличии записей, закрывается насовсем (`users.dismissed_notices`); сотрудник удаляет свой сейф сам с мастер-паролем (`/auth/personal-vault/erase`).
+- Главный администратор (`users.chief`, уникальный частичный индекс; `routes/chief.ts`): назначение полных администраторов, передача роли с подтверждением преемника мастер-паролем, обзор организации `/admin/structure`. Повторное подтверждение — общая `requireReauth` в `auth/reauth.ts`.
+- Карточка сотрудника: `users.title/department/phone/profile_source`, синхронизация из LDAP `syncProfileFor` (`auth/ldap-sync.ts`), правка `PATCH /admin/users/:id/profile`.
+- Журнал: событие `entry.client.open`, поиск в журнале объекта, имена и поиск по сотруднику в `/admin/ledger`, подписи всех действий (`ledgerAction` в `i18n/help.ts`).
 - CLI, токены API, расширение Chromium/Firefox, PWA и адаптивный интерфейс.
 
 ## Размещение и эксплуатация

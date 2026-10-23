@@ -17,6 +17,10 @@ export interface LdapConfig {
   userFilter: string;
   emailAttr: string;
   nameAttr: string;
+  /** Атрибуты карточки сотрудника; пустая строка — не брать из каталога. В прежних настройках их нет — тогда стандартные. */
+  titleAttr?: string;
+  departmentAttr?: string;
+  phoneAttr?: string;
   /** Привязка групп каталога к кругам Arklock. */
   groups: { dn: string; circleId: string }[];
   /** Создавать учётную запись при первом входе пользователя каталога. */
@@ -52,7 +56,16 @@ export interface DirectoryUser {
   groups: string[];
   /** Для Active Directory: учётная запись отключена (бит 2 в userAccountControl). */
   disabled: boolean;
+  /** Справочные поля карточки; пустая строка — в каталоге значения нет. */
+  profile: { title: string; department: string; phone: string };
 }
+
+/** Имена атрибутов карточки (стандартные имена AD и inetOrgPerson, если не заданы). */
+export const profileAttrs = (cfg: LdapConfig) => ({
+  title: cfg.titleAttr ?? 'title',
+  department: cfg.departmentAttr ?? 'department',
+  phone: cfg.phoneAttr ?? 'telephoneNumber',
+});
 
 /** Значение атрибута без учёта регистра имени: каталоги возвращают имена по-разному. */
 const pick = (e: Record<string, unknown>, name: string): unknown => {
@@ -119,9 +132,15 @@ async function findUser(
   username: string,
 ): Promise<DirectoryUser | null> {
   // имена атрибутов в нижнем регистре: каталоги сравнивают их без учёта регистра, а некоторые реализации — только так
-  const attrs = ['dn', cfg.emailAttr, cfg.nameAttr, 'memberOf', 'userAccountControl'].map((a) =>
-    a.toLowerCase(),
-  );
+  const pa = profileAttrs(cfg);
+  const attrs = [
+    'dn',
+    cfg.emailAttr,
+    cfg.nameAttr,
+    'memberOf',
+    'userAccountControl',
+    ...Object.values(pa).filter(Boolean),
+  ].map((a) => a.toLowerCase());
   let res;
   try {
     res = await c.search(cfg.baseDn, {
@@ -147,6 +166,11 @@ async function findUser(
     name: str(pick(e, cfg.nameAttr)),
     groups: list(pick(e, 'memberOf')),
     disabled: (uac & 2) === 2,
+    profile: {
+      title: pa.title ? str(pick(e, pa.title)).trim() : '',
+      department: pa.department ? str(pick(e, pa.department)).trim() : '',
+      phone: pa.phone ? str(pick(e, pa.phone)).trim() : '',
+    },
   };
 }
 

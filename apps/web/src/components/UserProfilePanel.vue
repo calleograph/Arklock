@@ -15,12 +15,19 @@ interface Profile {
     id: string;
     name: string;
     email: string;
+    title: string | null;
+    department: string | null;
+    phone: string | null;
+    profileSource: Record<string, 'ldap'>;
     disabled: boolean;
     role: string;
+    chief?: boolean;
     adminRoleId: string | null;
     authSource: string;
     createdAt: string;
   };
+  mfa: { totp: boolean; passkey: boolean };
+  spaces: { id: string; name: string }[];
   groups: { id: string; name: string; adminRoleId: string | null }[];
   sessionList: { id: string; lastSeenAt: string; ip: string | null; userAgent: string | null }[];
   vaults: { id: string; name: string; role: string; entries: number }[];
@@ -40,6 +47,34 @@ async function load(): Promise<void> {
   }
 }
 onMounted(load);
+
+const FIELDS = ['title', 'department', 'phone'] as const;
+type Field = (typeof FIELDS)[number];
+const editing = ref(false);
+const draft = ref<Record<Field, string>>({ title: '', department: '', phone: '' });
+const synced = (f: string) => p.value?.user.profileSource[f] === 'ldap';
+function startEdit(): void {
+  for (const f of FIELDS) draft.value[f] = p.value?.user[f] ?? '';
+  editing.value = true;
+}
+async function saveCard(): Promise<void> {
+  busy.value = true;
+  error.value = '';
+  try {
+    // поля из каталога не отправляются: их меняет только каталог
+    const body = Object.fromEntries(
+      FIELDS.filter((f) => !synced(f)).map((f) => [f, draft.value[f]]),
+    );
+    await api('PATCH', `/admin/users/${props.userId}/profile`, body);
+    editing.value = false;
+    await load();
+    emit('changed');
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
 async function endSessions(): Promise<void> {
   busy.value = true;
   try {
@@ -73,7 +108,20 @@ async function endSessions(): Promise<void> {
             <span v-if="roleName(p.user.adminRoleId)" class="badge-brand">{{
               roleName(p.user.adminRoleId)
             }}</span>
+            <span v-if="p.user.chief" class="badge-brand">{{ t('chief.title') }}</span>
             <span class="badge">{{ p.user.authSource.toUpperCase() }}</span>
+            <span
+              class="badge"
+              :class="p.mfa.totp || p.mfa.passkey ? 'text-emerald-700' : 'text-amber-700'"
+              data-testid="profile-mfa"
+              >{{
+                p.mfa.passkey
+                  ? t('profile.mfaPasskey')
+                  : p.mfa.totp
+                    ? t('profile.mfaTotp')
+                    : t('profile.mfaNone')
+              }}</span
+            >
           </div>
         </div>
         <div class="flex shrink-0 gap-2">
@@ -90,7 +138,59 @@ async function endSessions(): Promise<void> {
         </div>
       </header>
 
-      <div class="grid gap-4 lg:grid-cols-3">
+      <form
+        class="grid gap-x-4 gap-y-2 sm:grid-cols-3"
+        data-testid="profile-card"
+        @submit.prevent="saveCard"
+      >
+        <div v-for="f in FIELDS" :key="f">
+          <div class="field-label">
+            {{ t(`profile.field.${f}`) }}
+            <span v-if="synced(f)" class="font-normal text-slate-500"
+              >· {{ t('profile.fromDirectory') }}</span
+            >
+          </div>
+          <input
+            v-if="editing && !synced(f)"
+            v-model="draft[f]"
+            class="input"
+            :maxlength="f === 'phone' ? 50 : 200"
+            :data-testid="`profile-edit-${f}`"
+          />
+          <p v-else class="break-words">{{ p.user[f] || '—' }}</p>
+        </div>
+        <div class="flex gap-2 sm:col-span-3">
+          <template v-if="editing">
+            <button type="submit" class="btn-primary" :disabled="busy" data-testid="profile-save">
+              {{ t('common.save') }}
+            </button>
+            <button type="button" class="btn" @click="editing = false">
+              {{ t('common.cancel') }}
+            </button>
+          </template>
+          <button
+            v-else-if="FIELDS.some((f) => !synced(f))"
+            type="button"
+            class="btn"
+            data-testid="profile-edit"
+            @click="startEdit"
+          >
+            {{ t('profile.edit') }}
+          </button>
+          <p v-if="FIELDS.some(synced)" class="self-center text-xs text-slate-500">
+            {{ t('profile.syncedHint') }}
+          </p>
+        </div>
+      </form>
+
+      <div class="grid gap-4 lg:grid-cols-4">
+        <div>
+          <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.spaces') }}</h3>
+          <ul v-if="p.spaces.length" class="flex flex-wrap gap-1" data-testid="profile-spaces">
+            <li v-for="s in p.spaces" :key="s.id" class="badge">{{ s.name }}</li>
+          </ul>
+          <p v-else class="text-slate-500">{{ t('profile.noSpaces') }}</p>
+        </div>
         <div>
           <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.groups') }}</h3>
           <ul v-if="p.groups.length" class="flex flex-wrap gap-1" data-testid="profile-groups">

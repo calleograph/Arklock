@@ -206,6 +206,10 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('f-save').click();
   await expect(page.getByTestId('view-title')).toHaveText('Почта');
   await page.getByTestId('tab-journal').click();
+  // открытие карточки — отдельное событие журнала, отмеченное как сообщённое клиентом
+  await expect(
+    page.getByTestId('entry-journal-row').filter({ hasText: 'Card opened' }).first(),
+  ).toBeVisible();
   await page.getByTestId('tab-history').click();
   await expect(page.getByTestId('history-row')).toHaveCount(1);
   await page.getByTestId('btn-revert').click();

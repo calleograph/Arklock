@@ -3,6 +3,7 @@ import { reauthRequest, updateAction } from '@arklock/contracts';
 import type { UpdatesOverview } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
+import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { AppError, parse } from '../errors.js';
@@ -20,14 +21,6 @@ export const registerAdminRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   app.addHook('preHandler', async (req: FastifyRequest) => {
     await adminGate(ctx, req);
   });
-
-  function requireReauth(req: FastifyRequest): void {
-    const { session } = authOf(req);
-    const token = req.headers['x-reauth-token'];
-    if (!ctx.reauth.check(typeof token === 'string' ? token : undefined, session.id)) {
-      throw new AppError(403, 'reauth_required', 'Confirm your master password to continue');
-    }
-  }
 
   /** Получение короткоживущего токена повторного подтверждения. */
   app.post('/admin/reauth', async (req) => {
@@ -77,7 +70,7 @@ export const registerAdminRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     // Проверка и штатное обновление до опубликованной версии (сверка по release.json, копия и автоматический откат
     // при сбое) выполняются по административному сеансу. Откат может вернуть уязвимую версию и восстановить старые
     // данные — для него нужно повышенное подтверждение.
-    if (body.action === 'rollback') requireReauth(req);
+    if (body.action === 'rollback') requireReauth(ctx, req);
     try {
       const requestId = await ctx.updater.submit({
         action: body.action,

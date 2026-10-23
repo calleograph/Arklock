@@ -180,7 +180,14 @@ it('journal distinguishes client reports and refuses unbounded metadata', async 
   expect(
     (await member.req('POST', `${url}/events`, { action: 'copy', field: 'password' })).statusCode,
   ).toBe(204);
+  // открытие карточки — отдельное событие, без поля
+  expect((await member.req('POST', `${url}/events`, { action: 'open' })).statusCode).toBe(204);
   const journal = (await owner.req('GET', `${url}/journal`)).json();
+  expect(journal).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ action: 'entry.client.open', clientReported: true }),
+    ]),
+  );
   expect(journal).toEqual(
     expect.arrayContaining([
       expect.objectContaining({

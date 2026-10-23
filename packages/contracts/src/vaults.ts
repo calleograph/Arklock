@@ -217,8 +217,9 @@ export const objectPasswordPolicy = z
 export const objectPolicyPatch = z.object({ policy: objectPasswordPolicy.nullable() }).strict();
 export const entryClientEvent = z
   .object({
-    action: z.enum(['reveal', 'copy']),
-    field: z.enum(['password', 'username', 'totp', 'custom']),
+    action: z.enum(['reveal', 'copy', 'open']),
+    /** Для открытия карточки поле не указывается. */
+    field: z.enum(['password', 'username', 'totp', 'custom']).optional(),
   })
   .strict();
 

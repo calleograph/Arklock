@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -61,6 +62,14 @@ export const users = pgTable(
     wrappedSignPrivateKey: text('wrapped_sign_private_key').notNull(),
     /** Административная роль (делегирование разделов панели) вместо полного доступа. */
     adminRoleId: uuid('admin_role_id'),
+    /** Главный администратор: назначает и снимает полных администраторов; роль только передаётся, не теряется. */
+    chief: boolean('chief').notNull().default(false),
+    /** Карточка сотрудника. Сведения справочные: доступ по ним не выдаётся. */
+    title: text('title'),
+    department: text('department'),
+    phone: text('phone'),
+    /** Откуда поле карточки: ldap — из каталога (в панели не меняется), иначе задано вручную. */
+    profileSource: jsonb('profile_source').$type<Record<string, 'ldap'>>().notNull().default({}),
     /** Цветовая тема интерфейса (личная настройка; к шифруемым данным не относится). */
     theme: text('theme'),
     /** Закрытые сотрудником информационные уведомления (идентификаторы), чтобы они не появлялись снова. */
@@ -78,7 +87,13 @@ export const users = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('users_email_idx').on(t.email)],
+  (t) => [
+    uniqueIndex('users_email_idx').on(t.email),
+    // главный администратор один: передача роли снимает отметку с прежнего в той же транзакции
+    uniqueIndex('users_single_chief_idx')
+      .on(t.chief)
+      .where(sql`${t.chief}`),
+  ],
 );
 
 /** Журнал привязки открытых ключей к идентичности (хэш-цепочка). */

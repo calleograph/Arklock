@@ -79,6 +79,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
       - name: Release notes from CHANGELOG
         run: |
           ver="${{ needs.verify-tag.outputs.version }}"
@@ -92,6 +95,7 @@ jobs:
             echo '```'
             echo
             echo "Образ: \`${IMAGE}:$ver\` (digest \`${{ needs.image.outputs.digest }}\`). Контрольные суммы — в \`SHA256SUMS\`."
+            echo "Состав зависимостей (SBOM): \`arklock-$ver-sbom.cdx.json\` (CycloneDX) и \`arklock-$ver-sbom.spdx.json\` (SPDX)."
             echo "Криптография Arklock не проходила независимый аудит; материалы для проверки — docs/security/audit-package.md."
           } >> notes.md
       - name: Release assets
@@ -102,7 +106,11 @@ jobs:
           jq -n --arg v "$ver" --arg c "${GITHUB_SHA}" --arg i "${IMAGE}:$ver" --arg d "${{ needs.image.outputs.digest }}" \
             '{version:$v, commit:$c, image:$i, digest:$d}' > dist/release.json
           git archive --format=tar.gz --prefix="arklock-$ver/" -o "dist/arklock-$ver-source.tar.gz" "$GITHUB_SHA"
-          (cd dist && sha256sum install.sh release.json "arklock-$ver-source.tar.gz" > SHA256SUMS)
+          # состав выпуска (SBOM) по lockfile: только зависимости, которые попадают в продукт
+          npm sbom --omit dev --package-lock-only --sbom-format cyclonedx > "dist/arklock-$ver-sbom.cdx.json"
+          npm sbom --omit dev --package-lock-only --sbom-format spdx > "dist/arklock-$ver-sbom.spdx.json"
+          jq -e '.components | length > 50' "dist/arklock-$ver-sbom.cdx.json" > /dev/null
+          (cd dist && sha256sum install.sh release.json "arklock-$ver-source.tar.gz" "arklock-$ver-sbom.cdx.json" "arklock-$ver-sbom.spdx.json" > SHA256SUMS)
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

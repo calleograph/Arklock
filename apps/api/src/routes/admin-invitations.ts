@@ -8,6 +8,7 @@ import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { publicUrlOf } from '../public-url.js';
 import { circles, invitations, users } from '../db/schema.js';
+import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { sendMail } from '../mail/send.js';
 import { renderMail } from '../mail/templates.js';
@@ -63,6 +64,7 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
   app.post('/admin/invitations', async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(createSchema, req.body);
+    if (body.role === 'admin' && !user.chief) throw chiefRequired();
     if (body.sendEmail && !email.safeParse(body.email).success)
       throw new AppError(400, 'email_required', 'Email delivery requires an email address');
     const [exists] = await db

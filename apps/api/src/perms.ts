@@ -127,6 +127,8 @@ export const ADMIN_PATHS: [RegExp, AdminPerm][] = [
   [/^\/api\/v1\/admin\/backups(\/|$)/, 'admin.backups'],
   [/^\/api\/v1\/admin\/(updates|reauth)(\/|$)/, 'admin.updates'],
   [/^\/api\/v1\/admin\/network(\/|$)/, 'admin.settings'],
+  // сами действия разрешены только главному администратору: проверка в обработчиках
+  [/^\/api\/v1\/admin\/(chief|structure)(\/|$)/, 'admin.users'],
   [/^\/api\/v1\/admin\/(ldap|sso|saml|smtp|syslog|webhooks)(\/|$)/, 'admin.integrations'],
   [/^\/api\/v1\/admin\/invitations(\/|$)/, 'admin.invitations'],
 ];

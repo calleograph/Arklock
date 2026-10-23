@@ -4,7 +4,7 @@ import { circleMembers, circles, sessions, settings, users } from '../db/schema.
 import { audit } from '../audit.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 import { notifyUsers } from '../notifications.js';
-import { circlesFor, ldapLookup, type LdapConfig } from './ldap.js';
+import { circlesFor, ldapLookup, type DirectoryUser, type LdapConfig } from './ldap.js';
 import {
   ldapBindSecret,
   ldapExternalId,
@@ -12,6 +12,35 @@ import {
   readLdapProfiles,
   type LdapProfile,
 } from './ldap-profiles.js';
+
+/**
+ * Справочные поля карточки (ФИО, должность, подразделение, телефон) из каталога. Пустое значение в каталоге
+ * не стирает поле; пришедшее из каталога поле помечается и в панели не меняется. Доступ по этим полям не выдаётся.
+ */
+export async function syncProfileFor(
+  db: Db,
+  userId: string,
+  found: Pick<DirectoryUser, 'name' | 'profile'>,
+): Promise<void> {
+  const [u] = await db
+    .select({ source: users.profileSource })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!u) return;
+  const values = { displayName: found.name.trim(), ...found.profile };
+  const set: Partial<typeof users.$inferInsert> = {};
+  const source = { ...u.source };
+  for (const [k, v] of Object.entries(values) as [keyof typeof values, string][])
+    if (v) {
+      set[k] = v;
+      source[k] = 'ldap';
+    }
+  if (Object.keys(set).length)
+    await db
+      .update(users)
+      .set({ ...set, profileSource: source })
+      .where(eq(users.id, userId));
+}
 
 export async function syncCirclesFor(
   db: Db,
@@ -95,6 +124,7 @@ export async function syncLdapProfile(
           }
         } else {
           await syncCirclesFor(tx, user.id, current, found.groups);
+          await syncProfileFor(tx, user.id, found);
           updated++;
         }
       });

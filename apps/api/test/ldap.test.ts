@@ -24,6 +24,9 @@ interface Person {
   cn: string;
   memberOf: string[];
   uac?: string;
+  title?: string;
+  department?: string;
+  phone?: string;
 }
 const directory: Person[] = [
   {
@@ -33,6 +36,9 @@ const directory: Person[] = [
     mail: 'alice@example.com',
     cn: 'Alice A',
     memberOf: [DEVS],
+    title: 'Lead engineer',
+    department: 'Research',
+    phone: '+1 202 555 0147',
   },
   {
     dn: `uid=bob,ou=people,${BASE}`,
@@ -131,6 +137,9 @@ function startDirectory(): Promise<void> {
           memberof: p.memberOf,
           userPrincipalName: `${p.uid}@example.com`,
           ...(p.uac ? { useraccountcontrol: p.uac } : {}),
+          ...(p.title ? { title: p.title } : {}),
+          ...(p.department ? { department: p.department } : {}),
+          ...(p.phone ? { telephoneNumber: p.phone } : {}),
         };
         if (req.filter.matches(attrs)) {
           res.send({ dn: p.dn, attributes: attrs });
@@ -367,6 +376,45 @@ describe('sign-in through the directory', () => {
     expect(viaMaster.json().error.code).toBe('external_login_required');
     // чужой мастер-пароль по-прежнему даёт тот же отказ, что и раньше (без раскрытия)
     expect((await alice.loginRaw('some-other-password-123')).statusCode).toBe(401);
+  });
+
+  it('the employee card follows the directory: empty values do not wipe, synced fields are read-only', async () => {
+    const row = async () =>
+      (await database.db.select().from(users).where(eq(users.id, alice.userId)))[0]!;
+    expect(await row()).toMatchObject({
+      title: 'Lead engineer',
+      department: 'Research',
+      phone: '+1 202 555 0147',
+      profileSource: { displayName: 'ldap', title: 'ldap', department: 'ldap', phone: 'ldap' },
+    });
+    // атрибут пропал в каталоге — значение в карточке остаётся
+    const person = directory[0]!;
+    const saved = person.title;
+    person.title = undefined;
+    person.department = 'Platform';
+    expect((await ldapLogin('alice', 'alice-ldap-pass')).statusCode).toBe(200);
+    expect(await row()).toMatchObject({ title: 'Lead engineer', department: 'Platform' });
+    person.title = saved;
+    person.department = 'Research';
+    // поле из каталога в панели не меняется; не пришедшее из каталога — меняется
+    const refused = await admin.req('PATCH', `/admin/users/${alice.userId}/profile`, {
+      title: 'Manual',
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toMatchObject({
+      code: 'synced_field',
+      details: { fields: ['title'] },
+    });
+    const local = await admin.req('PATCH', `/admin/users/${admin.userId}/profile`, {
+      title: 'CISO',
+      phone: '',
+    });
+    expect(local.statusCode).toBe(200);
+    const card = (await admin.req('GET', `/admin/users/${alice.userId}/profile`)).json();
+    expect(card.user).toMatchObject({ title: 'Lead engineer', authSource: 'ldap' });
+    expect(card.mfa).toEqual({ totp: false, passkey: false });
+    // справочное поле «подразделение» не открывает пространства и сейфы
+    expect(card.spaces.map((s: { name: string }) => s.name)).toEqual(['Organization']);
   });
 
   it('an existing local account with the same e-mail is never taken over', async () => {

@@ -21,6 +21,7 @@ import {
   vaults,
   vaultCircles,
 } from '../db/schema.js';
+import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 
@@ -102,6 +103,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       name: u.displayName,
       email: u.email,
       role: u.role,
+      chief: u.chief,
       adminRoleId: u.adminRoleId,
       disabled: !!u.disabledAt,
       authSource: u.authSource,
@@ -137,6 +139,12 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     }
     const demoting = body.role === 'member' && target.role === 'admin';
     const disabling = body.disabled === true && !target.disabledAt;
+    // полных администраторов назначает, снимает и блокирует только главный; сам главный сначала передаёт роль
+    const promoting = body.role === 'admin' && target.role !== 'admin';
+    if (target.chief && (demoting || disabling))
+      throw new AppError(409, 'chief_admin', 'Transfer the chief administrator role first');
+    if ((promoting || ((demoting || disabling) && target.role === 'admin')) && !user.chief)
+      throw chiefRequired();
     if ((demoting || disabling) && target.role === 'admin') {
       const [{ n } = { n: 0 }] = await db
         .select({ n: count() })
@@ -521,6 +529,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       }),
       req.query,
     );
+    const like = q.q ? '%' + q.q.replace(/[%_\\]/g, '\\$&') + '%' : '';
     const conds = [
       q.action
         ? sql`${ledger.action} like ${q.action.replace(/[%_\\]/g, '\\$&') + '%'}`
@@ -529,8 +538,9 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       q.from ? sql`${ledger.at} >= ${q.from}` : undefined,
       q.to ? sql`${ledger.at} <= ${q.to}` : undefined,
       q.before ? sql`${ledger.id} < ${q.before}` : undefined,
+      // поиск и по сотруднику: имя или почта автора и затронутой учётной записи
       q.q
-        ? sql`(${ledger.action} ilike ${'%' + q.q.replace(/[%_\\]/g, '\\$&') + '%'} or ${ledger.target} ilike ${'%' + q.q.replace(/[%_\\]/g, '\\$&') + '%'})`
+        ? sql`(${ledger.action} ilike ${like} or ${ledger.target} ilike ${like} or ${ledger.actor} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}) or ${ledger.target} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}))`
         : undefined,
     ].filter((c) => c !== undefined);
     const rows = await db
@@ -539,12 +549,32 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       .where(conds.length ? and(...conds) : undefined)
       .orderBy(sql`${ledger.id} desc`)
       .limit(q.limit);
+    const ids = [
+      ...new Set(
+        rows
+          .flatMap((r) => [r.actor, r.target ?? ''])
+          .filter((x) => /^user:[0-9a-f-]{36}$/.test(x))
+          .map((x) => x.slice(5)),
+      ),
+    ];
+    const people = ids.length
+      ? await db
+          .select({ id: users.id, name: users.displayName, email: users.email })
+          .from(users)
+          .where(inArray(users.id, ids))
+      : [];
+    const nameOf = (ref: string | null) => {
+      const p = ref?.startsWith('user:') ? people.find((x) => x.id === ref.slice(5)) : undefined;
+      return p ? `${p.name} <${p.email}>` : null;
+    };
     const items = rows.map((r) => ({
       id: r.id,
       at: r.at.toISOString(),
       actor: r.actor,
+      actorName: nameOf(r.actor),
       action: r.action,
       target: r.target,
+      targetName: nameOf(r.target),
       detail: r.detail,
     }));
     if (q.format === 'csv') {
@@ -553,9 +583,18 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           .replace(/"/g, '""')
           .replace(/^([=+\-@])/, "'$1")}"`;
       const csv = [
-        'id,at,actor,action,target,detail',
+        'id,at,actor,actor_name,action,target,target_name,detail',
         ...items.map((i) =>
-          [i.id, i.at, i.actor, i.action, i.target, JSON.stringify(i.detail ?? '')]
+          [
+            i.id,
+            i.at,
+            i.actor,
+            i.actorName,
+            i.action,
+            i.target,
+            i.targetName,
+            JSON.stringify(i.detail ?? ''),
+          ]
             .map(esc)
             .join(','),
         ),

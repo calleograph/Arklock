@@ -64,6 +64,13 @@
       "when": 1792745815134,
       "tag": "0008_soft_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792748732155,
+      "tag": "0009_chief_and_profile",
+      "breakpoints": true
     }
   ]
 }

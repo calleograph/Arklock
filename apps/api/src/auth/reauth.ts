@@ -1,4 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
+import type { FastifyRequest } from 'fastify';
+import type { AppContext } from '../context.js';
+import { AppError } from '../errors.js';
+import { authOf } from './session.js';
 
 /**
  * Повышенное подтверждение (step-up) для разрушительных операций: откат версии, восстановление и удаление копий,
@@ -32,4 +36,11 @@ export class ReauthStore {
   private sweep(now: number): void {
     for (const [k, v] of this.tokens) if (v.expiresAt <= now) this.tokens.delete(k);
   }
+}
+
+/** Отказ, если в этом сеансе нет действующего подтверждения мастер-паролем (заголовок X-Reauth-Token). */
+export function requireReauth(ctx: AppContext, req: FastifyRequest): void {
+  const token = req.headers['x-reauth-token'];
+  if (!ctx.reauth.check(typeof token === 'string' ? token : undefined, authOf(req).session.id))
+    throw new AppError(403, 'reauth_required', 'Confirm your master password to continue');
 }

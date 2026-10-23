@@ -213,6 +213,8 @@ watch(shownTab, () => void nextTick(placeInk));
 onMounted(() => {
   void nextTick(placeInk);
   window.addEventListener('resize', placeInk);
+  // карточка монтируется заново для каждой записи: одно открытие — одна отметка в журнале
+  if (props.item && !props.creating) void reportEvent('open');
 });
 onBeforeUnmount(() => window.removeEventListener('resize', placeInk));
 
@@ -244,8 +246,8 @@ async function copy(label: string, value: string): Promise<void> {
 }
 
 async function reportEvent(
-  action: 'copy' | 'reveal',
-  field: 'password' | 'username' | 'totp' | 'custom',
+  action: 'copy' | 'reveal' | 'open',
+  field?: 'password' | 'username' | 'totp' | 'custom',
   item = props.item,
 ): Promise<void> {
   if (!item) return;
@@ -255,7 +257,8 @@ async function reportEvent(
       field,
     });
   } catch {
-    error.value = t('entryPanel.eventFailed');
+    // неудачная отметка об открытии не мешает работе; о показе и копировании секрета — сообщаем
+    if (action !== 'open') error.value = t('entryPanel.eventFailed');
   }
 }
 function toggleReveal(index: number): void {

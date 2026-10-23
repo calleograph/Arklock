@@ -70,6 +70,8 @@ export async function insertAccount(
     authSource: 'local' | 'ldap' | 'oidc' | 'saml';
     externalId: string | null;
     createCorporate?: boolean;
+    /** Первая учётная запись установки — главный администратор. */
+    chief?: boolean;
   },
 ): Promise<void> {
   const authSalt = randomB64url(16);
@@ -79,6 +81,7 @@ export async function insertAccount(
     email: body.email,
     displayName: body.displayName,
     role: opts.role,
+    chief: opts.chief ?? false,
     authSource: opts.authSource,
     externalId: opts.externalId,
     kdf: body.kdf,
@@ -157,6 +160,7 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     displayName: u.displayName,
     role: u.role,
     delegated: u.role !== 'admin' && (await adminPermsOf(ctx, u)).size > 0,
+    chief: u.chief,
     theme: u.theme,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
@@ -171,7 +175,7 @@ const ipOf = (req: FastifyRequest) => req.ip ?? null;
 const DUMMY_SALT = 'AAAAAAAAAAAAAAAAAAAAAA';
 const DUMMY_HASH = hashProof(DUMMY_SALT, 'dummy');
 
-function throttle(ctx: AppContext, req: FastifyRequest, email: string): void {
+export function throttle(ctx: AppContext, req: FastifyRequest, email: string): void {
   const wait = Math.max(
     ctx.attempts.byEmail.retryAfter(email),
     ctx.attempts.byIp.retryAfter(ipOf(req) ?? 'unknown'),
@@ -183,7 +187,7 @@ function throttle(ctx: AppContext, req: FastifyRequest, email: string): void {
   }
 }
 
-function recordFailure(ctx: AppContext, req: FastifyRequest, email: string): void {
+export function recordFailure(ctx: AppContext, req: FastifyRequest, email: string): void {
   ctx.attempts.byEmail.fail(email);
   ctx.attempts.byIp.fail(ipOf(req) ?? 'unknown');
 }
@@ -421,6 +425,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         invite?.displayName ? { ...body, displayName: invite.displayName } : body,
         {
           role: n === 0 ? 'admin' : (invite?.role ?? 'member'),
+          chief: n === 0,
           authSource: 'local',
           externalId: null,
           createCorporate: n === 0 && !(await personalLockersAllowed(tx, body.userId)),

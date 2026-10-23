@@ -4,6 +4,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
+import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { AppError, notFound, parse } from '../errors.js';
@@ -131,14 +132,6 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
     await adminGate(ctx, req);
   });
 
-  function requireReauth(req: FastifyRequest): void {
-    const { session } = authOf(req);
-    const token = req.headers['x-reauth-token'];
-    if (!ctx.reauth.check(typeof token === 'string' ? token : undefined, session.id)) {
-      throw new AppError(403, 'reauth_required', 'Confirm your master password to continue');
-    }
-  }
-
   async function helperAlive(): Promise<boolean> {
     if (!ctx.updater.configured) return false;
     const o = await ctx.updater.overview({ version: '', commit: '', builtAt: '', channel: '' });
@@ -177,9 +170,9 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
     const { user } = authOf(req);
     const body = parse(backupAction, req.body);
     // расписание копий ничего не удаляет и не выдаёт наружу — подтверждения не требует
-    if (body.action === 'delete' || body.action === 'export') requireReauth(req);
+    if (body.action === 'delete' || body.action === 'export') requireReauth(ctx, req);
     if (body.action === 'restore') {
-      requireReauth(req);
+      requireReauth(ctx, req);
       if (body.confirm !== body.file)
         throw new AppError(400, 'confirmation_mismatch', 'Type the backup name to confirm');
     }
@@ -216,7 +209,7 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   /** Настройка: секреты уходят помощнику в файле с правами 600 и в базе не хранятся; нужен повторный ввод пароля. */
   app.put('/admin/backups/offsite', async (req, reply) => {
     const { user } = authOf(req);
-    requireReauth(req);
+    requireReauth(ctx, req);
     const b = parse(offsiteConfig, req.body);
     const v: Record<string, string> =
       b.type === 's3'
@@ -270,7 +263,7 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
     const { user } = authOf(req);
     const body = parse(offsiteAction, req.body);
     if (body.action === 'clear' || body.action === 'delete' || body.action === 'pull')
-      requireReauth(req);
+      requireReauth(ctx, req);
     const requestId = await submit(req, {
       action: `offsite_${body.action}`,
       file: 'file' in body ? body.file : undefined,
@@ -288,7 +281,7 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   /** Скачивание зашифрованной копии, подготовленной помощником (после `export`, действует 10 минут). */
   app.get('/admin/backups/:name/download', async (req, reply) => {
     const { user } = authOf(req);
-    requireReauth(req);
+    requireReauth(ctx, req);
     const { name } = parse(z.object({ name: backupName }), req.params);
     const f = await ctx.updater.exportedBackup(name);
     if (!f) throw notFound();

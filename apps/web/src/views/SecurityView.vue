@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth';
 import { errorMessage, when } from '../services/helpers';
 import MfaSettings from '../components/MfaSettings.vue';
 import TokensSettings from '../components/TokensSettings.vue';
+import ChiefOffer from '../components/ChiefOffer.vue';
 
 const { t } = useI18n();
 const auth = useAuthStore();
@@ -69,6 +70,7 @@ async function submit(): Promise<void> {
 <template>
   <section class="space-y-8">
     <h1 class="text-xl font-semibold">{{ t('security.title') }}</h1>
+    <ChiefOffer />
 
     <div>
       <div class="mb-2 flex items-center justify-between">

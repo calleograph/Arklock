@@ -18,13 +18,17 @@ import {
   pinDevices,
   sessions,
   spaceMembers,
+  spaces,
   users,
   vaultKeys,
   vaultMembers,
   vaults,
 } from '../db/schema.js';
+import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { notifyUsers } from '../notifications.js';
+import { hasPasskey, hasTotp } from '../auth/mfa.js';
+import { spaceAccess } from '../spaces.js';
 
 /** Корпоративные сейфы сотрудника: роль, число живых записей и другие действующие владельцы. */
 async function heldVaults(db: Db, userId: string) {
@@ -122,17 +126,27 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
           ),
         ),
     ]);
+    const memberOf: { id: string; name: string }[] = [];
+    for (const s of await db.select().from(spaces))
+      if ((await spaceAccess(db, s.id, id)).member) memberOf.push({ id: s.id, name: s.name });
     return {
       user: {
         id,
         name: target.displayName,
         email: target.email,
+        title: target.title,
+        department: target.department,
+        phone: target.phone,
+        profileSource: target.profileSource,
         disabled: !!target.disabledAt,
         role: target.role,
+        chief: target.chief,
         adminRoleId: target.adminRoleId,
         authSource: target.authSource,
         createdAt: target.createdAt.toISOString(),
       },
+      mfa: { totp: await hasTotp(ctx, id), passkey: await hasPasskey(ctx, id) },
+      spaces: memberOf,
       groups,
       sessionList: sessionList.map((x) => ({
         ...x,
@@ -148,6 +162,47 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
   };
   app.get('/admin/users/:id/offboarding', profile);
   app.get('/admin/users/:id/profile', profile);
+
+  /** Справочные поля карточки. Поля, пришедшие из каталога, меняются только в каталоге. */
+  app.patch('/admin/users/:id/profile', async (req) => {
+    const { user } = authOf(req);
+    const { id } = parse(idParam, req.params);
+    const text = z.string().trim().max(200);
+    const body = parse(
+      z
+        .object({
+          displayName: text.min(1).optional(),
+          title: text.nullable().optional(),
+          department: text.nullable().optional(),
+          phone: text.max(50).nullable().optional(),
+        })
+        .strict(),
+      req.body,
+    );
+    const [target] = await db.select().from(users).where(eq(users.id, id));
+    if (!target) throw notFound();
+    if (user.role !== 'admin' && target.role === 'admin') throw forbidden();
+    const synced = Object.keys(body).filter((k) => target.profileSource[k] === 'ldap');
+    if (synced.length)
+      throw new AppError(409, 'synced_field', 'These fields come from the directory', {
+        fields: synced,
+      });
+    const blank = (v: string | null | undefined) => (v === undefined ? undefined : v || null);
+    await db
+      .update(users)
+      .set({
+        ...(body.displayName ? { displayName: body.displayName } : {}),
+        ...(body.title !== undefined ? { title: blank(body.title) } : {}),
+        ...(body.department !== undefined ? { department: blank(body.department) } : {}),
+        ...(body.phone !== undefined ? { phone: blank(body.phone) } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id));
+    await audit(db, `user:${user.id}`, 'admin.user.profile', `user:${id}`, {
+      fields: Object.keys(body).join(','),
+    });
+    return { id };
+  });
 
   app.post('/admin/users/:id/offboard', async (req) => {
     const { user } = authOf(req);
@@ -170,6 +225,9 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     // выдача владения — решение полного администратора: делегат не должен получать им доступ к сейфам
     if (user.role !== 'admin' && (target.role === 'admin' || body.transfers.length))
       throw forbidden();
+    if (target.chief)
+      throw new AppError(409, 'chief_admin', 'Transfer the chief administrator role first');
+    if (target.role === 'admin' && !user.chief) throw chiefRequired();
     if (target.role === 'admin') {
       const [{ n } = { n: 0 }] = await db
         .select({ n: count() })

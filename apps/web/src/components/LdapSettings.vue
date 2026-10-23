@@ -86,6 +86,9 @@ interface Form {
   userFilter: string;
   emailAttr: string;
   nameAttr: string;
+  titleAttr: string;
+  departmentAttr: string;
+  phoneAttr: string;
   autoProvision: boolean;
   groups: { dn: string; circleId: string }[];
 }
@@ -105,6 +108,9 @@ const blankForm = (): Form => ({
     '(&(objectClass=person)(|(uid={u})(mail={u})(sAMAccountName={u})(userPrincipalName={u})))',
   emailAttr: 'mail',
   nameAttr: 'cn',
+  titleAttr: 'title',
+  departmentAttr: 'department',
+  phoneAttr: 'telephoneNumber',
   autoProvision: true,
   groups: [],
 });
@@ -397,6 +403,18 @@ const browse = () =>
           >{{ t('ldap.nameAttr') }}<input v-model="form.nameAttr" class="input"
         /></label>
       </div>
+      <fieldset class="space-y-1">
+        <legend class="text-sm">{{ t('ldap.cardAttrs') }}</legend>
+        <div class="flex flex-wrap gap-3">
+          <label
+            v-for="k in ['titleAttr', 'departmentAttr', 'phoneAttr'] as const"
+            :key="k"
+            class="flex-1"
+            >{{ t(`ldap.${k}`) }}<input v-model="form[k]" class="input" :data-testid="`ldap-${k}`"
+          /></label>
+        </div>
+        <p class="text-xs text-slate-500">{{ t('ldap.cardAttrsHint') }}</p>
+      </fieldset>
       <label class="flex items-center gap-2"
         ><input v-model="form.autoProvision" type="checkbox" /> {{ t('ldap.autoProvision') }}</label
       >

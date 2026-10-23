@@ -18,6 +18,7 @@ import InfoHint from '../components/InfoHint.vue';
 import OffboardingPanel from '../components/OffboardingPanel.vue';
 import UserProfilePanel from '../components/UserProfilePanel.vue';
 import NetworkSettings from '../components/NetworkSettings.vue';
+import OrganizationPanel from '../components/OrganizationPanel.vue';
 import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
@@ -38,6 +39,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
 ];
 const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
+  organization: 'shield',
   users: 'user',
   circles: 'users',
   roles: 'shield',
@@ -62,7 +64,7 @@ const TAB_ICON: Record<string, IconName> = {
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
@@ -90,6 +92,7 @@ type Tab =
   | 'roles'
   | 'saml'
   | 'updates'
+  | 'organization'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -105,6 +108,7 @@ const SYS_TABS: SysTab[] = [
 /** Полномочие, необходимое для раздела: делегированный администратор видит только разрешённые разделы. */
 const TAB_PERM: Record<Tab, string> = {
   users: 'admin.users',
+  organization: 'admin.users',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -158,6 +162,7 @@ interface U {
   name: string;
   email: string;
   role: 'admin' | 'member';
+  chief?: boolean;
   adminRoleId?: string | null;
   disabled: boolean;
   createdAt: string;
@@ -337,10 +342,28 @@ interface L {
   id: number;
   at: string;
   actor: string;
+  actorName: string | null;
   action: string;
   target: string | null;
-  detail: unknown;
+  targetName: string | null;
+  detail: Record<string, unknown> | null;
 }
+// категории журнала — начала кодов действий (сервер фильтрует по началу)
+const LEDGER_KINDS = [
+  '',
+  'auth.',
+  'entry.',
+  'entry.client.',
+  'vault.',
+  'grant.',
+  'space.',
+  'admin.',
+] as const;
+const actionText = (a: string) => {
+  const k = a.replace(/[.-]/g, '_');
+  for (const key of [`ledgerAction.${k}`, `entryPanel.actions.${k}`]) if (te(key)) return t(key);
+  return a;
+};
 const ledger = ref<L[]>([]);
 const next = ref<number | null>(null);
 const filter = ref({ action: '', q: '', from: '', to: '' });
@@ -384,7 +407,7 @@ async function loadTab(): Promise<void> {
 }
 /** Разделы панели по смыслу: люди, система, интеграции, безопасность. */
 const GROUPS: { id: string; tabs: Tab[] }[] = [
-  { id: 'people', tabs: ['users', 'circles', 'roles', 'invitations'] },
+  { id: 'people', tabs: ['users', 'circles', 'roles', 'invitations', 'organization'] },
   {
     id: 'system',
     tabs: [
@@ -416,6 +439,7 @@ const ALL_TABS: Tab[] = [
   'invitations',
   'roles',
   'updates',
+  'organization',
 ];
 onMounted(async () => {
   try {
@@ -506,6 +530,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <InvitationsPanel v-else-if="tab === 'invitations'" />
         <SyslogSettings v-else-if="tab === 'syslog'" />
         <UpdatesView v-else-if="tab === 'updates'" />
+        <OrganizationPanel v-else-if="tab === 'organization'" />
         <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />
         <SamlSettings v-else-if="tab === 'saml'" />
@@ -573,6 +598,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   >
                     {{ u.name }}
                   </button>
+                  <span v-if="u.chief" class="badge ml-1" data-testid="chief-badge">{{
+                    t('chief.badge')
+                  }}</span>
                   <div class="text-xs text-slate-500">{{ u.email }}</div>
                   <div class="text-xs text-slate-500">{{ u.authSource ?? 'local' }}</div>
                 </td>
@@ -580,7 +608,8 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <select
                     :value="u.role"
                     class="input w-auto"
-                    :disabled="u.id === auth.user?.id"
+                    :disabled="u.id === auth.user?.id || u.chief || !auth.user?.chief"
+                    :title="auth.user?.chief ? undefined : t('chief.onlyChief')"
                     @change="patchUser(u, { role: ($event.target as HTMLSelectElement).value })"
                   >
                     <option value="admin">{{ t('admin.roleAdmin') }}</option>
@@ -624,14 +653,20 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <button
                     type="button"
                     :class="u.disabled ? 'btn' : 'btn-danger'"
-                    :disabled="u.id === auth.user?.id"
+                    :disabled="u.id === auth.user?.id || u.chief"
+                    :title="u.chief ? t('error.chiefAdmin') : undefined"
                     :data-testid="`toggle-${u.email}`"
                     @click="patchUser(u, { disabled: !u.disabled })"
                   >
                     {{ u.disabled ? t('admin.enable') : t('admin.disable') }}
                   </button>
                   <button
-                    v-if="!u.disabled && u.id !== auth.user?.id && (isFull() || u.role !== 'admin')"
+                    v-if="
+                      !u.disabled &&
+                      !u.chief &&
+                      u.id !== auth.user?.id &&
+                      (isFull() || u.role !== 'admin')
+                    "
                     type="button"
                     class="btn-danger ml-1"
                     :data-testid="`offboard-${u.email}`"
@@ -1168,13 +1203,24 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 
         <div v-else class="space-y-3">
           <form class="flex flex-wrap gap-2" @submit.prevent="loadLedger()">
-            <input
+            <select
               v-model="filter.action"
-              class="input w-44"
-              :placeholder="t('admin.actionPrefix')"
+              class="input w-auto"
+              :aria-label="t('admin.actionPrefix')"
               data-testid="ledger-action"
+            >
+              <option v-for="k in LEDGER_KINDS" :key="k" :value="k">
+                {{ t(`admin.ledgerKind.${k.replaceAll('.', '') || 'all'}`) }}
+              </option>
+            </select>
+            <input
+              v-model="filter.q"
+              type="search"
+              class="input w-56"
+              :placeholder="t('admin.ledgerSearch')"
+              :aria-label="t('admin.ledgerSearch')"
+              data-testid="ledger-search"
             />
-            <input v-model="filter.q" class="input w-44" :placeholder="t('vault.search')" />
             <input v-model="filter.from" type="date" class="input w-auto" /><input
               v-model="filter.to"
               type="date"
@@ -1205,9 +1251,20 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   data-testid="ledger-row"
                 >
                   <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
-                  <td class="font-mono">{{ l.actor.slice(0, 13) }}</td>
-                  <td>{{ l.action }}</td>
-                  <td class="font-mono">{{ l.target }}</td>
+                  <td class="max-w-56 truncate" :title="l.actor">{{ l.actorName ?? l.actor }}</td>
+                  <td>
+                    <span :title="l.action">{{ actionText(l.action) }}</span>
+                    <span v-if="l.detail?.clientReported" class="badge ml-1">{{
+                      t('entryPanel.clientReported')
+                    }}</span>
+                  </td>
+                  <td
+                    class="max-w-56 truncate"
+                    :class="l.targetName ? '' : 'font-mono'"
+                    :title="l.target ?? ''"
+                  >
+                    {{ l.targetName ?? l.target }}
+                  </td>
                 </tr>
               </tbody>
             </table>

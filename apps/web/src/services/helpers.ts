@@ -78,6 +78,10 @@ export function errorMessage(e: unknown, t: T): string {
         });
       case 'pin_locked':
         return t('error.pinLocked');
+      case 'chief_required':
+        return t('error.chiefRequired');
+      case 'chief_admin':
+        return t('error.chiefAdmin');
       case 'pin_disabled':
         return t('error.pinDisabled');
       case 'pin_gone':

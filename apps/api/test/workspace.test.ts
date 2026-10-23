@@ -865,7 +865,8 @@ describe('administration', () => {
 
     const self = await admin.req('PATCH', `/admin/users/${admin.userId}`, { role: 'member' });
     expect(self.statusCode).toBe(409);
-    expect(self.json().error.code).toBe('last_admin');
+    // единственный администратор — главный: роль сначала передаётся
+    expect(self.json().error.code).toBe('chief_admin');
     expect(
       (await admin.req('PATCH', `/admin/users/${admin.userId}`, { disabled: true })).statusCode,
     ).toBe(409);
@@ -917,7 +918,16 @@ describe('administration', () => {
     const page2 = (await admin.req('GET', `/admin/ledger?limit=5&before=${page1.next}`)).json();
     expect(page2.items[0].id).toBeLessThan(page1.items[4].id);
     const csv = (await admin.req('GET', '/admin/ledger?format=csv&limit=10')).json().csv as string;
-    expect(csv.split('\n')[0]).toBe('id,at,actor,action,target,detail');
+    expect(csv.split('\n')[0]).toBe('id,at,actor,actor_name,action,target,target_name,detail');
+    // поиск по сотруднику: имя или почта автора
+    const byPerson = (await admin.req('GET', '/admin/ledger?q=bob%40example&limit=500')).json();
+    expect(byPerson.items.length).toBeGreaterThan(0);
+    expect(
+      byPerson.items.every(
+        (i: { actorName: string | null; targetName: string | null; target: string | null }) =>
+          `${i.actorName} ${i.targetName} ${i.target}`.includes('bob@example'),
+      ),
+    ).toBe(true);
     expect((await bob.req('GET', '/admin/ledger')).statusCode).toBe(403);
     void entries;
   });
