@@ -13,6 +13,8 @@ RUN npm ci --no-audit --no-fund
 RUN npm run build
 
 FROM node:24-slim AS runtime
+# по этой метке обновление находит свои безымянные остатки прежних сборок и не трогает чужие образы
+LABEL org.opencontainers.image.title="Arklock"
 ENV NODE_ENV=production
 WORKDIR /srv/arklock
 COPY package.json package-lock.json ./

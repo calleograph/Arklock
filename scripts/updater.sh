@@ -29,7 +29,7 @@ if [ "${ARKLOCK_UPDATER_COPY:-}" != 1 ] && [ "${ARKLOCK_UPDATER_LIB_ONLY:-}" != 
   RUN_DIR="$(mktemp -d /run/arklock-updater.XXXXXX 2>/dev/null || mktemp -d)"
   mkdir -p "$RUN_DIR/lib"
   cp "$SRC_DIR/updater.sh" "$RUN_DIR/updater.sh"
-  cp "$SRC_DIR/lib/common.sh" "$SRC_DIR/lib/updatelib.sh" "$RUN_DIR/lib/"
+  cp "$SRC_DIR/lib/common.sh" "$SRC_DIR/lib/updatelib.sh" "$SRC_DIR/lib/instance-config.sh" "$RUN_DIR/lib/"
   ARKLOCK_REPO_ROOT="$(cd "$SRC_DIR/.." && pwd)" ARKLOCK_UPDATER_COPY=1 ARKLOCK_UPDATER_SRC="$SRC_DIR" ARKLOCK_UPDATER_RUNDIR="$RUN_DIR" \
     exec bash "$RUN_DIR/updater.sh" "$@"
 fi
@@ -449,6 +449,30 @@ publish_containers() {
   } | atomic_write "$CH/containers.json"
 }
 
+# Место, занятое этим экземпляром: его образы, общий кэш сборки, образ для отката и итог последней очистки.
+# Раз в несколько минут и после операций: «docker system df» считает и размеры томов, это не бесплатно.
+publish_storage() {
+  local first=1 ref id size cache pimg present=false
+  {
+    printf '{"images":['
+    while read -r ref id; do
+      [ -n "$ref" ] || continue
+      size="$(int_or_0 "$(docker image inspect -f '{{.Size}}' "$id" 2>/dev/null)")"
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '{"ref":"%s","id":"%s","size":%s}' "$(jstr "$ref")" "$(jstr "${id#sha256:}")" "$size"
+    done < <(upd_own_images)
+    cache="$(docker system df --format '{{.Type}}|{{.Size}}' 2>/dev/null | awk -F'|' '$1 == "Build Cache" {print $2}')"
+    pimg="$(state_get update previous_image)"
+    [ -n "$pimg" ] && docker image inspect "$pimg" >/dev/null 2>&1 && present=true
+    printf '],"build_cache":"%s","previous":{"version":"%s","commit":"%s","image":"%s","present":%s},' \
+      "$(jstr "$cache")" "$(jstr "$(state_get update previous_version)")" "$(jstr "$(state_get update previous_commit)")" "$(jstr "$pimg")" "$present"
+    printf '"cleanup":{"at":"%s","result":"%s","freed_kib":%s,"message":"%s"},"at":"%s"}\n' \
+      "$(jstr "$(state_get cleanup at)")" "$(jstr "$(state_get cleanup result)")" "$(int_or_0 "$(state_get cleanup freed_kib)")" \
+      "$(jstr "$(state_get cleanup message)")" "$(date -u +%FT%TZ)"
+  } | atomic_write "$CH/storage.json"
+}
+
 cleanup_exports() { # копии, подготовленные к скачиванию, живут 10 минут
   local f
   [ -d "$CH/export" ] || return 0
@@ -504,12 +528,13 @@ cmd_run() {
     heartbeat
     # снимки состояния: раз в ~10 секунд; копии — также сразу после операций
     if [ $((tick % 5)) -eq 0 ]; then publish_containers; publish_backups; publish_schedule; cleanup_exports; fi
+    [ $((tick % 150)) -ne 0 ] || publish_storage
     tick=$((tick + 1))
     if [ -e "$CH/request.txt" ] || [ -L "$CH/request.txt" ]; then
       if [ -L "$CH/request.txt" ]; then rm -f "$CH/request.txt"
       else
         mv -f "$CH/request.txt" "$CH/request.processing" 2>/dev/null && process_request "$CH/request.processing"
-        publish_backups; publish_schedule; publish_containers
+        publish_backups; publish_schedule; publish_containers; publish_storage
         # Помощник сам мог быть обновлён операцией: перезапуск из свежей копии
         cur_sum="$(sha256sum "$REPO_ROOT/scripts/updater.sh" 2>/dev/null | cut -d' ' -f1)"
         if [ -n "$cur_sum" ] && [ "$cur_sum" != "$last_sum" ]; then

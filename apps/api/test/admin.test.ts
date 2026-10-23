@@ -149,12 +149,38 @@ describe('updates overview', () => {
         at: '2026-10-11T10:00:00Z',
       }),
     );
+    writeFileSync(
+      path.join(dir, 'storage.json'),
+      JSON.stringify({
+        images: [
+          { ref: 'arklock-app:local', id: 'aaa', size: 400_000_000 },
+          { ref: 'ghcr.io/calleograph/arklock:9.9.9', id: 'aaa', size: 400_000_000 },
+          { ref: 'arklock-app:prev-0123456789ab', id: 'bbb', size: 390_000_000 },
+        ],
+        build_cache: '0B',
+        previous: { version: '0.0.9', commit: '0123456789ab', image: 'x', present: true },
+        cleanup: {
+          at: '2026-10-11T10:00:00Z',
+          result: 'ok',
+          freed_kib: 1_048_576,
+          message: 'осталось образов: 2',
+        },
+      }),
+    );
     const res = await app.inject({
       url: '/api/v1/admin/updates/inventory',
       headers: admin.authHeader(),
     });
     expect(res.statusCode).toBe(200);
     const inv = res.json();
+    // один образ под двумя тегами считается один раз; откатиться можно на сохранённую прежнюю версию
+    expect(inv.storage).toMatchObject({
+      imageCount: 2,
+      imagesBytes: 790_000_000,
+      buildCache: '0B',
+      rollback: '0.0.9',
+      cleanup: { result: 'ok', freedKiB: 1_048_576 },
+    });
     expect(inv.runtime.node).toBe(process.versions.node);
     expect(inv.database).toMatch(/PostgreSQL/);
     expect(inv.host).toEqual({

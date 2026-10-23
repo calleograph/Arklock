@@ -71,6 +71,15 @@ export interface ContainerSnapshot {
   host: { docker: string | null; compose: string | null; os: string | null; kernel: string | null };
 }
 
+/** Место этого экземпляра: образы, кэш сборки, образ для отката, итог последней очистки (снимок помощника). */
+export interface StorageSnapshot {
+  images: { ref: string; id: string; size: number }[];
+  buildCache: string | null;
+  previous: { version: string | null; commit: string | null; present: boolean };
+  cleanup: { at: string | null; result: string | null; freedKiB: number; message: string | null };
+  at: string | null;
+}
+
 export interface BackupSnapshot {
   dir: string;
   freeGiB: number;
@@ -303,6 +312,34 @@ export class UpdaterChannel {
         os: str(host?.os) || null,
         kernel: str(host?.kernel) || null,
       },
+    };
+  }
+
+  async storage(): Promise<StorageSnapshot | null> {
+    const raw = await readJson<Record<string, unknown>>(this.p('storage.json'));
+    if (!raw) return null;
+    const o = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+    const prev = o(raw.previous);
+    const cl = o(raw.cleanup);
+    return {
+      images: (Array.isArray(raw.images) ? raw.images : []).map((i) => ({
+        ref: str(o(i).ref) ?? '',
+        id: str(o(i).id) ?? '',
+        size: num(o(i).size),
+      })),
+      buildCache: str(raw.build_cache) || null,
+      previous: {
+        version: str(prev.version) || null,
+        commit: str(prev.commit) || null,
+        present: prev.present === true,
+      },
+      cleanup: {
+        at: str(cl.at) || null,
+        result: str(cl.result) || null,
+        freedKiB: num(cl.freed_kib),
+        message: str(cl.message) || null,
+      },
+      at: str(raw.at) || null,
     };
   }
 

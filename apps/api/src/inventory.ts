@@ -43,6 +43,15 @@ export async function inventory(ctx: AppContext) {
     database = null;
   }
   const host = ctx.updater.configured ? (await ctx.updater.containers()).host : null;
+  const storage = ctx.updater.configured ? await ctx.updater.storage() : null;
+  // откатиться можно на версию, отличную от работающей, если её образ сохранён
+  const rollback =
+    storage?.previous.present &&
+    storage.previous.version &&
+    storage.previous.commit !== ctx.config.APP_GIT_COMMIT &&
+    storage.previous.version !== ctx.config.APP_VERSION
+      ? storage.previous.version
+      : null;
   return {
     app: {
       version: ctx.config.APP_VERSION,
@@ -57,6 +66,19 @@ export async function inventory(ctx: AppContext) {
     },
     database,
     host,
+    storage: storage && {
+      images: storage.images,
+      imageCount: new Set(storage.images.map((i) => i.id)).size,
+      // один образ под несколькими тегами считается один раз
+      imagesBytes: [...new Map(storage.images.map((i) => [i.id, i.size])).values()].reduce(
+        (a, b) => a + b,
+        0,
+      ),
+      buildCache: storage.buildCache,
+      rollback,
+      cleanup: storage.cleanup,
+      at: storage.at,
+    },
     dependencies: Object.keys(pkg.dependencies ?? {})
       .filter((n) => !n.startsWith('@arklock/'))
       .map((name) => ({ name, version: installed(name) })),

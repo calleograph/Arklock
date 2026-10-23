@@ -147,7 +147,12 @@ verify_bundle "$OUT" || { rm -f "$OUT" "$OUT.json"; die "Созданная ко
 
 # Ротация: только копии этого проекта, самые старые удаляются.
 mapfile -t OLD < <(ls -1t "$BACKUP_DIR/${COMPOSE_PROJECT_NAME}"-*.bak.gpg 2>/dev/null | tail -n +"$((KEEP + 1))")
-for f in "${OLD[@]}"; do [ -n "$f" ] && { rm -f -- "$f" "$f.json"; info "удалена старая копия: $(basename "$f")"; }; done
+# копия перед последним обновлением нужна для отката с восстановлением базы — ротация её не удаляет
+KEEP_FOR_ROLLBACK="$(state_get update backup_file)"
+for f in "${OLD[@]}"; do
+  [ -n "$f" ] && [ "$f" != "$KEEP_FOR_ROLLBACK" ] || continue
+  rm -f -- "$f" "$f.json"; info "удалена старая копия: $(basename "$f")"
+done
 
 state_set backup last_file "$(basename "$OUT")"
 state_set backup last_at "$(date -u +%FT%TZ)"

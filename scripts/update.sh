@@ -39,7 +39,9 @@ ic_migrate_bind "$REPO_ROOT" "$ENV_FILE" "$DATA_ROOT/config-backups" $((1 - DRY)
 [ "$DRY" -eq 1 ] || ic_restore_bind_from_running "$ENV_FILE" "$COMPOSE_PROJECT_NAME"
 DIRTY="$(ic_modified_files "$REPO_ROOT")"
 [ "$DRY" -eq 1 ] || [ -z "$DIRTY" ] || die "В каталоге программы есть локальные изменения: $(printf '%s' "$DIRTY" | tr '\n' ' ') — обновление остановлено (ничего не изменено). См. docs/TROUBLESHOOTING.md."
-"$REPO_ROOT/scripts/preflight.sh" --env "$ENV_FILE" || die "Требования для обновления не выполнены (ничего не изменено)."
+# место проверяется по фактическим размерам образа, базы и вложений, а не фиксированным порогом
+"$REPO_ROOT/scripts/preflight.sh" --env "$ENV_FILE" --need-gib 0 || die "Требования для обновления не выполнены (ничего не изменено)."
+upd_space_check || die "Недостаточно места для обновления (ничего не изменено). Освободите место или расширьте диск."
 
 upd_step 1 7 "Проверка требований и получение версий"
 upd_log "Проверка обновлений: получение тегов"
@@ -153,5 +155,7 @@ state_set update migrations_after "${NEW_MIGR:-0}"
 state_set install version "$TARGET_VERSION"
 state_set install commit "$TARGET_COMMIT"
 upd_log "Обновление завершено: $CUR_VERSION → $TARGET_VERSION (миграции: ${CUR_MIGR:-?} → ${NEW_MIGR:-?})"
+# только после успеха: остаются образ новой версии и образ $CUR_VERSION для отката, старые образы и кэш сборки удаляются
+upd_cleanup "$PREV_IMAGE"
 upd_step 7 7 "Готово"
 ok "Arklock обновлён до $TARGET_VERSION. Откат: scripts/rollback.sh (безопасен, только если схема БД не менялась)."

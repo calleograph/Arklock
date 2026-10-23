@@ -537,7 +537,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build -w @arklock/crypto
-      - name: Build the release fixture (v0.0.1 base, v0.0.2 migration, v0.0.3 broken migration, v0.0.4 broken build)
+      - name: Build the release fixture (v0.0.1 base, v0.0.2 migration, v0.0.3 broken migration, v0.0.4 broken build, v0.0.5 and v0.0.6 good)
         run: tests/update/make-fixture.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/origin.git"
       - name: Install v0.0.1 with the stand-alone installer (bootstrap from the repository)
         run: |
@@ -609,6 +609,47 @@ jobs:
           test "$rc" != 0
           test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.1
           sudo grep -q 'status=failed_build' "$DATA/state/update.state"
+          node scripts/smoke-container.mjs verify
+      - name: Successive updates keep two application images (current and rollback) and clear the build cache
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          set -x
+          ver() { curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version'; }
+          # образы этого экземпляра: теги репозитория приложения и безымянные остатки сборок с меткой продукта
+          imgs() { { sudo docker images --no-trunc -q "$PROJ-app"; sudo docker images --no-trunc -q -f dangling=true -f label=org.opencontainers.image.title=Arklock; } | sort -u | grep -c . || true; }
+          check() { # check ВЕРСИЯ — после успешного обновления
+            test "$(ver)" = "$1"
+            sudo docker images "$PROJ-app"; sudo docker system df; df -h /
+            test "$(imgs)" = 2
+            sudo grep -q '^result=ok' "$DATA/state/cleanup.state"
+            sudo cat "$DATA/state/cleanup.state"
+            test "$(sudo docker compose --project-name "$PROJ" ps --status running -q | grep -c .)" = 2
+            test "$(sudo docker inspect -f '{{.State.Health.Status}}' "$(sudo docker compose --project-name "$PROJ" ps -q app)")" = healthy
+            # общий кэш сборки убран: на сервере только этот экземпляр
+            test "$(sudo docker system df --format '{{.Type}}|{{.Size}}' | awk -F'|' '$1 == "Build Cache" {print $2}')" = 0B
+            node scripts/smoke-container.mjs verify
+          }
+          echo "images before the series: $(imgs)"
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.5 --yes
+          check 0.0.5
+          sudo "$APPDIR/scripts/update.sh" --env "$CFG/arklock.env" --ref v0.0.6 --yes
+          check 0.0.6
+          # образ для отката — версия, с которой выполнялось обновление
+          sudo grep -q '^previous_version=0.0.5' "$DATA/state/update.state"
+      - name: Rollback after the series returns to the last working version; no more than two images remain
+        env:
+          BASE_URL: http://127.0.0.1:${{ env.PORT }}
+          STATE_FILE: ${{ github.workspace }}/smoke-state.json
+        run: |
+          set -x
+          sudo "$APPDIR/scripts/rollback.sh" --env "$CFG/arklock.env" --yes
+          test "$(curl -fsS "$BASE_URL/api/v1/version" | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')" = 0.0.5
+          n="$({ sudo docker images --no-trunc -q "$PROJ-app"; sudo docker images --no-trunc -q -f dangling=true -f label=org.opencontainers.image.title=Arklock; } | sort -u | grep -c .)"
+          sudo docker images "$PROJ-app"
+          test "$n" -le 2
+          test "$(sudo docker compose --project-name "$PROJ" ps --status running -q | grep -c .)" = 2
           node scripts/smoke-container.mjs verify
       - name: Unavailable repository does not disturb the running system
         env:
@@ -795,6 +836,9 @@ jobs:
         run: |
           test "$(sudo docker inspect -f '{{.Id}}' arklock-bind-foreign)" = "$(cat "$RUNNER_TEMP/foreign.id")"
           test "$(sudo docker inspect -f '{{.State.Running}}' arklock-bind-foreign)" = true
+          # на сервере есть чужой контейнер: общий кэш сборки не тронут, чужой образ на месте
+          sudo grep -q 'кэш сборки не тронут' "$DATA/state/cleanup.state"
+          sudo docker image inspect alpine > /dev/null
       - name: Cleanup
         if: always()
         run: |
