@@ -53,7 +53,7 @@ async function signOut(): Promise<void> {
 }
 
 function lockNow(): void {
-  auth.lock();
+  auth.lock(true);
 }
 
 /** Поиск в шапке ищет по паролям: если открыт другой раздел, переходим к списку паролей. */

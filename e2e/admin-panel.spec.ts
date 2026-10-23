@@ -146,10 +146,9 @@ test('administration sections show real data and perform real operations', async
   await page.getByTestId('offsite-bucket').fill('arklock-backups');
   await page.getByTestId('offsite-access').fill('AKIATESTACCESSKEY1');
   await page.getByTestId('offsite-secret').fill('e2e-secret-key-value');
-  await page.getByTestId('offsite-save').click(); // без пароля настройка не принимается
-  await expect(page.getByTestId('offsite-error')).toBeVisible();
-  await page.getByTestId('offsite-password').fill(ADMIN.password);
+  // подтверждение, данное минуту назад при скачивании копии, действует и здесь: второй раз пароль не спрашивается
   await page.getByTestId('offsite-save').click();
+  await expect(page.getByTestId('offsite-error')).toHaveCount(0);
   await expect(page.getByTestId('offsite-status')).toContainText('arklock-backups', {
     timeout: 30_000,
   });
@@ -215,8 +214,6 @@ test('administration sections show real data and perform real operations', async
   expect(mails[0]).toContain('To: boss@example.com');
   // пароль после сохранения в форму не возвращается
   await page.reload();
-  await page.getByTestId('password').fill(ADMIN.password);
-  await page.getByTestId('submit').click();
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await tab(page, 'smtp');
@@ -559,8 +556,6 @@ test('custom roles: an administrative role opens only its own sections for a del
   await expect(guest.getByTestId('admin-tab-users')).toHaveCount(0);
   // роль, назначенную пользователю, удалить нельзя
   await page.reload();
-  await page.getByTestId('password').fill(ADMIN.password);
-  await page.getByTestId('submit').click();
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await tab(page, 'roles');

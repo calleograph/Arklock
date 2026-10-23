@@ -56,7 +56,31 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
   await expect(page.getByTestId('entry-row')).toHaveCount(1);
   await expect(page.getByTestId('entry-row')).toContainText('Почта');
 
-  // Перезагрузка стирает ключи из памяти: сессия есть, но нужна разблокировка.
+  // F5 не требует мастер-пароля: ключи открываются долей сеанса на сервере и шифртекстом этой вкладки.
+  await page.reload();
+  await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
+  await expect(page).not.toHaveURL(/\/unlock$/);
+  // во вкладке нет ни мастер-пароля, ни ключей в открытом виде
+  const tabStore = await page.evaluate(() => JSON.stringify(sessionStorage));
+  expect(tabStore).not.toContain(MASTER);
+  expect(tabStore).toContain('arklock.reload');
+
+  // Пароль записи раскрывается только по действию пользователя.
+  await page.getByTestId('entry-row').click();
+  await expect(page.getByTestId('view-password')).not.toContainText(ENTRY_PASSWORD);
+  await page.getByTestId('btn-reveal').click();
+  await expect(page.getByTestId('view-password')).toHaveText(ENTRY_PASSWORD);
+
+  // Вторая вкладка того же браузера получает сеанс от первой и открывается без входа.
+  const second = await page.context().newPage();
+  await second.goto('/');
+  await expect(second.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
+
+  // Ручная блокировка закрывает обе вкладки, и после F5 снова нужен мастер-пароль: доля на сервере стёрта.
+  await page.getByTestId('lock').click();
+  await expect(page).toHaveURL(/\/unlock$/);
+  await expect(second).toHaveURL(/\/unlock$/);
+  await second.close();
   await page.reload();
   await expect(page).toHaveURL(/\/unlock$/);
   await page.getByTestId('password').fill('wrong-master-password-1234');
@@ -65,14 +89,6 @@ test('register, store a secret, lock, unlock and sign in again — secrets never
   await page.getByTestId('password').fill(MASTER);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 60_000 });
-
-  // Пароль записи раскрывается только по действию пользователя.
-  await page.getByTestId('entry-row').click();
-  await expect(page.getByTestId('view-password')).not.toContainText(ENTRY_PASSWORD);
-  await page.getByTestId('btn-reveal').click();
-  await expect(page.getByTestId('view-password')).toHaveText(ENTRY_PASSWORD);
-
-  // Ручная блокировка.
   await page.getByTestId('lock').click();
   await expect(page).toHaveURL(/\/unlock$/);
 

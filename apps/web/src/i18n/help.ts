@@ -34,7 +34,7 @@ export const ruHelp = {
       },
       locked: {
         q: 'Почему Arklock просит мастер-пароль?',
-        a: 'Arklock закрывает доступ к данным после бездействия, при перезагрузке страницы и по кнопке «Заблокировать». Срок бездействия вы выбираете в «Настройках».',
+        a: 'Arklock закрывает доступ к данным после бездействия, по кнопке «Заблокировать», после выхода и при закрытии вкладки или браузера. Обновление страницы (F5) мастер-пароль не требует, пока сеанс действует. Срок бездействия вы выбираете в «Настройках».',
       },
       pending: {
         q: 'Мне назначили доступ, но записей не видно',
@@ -190,6 +190,11 @@ export const ruHelp = {
       details:
         'Явный запрет сильнее разрешения. Он закрывает доступ на сервере, но не отзывает секреты, которые человек уже сохранил.',
     },
+    reloadUnlock: {
+      text: 'После обновления страницы (F5) сотрудник продолжает работу без мастер-пароля, пока сеанс действует.',
+      details:
+        'Ключи шифруются ключом, половина которого хранится в сеансе на сервере, а шифртекст — только во вкладке. Блокировка, выход, отзыв или истечение сеанса делают его бесполезным. Закрытие вкладки и перезапуск браузера по-прежнему требуют входа.',
+    },
     pinUnlock: {
       text: 'Разрешает сотрудникам открывать Arklock после блокировки коротким PIN. PIN не заменяет мастер-пароль при входе.',
       details:
@@ -268,6 +273,43 @@ export const ruHelp = {
       },
     },
   },
+  settings: {
+    grantsWhere:
+      'Здесь собраны отдельные правила для папок и записей этого сейфа. Новое правило назначается на вкладке «Доступ» самой папки или записи — кнопкой «Предоставить доступ».',
+  },
+  entryPanel: {
+    levelHints: {
+      reader: 'Видит запись, показывает и копирует пароль.',
+      editor: 'Как чтение, а также изменяет запись, её поля и файлы.',
+      manager: 'Как редактирование, а также назначает и отзывает права других.',
+      none: 'Явный запрет: сильнее любого разрешения, в том числе через группу или папку.',
+      owner: 'Полный контроль над сейфом.',
+    },
+  },
+  grantDlg: {
+    open: 'Предоставить доступ',
+    recipients: 'Получатели',
+    searchPlaceholder: 'Имя, почта сотрудника или название группы',
+    removeRecipient: 'Убрать',
+    group: 'группа',
+    picked: 'выбран',
+    hasAccess: 'уже есть доступ',
+    nothing: 'Никого не найдено',
+    level: 'Уровень доступа',
+    term: 'Срок',
+    until: 'Действует до',
+    terms: {
+      none: 'Без ограничения',
+      day: '1 день',
+      week: '7 дней',
+      month: '30 дней',
+      date: 'До даты…',
+    },
+    submit: 'Предоставить доступ',
+    done: 'Доступ предоставлен: {n}.',
+    donePending:
+      'Права назначены: {n}. Ключ сейфа будет передан, как только участник с правом управления откроет Arklock.',
+  },
   ws: {
     vault: 'Сейф',
     actions: 'Действия',
@@ -320,6 +362,7 @@ export const ruHelp = {
     unlockWith: 'Разблокировать PIN-кодом',
     orPassword: 'Или введите мастер-пароль:',
     policy: 'Быстрая разблокировка PIN-кодом',
+    reloadPolicy: 'Не запрашивать мастер-пароль после обновления страницы',
   },
   spaces: { defaultName: 'Организация' },
 };
@@ -359,7 +402,7 @@ export const enHelp = {
       },
       locked: {
         q: 'Why does Arklock ask for my master password?',
-        a: 'Arklock locks your data after inactivity, when the page is reloaded and when you press “Lock”. You choose the inactivity time in “Settings”.',
+        a: 'Arklock locks your data after inactivity, when you press “Lock”, after signing out and when the tab or browser is closed. Reloading the page (F5) does not ask for the master password while the session is active. You choose the inactivity time in “Settings”.',
       },
       pending: {
         q: 'I was given access, but I see no entries',
@@ -515,6 +558,11 @@ export const enHelp = {
       details:
         'An explicit deny beats an allow. It closes access on the server but does not take back secrets a person already saved.',
     },
+    reloadUnlock: {
+      text: 'After a page reload (F5) the employee keeps working without the master password while the session is active.',
+      details:
+        'Keys are encrypted with a key whose half is kept in the server session and the ciphertext only in the tab. Locking, signing out, revoking or expiring the session makes it useless. Closing the tab or restarting the browser still requires signing in.',
+    },
     pinUnlock: {
       text: 'Lets employees open Arklock after a lock with a short PIN. The PIN does not replace the master password for signing in.',
       details:
@@ -593,6 +641,43 @@ export const enHelp = {
       },
     },
   },
+  settings: {
+    grantsWhere:
+      'Here are the separate rules for folders and entries of this vault. A new rule is granted on the “Access” tab of the folder or entry itself, with the “Grant access” button.',
+  },
+  entryPanel: {
+    levelHints: {
+      reader: 'Sees the entry, shows and copies the password.',
+      editor: 'Like read, and also changes the entry, its fields and files.',
+      manager: 'Like edit, and also grants and revokes access for others.',
+      none: 'Explicit deny: stronger than any allow, including through a group or folder.',
+      owner: 'Full control of the vault.',
+    },
+  },
+  grantDlg: {
+    open: 'Grant access',
+    recipients: 'Recipients',
+    searchPlaceholder: 'Employee name, email or group name',
+    removeRecipient: 'Remove',
+    group: 'group',
+    picked: 'selected',
+    hasAccess: 'already has access',
+    nothing: 'Nobody found',
+    level: 'Access level',
+    term: 'Duration',
+    until: 'Valid until',
+    terms: {
+      none: 'No limit',
+      day: '1 day',
+      week: '7 days',
+      month: '30 days',
+      date: 'Until date…',
+    },
+    submit: 'Grant access',
+    done: 'Access granted: {n}.',
+    donePending:
+      'Rights assigned: {n}. The vault key will be passed on as soon as a member who can manage it opens Arklock.',
+  },
   ws: {
     vault: 'Vault',
     actions: 'Actions',
@@ -645,6 +730,7 @@ export const enHelp = {
     unlockWith: 'Unlock with the PIN',
     orPassword: 'Or enter the master password:',
     policy: 'Quick unlock with a PIN',
+    reloadPolicy: 'Do not ask for the master password after a page reload',
   },
   spaces: { defaultName: 'Organization' },
 };

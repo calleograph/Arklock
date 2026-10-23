@@ -60,8 +60,18 @@ test('administrator checks for updates and applies one from the browser', async 
   await expect(page.getByTestId('changelog')).toContainText('Тестовое изменение');
   await expect(page.getByTestId('btn-update')).toBeEnabled();
 
-  // Обновление требует повторного ввода мастер-пароля; неверный пароль отклоняется.
+  // Штатное обновление выполняется по действующему сеансу администратора: окна мастер-пароля нет.
   await page.getByTestId('btn-update').click();
+  await expect(page.getByTestId('reauth-password')).toHaveCount(0);
+
+  // Ход выполнения виден по этапам, затем успех и запись в истории.
+  await expect(page.getByTestId('updates-progress')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('progress-state')).toHaveText('running');
+  await expect(page.getByTestId('progress-state')).toHaveText('success', { timeout: 30_000 });
+  await expect(page.getByTestId('history')).toContainText('update');
+
+  // Откат может вернуть старую версию и данные — он требует повышенного подтверждения; неверный пароль отклоняется.
+  await page.getByTestId('btn-rollback').click();
   await page.getByTestId('reauth-password').fill('wrong-master-password-000');
   await page.getByTestId('reauth-confirm').click();
   await expect(
@@ -69,12 +79,7 @@ test('administrator checks for updates and applies one from the browser', async 
   ).toBeVisible({ timeout: 30_000 });
   await page.getByTestId('reauth-password').fill(MASTER);
   await page.getByTestId('reauth-confirm').click();
-
-  // Ход выполнения виден по этапам, затем успех и запись в истории.
-  await expect(page.getByTestId('updates-progress')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('progress-state')).toHaveText('running');
-  await expect(page.getByTestId('progress-state')).toHaveText('success', { timeout: 30_000 });
-  await expect(page.getByTestId('history')).toContainText('update');
+  await expect(page.getByTestId('reauth-password')).toHaveCount(0, { timeout: 30_000 });
 
   // Пароль не уходит на сервер и не попадает в запросы к помощнику.
   expect(bodies.join('\n')).not.toContain(MASTER);

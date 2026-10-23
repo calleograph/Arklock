@@ -156,12 +156,11 @@ describe('containers, backups, logs', () => {
     expect(consume()).toMatchObject({ action: 'backup_verify', file: NAME });
   });
 
-  it('delete, export, restore and schedule require the master password again', async () => {
+  it('delete, export and restore require step-up confirmation; the schedule does not', async () => {
     for (const body of [
       { action: 'delete', file: NAME },
       { action: 'export', file: NAME },
       { action: 'restore', file: NAME, confirm: NAME },
-      { action: 'schedule', enabled: true, hour: 2, keep: 7 },
     ]) {
       const r = await admin.req('POST', '/admin/backups', body);
       expect(r.statusCode, body.action).toBe(403);

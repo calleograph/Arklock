@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import InfoHint from './InfoHint.vue';
+import GrantDialog, { type Recipient } from './GrantDialog.vue';
+import Icon from './Icon.vue';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -52,28 +53,20 @@ interface Access {
 const data = ref<Access | null>(null);
 const error = ref('');
 const busy = ref(false);
-const query = ref('');
-const users = ref<{ id: string; name: string; email: string }[]>([]);
-const circles = ref<{ id: string; name: string }[]>([]);
-const form = ref({ subjectType: 'user', subjectId: '', role: 'reader', expiresAt: '' });
 const roles = ['reader', 'editor', 'manager', 'none'];
-const subjects = computed(() =>
-  form.value.subjectType === 'user'
-    ? users.value.map((u) => ({ id: u.id, label: `${u.name} <${u.email}>` }))
-    : circles.value.map((c) => ({ id: c.id, label: c.name })),
-);
-watch(
-  () => form.value.subjectType,
-  () => {
-    form.value.subjectId = '';
-  },
+const showGrant = ref(false);
+const notice = ref('');
+const levels = computed(() =>
+  roles.map((r) => ({
+    value: r,
+    label: t(`entryPanel.roles.${r}`),
+    hint: t(`entryPanel.levelHints.${r}`),
+  })),
 );
 async function load(): Promise<void> {
   error.value = '';
   try {
     data.value = await api('GET', `${base.value}/access`);
-    if (data.value?.canManage && !circles.value.length)
-      circles.value = await api('GET', '/directory/circles');
   } catch (e) {
     error.value = errorMessage(e, t);
   }
@@ -85,19 +78,6 @@ watch(
   },
   { immediate: true },
 );
-async function search(): Promise<void> {
-  if (query.value.trim().length < 2) return;
-  busy.value = true;
-  error.value = '';
-  try {
-    users.value = await api('GET', `/directory/users?q=${encodeURIComponent(query.value.trim())}`);
-    form.value.subjectId = '';
-  } catch (e) {
-    error.value = errorMessage(e, t);
-  } finally {
-    busy.value = false;
-  }
-}
 async function mutate(operation: () => Promise<unknown>): Promise<void> {
   busy.value = true;
   error.value = '';
@@ -126,13 +106,15 @@ function putGrant(grant: {
     ...grant,
   });
 }
-function add(): void {
-  void mutate(() =>
-    putGrant({
-      ...form.value,
-      expiresAt: form.value.expiresAt ? new Date(form.value.expiresAt).toISOString() : null,
-    }),
-  );
+/** Одно окно для всех получателей: каждому — правило со своим уровнем и общим сроком. */
+function grantMany(list: Recipient[], expiresAt: string | null): void {
+  notice.value = '';
+  void mutate(async () => {
+    for (const r of list)
+      await putGrant({ subjectType: r.kind, subjectId: r.id, role: r.level, expiresAt });
+    showGrant.value = false;
+    notice.value = t('grantDlg.done', { n: list.length });
+  });
 }
 function change(grant: Grant, event: Event): void {
   const role = (event.target as HTMLSelectElement).value;
@@ -161,13 +143,27 @@ function sourceLabel(source: string): string {
 
 <template>
   <div class="space-y-4 text-sm" data-testid="entry-access">
-    <p v-if="error" class="text-red-600" role="alert">{{ error }}</p>
+    <p v-if="error && !showGrant" class="text-red-600" role="alert">{{ error }}</p>
+    <p v-if="notice" class="notice notice-ok" role="status" data-testid="grant-notice">
+      {{ notice }}
+    </p>
     <p v-if="!data && !error" class="text-slate-500">{{ t('common.working') }}</p>
     <template v-if="data">
-      <p class="text-slate-500">
-        {{ t('entryPanel.yourAccess') }}:
-        <strong>{{ t(`entryPanel.roles.${data.effectiveAccess}`) }}</strong>
-      </p>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-slate-500">
+          {{ t('entryPanel.yourAccess') }}:
+          <strong>{{ t(`entryPanel.roles.${data.effectiveAccess}`) }}</strong>
+        </p>
+        <button
+          v-if="data.canManage"
+          type="button"
+          class="btn-primary"
+          data-testid="grant-open"
+          @click="((notice = ''), (error = ''), (showGrant = true))"
+        >
+          <Icon name="share" /> {{ t('grantDlg.open') }}
+        </button>
+      </div>
       <p
         class="rounded-md bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200"
       >
@@ -257,71 +253,17 @@ function sourceLabel(source: string): string {
           </li>
         </ul>
       </section>
-      <form
-        v-if="data.canManage"
-        class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
-        data-testid="entry-grant-form"
-        @submit.prevent="add"
-      >
-        <h3 class="font-medium">
-          {{ t(targetType === 'branch' ? 'entryPanel.assignFolder' : 'entryPanel.assign') }}
-        </h3>
-        <label class="block"
-          ><span class="mb-1 block text-xs">{{ t('entryPanel.subjectType') }}</span>
-          <select v-model="form.subjectType" class="input">
-            <option value="user">{{ t('entryPanel.user') }}</option>
-            <option value="circle">{{ t('entryPanel.group') }}</option>
-          </select>
-        </label>
-        <div v-if="form.subjectType === 'user'" class="flex gap-2">
-          <input
-            v-model="query"
-            class="input"
-            minlength="2"
-            :aria-label="t('entryPanel.findUser')"
-            :placeholder="t('entryPanel.findUser')"
-            @keydown.enter.prevent="search"
-          />
-          <button
-            type="button"
-            class="btn"
-            :disabled="busy || query.trim().length < 2"
-            @click="search"
-          >
-            {{ t('entryPanel.search') }}
-          </button>
-        </div>
-        <label class="block"
-          ><span class="mb-1 block text-xs">{{ t('entryPanel.subject') }}</span>
-          <select v-model="form.subjectId" required class="input">
-            <option value="">—</option>
-            <option v-for="subject in subjects" :key="subject.id" :value="subject.id">
-              {{ subject.label }}
-            </option>
-          </select>
-        </label>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <label class="block"
-            ><span class="mb-1 flex items-center gap-1 text-xs"
-              >{{ t('entryPanel.permission')
-              }}<InfoHint
-                :text="t('hint.accessLevels.text')"
-                :details="t('hint.accessLevels.details')" /></span
-            ><select v-model="form.role" class="input">
-              <option v-for="role in roles" :key="role" :value="role">
-                {{ t(`entryPanel.roles.${role}`) }}
-              </option>
-            </select></label
-          >
-          <label class="block"
-            ><span class="mb-1 block text-xs">{{ t('entryPanel.untilOptional') }}</span
-            ><input v-model="form.expiresAt" type="datetime-local" class="input"
-          /></label>
-        </div>
-        <button type="submit" class="btn-primary" :disabled="busy || !form.subjectId">
-          {{ t('common.save') }}
-        </button>
-      </form>
+      <GrantDialog
+        :open="showGrant"
+        :title="t(targetType === 'branch' ? 'entryPanel.assignFolder' : 'entryPanel.assign')"
+        :levels="levels"
+        default-level="reader"
+        :existing="data.members.filter((m) => m.access && m.access !== 'none').map((m) => m.userId)"
+        :busy="busy"
+        :error="showGrant ? error : ''"
+        @close="showGrant = false"
+        @submit="grantMany"
+      />
     </template>
   </div>
 </template>

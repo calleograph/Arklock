@@ -418,7 +418,10 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
 
   app.post('/auth/logout', { preHandler: auth }, async (req, reply) => {
     const { user, session } = authOf(req);
-    await db.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.id, session.id));
+    await db
+      .update(sessions)
+      .set({ revokedAt: new Date(), reloadShare: null })
+      .where(eq(sessions.id, session.id));
     await audit(db, `user:${user.id}`, 'auth.logout', `session:${session.id}`);
     return reply.status(204).send();
   });

@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { UpdatesOverview } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
-import { reauth } from '../services/account';
+import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
 
 const { t } = useI18n();
@@ -29,7 +29,6 @@ function lineTone(line: string): string {
 const busy = ref(false);
 
 // Повторное подтверждение пароля: токен живёт 5 минут и хранится только в памяти.
-let reauthToken: { token: string; expiresAt: number } | null = null;
 const askPassword = ref(false);
 const password = ref('');
 const pendingAction = ref<null | (() => Promise<void>)>(null);
@@ -105,8 +104,7 @@ async function send(payload: object, needsReauth: boolean): Promise<void> {
   error.value = '';
   busy.value = true;
   try {
-    const headers: Record<string, string> = {};
-    if (needsReauth && reauthToken) headers['X-Reauth-Token'] = reauthToken.token;
+    const headers: Record<string, string> = (needsReauth && stepUpHeaders()) || {};
     const res = await api<{ requestId: string }>('POST', '/admin/updates', payload, { headers });
     if ((payload as { action: string }).action !== 'check') activeRequest.value = res.requestId;
     await load();
@@ -119,7 +117,7 @@ async function send(payload: object, needsReauth: boolean): Promise<void> {
 
 function dangerous(payload: object): void {
   const run = async () => send(payload, true);
-  if (reauthToken && reauthToken.expiresAt > Date.now() + 5_000) {
+  if (stepUpHeaders()) {
     void run();
     return;
   }
@@ -132,8 +130,7 @@ async function confirmPassword(): Promise<void> {
   busy.value = true;
   error.value = '';
   try {
-    const r = await reauth(auth.user!, password.value);
-    reauthToken = { token: r.token, expiresAt: Date.parse(r.expiresAt) };
+    await confirmStepUp(auth.user!, password.value);
     askPassword.value = false;
     password.value = '';
     const run = pendingAction.value;
@@ -148,7 +145,8 @@ async function confirmPassword(): Promise<void> {
 }
 
 const check = () => send({ action: 'check' }, false);
-const update = () => dangerous({ action: 'update', version: data.value?.remote?.latest });
+// штатное обновление выполняется по административному сеансу; подтверждение — только для отката
+const update = () => send({ action: 'update', version: data.value?.remote?.latest }, false);
 const rollback = () => dangerous({ action: 'rollback', withRestore: withRestore.value });
 
 const fmt = (iso: string | null) => (iso ? when(iso) : '—');

@@ -109,6 +109,11 @@ export const sessions = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     revokedAt: ts('revoked_at'),
+    /**
+     * Половина ключа «разблокировки после обновления страницы»: вторая (шифртекст ключей) живёт только во вкладке.
+     * Запечатана ключом приложения; стирается при блокировке и выходе, бесполезна после отзыва или истечения сеанса.
+     */
+    reloadShare: text('reload_share'),
   },
   (t) => [
     uniqueIndex('sessions_token_idx').on(t.tokenHash),

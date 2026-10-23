@@ -43,10 +43,11 @@ async function bootstrap(): Promise<void> {
   app.mount('#app');
 
   // Оболочка интерфейса кэшируется service worker'ом (данные и ответы API — никогда)
+  // Событие load могло пройти, пока восстанавливалась сессия: тогда регистрируем сразу.
   if ('serviceWorker' in navigator && import.meta.env.PROD) {
-    window.addEventListener('load', () => {
-      void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
-    });
+    const register = () => void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
   }
 }
 

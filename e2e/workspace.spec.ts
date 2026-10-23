@@ -384,16 +384,37 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   // добавление участника
   await page.getByTestId('vault-actions').click();
   await page.getByTestId('btn-vault-settings').click();
-  await page.getByTestId('member-search').fill('member');
-  await page.getByTestId(`add-${MEMBER.email}`).click();
+  // единое окно «Предоставить доступ»: поиск сотрудника, уровень, одно действие
+  await page.getByTestId('grant-open').click();
+  await page.getByTestId('grant-search').fill('member');
+  await page.getByTestId(`grant-option-${MEMBER.email}`).click();
+  await expect(page.getByTestId('grant-chip')).toHaveCount(1);
+  await page.getByTestId('grant-level').selectOption('builtin:editor');
+  await page.getByTestId('grant-submit').click();
+  await expect(page.getByTestId('grant-dialog')).not.toBeVisible();
   await expect(page.getByTestId('member-row').filter({ hasText: MEMBER.email })).toContainText(
     /выдан|issued/,
   );
 
+  // то же окно на уровне записи: участник помечен «уже есть доступ», правило назначается одним действием
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await page.getByTestId('entry-row').filter({ hasText: 'Общий сервер' }).click();
+  await page.getByTestId('tab-access').click();
+  await page.getByTestId('grant-open').click();
+  await page.getByTestId('grant-search').fill('member');
+  await expect(page.getByTestId(`grant-option-${MEMBER.email}`)).toContainText(
+    /уже есть доступ|already has access/,
+  );
+  await page.getByTestId(`grant-option-${MEMBER.email}`).click();
+  await page.getByTestId('grant-submit').click();
+  await expect(page.getByTestId('grant-notice')).toBeVisible();
+  await expect(page.getByTestId('entry-access-grant').filter({ hasText: MEMBER.name })).toHaveCount(
+    1,
+  );
+
   // участник видит хранилище и запись, читает её
   await memberPage.reload();
-  await memberPage.getByTestId('password').fill(MEMBER.password);
-  await memberPage.getByTestId('submit').click();
   await expect(memberPage.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
   await memberPage.getByTestId('vault-select').selectOption({ label: 'Команда' });
   await expect(memberPage.getByTestId('entry-row')).toHaveCount(1, { timeout: 30_000 });
@@ -403,14 +424,14 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   expect(await downloadText(memberPage)).toBe(FILE_TEXT);
 
   // отзыв доступа и ротация ключа
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-vault-settings').click();
   await page.getByTestId(`remove-${MEMBER.email}`).click();
   await expect(page.getByTestId('rotation-hint')).toBeVisible();
   page.once('dialog', (d) => void d.accept());
   await page.getByTestId('btn-rotate-hint').click();
   await expect(page.getByTestId('settings-notice')).toBeVisible({ timeout: 90_000 });
   await memberPage.reload();
-  await memberPage.getByTestId('password').fill(MEMBER.password);
-  await memberPage.getByTestId('submit').click();
   await expect(memberPage.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
   await expect(
     memberPage.getByTestId('vault-select').locator('option', { hasText: 'Команда' }),

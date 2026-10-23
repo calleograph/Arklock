@@ -50,6 +50,13 @@
       "when": 1792318256456,
       "tag": "0006_cultured_umar",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792729258380,
+      "tag": "0007_last_magma",
+      "breakpoints": true
     }
   ]
 }

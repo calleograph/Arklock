@@ -132,8 +132,6 @@ test('PIN unlock: off until the administrator allows it; wrong PIN is counted; m
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-settings').click();
   await page.reload();
-  await page.getByTestId('password').fill(MASTER);
-  await page.getByTestId('submit').click();
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-settings').click();
   await page.getByTestId('pin-password').fill(MASTER);

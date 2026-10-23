@@ -10,6 +10,9 @@ import {
 } from '../services/api';
 import * as account from '../services/account';
 import * as pinService from '../services/pin';
+import * as reload from '../services/reload';
+import { clearStepUp } from '../services/stepup';
+import { fromBase64Url } from '@arklock/crypto';
 import { useWorkspaceStore } from './workspace';
 import { applyTheme, type ThemeId } from '../services/theme';
 import { autoLockMinutes, idleExpired } from '../services/autolock';
@@ -85,21 +88,31 @@ export const useAuthStore = defineStore('auth', () => {
     publicKey = null;
     signPrivateKey = null;
     signPublicKey = null;
+    clearStepUp();
     stopIdleCheck();
     useWorkspaceStore().clear();
   }
 
-  function lock(): void {
+  /**
+   * Блокировка. Ручная (кнопка «Заблокировать») закрывает все вкладки сеанса и стирает долю ключа на сервере;
+   * автоблокировка по бездействию закрывает только эту вкладку — работа в соседней вкладке не прерывается.
+   */
+  function lock(manual = false): void {
     wipe();
     unlocked.value = false;
+    void reload.forget(manual);
+    if (manual) reload.broadcast('lock');
   }
 
-  function setUnlocked(acc: {
-    privateKey: Uint8Array;
-    publicKey: Uint8Array;
-    signPrivateKey: Uint8Array;
-    signPublicKey: Uint8Array;
-  }): void {
+  function setUnlocked(
+    acc: {
+      privateKey: Uint8Array;
+      publicKey: Uint8Array;
+      signPrivateKey: Uint8Array;
+      signPublicKey: Uint8Array;
+    },
+    rememberForReload = true,
+  ): void {
     wipe();
     privateKey = acc.privateKey;
     publicKey = acc.publicKey;
@@ -107,10 +120,16 @@ export const useAuthStore = defineStore('auth', () => {
     signPublicKey = acc.signPublicKey;
     unlocked.value = true;
     startIdleCheck();
+    if (rememberForReload && user.value)
+      void reload.remember(user.value.id, {
+        privateKey: acc.privateKey,
+        signPrivateKey: acc.signPrivateKey,
+      });
   }
 
   function clearSession(): void {
     wipe();
+    void reload.forget(false);
     setToken(null);
     hasToken.value = false;
     unlocked.value = false;
@@ -289,6 +308,7 @@ export const useAuthStore = defineStore('auth', () => {
       /* сессия могла уже истечь */
     }
     clearSession();
+    reload.broadcast('logout');
   }
 
   /** Восстановление состояния после перезагрузки страницы: токен есть, ключей нет — потребуется разблокировка. */
@@ -300,11 +320,26 @@ export const useAuthStore = defineStore('auth', () => {
         if (router.currentRoute.value.path !== '/security') void router.replace('/security');
       });
     });
+    reload.listen({ unlocked: () => unlocked.value, lock: () => lock(), logout: clearSession });
+    // новая вкладка получает сеанс от уже открытой вкладки (без ключей — только токен и шифртекст)
+    await reload.adoptFromOtherTab();
     if (loadToken()) {
       hasToken.value = true;
       try {
         const me = await api<{ user: UserBundle }>('GET', '/auth/me');
         user.value = me.user;
+        // F5: ключи открываются долей сервера, если сеанс действует и разблокировка после обновления разрешена
+        const keys = await reload.recall(me.user.id);
+        if (keys)
+          setUnlocked(
+            {
+              privateKey: keys.privateKey,
+              publicKey: fromBase64Url(me.user.publicKey),
+              signPrivateKey: keys.signPrivateKey,
+              signPublicKey: fromBase64Url(me.user.signPublicKey),
+            },
+            false,
+          );
       } catch {
         clearSession();
       }

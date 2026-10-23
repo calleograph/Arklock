@@ -177,25 +177,31 @@ describe('requests to the update helper', () => {
     setStatus({ state: 'idle' });
   });
 
-  it('update and rollback require re-authentication', async () => {
+  it('a routine update runs on the admin session; rollback needs step-up confirmation', async () => {
     clearRequest();
-    for (const payload of [{ action: 'update', version: 'v0.2.0' }, { action: 'rollback' }]) {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/v1/admin/updates',
-        headers: admin.authHeader(),
-        payload,
-      });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe('reauth_required');
-    }
-    const bad = await app.inject({
+    const rollback = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/updates',
+      headers: admin.authHeader(),
+      payload: { action: 'rollback' },
+    });
+    expect(rollback.statusCode).toBe(403);
+    expect(rollback.json().error.code).toBe('reauth_required');
+    const forged = await app.inject({
       method: 'POST',
       url: '/api/v1/admin/updates',
       headers: { ...admin.authHeader(), 'x-reauth-token': 'ra_forged' },
+      payload: { action: 'rollback' },
+    });
+    expect(forged.statusCode).toBe(403);
+    const update = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/updates',
+      headers: admin.authHeader(),
       payload: { action: 'update', version: 'v0.2.0' },
     });
-    expect(bad.statusCode).toBe(403);
+    expect(update.statusCode).toBe(202);
+    clearRequest();
   });
 
   it('a wrong password does not yield a re-authentication token', async () => {
@@ -237,7 +243,7 @@ describe('requests to the update helper', () => {
       method: 'POST',
       url: '/api/v1/admin/updates',
       headers: { ...other.authHeader(), 'x-reauth-token': token },
-      payload: { action: 'update', version: 'v0.2.0' },
+      payload: { action: 'rollback' },
     });
     expect(stolen.statusCode).toBe(403);
 
@@ -274,13 +280,14 @@ describe('requests to the update helper', () => {
 });
 
 describe('ReauthStore', () => {
-  it('expires tokens after five minutes and is bound to the session', () => {
+  it('expires tokens after fifteen minutes and is bound to the session', () => {
     const store = new ReauthStore();
     const t0 = 1_000_000;
     const { token } = store.issue('s1', t0);
     expect(store.check(token, 's1', t0 + 1000)).toBe(true);
     expect(store.check(token, 's2', t0 + 1000)).toBe(false);
-    expect(store.check(token, 's1', t0 + 5 * 60_000 + 1)).toBe(false);
+    expect(store.check(token, 's1', t0 + 14 * 60_000)).toBe(true);
+    expect(store.check(token, 's1', t0 + 15 * 60_000 + 1)).toBe(false);
     expect(store.check(undefined, 's1', t0)).toBe(false);
   });
 });

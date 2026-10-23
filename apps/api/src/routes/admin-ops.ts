@@ -176,8 +176,8 @@ export const registerAdminOpsRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   app.post('/admin/backups', async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(backupAction, req.body);
-    if (body.action === 'delete' || body.action === 'export' || body.action === 'schedule')
-      requireReauth(req);
+    // расписание копий ничего не удаляет и не выдаёт наружу — подтверждения не требует
+    if (body.action === 'delete' || body.action === 'export') requireReauth(req);
     if (body.action === 'restore') {
       requireReauth(req);
       if (body.confirm !== body.file)

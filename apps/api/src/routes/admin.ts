@@ -74,8 +74,10 @@ export const registerAdminRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (current.status.state === 'running' || current.pending) {
       throw new AppError(409, 'update_in_progress', 'Another operation is in progress');
     }
-    // Проверка наличия новой версии не меняет систему и повторного подтверждения не требует.
-    if (body.action !== 'check') requireReauth(req);
+    // Проверка и штатное обновление до опубликованной версии (сверка по release.json, копия и автоматический откат
+    // при сбое) выполняются по административному сеансу. Откат может вернуть уязвимую версию и восстановить старые
+    // данные — для него нужно повышенное подтверждение.
+    if (body.action === 'rollback') requireReauth(req);
     try {
       const requestId = await ctx.updater.submit({
         action: body.action,

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { reauth } from '../services/account';
+import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { errorMessage, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 
@@ -107,10 +107,17 @@ async function waitOp(requestId: string): Promise<{ ok: boolean; message: string
   return { ok: false, message: t('sys.timeout') };
 }
 
+/** Действующее подтверждение переиспользуется; мастер-пароль спрашивается, только если его нет или оно истекло. */
 async function token(): Promise<Record<string, string>> {
-  if (!auth.user) return {};
-  const r = await reauth(auth.user, password.value);
-  return { 'X-Reauth-Token': r.token };
+  const ready = stepUpHeaders();
+  if (ready) return ready;
+  if (!auth.user || !password.value) {
+    needPassword.value = true;
+    throw new Error(t('offsite.needPassword'));
+  }
+  const h = await confirmStepUp(auth.user, password.value);
+  password.value = '';
+  return h;
 }
 
 async function run(
@@ -171,10 +178,6 @@ const body = () => {
 };
 const save = () =>
   run(async () => {
-    if (!password.value) {
-      needPassword.value = true;
-      throw new Error(t('offsite.needPassword'));
-    }
     const headers = await token();
     needPassword.value = false;
     const r = await api<{ requestId: string }>('PUT', '/admin/backups/offsite', body(), {
@@ -189,10 +192,6 @@ const act = (action: string, file?: string, guarded = false) =>
   run(async () => {
     let headers: Record<string, string> = {};
     if (guarded) {
-      if (!password.value) {
-        needPassword.value = true;
-        throw new Error(t('offsite.needPassword'));
-      }
       headers = await token();
       needPassword.value = false;
     }

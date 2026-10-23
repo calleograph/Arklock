@@ -42,6 +42,7 @@ const SETTINGS: Record<string, z.ZodType> = {
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
   'notifications.security': z.boolean(),
   'security.pinUnlock': z.boolean(),
+  'security.reloadUnlock': z.boolean(),
   'policy.password.minLength': z.number().int().min(0).max(128),
   'policy.password.classes': z.number().int().min(0).max(4),
 };
@@ -60,6 +61,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'storage.vaultQuotaMiB': 0,
   'notifications.security': true,
   'security.pinUnlock': false,
+  'security.reloadUnlock': true,
   'policy.password.minLength': 0,
   'policy.password.classes': 0,
 };

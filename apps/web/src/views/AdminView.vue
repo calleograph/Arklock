@@ -874,6 +874,21 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             >
             <label class="flex items-center justify-between gap-3"
               ><span class="inline-flex items-center gap-1"
+                >{{ t('pin.reloadPolicy')
+                }}<InfoHint
+                  :text="t('hint.reloadUnlock.text')"
+                  :details="t('hint.reloadUnlock.details')" /></span
+              ><input
+                type="checkbox"
+                class="switch"
+                :checked="settings['security.reloadUnlock'] !== false"
+                data-testid="set-reload"
+                @change="
+                  saveSetting('security.reloadUnlock', ($event.target as HTMLInputElement).checked)
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              ><span class="inline-flex items-center gap-1"
                 >{{ t('pin.policy')
                 }}<InfoHint
                   :text="t('hint.pinUnlock.text')"

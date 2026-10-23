@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import GrantDialog, { type Recipient } from '../components/GrantDialog.vue';
+import Icon from '../components/Icon.vue';
 import InfoHint from '../components/InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -30,14 +32,6 @@ const error = ref('');
 const notice = ref('');
 const busy = ref(false);
 
-const search = ref('');
-const found = ref<
-  { id: string; name: string; email: string; publicKey: string; signPublicKey: string }[]
->([]);
-const newRole = ref('builtin:editor');
-const allCircles = ref<{ id: string; name: string }[]>([]);
-const circleChoice = ref('');
-const circleRole = ref('builtin:reader');
 const grants = ref<
   {
     id: string;
@@ -50,13 +44,6 @@ const grants = ref<
     expiresAt: string | null;
   }[]
 >([]);
-const grantForm = ref({
-  targetId: '',
-  subjectKind: 'user',
-  subjectId: '',
-  role: 'reader',
-  expiresAt: '',
-});
 const signals = ref<
   { id: string; entryId: string; type: string; status: string; assignedName: string | null }[]
 >([]);
@@ -74,7 +61,6 @@ async function load(): Promise<void> {
         fromBase64Url(m.signPublicKey),
       );
     }
-    allCircles.value = await api('GET', '/directory/circles');
     grants.value = await api('GET', `/vaults/${id}/grants`);
     signals.value = await api('GET', `/vaults/${id}/signals`);
     if (ws.currentId !== id) await ws.select(id);
@@ -101,17 +87,6 @@ async function run(fn: () => Promise<unknown>, ok = ''): Promise<void> {
   }
 }
 
-let timer: ReturnType<typeof setTimeout> | null = null;
-function onSearch(): void {
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(async () => {
-    found.value =
-      search.value.trim().length >= 2
-        ? await api('GET', `/directory/users?q=${encodeURIComponent(search.value.trim())}`)
-        : [];
-  }, 250);
-}
-
 /** Выбор роли: «builtin:editor» или «custom:<id>»; для пользовательской роли — идентификатор роли. */
 const customRoles = ref<{ id: string; name: string; permissions: string[] }[]>([]);
 void api<typeof customRoles.value>('GET', '/vault-roles')
@@ -126,19 +101,43 @@ const roleBody = (value: string, expiresAt?: string | null) => ({
 const roleValue = (builtin: string | null, custom: string | null) =>
   custom ? `custom:${custom}` : `builtin:${builtin}`;
 const toIso = (d: string) => (d ? new Date(d + 'T23:59:59').toISOString() : null);
-const newExpiry = ref('');
 
-const addMember = (u: (typeof found.value)[number]) =>
-  run(async () => {
-    await ws.addMember(
-      id,
-      u,
-      roleBody(newRole.value, newExpiry.value ? toIso(newExpiry.value) : undefined),
-    );
-    found.value = [];
-    search.value = '';
-  }, t('settings.memberAdded'));
-
+const showGrant = ref(false);
+const grantLevels = computed(() => [
+  ...['admin', 'editor', 'reader', 'limited'].map((r) => ({
+    value: `builtin:${r}`,
+    label: t(`role.${r}`),
+    disabled: r === 'admin' && !isOwner.value,
+  })),
+  ...customRoles.value.map((c) => ({ value: `custom:${c.id}`, label: c.name })),
+]);
+/** Сотрудникам ключ выдаётся сразу (его запечатывает этот браузер), группам — по мере выдачи участникам группы. */
+const grantMany = (list: Recipient[], expiresAt: string | null) =>
+  run(
+    async () => {
+      for (const r of list) {
+        if (r.kind === 'user')
+          await ws.addMember(
+            id,
+            {
+              id: r.id,
+              publicKey: r.publicKey ?? '',
+              signPublicKey: r.signPublicKey ?? '',
+            },
+            roleBody(r.level, expiresAt ?? undefined),
+          );
+        else
+          await api(
+            'PUT',
+            `/vaults/${id}/circles/${r.id}`,
+            roleBody(r.level, expiresAt ?? undefined),
+          );
+      }
+      showGrant.value = false;
+      if (list.some((r) => r.kind === 'circle')) await ws.distributePending(id);
+    },
+    t('grantDlg.done', { n: list.length }),
+  );
 const setRole = (m: MemberInfo, value: string, expiry?: string) =>
   run(() =>
     api('PUT', `/vaults/${id}/members/${m.userId}`, {
@@ -155,8 +154,6 @@ const distribute = () =>
   run(async () => {
     notice.value = t('settings.keysIssued', { n: await ws.distributePending(id) });
   });
-const addCircle = () =>
-  run(() => api('PUT', `/vaults/${id}/circles/${circleChoice.value}`, roleBody(circleRole.value)));
 const removeCircle = (cid: string) =>
   run(async () => {
     await api('DELETE', `/vaults/${id}/circles/${cid}`);
@@ -196,29 +193,10 @@ async function removeVault(): Promise<void> {
 
 const grantTargets = computed(() => {
   const out: { id: string; label: string; type: 'branch' | 'entry' }[] = [];
-  for (const b of ws.branches) out.push({ id: b.id, label: `📁 ${b.name}`, type: 'branch' });
-  for (const e of ws.entries) out.push({ id: e.id, label: `🔑 ${e.data.title}`, type: 'entry' });
+  for (const b of ws.branches) out.push({ id: b.id, label: b.name, type: 'branch' });
+  for (const e of ws.entries) out.push({ id: e.id, label: e.data.title, type: 'entry' });
   return out;
 });
-const grantSubjects = computed(() =>
-  grantForm.value.subjectKind === 'user'
-    ? (info.value?.members ?? []).map((m) => ({ id: m.userId, label: `${m.name} <${m.email}>` }))
-    : allCircles.value.map((c) => ({ id: c.id, label: c.name })),
-);
-const putGrant = () =>
-  run(async () => {
-    const target = grantTargets.value.find((x) => x.id === grantForm.value.targetId)!;
-    await api('PUT', `/vaults/${id}/grants`, {
-      targetType: target.type,
-      targetId: target.id,
-      subjectType: grantForm.value.subjectKind,
-      subjectId: grantForm.value.subjectId,
-      role: grantForm.value.role,
-      expiresAt: grantForm.value.expiresAt
-        ? new Date(grantForm.value.expiresAt).toISOString()
-        : null,
-    });
-  });
 const revokeGrant = (gid: string) => run(() => api('DELETE', `/vaults/${id}/grants/${gid}`));
 const targetLabel = (g: { targetType: string; targetId: string }) =>
   grantTargets.value.find((x) => x.id === g.targetId)?.label ?? g.targetId.slice(0, 8);
@@ -381,59 +359,16 @@ void decryptEntry;
         {{ t('settings.issueKeys', { n: pending.length }) }}
       </button>
 
-      <div class="card space-y-2 p-3">
-        <h3 class="text-sm font-medium">{{ t('settings.addMember') }}</h3>
-        <div class="flex flex-wrap gap-2">
-          <input
-            v-model="search"
-            class="input max-w-xs"
-            :placeholder="t('settings.searchUser')"
-            data-testid="member-search"
-            @input="onSearch"
-          />
-          <select v-model="newRole" class="input w-auto" data-testid="new-role">
-            <option
-              v-for="r in ['admin', 'editor', 'reader', 'limited']"
-              :key="r"
-              :value="`builtin:${r}`"
-              :disabled="r === 'admin' && !isOwner"
-            >
-              {{ t(`role.${r}`) }}
-            </option>
-            <option v-for="c in customRoles" :key="c.id" :value="`custom:${c.id}`">
-              ◆ {{ c.name }}
-            </option>
-          </select>
-          <input
-            v-model="newExpiry"
-            type="date"
-            class="input w-auto"
-            :title="t('settings.expires')"
-            data-testid="new-expiry"
-          />
-        </div>
-        <ul
-          v-if="found.length"
-          class="divide-y divide-slate-200 text-sm dark:divide-slate-800"
-          data-testid="search-results"
-        >
-          <li v-for="u in found" :key="u.id" class="flex items-center justify-between py-1.5">
-            <span
-              >{{ u.name }} <span class="text-xs text-slate-500">{{ u.email }}</span></span
-            >
-            <button
-              type="button"
-              class="btn"
-              :disabled="busy"
-              :data-testid="`add-${u.email}`"
-              @click="addMember(u)"
-            >
-              {{ t('settings.add') }}
-            </button>
-          </li>
-        </ul>
-        <p class="text-xs text-slate-500">{{ t('settings.signedKeyHint') }}</p>
-      </div>
+      <button
+        type="button"
+        class="btn-primary"
+        :disabled="busy"
+        data-testid="grant-open"
+        @click="showGrant = true"
+      >
+        <Icon name="share" /> {{ t('grantDlg.open') }}
+      </button>
+      <p class="text-xs text-slate-500">{{ t('settings.signedKeyHint') }}</p>
     </div>
 
     <!-- Круги -->
@@ -453,34 +388,6 @@ void decryptEntry;
         </li>
         <li v-if="!info?.circles.length" class="px-3 py-2 text-slate-500">—</li>
       </ul>
-      <div class="flex flex-wrap gap-2">
-        <select v-model="circleChoice" class="input w-auto" data-testid="circle-choice">
-          <option value="" disabled>…</option>
-          <option v-for="c in allCircles" :key="c.id" :value="c.id">{{ c.name }}</option>
-        </select>
-        <select v-model="circleRole" class="input w-auto">
-          <option
-            v-for="r in ['admin', 'editor', 'reader', 'limited']"
-            :key="r"
-            :value="`builtin:${r}`"
-            :disabled="r === 'admin' && !isOwner"
-          >
-            {{ t(`role.${r}`) }}
-          </option>
-          <option v-for="c in customRoles" :key="c.id" :value="`custom:${c.id}`">
-            ◆ {{ c.name }}
-          </option>
-        </select>
-        <button
-          type="button"
-          class="btn"
-          :disabled="!circleChoice || busy"
-          data-testid="btn-add-circle"
-          @click="addCircle"
-        >
-          {{ t('settings.add') }}
-        </button>
-      </div>
     </div>
 
     <!-- Гранты -->
@@ -507,48 +414,7 @@ void decryptEntry;
         </li>
         <li v-if="!grants.length" class="px-3 py-2 text-slate-500">—</li>
       </ul>
-      <div class="flex flex-wrap gap-2">
-        <select
-          v-model="grantForm.targetId"
-          class="input w-auto max-w-48"
-          data-testid="grant-target"
-        >
-          <option value="" disabled>{{ t('settings.target') }}</option>
-          <option v-for="x in grantTargets" :key="x.id" :value="x.id">{{ x.label }}</option>
-        </select>
-        <select v-model="grantForm.subjectKind" class="input w-auto" data-testid="grant-kind">
-          <option value="user">{{ t('settings.user') }}</option>
-          <option value="circle">{{ t('settings.circle') }}</option>
-        </select>
-        <select
-          v-model="grantForm.subjectId"
-          class="input w-auto max-w-48"
-          data-testid="grant-subject"
-        >
-          <option value="" disabled>…</option>
-          <option v-for="x in grantSubjects" :key="x.id" :value="x.id">{{ x.label }}</option>
-        </select>
-        <select v-model="grantForm.role" class="input w-auto" data-testid="grant-role">
-          <option v-for="r in ['reader', 'editor', 'manager']" :key="r" :value="r">
-            {{ t(`grant.${r}`) }}
-          </option>
-        </select>
-        <input
-          v-model="grantForm.expiresAt"
-          type="date"
-          class="input w-auto"
-          :title="t('settings.expires')"
-        />
-        <button
-          type="button"
-          class="btn"
-          :disabled="busy || !grantForm.targetId || !grantForm.subjectId"
-          data-testid="btn-grant"
-          @click="putGrant"
-        >
-          {{ t('settings.grant') }}
-        </button>
-      </div>
+      <p class="text-xs text-slate-500">{{ t('settings.grantsWhere') }}</p>
     </div>
 
     <!-- События безопасности -->
@@ -645,6 +511,16 @@ void decryptEntry;
         </button>
       </div>
     </div>
+    <GrantDialog
+      :open="showGrant"
+      :title="t('grantDlg.open')"
+      :levels="grantLevels"
+      default-level="builtin:reader"
+      :existing="info?.members.map((m) => m.userId) ?? []"
+      :busy="busy"
+      @close="showGrant = false"
+      @submit="grantMany"
+    />
   </section>
   <p v-else class="text-sm text-slate-500">{{ t('common.working') }}</p>
 </template>

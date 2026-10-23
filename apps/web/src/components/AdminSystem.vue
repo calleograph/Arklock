@@ -4,7 +4,7 @@ import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError, apiBinary } from '../services/api';
-import { reauth } from '../services/account';
+import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import OffsiteBackups from './OffsiteBackups.vue';
 import CorporateContinuity from './CorporateContinuity.vue';
 import { useAuthStore } from '../stores/auth';
@@ -112,9 +112,8 @@ const confirm = ref<{
   run: (headers: Record<string, string>) => Promise<void>;
 } | null>(null);
 const password = ref('');
-let token: { value: string; until: number } | null = null;
 function guarded(label: string, run: (headers: Record<string, string>) => Promise<void>): void {
-  if (token && token.until > Date.now() + 5000) {
+  if (stepUpHeaders()) {
     void exec(run);
     return;
   }
@@ -125,7 +124,7 @@ async function exec(run: (h: Record<string, string>) => Promise<void>): Promise<
   busy.value = true;
   error.value = '';
   try {
-    await run(token ? { 'X-Reauth-Token': token.value } : {});
+    await run(stepUpHeaders() ?? {});
   } catch (e) {
     error.value = failMessage(e);
   } finally {
@@ -138,8 +137,7 @@ async function submitConfirm(): Promise<void> {
   busy.value = true;
   error.value = '';
   try {
-    const r = await reauth(auth.user, password.value);
-    token = { value: r.token, until: Date.parse(r.expiresAt) };
+    await confirmStepUp(auth.user, password.value);
     confirm.value = null;
     password.value = '';
     busy.value = false;
