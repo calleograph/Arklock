@@ -18,6 +18,10 @@ const route = useRoute();
 /** Бургер-меню: закрывается по клику вне его, по Escape, после выбора пункта и при смене раздела. */
 const menuOpen = ref(false);
 const menuRoot = ref<HTMLElement | null>(null);
+/** Узкий экран: короткие подписи там, где длинная обрезалась бы на середине слова. */
+const narrowQuery = window.matchMedia('(max-width: 639px)');
+const narrow = ref(narrowQuery.matches);
+narrowQuery.addEventListener('change', (e) => (narrow.value = e.matches));
 const isAdmin = computed(() => auth.user?.role === 'admin' || !!auth.user?.delegated);
 
 function closeMenu(): void {
@@ -132,7 +136,8 @@ const initial = () =>
           <input
             v-model="ws.searchQuery"
             type="search"
-            :placeholder="t('vault.search')"
+            :placeholder="narrow ? t('ws.searchShort') : t('vault.search')"
+            :aria-label="t('vault.search')"
             class="input w-full !pl-9"
             data-testid="search"
             @input="onSearch"
@@ -163,6 +168,7 @@ const initial = () =>
           </div>
           <div
             class="flex overflow-hidden rounded-lg border border-slate-300 dark:border-slate-700"
+            :class="auth.isSignedIn && auth.unlocked ? 'max-sm:hidden' : ''"
             role="group"
             :aria-label="t('ui.language')"
           >
@@ -269,6 +275,27 @@ const initial = () =>
                     </RouterLink>
                   </nav>
 
+                  <!-- на телефоне язык переключается здесь: в шапке ему не хватает места -->
+                  <div
+                    class="flex items-center justify-between gap-2 border-t border-slate-200 px-4 py-2.5 sm:hidden dark:border-slate-700"
+                    role="group"
+                    :aria-label="t('ui.language')"
+                  >
+                    <span class="text-slate-500">{{ t('ui.language') }}</span>
+                    <span class="flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800">
+                      <button
+                        v-for="l in ['ru', 'en'] as const"
+                        :key="l"
+                        type="button"
+                        class="seg uppercase"
+                        :class="{ 'seg-on': locale === l }"
+                        :aria-pressed="locale === l"
+                        @click="setLocale(l)"
+                      >
+                        {{ l }}
+                      </button>
+                    </span>
+                  </div>
                   <div class="space-y-1 border-t border-slate-200 p-2 dark:border-slate-700">
                     <RouterLink
                       v-if="isAdmin"

@@ -275,6 +275,7 @@ export const ruHelp = {
     entryActions: 'Ещё действия с записью',
     moveEntry: 'Перенести в другой сейф',
     kindFilter: 'Тип записей',
+    searchShort: 'Поиск',
     sort: 'Порядок',
   },
   corpReplace: {
@@ -599,6 +600,7 @@ export const enHelp = {
     entryActions: 'More entry actions',
     moveEntry: 'Move to another vault',
     kindFilter: 'Entry type',
+    searchShort: 'Search',
     sort: 'Order',
   },
   corpReplace: {

@@ -351,7 +351,7 @@ void router;
 <template>
   <section class="space-y-3">
     <div
-      class="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap"
+      class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 sm:flex sm:flex-wrap"
       data-testid="workspace-toolbar"
     >
       <label
@@ -399,7 +399,7 @@ void router;
           </optgroup>
         </select></label
       >
-      <div class="col-span-2 sm:col-span-1">
+      <div>
         <ActionMenu
           :label="t('ws.actions')"
           :title="t('ws.actionsTitle')"
@@ -462,13 +462,16 @@ void router;
       v-if="vault?.unlocked"
       class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[14rem_minmax(0,1fr)_25rem]"
     >
-      <nav class="flex gap-1 lg:hidden" :aria-label="t('corporate.mobileNavigation')">
+      <nav
+        class="flex rounded-[10px] bg-slate-100 p-0.5 text-sm lg:hidden dark:bg-slate-800"
+        :aria-label="t('corporate.mobileNavigation')"
+      >
         <button
           v-for="view in ['folders', 'list', 'details'] as const"
           :key="view"
           type="button"
-          class="btn flex-1"
-          :class="mobileView === view ? 'btn-primary' : ''"
+          class="seg flex-1 py-1.5"
+          :class="{ 'seg-on': mobileView === view }"
           :aria-pressed="mobileView === view"
           :data-testid="`mobile-view-${view}`"
           @click="mobileView = view"
@@ -590,10 +593,10 @@ void router;
 
       <!-- Список -->
       <div class="min-w-0 space-y-2" :class="mobileView === 'list' ? '' : 'hidden lg:block'">
-        <div class="flex flex-wrap gap-2">
+        <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-wrap">
           <select
             v-model="kindFilter"
-            class="input w-auto"
+            class="input sm:w-auto"
             :aria-label="t('ws.kindFilter')"
             data-testid="kind-filter"
           >
@@ -606,18 +609,19 @@ void router;
               {{ t(`kind.${k}`) }}
             </option>
           </select>
-          <select v-model="sort" class="input w-auto" :aria-label="t('ws.sort')">
+          <select v-model="sort" class="input sm:w-auto" :aria-label="t('ws.sort')">
             <option value="title">{{ t('vault.sortTitle') }}</option>
             <option value="updated">{{ t('vault.sortUpdated') }}</option>
           </select>
           <button
             v-if="canWrite && scope !== 'trash'"
             type="button"
-            class="btn-primary ml-auto"
+            class="btn-primary sm:ml-auto"
+            :aria-label="t('vault.add')"
             data-testid="add-entry"
             @click="newEntry"
           >
-            <Icon name="plus" /> {{ t('vault.add') }}
+            <Icon name="plus" /> <span class="max-sm:hidden">{{ t('vault.add') }}</span>
           </button>
         </div>
 
@@ -787,7 +791,7 @@ void router;
                   ><span v-if="e.branchId"> · {{ pathOf(e.branchId) }}</span>
                 </div>
               </div>
-              <span class="badge shrink-0">{{ t(`kind.${e.data.kind}`) }}</span>
+              <span class="badge shrink-0 max-sm:hidden">{{ t(`kind.${e.data.kind}`) }}</span>
             </li>
           </ul>
         </div>

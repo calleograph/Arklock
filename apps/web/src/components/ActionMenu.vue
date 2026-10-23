@@ -96,8 +96,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
       @click.stop="toggle"
     >
       <template v-if="label"
-        >{{ label }}
-        <svg viewBox="0 0 20 20" class="size-4 opacity-70" aria-hidden="true">
+        ><Icon name="more" class="!size-5 sm:hidden" /><span class="max-sm:sr-only">{{
+          label
+        }}</span>
+        <svg viewBox="0 0 20 20" class="size-4 opacity-70 max-sm:hidden" aria-hidden="true">
           <path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" /></svg
       ></template>
       <Icon v-else name="more" class="!size-5" />

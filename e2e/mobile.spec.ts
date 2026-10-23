@@ -44,11 +44,14 @@ test('the installable app: manifest, icons, service worker that never stores API
   await page.goto('/login');
   const manifest = await (await page.request.get('/manifest.webmanifest')).json();
   expect(manifest).toMatchObject({ display: 'standalone', start_url: '/' });
-  for (const icon of manifest.icons as { src: string; sizes: string }[]) {
+  for (const icon of manifest.icons as { src: string; sizes: string; type: string }[]) {
     const r = await page.request.get(icon.src);
     expect(r.status(), icon.src).toBe(200);
-    expect(r.headers()['content-type']).toContain('image/png');
+    expect(r.headers()['content-type'], icon.src).toContain(icon.type);
   }
+  // значок вкладки: векторный и запасной PNG
+  for (const href of ['/favicon.svg', '/icons/favicon-32.png'])
+    expect((await page.request.get(href)).status(), href).toBe(200);
   await expect(page.locator('link[rel="manifest"]')).toHaveCount(1);
 
   // service worker регистрируется и принимает управление
