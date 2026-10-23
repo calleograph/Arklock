@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildUserFilter, escapeFilter, DEFAULT_USER_FILTER } from '../src/auth/ldap.js';
 import { settings, users, circleMembers } from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
-import { APP_SECRET, TestClient, createTestApp } from './helpers.js';
+import { APP_SECRET, TestClient, awayFromTotpStepEdge, createTestApp } from './helpers.js';
 import { syncScheduledLdap } from '../src/auth/ldap-sync.js';
 
 // ldapjs используется только как тестовый каталог
@@ -505,6 +505,7 @@ describe('sign-in through the directory', () => {
     alice.token = tok;
     const setup = (await alice.req('POST', '/auth/mfa/setup')).json();
     const { totp, parseTotpInput } = await import('@arklock/crypto');
+    await awayFromTotpStepEdge();
     expect(
       (
         await alice.req('POST', '/auth/mfa/enable', {

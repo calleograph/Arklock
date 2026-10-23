@@ -32,6 +32,16 @@ export const FAST = { memoryKiB: 64, iterations: 1, parallelism: 1 };
 const LOW_FLOOR = { memoryKiB: 8, iterations: 1, parallelism: 1 };
 export const APP_SECRET = 'test-secret-test-secret-test-secret-123';
 
+/**
+ * Коды TOTP в тестах берутся с соседнего 30-секундного шага (защита от повтора не даёт взять текущий),
+ * а сервер принимает только ±1 шаг. Если граница шага пройдёт между вычислением кода и проверкой,
+ * код окажется на два шага в стороне — поэтому у самой границы ждём начала следующего шага.
+ */
+export async function awayFromTotpStepEdge(marginMs = 5_000): Promise<void> {
+  const left = 30_000 - (Date.now() % 30_000);
+  if (left < marginMs) await new Promise((r) => setTimeout(r, left + 50));
+}
+
 export async function createTestApp(env: Record<string, string> = {}, personalLockers = true) {
   const config = loadConfig({
     NODE_ENV: 'test',

@@ -817,7 +817,7 @@ void router;
             :depth="0"
             :counts="counts"
             :collapsed="collapsed"
-            @select="(id) => ((scope = 'all'), (branchSel = id))"
+            @select="(id) => ((scope = 'all'), (branchSel = id), (openId = null))"
             @toggle="
               (id) => (
                 collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id),

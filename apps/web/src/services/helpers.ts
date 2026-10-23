@@ -58,6 +58,8 @@ export function errorMessage(e: unknown, t: T): string {
         return t('files.disabled');
       case 'stale_key_version':
         return t('files.stale');
+      case 'self_deny':
+        return t('entryPanel.selfDeny');
       case 'network_error':
         return t('error.network');
       case 'forbidden':

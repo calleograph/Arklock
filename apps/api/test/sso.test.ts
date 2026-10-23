@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { parseTotpInput, totp } from '@arklock/crypto';
 import { settings, users } from '../src/db/schema.js';
-import { TestClient, createTestApp } from './helpers.js';
+import { TestClient, awayFromTotpStepEdge, createTestApp } from './helpers.js';
 
 const PUBLIC = 'https://arklock.example.com';
 // Привязка входа к браузеру: приложение хранит verifier, серверу уходит только его хэш
@@ -338,6 +338,7 @@ describe('sign-in through OIDC', () => {
 
   it('a disabled account cannot sign in; the second factor still applies', async () => {
     const mfaSecret = (await sam.req('POST', '/auth/mfa/setup')).json().secret as string;
+    await awayFromTotpStepEdge();
     expect(
       (
         await sam.req('POST', '/auth/mfa/enable', {

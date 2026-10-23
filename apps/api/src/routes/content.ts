@@ -861,6 +861,15 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     }
     if (!mine && !access.isAdmin) throw notFound();
     if (mine !== 'manager' && !access.isAdmin) throw forbidden();
+    // запрет самому себе отрезал бы управляющего от объекта; администратора сейфа запрет не ограничивает
+    if (
+      body.subjectType === 'user' &&
+      body.subjectId === user.id &&
+      body.role === 'none' &&
+      !access.isAdmin
+    ) {
+      throw new AppError(400, 'self_deny', 'You cannot deny access to yourself');
+    }
     if (body.subjectType === 'user') {
       const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, body.subjectId));
       if (!u) throw notFound();

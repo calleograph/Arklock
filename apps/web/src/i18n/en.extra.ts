@@ -135,7 +135,12 @@ export default {
     keyPending: 'Waiting for a key',
     rules: 'Access rules',
     inheritanceHint:
-      'Access is inherited from the vault and parent folders. Explicit deny takes priority. Edit inherited rules at their source.',
+      'Access is inherited from the vault and parent folders and combined by the highest level; an explicit deny overrides any permission. For an inherited rule you can raise the level or deny access to this object here; the source rule stays as it is.',
+    inheritedFrom: 'Inherited from “{name}”',
+    override: 'Own level for this object',
+    expiry: 'Expires',
+    noExpiry: 'No expiry',
+    selfDeny: 'You cannot deny access to yourself: you would lose control of this object.',
     noRules: 'No separate rules. Vault permissions apply.',
     inherited: 'Inherited',
     direct: 'This entry',

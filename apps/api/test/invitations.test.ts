@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { parseTotpInput, totp } from '@arklock/crypto';
 import { circleMembers, invitations, users } from '../src/db/schema.js';
-import { TestClient, createTestApp } from './helpers.js';
+import { TestClient, awayFromTotpStepEdge, createTestApp } from './helpers.js';
 
 const PUBLIC = 'https://arklock.example.com';
 const mails: { to: string; data: string }[] = [];
@@ -295,6 +295,7 @@ describe('mail: invitation delivery and security notices', () => {
   it('security events notify the account owner; the switch turns it off; no secrets in the message', async () => {
     mails.length = 0;
     const setup = (await admin.req('POST', '/auth/mfa/setup')).json();
+    await awayFromTotpStepEdge();
     expect(
       (
         await admin.req('POST', '/auth/mfa/enable', {
@@ -310,8 +311,13 @@ describe('mail: invitation delivery and security notices', () => {
 
     mails.length = 0;
     await admin.req('PUT', '/admin/settings', { 'notifications.security': false });
+    // ключ входа выводится долго — код берётся после него, у самого запроса
+    const authKey = (await import('@arklock/crypto')).toBase64Url(
+      (await admin.derive()).keys.authKey,
+    );
+    await awayFromTotpStepEdge();
     const next = await admin.req('POST', '/auth/mfa/backup-codes', {
-      authKey: (await import('@arklock/crypto')).toBase64Url((await admin.derive()).keys.authKey),
+      authKey,
       code: await totp(parseTotpInput(setup.secret), Date.now() + 30_000),
     });
     expect(next.statusCode).toBe(200);

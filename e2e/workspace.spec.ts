@@ -382,6 +382,9 @@ test('administrator builds a structure and works with entries', async ({ browser
   await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись в папке' })).toContainText(
     'Банки',
   );
+  // щелчок по уже выбранной папке закрывает запись и показывает панель папки
+  await page.getByTestId('branch-row').filter({ hasText: 'Банки' }).first().click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.getByTestId('scope-all').click();
 });
 
@@ -531,6 +534,14 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await expect(page.getByTestId('entry-access-grant').filter({ hasText: MEMBER.name })).toHaveCount(
     1,
   );
+  // срок правила меняется на месте и снимается очисткой даты
+  const memberRule = page.getByTestId('entry-access-grant').filter({ hasText: MEMBER.name });
+  const day = new Date(Date.now() + 5 * 86_400_000);
+  const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+  await memberRule.getByTestId('grant-expiry').fill(ymd);
+  await expect(memberRule.getByTestId('grant-expiry')).toHaveValue(ymd);
+  await memberRule.getByTestId('grant-expiry').fill('');
+  await expect(memberRule.getByTestId('grant-expiry')).toHaveValue('');
 
   // участник видит хранилище и запись, читает её
   await memberPage.reload();

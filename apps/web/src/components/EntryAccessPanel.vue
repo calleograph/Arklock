@@ -116,6 +116,8 @@ function grantMany(list: Recipient[], expiresAt: string | null): void {
     notice.value = t('grantDlg.done', { n: list.length });
   });
 }
+// у наследуемого правила другой уровень — новое правило этого объекта (сервер хранит одно правило
+// на объект и участника), срок у него свой и по умолчанию не задан
 function change(grant: Grant, event: Event): void {
   const role = (event.target as HTMLSelectElement).value;
   void mutate(() =>
@@ -123,10 +125,41 @@ function change(grant: Grant, event: Event): void {
       subjectType: grant.subjectType,
       subjectId: grant.subjectId,
       role,
-      expiresAt: grant.expiresAt,
+      expiresAt: grant.inherited ? null : grant.expiresAt,
     }),
   );
 }
+const pad = (n: number) => String(n).padStart(2, '0');
+const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = localDate(new Date());
+function setExpiry(grant: Grant, event: Event): void {
+  const day = (event.target as HTMLInputElement).value;
+  void mutate(() =>
+    putGrant({
+      subjectType: grant.subjectType,
+      subjectId: grant.subjectId,
+      role: grant.role,
+      expiresAt: day ? new Date(`${day}T23:59:59`).toISOString() : null,
+    }),
+  );
+}
+const sourceName = (grant: Grant) =>
+  ws.branches.find((b) => b.id === grant.targetId)?.name ?? t('entryPanel.inherited');
+// права объединяются по наибольшему уровню, а запрет сильнее всего: у наследуемого правила
+// действуют только повышение и запрет, понижение ничего бы не ограничило
+const RANK: Record<string, number> = { reader: 1, editor: 2, manager: 3 };
+const choices = (grant: Grant) =>
+  grant.inherited
+    ? roles.filter(
+        (r) => r === grant.role || r === 'none' || (RANK[r] ?? 0) > (RANK[grant.role] ?? 0),
+      )
+    : roles;
+// своё правило для участника уже есть — наследуемое переопределено, второй выбор не нужен
+const overridden = (grant: Grant) =>
+  grant.inherited &&
+  !!data.value?.grants.some(
+    (g) => !g.inherited && g.subjectType === grant.subjectType && g.subjectId === grant.subjectId,
+  );
 function revoke(grant: Grant): void {
   if (window.confirm(t('entryPanel.confirmRevoke', { name: grant.subjectName })))
     void mutate(() => api('DELETE', `/vaults/${props.vaultId}/grants/${grant.id}`));
@@ -212,26 +245,48 @@ function sourceLabel(source: string): string {
               <span class="break-all"
                 >{{ grant.subjectName }}
                 <span class="badge">{{
-                  t(
-                    grant.inherited
-                      ? 'entryPanel.inherited'
-                      : targetType === 'branch'
-                        ? 'entryPanel.directFolder'
-                        : 'entryPanel.direct',
-                  )
+                  grant.inherited
+                    ? t('entryPanel.inheritedFrom', { name: sourceName(grant) })
+                    : t(targetType === 'branch' ? 'entryPanel.directFolder' : 'entryPanel.direct')
                 }}</span></span
               >
-              <span class="flex items-center gap-2">
+              <span class="flex flex-wrap items-center gap-2">
                 <span v-if="grant.expired" class="badge">{{ t('entryPanel.expired') }}</span>
-                <select
+                <input
                   v-if="data.canManage && !grant.inherited"
+                  type="date"
+                  class="input w-auto"
+                  :value="grant.expiresAt ? localDate(new Date(grant.expiresAt)) : ''"
+                  :min="today"
+                  :disabled="busy"
+                  :aria-label="`${t('entryPanel.expiry')}: ${grant.subjectName}`"
+                  :title="grant.expiresAt ? t('entryPanel.expiry') : t('entryPanel.noExpiry')"
+                  data-testid="grant-expiry"
+                  @change="setExpiry(grant, $event)"
+                />
+                <select
+                  v-if="
+                    data.canManage &&
+                    !overridden(grant) &&
+                    !(grant.inherited && grant.role === 'none')
+                  "
                   class="input w-auto"
                   :value="grant.role"
                   :disabled="busy"
-                  :aria-label="t('entryPanel.permission')"
+                  :aria-label="
+                    grant.inherited
+                      ? `${t('entryPanel.override')}: ${grant.subjectName}`
+                      : `${t('entryPanel.permission')}: ${grant.subjectName}`
+                  "
+                  :data-testid="grant.inherited ? 'grant-override' : 'grant-role'"
                   @change="change(grant, $event)"
                 >
-                  <option v-for="role in roles" :key="role" :value="role">
+                  <option
+                    v-for="role in choices(grant)"
+                    :key="role"
+                    :value="role"
+                    :disabled="grant.inherited && role === grant.role"
+                  >
                     {{ t(`entryPanel.roles.${role}`) }}
                   </option>
                 </select>
@@ -247,7 +302,7 @@ function sourceLabel(source: string): string {
                 </button>
               </span>
             </div>
-            <p v-if="grant.expiresAt" class="mt-1 text-xs text-slate-500">
+            <p v-if="grant.expiresAt && grant.inherited" class="mt-1 text-xs text-slate-500">
               {{ t('entryPanel.until') }} {{ when(grant.expiresAt) }}
             </p>
           </li>

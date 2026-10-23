@@ -318,6 +318,83 @@ it('restoring an entry preserves unrelated legacy orphans and their inherited AC
   expect(unchanged!.branchId).toBe(parent.id);
 });
 
+it('a folder manager cannot deny themselves; inherited rules are overridden and expiry edited in place', async () => {
+  const lead = new TestClient(app, 'lead@example.com', 'lead-password-12345');
+  expect((await lead.register()).statusCode).toBe(201);
+  await lead.login();
+  const vault = (await owner.vaults()).find((v) => v.id === vaultId)!;
+  const key = await owner.openVault(vault);
+  expect((await owner.addMember(vaultId, lead, 'limited', key)).statusCode).toBe(204);
+  const put = (c: TestClient, body: Record<string, unknown>) =>
+    c.req('PUT', `/vaults/${vaultId}/grants`, {
+      targetType: 'branch',
+      targetId: branchId,
+      ...body,
+    });
+  expect(
+    (await put(owner, { subjectType: 'user', subjectId: lead.userId, role: 'manager' })).statusCode,
+  ).toBe(200);
+
+  const self = await put(lead, { subjectType: 'user', subjectId: lead.userId, role: 'none' });
+  expect(self.statusCode).toBe(400);
+  expect(self.json().error.code).toBe('self_deny');
+  // запрет другому участнику и понижение себя — допустимы
+  expect(
+    (await put(lead, { subjectType: 'user', subjectId: member.userId, role: 'reader' })).statusCode,
+  ).toBe(200);
+
+  // у записи правило папки наследуется; свой уровень для записи — отдельное правило
+  const override = await owner.req('PUT', `/vaults/${vaultId}/grants`, {
+    targetType: 'entry',
+    targetId: entryId,
+    subjectType: 'user',
+    subjectId: member.userId,
+    role: 'editor',
+  });
+  expect(override.statusCode).toBe(200);
+  const rules = () =>
+    owner.req('GET', `/vaults/${vaultId}/entries/${entryId}/access`).then(
+      (r) =>
+        r.json().grants as {
+          subjectId: string;
+          inherited: boolean;
+          role: string;
+          expiresAt: string | null;
+        }[],
+    );
+  const forMember = (await rules()).filter((g) => g.subjectId === member.userId);
+  expect(forMember.map((g) => [g.inherited, g.role]).sort()).toEqual([
+    [false, 'editor'],
+    [true, 'reader'],
+  ]);
+
+  // срок правила меняется тем же запросом и снимается пустым значением
+  const until = new Date(Date.now() + 3 * 86_400_000).toISOString();
+  const body = {
+    targetType: 'entry',
+    targetId: entryId,
+    subjectType: 'user',
+    subjectId: member.userId,
+    role: 'editor',
+  };
+  expect(
+    (await owner.req('PUT', `/vaults/${vaultId}/grants`, { ...body, expiresAt: until })).statusCode,
+  ).toBe(200);
+  expect(
+    (await rules()).find((g) => g.subjectId === member.userId && !g.inherited)?.expiresAt,
+  ).toBe(until);
+  expect(
+    (await owner.req('PUT', `/vaults/${vaultId}/grants`, { ...body, expiresAt: null })).statusCode,
+  ).toBe(200);
+  expect(
+    (await rules()).find((g) => g.subjectId === member.userId && !g.inherited)?.expiresAt,
+  ).toBeNull();
+
+  // уборка: правила этого теста не должны влиять на следующие
+  for (const g of (await owner.req('GET', `/vaults/${vaultId}/grants`)).json() as { id: string }[])
+    await owner.req('DELETE', `/vaults/${vaultId}/grants/${g.id}`);
+});
+
 it('bulk and cascading deletion enforce role denials', async () => {
   const role = await owner.req('POST', '/admin/roles', {
     name: 'No deletes',
