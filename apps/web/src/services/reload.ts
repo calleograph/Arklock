@@ -7,7 +7,7 @@ import {
   hkdf,
   toBase64Url,
 } from '@arklock/crypto';
-import { api, loadToken, setToken } from './api';
+import { api, ApiError, loadToken, setToken } from './api';
 
 /**
  * Разблокировка после обновления страницы. Закрытые ключи шифруются случайным ключом, полученным из доли сервера
@@ -67,8 +67,16 @@ export async function remember(userId: string, keys: PrivateKeys): Promise<void>
 export async function recall(userId: string): Promise<PrivateKeys | null> {
   const blob = read();
   if (!blob || blob.userId !== userId) return null;
+  let share: string;
   try {
-    const { share } = await api<{ share: string }>('GET', '/auth/session/reload-key');
+    share = (await api<{ share: string }>('GET', '/auth/session/reload-key')).share;
+  } catch (e) {
+    // сеть или перезапуск сервера: шифртекст сохраняем, следующий F5 попробует снова
+    if (!(e instanceof ApiError && e.status !== 0 && e.status < 500)) return null;
+    write(null);
+    return null;
+  }
+  try {
     const key = await hkdf(fromBase64Url(share), fromBase64Url(blob.salt), 'arklock/v1/reload');
     const plain = await decrypt(key, blob.sealed, aad(userId));
     key.fill(0);

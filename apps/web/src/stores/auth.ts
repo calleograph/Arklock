@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import type { MfaChallengeResponse, SessionResponse, UserBundle } from '@arklock/contracts';
 import {
   api,
+  ApiError,
   loadToken,
   setMfaRequiredHandler,
   setToken,
@@ -311,6 +312,19 @@ export const useAuthStore = defineStore('auth', () => {
     reload.broadcast('logout');
   }
 
+  /** Профиль после перезагрузки: при сбое сети или перезапуске сервера несколько повторов (около 15 секунд). */
+  async function meWithRetry(): Promise<{ user: UserBundle }> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await api<{ user: UserBundle }>('GET', '/auth/me');
+      } catch (e) {
+        const transient = e instanceof ApiError && (e.status === 0 || e.status >= 500);
+        if (!transient || attempt >= 4) throw e;
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+      }
+    }
+  }
+
   /** Восстановление состояния после перезагрузки страницы: токен есть, ключей нет — потребуется разблокировка. */
   async function restore(): Promise<void> {
     setUnauthorizedHandler(clearSession);
@@ -326,7 +340,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (loadToken()) {
       hasToken.value = true;
       try {
-        const me = await api<{ user: UserBundle }>('GET', '/auth/me');
+        const me = await meWithRetry();
         user.value = me.user;
         // F5: ключи открываются долей сервера, если сеанс действует и разблокировка после обновления разрешена
         const keys = await reload.recall(me.user.id);
@@ -340,8 +354,9 @@ export const useAuthStore = defineStore('auth', () => {
             },
             false,
           );
-      } catch {
-        clearSession();
+      } catch (e) {
+        // сеанс завершается только если сервер его отверг; недоступный сервер (обновление, сеть) — не повод выходить
+        if (e instanceof ApiError && e.status === 401) clearSession();
       }
     }
     ready.value = true;

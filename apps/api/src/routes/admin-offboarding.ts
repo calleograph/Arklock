@@ -1,5 +1,5 @@
-import { and, count, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
-import type { FastifyPluginAsync } from 'fastify';
+import { and, count, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
@@ -11,6 +11,7 @@ import { corporateAccessRisks } from '../corporate-continuity.js';
 import {
   apiTokens,
   circleMembers,
+  circles,
   entries,
   grants,
   handoffs,
@@ -76,8 +77,11 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
   app.addHook('preHandler', (req) => adminGate(ctx, req));
   const idParam = z.object({ id: uuid });
 
-  /** Что связано с сотрудником: без содержимого и ключей, только состав и числа. */
-  app.get('/admin/users/:id/offboarding', async (req) => {
+  /**
+   * Что связано с сотрудником: группы, сеансы, сейфы, токены и ссылки — без содержимого и ключей.
+   * Один ответ для карточки пользователя и для предпросмотра увольнения.
+   */
+  const profile = async (req: FastifyRequest) => {
     const { id } = parse(idParam, req.params);
     const [target] = await db.select().from(users).where(eq(users.id, id));
     if (!target) throw notFound();
@@ -95,15 +99,55 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         .from(sessions)
         .where(and(eq(sessions.userId, id), isNull(sessions.revokedAt))),
     ]);
+    const [groups, sessionList] = await Promise.all([
+      db
+        .select({ id: circles.id, name: circles.name, adminRoleId: circles.adminRoleId })
+        .from(circleMembers)
+        .innerJoin(circles, eq(circles.id, circleMembers.circleId))
+        .where(eq(circleMembers.userId, id)),
+      db
+        .select({
+          id: sessions.id,
+          createdAt: sessions.createdAt,
+          lastSeenAt: sessions.lastSeenAt,
+          ip: sessions.ip,
+          userAgent: sessions.userAgent,
+        })
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.userId, id),
+            isNull(sessions.revokedAt),
+            gt(sessions.expiresAt, new Date()),
+          ),
+        ),
+    ]);
     return {
-      user: { id, name: target.displayName, email: target.email, disabled: !!target.disabledAt },
+      user: {
+        id,
+        name: target.displayName,
+        email: target.email,
+        disabled: !!target.disabledAt,
+        role: target.role,
+        adminRoleId: target.adminRoleId,
+        authSource: target.authSource,
+        createdAt: target.createdAt.toISOString(),
+      },
+      groups,
+      sessionList: sessionList.map((x) => ({
+        ...x,
+        createdAt: x.createdAt.toISOString(),
+        lastSeenAt: x.lastSeenAt.toISOString(),
+      })),
       vaults: await heldVaults(db, id),
       accessRisks: await corporateAccessRisks(db, id),
       apiTokens: tokens?.n ?? 0,
       externalLinks: links?.n ?? 0,
       sessions: sess?.n ?? 0,
     };
-  });
+  };
+  app.get('/admin/users/:id/offboarding', profile);
+  app.get('/admin/users/:id/profile', profile);
 
   app.post('/admin/users/:id/offboard', async (req) => {
     const { user } = authOf(req);

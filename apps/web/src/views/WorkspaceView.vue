@@ -161,6 +161,20 @@ function pathOf(id: string | null): string {
   return out.join(' / ');
 }
 
+/** Записи папки и всех вложенных папок с заданным признаком архива. */
+function folderEntries(b: BranchItem, archived: boolean): EntryItem[] {
+  const ids = descendants(b.id);
+  return ws.entries.filter(
+    (e) =>
+      e.branchId && ids.has(e.branchId) && !!e.data.archived === archived && e.access !== 'reader',
+  );
+}
+/** Архив папки — архив всех её записей: признак хранится в зашифрованных данных записи и меняется в браузере. */
+const archiveFolder = (b: BranchItem, archived: boolean) =>
+  run(async () => {
+    for (const e of folderEntries(b, !archived)) await ws.saveEntry({ ...e.data, archived }, e);
+    menuBranch.value = null;
+  });
 function descendants(id: string): Set<string> {
   const out = new Set([id]);
   let grew = true;
@@ -918,6 +932,26 @@ void router;
             </option>
           </select></label
         >
+        <button
+          v-if="folderEntries(menuBranch, false).length"
+          type="button"
+          class="btn w-full"
+          data-testid="folder-archive"
+          @click="archiveFolder(menuBranch!, true)"
+        >
+          <Icon name="archive" />
+          {{ t('ws.archiveFolder', { n: folderEntries(menuBranch, false).length }) }}
+        </button>
+        <button
+          v-if="folderEntries(menuBranch, true).length"
+          type="button"
+          class="btn w-full"
+          data-testid="folder-unarchive"
+          @click="archiveFolder(menuBranch!, false)"
+        >
+          <Icon name="inbox" />
+          {{ t('ws.unarchiveFolder', { n: folderEntries(menuBranch, true).length }) }}
+        </button>
         <button
           type="button"
           class="btn-danger w-full"

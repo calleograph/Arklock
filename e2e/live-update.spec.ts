@@ -60,6 +60,8 @@ test('register, store an entry, update to the new release from the browser', asy
 
   // После обновления приложение перезапущено: перезагружаем страницу, разблокируем, данные на месте.
   await page.reload();
+  // после обновления сеанс и разблокировка сохраняются: не экран входа и не запрос мастер-пароля
+  await expect(page).not.toHaveURL(/\/(login|unlock)$/, { timeout: 90_000 });
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 90_000 });
   await openUpdates(page);
   await expect(page.getByTestId('installed-version')).toHaveText('0.0.2');
@@ -84,6 +86,8 @@ test('a release with a failing migration is recovered and the interface explains
   await expect(page.getByTestId('progress-message')).not.toBeEmpty();
 
   await page.reload();
+  // после обновления сеанс и разблокировка сохраняются: не экран входа и не запрос мастер-пароля
+  await expect(page).not.toHaveURL(/\/(login|unlock)$/, { timeout: 90_000 });
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 90_000 });
   await openUpdates(page);
   await expect(page.getByTestId('installed-version')).toHaveText('0.0.2');

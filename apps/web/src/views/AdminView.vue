@@ -15,6 +15,7 @@ import Icon, { type IconName } from '../components/Icon.vue';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
 import OffboardingPanel from '../components/OffboardingPanel.vue';
+import UserProfilePanel from '../components/UserProfilePanel.vue';
 import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
@@ -182,6 +183,7 @@ const patchUser = (u: U, body: object) =>
     }
   }, loadUsers);
 const offboarding = ref<U | null>(null);
+const profileOf = ref<U | null>(null);
 const endSessions = (u: U) =>
   run(() => api('POST', `/admin/users/${u.id}/revoke-sessions`), loadUsers);
 
@@ -492,6 +494,15 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <option value="disabled">{{ t('admin.disabled') }}</option>
             </select>
           </div>
+          <UserProfilePanel
+            v-if="profileOf && !offboarding"
+            :key="profileOf.id"
+            :user-id="profileOf.id"
+            :admin-roles="adminRoles"
+            @close="profileOf = null"
+            @offboard="((offboarding = profileOf), (profileOf = null))"
+            @changed="loadUsers"
+          />
           <OffboardingPanel
             v-if="offboarding"
             :key="offboarding.id"
@@ -520,7 +531,14 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 data-testid="user-row"
               >
                 <td class="px-3 py-2">
-                  <div>{{ u.name }}</div>
+                  <button
+                    type="button"
+                    class="text-left font-medium hover:text-brand-600 hover:underline"
+                    :data-testid="`profile-open-${u.email}`"
+                    @click="((offboarding = null), (profileOf = u))"
+                  >
+                    {{ u.name }}
+                  </button>
                   <div class="text-xs text-slate-500">{{ u.email }}</div>
                   <div class="text-xs text-slate-500">{{ u.authSource ?? 'local' }}</div>
                 </td>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Icon from './Icon.vue';
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { BranchItem } from '../services/model';
 
 const props = defineProps<{
@@ -11,6 +12,7 @@ const props = defineProps<{
   counts: Map<string | null, number>;
   collapsed: Set<string>;
 }>();
+const { t } = useI18n();
 const emit = defineEmits<{
   (e: 'select', id: string): void;
   (e: 'toggle', id: string): void;
@@ -57,10 +59,11 @@ const open = computed(() => !props.collapsed.has(props.node.id));
         v-if="node.access !== 'reader'"
         type="button"
         class="rounded px-1 text-slate-500 hover:bg-slate-200 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 dark:hover:bg-slate-700"
-        aria-label="menu"
+        :aria-label="`${t('ws.folderActions')}: ${node.name}`"
+        :data-testid="`folder-menu-${node.name}`"
         @click.stop="emit('menu', node)"
       >
-        ⋯
+        <Icon name="more" class="size-4" />
       </button>
     </div>
     <ul v-if="open && children.length">

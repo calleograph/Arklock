@@ -563,8 +563,18 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('role-delete-Аудитор журнала').click();
   await expect(page.getByTestId('roles-error')).toBeVisible();
 
-  // увольнение: предпросмотр, подтверждение, блокировка
+  // карточка сотрудника: группы, сеансы и сейфы в одном месте; увольнение запускается из неё
   await tab(page, 'users');
+  await page.getByTestId('profile-open-invited.person@example.com').click();
+  await expect(page.getByTestId('profile-groups')).toContainText('Аудиторы журнала');
+  await page.getByTestId('profile-offboard').click();
+  await expect(page.getByTestId('offboarding')).toBeVisible();
+  await page
+    .getByRole('button', { name: /Отмена|Cancel/ })
+    .last()
+    .click();
+
+  // увольнение: предпросмотр, подтверждение, блокировка
   await page.getByTestId('offboard-invited.person@example.com').click();
   await expect(page.getByTestId('offboarding')).toBeVisible();
   await page.getByTestId('offboarding-confirm').click();

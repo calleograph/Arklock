@@ -264,6 +264,17 @@ test('administrator builds a structure and works with entries', async ({ browser
     .nth(1)
     .click();
   await expect(page.getByTestId('entry-row')).toHaveCount(2);
+
+  // архив папки: все её записи уходят в архив одним действием и возвращаются так же
+  await page.getByTestId('folder-menu-Финансы').click();
+  await page.getByTestId('folder-archive').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(0);
+  await page.getByTestId('scope-archive').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(2);
+  await page.getByTestId('folder-menu-Финансы').click();
+  await page.getByTestId('folder-unarchive').click();
+  await expect(page.getByTestId('entry-row')).toHaveCount(0);
+  await page.getByTestId('scope-all').click();
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {

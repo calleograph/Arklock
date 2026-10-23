@@ -44,6 +44,19 @@ it('offboarding is for administrators only and previews the holdings without con
   expect(JSON.stringify(p)).not.toContain('sealedKey');
 });
 
+it('the user card shows groups, live sessions and vaults in one answer, for administrators only', async () => {
+  expect((await heir.req('GET', `/admin/users/${leaver.userId}/profile`)).statusCode).toBe(403);
+  const g = (await admin.req('POST', '/admin/circles', { name: 'Бухгалтерия' })).json()
+    .id as string;
+  await admin.req('PUT', `/admin/circles/${g}/members/${leaver.userId}`);
+  const p = (await admin.req('GET', `/admin/users/${leaver.userId}/profile`)).json();
+  expect(p.user).toMatchObject({ email: 'leaver@example.com', role: 'member', disabled: false });
+  expect(p.groups).toEqual([expect.objectContaining({ id: g, name: 'Бухгалтерия' })]);
+  expect(p.sessionList.length).toBeGreaterThan(0);
+  expect(p.vaults[0]).toMatchObject({ id: vaultId, role: 'owner' });
+  expect(JSON.stringify(p)).not.toMatch(/sealedKey|tokenHash|authHash/);
+});
+
 it('refuses to leave a vault without an owner and to hand it to someone without the key', async () => {
   const r = await admin.req('POST', `/admin/users/${leaver.userId}/offboard`, {});
   expect(r.statusCode).toBe(409);

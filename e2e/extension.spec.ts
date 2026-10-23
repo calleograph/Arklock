@@ -198,9 +198,15 @@ async function signIn(popup: Page): Promise<void> {
 async function webEntry(title: string): Promise<Page> {
   const web = await context.newPage();
   await web.goto(`${SERVER}/login`);
-  await web.getByTestId('email').fill(USER.email);
-  await web.getByTestId('password').fill(USER.password);
-  await web.getByTestId('submit').click();
+  // новая вкладка получает сеанс от уже открытой вкладки того же браузера; если такой нет — обычный вход
+  await expect(web.getByTestId('vault-select').or(web.getByTestId('email'))).toBeVisible({
+    timeout: 30_000,
+  });
+  if (await web.getByTestId('email').isVisible()) {
+    await web.getByTestId('email').fill(USER.email);
+    await web.getByTestId('password').fill(USER.password);
+    await web.getByTestId('submit').click();
+  }
   await expect(web.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
   await web.getByTestId('search').fill(title);
   await web.getByTestId('entry-row').first().click();
