@@ -250,12 +250,32 @@ export const ruHelp = {
     publicUrl: 'Сначала задайте публичный адрес сервера в настройках установки.',
     notInTrash: 'Запись уже не в корзине.',
   },
+  brand: {
+    title: 'Пароли компании — под вашим ключом',
+    lead: 'Arklock хранит учётные данные команды на ваших серверах. Шифрует и расшифровывает их только браузер сотрудника.',
+    facts: {
+      e2e: {
+        title: 'Шифрование в браузере',
+        text: 'Сервер получает только шифртекст и не может прочитать записи.',
+      },
+      keys: {
+        title: 'Мастер-пароль не покидает устройство',
+        text: 'Из него в браузере вычисляются ключи (Argon2id); восстановить его на сервере нельзя.',
+      },
+      host: {
+        title: 'Размещение у вас',
+        text: 'Установка одной командой, резервные копии и обновления из панели администратора.',
+      },
+    },
+  },
   ws: {
     vault: 'Сейф',
     actions: 'Действия',
     actionsTitle: 'Действия с сейфом и пространством',
     entryActions: 'Ещё действия с записью',
     moveEntry: 'Перенести в другой сейф',
+    kindFilter: 'Тип записей',
+    sort: 'Порядок',
   },
   corpReplace: {
     title: 'Замена офлайн-пакета восстановления',
@@ -554,12 +574,32 @@ export const enHelp = {
     publicUrl: 'Set the server’s public address in the installation settings first.',
     notInTrash: 'The entry is no longer in the trash.',
   },
+  brand: {
+    title: 'Company passwords, under your key',
+    lead: 'Arklock keeps team credentials on your own servers. Only the employee’s browser encrypts and decrypts them.',
+    facts: {
+      e2e: {
+        title: 'Encryption in the browser',
+        text: 'The server only receives ciphertext and cannot read entries.',
+      },
+      keys: {
+        title: 'The master password never leaves the device',
+        text: 'Keys are derived from it in the browser (Argon2id); the server cannot recover it.',
+      },
+      host: {
+        title: 'Hosted by you',
+        text: 'One-command install, backups and updates from the admin panel.',
+      },
+    },
+  },
   ws: {
     vault: 'Vault',
     actions: 'Actions',
     actionsTitle: 'Vault and space actions',
     entryActions: 'More entry actions',
     moveEntry: 'Move to another vault',
+    kindFilter: 'Entry type',
+    sort: 'Order',
   },
   corpReplace: {
     title: 'Replacing the offline recovery package',

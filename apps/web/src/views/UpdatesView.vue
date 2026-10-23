@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { when } from '../services/helpers';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { UpdatesOverview } from '@arklock/contracts';
@@ -150,7 +151,7 @@ const check = () => send({ action: 'check' }, false);
 const update = () => dangerous({ action: 'update', version: data.value?.remote?.latest });
 const rollback = () => dangerous({ action: 'rollback', withRestore: withRestore.value });
 
-const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—');
+const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 </script>
 
 <template>

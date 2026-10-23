@@ -20,6 +20,8 @@ Arklock использует перечисленные ниже библиот�
 | @fastify/proxy-addr | 5.1.2 | MIT | https://github.com/fastify/proxy-addr |
 | @fastify/send | 4.1.2 | MIT | https://github.com/fastify/send |
 | @fastify/static | 10.1.6 | MIT | https://github.com/fastify/fastify-static |
+| @fontsource-variable/jetbrains-mono | 5.3.0 | OFL-1.1 (font) | https://github.com/fontsource/font-files |
+| @fontsource-variable/onest | 5.3.1 | OFL-1.1 (font) | https://github.com/fontsource/font-files |
 | @hexagon/base64 | 1.1.28 | MIT | https://github.com/hexagon/base64 |
 | @intlify/core-base | 11.4.14 | MIT | https://github.com/intlify/vue-i18n |
 | @intlify/devtools-types | 11.4.14 | MIT | https://github.com/intlify/vue-i18n |

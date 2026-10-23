@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { errorMessage, vaultLabel } from '../services/helpers';
+import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import LdapSettings from '../components/LdapSettings.vue';
@@ -406,7 +406,7 @@ onMounted(async () => {
   else await loadTab();
 });
 watch(tab, loadTab);
-const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—');
+const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 </script>
 
 <template>
@@ -880,6 +880,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                   :details="t('hint.pinUnlock.details')" /></span
               ><input
                 type="checkbox"
+                class="switch"
                 :checked="settings['security.pinUnlock'] === true"
                 data-testid="set-pin"
                 @change="
@@ -1062,6 +1063,7 @@ const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—
                 >{{ t('invite.notify') }}<InfoHint :text="t('hint.notify.text')" /></span
               ><input
                 type="checkbox"
+                class="switch"
                 :checked="settings['notifications.security'] !== false"
                 data-testid="set-notify"
                 @change="

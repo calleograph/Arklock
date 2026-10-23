@@ -5,7 +5,7 @@ import type { SessionInfo } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
 import { changePassword, MIN_MASTER_PASSWORD } from '../services/account';
 import { useAuthStore } from '../stores/auth';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import MfaSettings from '../components/MfaSettings.vue';
 import TokensSettings from '../components/TokensSettings.vue';
 
@@ -102,7 +102,7 @@ async function submit(): Promise<void> {
             </div>
             <div class="text-xs text-slate-500">
               {{ s.ip ?? '—' }} · {{ t('security.lastSeen') }}:
-              {{ new Date(s.lastSeenAt).toLocaleString() }}
+              {{ when(s.lastSeenAt) }}
             </div>
           </div>
           <button
@@ -161,16 +161,3 @@ async function submit(): Promise<void> {
     </form>
   </section>
 </template>
-
-<style scoped>
-.field {
-  width: 100%;
-  border-radius: 0.375rem;
-  border: 1px solid rgb(203 213 225);
-  background: transparent;
-  padding: 0.4rem 0.6rem;
-}
-:global(html.dark) .field {
-  border-color: rgb(51 65 85);
-}
-</style>

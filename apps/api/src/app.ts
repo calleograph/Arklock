@@ -167,7 +167,14 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     await app.register(fastifyStatic, { root: webDist, wildcard: false });
     // SPA: неизвестные пути интерфейса отдают index.html, неизвестные пути API — JSON-ошибку 404.
     app.setNotFoundHandler((req, reply) => {
-      if (req.method === 'GET' && !req.url.startsWith(API_PREFIX))
+      // Файл с расширением (/assets/*.js и т.п.) — это не маршрут интерфейса: отсутствующий файл сборки получает 404,
+      // иначе браузер и service worker приняли бы HTML за скрипт и закэшировали его.
+      const pathname = req.url.split('?')[0] ?? '';
+      if (
+        req.method === 'GET' &&
+        !pathname.startsWith(API_PREFIX) &&
+        !/\.[a-z0-9]+$/i.test(pathname)
+      )
         return reply.sendFile('index.html');
       return reply.status(404).send(notFound(req.id));
     });

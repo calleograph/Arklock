@@ -3,7 +3,7 @@ import InfoHint from './InfoHint.vue';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import { useWorkspaceStore } from '../stores/workspace';
 
 const props = withDefaults(
@@ -252,7 +252,7 @@ function sourceLabel(source: string): string {
               </span>
             </div>
             <p v-if="grant.expiresAt" class="mt-1 text-xs text-slate-500">
-              {{ t('entryPanel.until') }} {{ new Date(grant.expiresAt).toLocaleString() }}
+              {{ t('entryPanel.until') }} {{ when(grant.expiresAt) }}
             </p>
           </li>
         </ul>

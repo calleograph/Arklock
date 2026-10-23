@@ -386,373 +386,392 @@ async function copyRecovery(): Promise<void> {
 </script>
 
 <template>
-  <section class="mx-auto max-w-md">
-    <div
-      v-if="shownRecovery"
-      class="rounded-lg border border-amber-300 bg-amber-50 p-5 dark:border-amber-700 dark:bg-amber-950"
-    >
-      <h1 class="mb-2 text-lg font-semibold">{{ t('auth.recoveryTitle') }}</h1>
-      <p class="mb-3 text-sm">
-        {{ recoveryContext === 'recover' ? t('auth.recoveryDone') : t('auth.recoveryWarn') }}
-      </p>
-      <p
-        class="mb-3 break-all rounded-md bg-white p-3 font-mono text-sm tracking-wide dark:bg-slate-900"
-        data-testid="recovery-code"
-      >
-        {{ shownRecovery }}
-      </p>
-      <button
-        type="button"
-        class="mb-4 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-white dark:border-slate-600 dark:hover:bg-slate-800"
-        @click="copyRecovery"
-      >
-        {{ t('common.copy') }}
-      </button>
-      <label class="mb-4 flex items-center gap-2 text-sm">
-        <input v-model="recoverySaved" type="checkbox" data-testid="recovery-saved" />
-        {{ t('auth.recoverySaved') }}
-      </label>
-      <button
-        type="button"
-        class="w-full rounded-md bg-brand-500 px-4 py-2 font-medium text-white hover:bg-brand-600 disabled:opacity-50"
-        :disabled="!recoverySaved || busy"
-        data-testid="recovery-continue"
-        @click="afterRecoveryShown"
-      >
-        {{ t('auth.continue') }}
-      </button>
-    </div>
-
-    <form
-      v-else
-      class="space-y-4 rounded-lg border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
-      @submit.prevent="submit"
-    >
-      <h1 class="text-xl font-semibold">{{ mfaStep ? t('mfa.title') : title }}</h1>
-      <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
-        {{ t('auth.unlockHint') }}
-      </p>
-      <div v-if="mode === 'unlock' && pinAvailable" class="space-y-2" data-testid="pin-unlock">
-        <label class="block text-sm"
-          ><span class="mb-1 block">{{ t('pin.pin') }}</span
-          ><input
-            v-model="pin"
-            type="password"
-            inputmode="numeric"
-            autocomplete="off"
-            class="field"
-            data-testid="pin-input"
-            @keydown.enter.prevent="submitPin"
-        /></label>
-        <button
-          type="button"
-          class="btn-primary w-full"
-          :disabled="busy || !pin"
-          data-testid="pin-submit"
-          @click="submitPin"
+  <section
+    class="mx-auto grid max-w-5xl items-start gap-10 lg:grid-cols-[minmax(0,1fr)_28rem] lg:pt-8"
+  >
+    <!-- Знак продукта и честные факты о модели защиты: первое, что видит человек до входа -->
+    <aside class="hidden lg:block" aria-labelledby="brand-title">
+      <div class="brand-mark" :class="{ unlocking: busy }" aria-hidden="true">
+        <svg
+          viewBox="0 0 48 48"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-          {{ t('pin.unlockWith') }}
-        </button>
-        <p class="text-xs text-slate-500">{{ t('pin.orPassword') }}</p>
+          <path class="brand-shackle" d="M16 22v-6a8 8 0 0 1 16 0v6" />
+          <rect x="10" y="22" width="28" height="20" rx="5" />
+          <path d="M24 30v4" />
+        </svg>
       </div>
       <p
-        v-if="inviteEmail"
-        class="rounded-md bg-emerald-50 p-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-        data-testid="invite-banner"
+        id="brand-title"
+        class="mt-6 max-w-md text-[2.125rem] font-semibold leading-[1.12] tracking-[-0.028em] text-balance"
       >
-        {{ t('invite.banner') }}
+        {{ t('brand.title') }}
       </p>
-      <p
-        v-if="inviteBad"
-        class="rounded-md bg-red-50 p-2 text-sm text-red-700"
-        role="alert"
-        data-testid="invite-bad"
+      <p class="mt-3 max-w-md text-slate-600 dark:text-slate-300">{{ t('brand.lead') }}</p>
+      <ul
+        class="mt-8 max-w-md divide-y divide-slate-200 border-y border-slate-200 text-sm dark:divide-slate-800 dark:border-slate-800"
       >
-        {{ t('invite.badLink') }}
-      </p>
-      <p v-if="mode === 'register' && firstUser" class="text-sm text-slate-500 dark:text-slate-400">
-        {{ t('auth.firstUser') }}
-      </p>
-      <p
-        v-if="mode === 'register' && !registrationOpen"
-        class="text-sm text-amber-700 dark:text-amber-300"
+        <li v-for="f in ['e2e', 'keys', 'host']" :key="f" class="flex gap-4 py-3.5">
+          <span class="num w-6 shrink-0 font-mono text-xs leading-6 text-brand-600">{{
+            String(['e2e', 'keys', 'host'].indexOf(f) + 1).padStart(2, '0')
+          }}</span>
+          <span>
+            <span class="block font-medium">{{ t(`brand.facts.${f}.title`) }}</span>
+            <span class="block text-slate-500">{{ t(`brand.facts.${f}.text`) }}</span>
+          </span>
+        </li>
+      </ul>
+    </aside>
+    <div class="mx-auto w-full max-w-md lg:max-w-none">
+      <div
+        v-if="shownRecovery"
+        class="rounded-lg border border-amber-300 bg-amber-50 p-5 dark:border-amber-700 dark:bg-amber-950"
       >
-        {{ t('auth.registrationClosedNote') }}
-      </p>
+        <h1 class="mb-2 text-lg font-semibold">{{ t('auth.recoveryTitle') }}</h1>
+        <p class="mb-3 text-sm">
+          {{ recoveryContext === 'recover' ? t('auth.recoveryDone') : t('auth.recoveryWarn') }}
+        </p>
+        <p
+          class="mb-3 break-all rounded-md bg-white p-3 font-mono text-sm tracking-wide dark:bg-slate-900"
+          data-testid="recovery-code"
+        >
+          {{ shownRecovery }}
+        </p>
+        <button type="button" class="btn mb-4" @click="copyRecovery">
+          {{ t('common.copy') }}
+        </button>
+        <label class="mb-4 flex items-center gap-2 text-sm">
+          <input v-model="recoverySaved" type="checkbox" data-testid="recovery-saved" />
+          {{ t('auth.recoverySaved') }}
+        </label>
+        <button
+          type="button"
+          class="btn-primary min-h-10 w-full"
+          :disabled="!recoverySaved || busy"
+          data-testid="recovery-continue"
+          @click="afterRecoveryShown"
+        >
+          {{ t('auth.continue') }}
+        </button>
+      </div>
 
-      <label v-if="mode !== 'unlock' && !mfaStep && !ldapMode" class="block text-sm">
-        <span class="mb-1 block">{{ t('corporate.accountIdentifier') }}</span>
-        <input
-          v-model="email"
-          type="text"
-          required
-          autocomplete="username"
-          autocapitalize="none"
-          spellcheck="false"
-          :readonly="!!inviteEmail"
-          class="field"
-          data-testid="email"
-        />
-      </label>
-      <template v-if="mode === 'activate'">
-        <p class="text-sm text-slate-500 dark:text-slate-400">{{ t('invite.activateHint') }}</p>
-        <label class="block text-sm">
-          <span class="mb-1 block">{{ t('invite.codeLabel') }}</span>
+      <form v-else class="card space-y-4 p-6 sm:p-7" @submit.prevent="submit">
+        <h1 class="text-xl font-semibold">{{ mfaStep ? t('mfa.title') : title }}</h1>
+        <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
+          {{ t('auth.unlockHint') }}
+        </p>
+        <div v-if="mode === 'unlock' && pinAvailable" class="space-y-2" data-testid="pin-unlock">
+          <label class="block text-sm"
+            ><span class="mb-1 block">{{ t('pin.pin') }}</span
+            ><input
+              v-model="pin"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              class="field"
+              data-testid="pin-input"
+              @keydown.enter.prevent="submitPin"
+          /></label>
+          <button
+            type="button"
+            class="btn-primary w-full"
+            :disabled="busy || !pin"
+            data-testid="pin-submit"
+            @click="submitPin"
+          >
+            {{ t('pin.unlockWith') }}
+          </button>
+          <p class="text-xs text-slate-500">{{ t('pin.orPassword') }}</p>
+        </div>
+        <p
+          v-if="inviteEmail"
+          class="rounded-md bg-emerald-50 p-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+          data-testid="invite-banner"
+        >
+          {{ t('invite.banner') }}
+        </p>
+        <p
+          v-if="inviteBad"
+          class="rounded-md bg-red-50 p-2 text-sm text-red-700"
+          role="alert"
+          data-testid="invite-bad"
+        >
+          {{ t('invite.badLink') }}
+        </p>
+        <p
+          v-if="mode === 'register' && firstUser"
+          class="text-sm text-slate-500 dark:text-slate-400"
+        >
+          {{ t('auth.firstUser') }}
+        </p>
+        <p
+          v-if="mode === 'register' && !registrationOpen"
+          class="text-sm text-amber-700 dark:text-amber-300"
+        >
+          {{ t('auth.registrationClosedNote') }}
+        </p>
+
+        <label v-if="mode !== 'unlock' && !mfaStep && !ldapMode" class="block text-sm">
+          <span class="mb-1 block">{{ t('corporate.accountIdentifier') }}</span>
           <input
-            v-model="activationCode"
+            v-model="email"
             type="text"
             required
-            autocomplete="one-time-code"
-            autocapitalize="characters"
+            autocomplete="username"
+            autocapitalize="none"
             spellcheck="false"
-            class="field font-mono tracking-wider uppercase"
-            placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX"
-            data-testid="activation-code"
+            :readonly="!!inviteEmail"
+            class="field"
+            data-testid="email"
           />
         </label>
-      </template>
-      <label v-if="mode === 'register'" class="block text-sm">
-        <span class="mb-1 block">{{ t('common.name') }}</span>
-        <input
-          v-model="displayName"
-          type="text"
-          required
-          maxlength="100"
-          :readonly="!!inviteEmail && !!displayName"
-          autocomplete="name"
-          class="field"
-          data-testid="name"
-        />
-      </label>
-      <label v-if="mode === 'register' && setupRequired" class="block text-sm">
-        <span class="mb-1 block">{{ t('auth.setupCode') }}</span>
-        <input
-          v-model="setupToken"
-          type="password"
-          required
-          autocomplete="off"
-          class="field font-mono"
-          data-testid="setup-token"
-        />
-        <span class="mt-1 block text-xs text-slate-500">{{ t('auth.setupCodeHint') }}</span>
-      </label>
-      <label v-if="mode === 'recover'" class="block text-sm">
-        <span class="mb-1 block">{{ t('auth.recoveryCode') }}</span>
-        <input
-          v-model="recoveryInput"
-          type="text"
-          required
-          autocomplete="off"
-          spellcheck="false"
-          class="field font-mono"
-          data-testid="recovery-input"
-        />
-      </label>
-      <label
-        v-if="ldapMode && !mfaStep && !ldapEnrollStep && ldapProfiles.length > 1"
-        class="block text-sm"
-      >
-        <span class="mb-1 block">{{ t('ldap.useDirectory') }}</span>
-        <select v-model="ldapProfileId" class="input" data-testid="ldap-profile-select">
-          <option v-for="p in ldapProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
-      </label>
-      <label v-if="ldapMode && !mfaStep && !ldapEnrollStep" class="block text-sm">
-        <span class="mb-1 block">{{ t('ldap.username') }}</span>
-        <input
-          v-model="ldapUser"
-          type="text"
-          required
-          autocomplete="username"
-          class="field"
-          data-testid="ldap-user"
-        />
-      </label>
-      <p v-if="ldapEnrollStep" class="text-sm text-slate-500" data-testid="ldap-enroll-hint">
-        {{ t('ldap.enrollHint') }}
-      </p>
-      <label v-if="mfaStep" class="block text-sm">
-        <span class="mb-1 block">{{ t('mfa.code') }}</span>
-        <input
-          v-model="mfaCode"
-          type="text"
-          :required="!auth.mfaOffers().webauthn"
-          inputmode="numeric"
-          autocomplete="one-time-code"
-          spellcheck="false"
-          class="field font-mono"
-          data-testid="mfa-code"
-        />
-        <span class="mt-1 block text-xs text-slate-500">{{ t('mfa.codeHint') }}</span>
-      </label>
-      <label v-if="!mfaStep && mode !== 'activate'" class="block text-sm">
-        <span class="mb-1 block">{{
-          ldapMode && !ldapEnrollStep ? t('ldap.password') : t('common.password')
-        }}</span>
-        <input
-          v-model="password"
-          type="password"
-          required
-          :autocomplete="
-            mode === 'signin' || mode === 'unlock' ? 'current-password' : 'new-password'
-          "
-          class="field"
-          data-testid="password"
-        />
-      </label>
-      <label
-        v-if="mode === 'register' || mode === 'recover' || ldapEnrollStep"
-        class="block text-sm"
-      >
-        <span class="mb-1 block">{{ t('auth.repeat') }}</span>
-        <input
-          v-model="repeat"
-          type="password"
-          required
-          autocomplete="new-password"
-          class="field"
-          data-testid="repeat"
-        />
-      </label>
-      <p
-        v-if="mode === 'register' || mode === 'recover'"
-        class="text-xs text-slate-500 dark:text-slate-400"
-      >
-        {{ t('auth.passwordHint') }}
-      </p>
-
-      <p
-        v-if="error"
-        class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
-        role="alert"
-        data-testid="error"
-      >
-        {{ error }}
-      </p>
-
-      <button
-        type="submit"
-        class="w-full rounded-md bg-brand-500 px-4 py-2 font-medium text-white hover:bg-brand-600 disabled:opacity-60"
-        :disabled="busy"
-        data-testid="submit"
-      >
-        {{ busy ? t('common.working') : mfaStep ? t('mfa.confirm') : title }}
-      </button>
-
-      <button
-        v-if="mfaStep && auth.mfaOffers().webauthn"
-        type="button"
-        class="w-full rounded-md border border-slate-300 px-4 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-        :disabled="busy"
-        data-testid="mfa-webauthn"
-        @click="useKey"
-      >
-        {{ t('mfa.useKey') }}
-      </button>
-      <button
-        v-if="mfaStep"
-        type="button"
-        class="text-sm underline"
-        data-testid="mfa-cancel"
-        @click="cancelMfaStep"
-      >
-        {{ t('mfa.cancel') }}
-      </button>
-
-      <button
-        v-if="sso.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
-        type="button"
-        class="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-        data-testid="to-sso"
-        @click="goExternal('/api/v1/auth/sso/start')"
-      >
-        {{ sso.buttonText }}
-      </button>
-      <button
-        v-if="saml.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
-        type="button"
-        class="block w-full rounded-md border border-slate-300 px-4 py-2 text-center text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
-        data-testid="to-saml"
-        @click="goExternal('/api/v1/auth/saml/start')"
-      >
-        {{ saml.buttonText }}
-      </button>
-
-      <button
-        v-if="ldapAvailable && mode === 'signin' && !mfaStep && !ldapEnrollStep"
-        type="button"
-        class="text-sm underline"
-        data-testid="to-ldap"
-        @click="ldapMode ? leaveLdap() : ((ldapMode = true), (error = ''))"
-      >
-        {{ ldapMode ? t('ldap.usePassword') : t('ldap.useDirectory') }}
-      </button>
-
-      <div
-        v-if="mode !== 'unlock' && !mfaStep && !ldapMode"
-        class="flex flex-wrap justify-between gap-2 text-sm text-brand-600 dark:text-brand-500"
-      >
-        <button
-          v-if="mode !== 'signin'"
-          type="button"
-          class="underline"
-          @click="switchMode('signin')"
+        <template v-if="mode === 'activate'">
+          <p class="text-sm text-slate-500 dark:text-slate-400">{{ t('invite.activateHint') }}</p>
+          <label class="block text-sm">
+            <span class="mb-1 block">{{ t('invite.codeLabel') }}</span>
+            <input
+              v-model="activationCode"
+              type="text"
+              required
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              spellcheck="false"
+              class="field font-mono tracking-wider uppercase"
+              placeholder="XXXXXX-XXXXXX-XXXXXX-XXXXXX"
+              data-testid="activation-code"
+            />
+          </label>
+        </template>
+        <label v-if="mode === 'register'" class="block text-sm">
+          <span class="mb-1 block">{{ t('common.name') }}</span>
+          <input
+            v-model="displayName"
+            type="text"
+            required
+            maxlength="100"
+            :readonly="!!inviteEmail && !!displayName"
+            autocomplete="name"
+            class="field"
+            data-testid="name"
+          />
+        </label>
+        <label v-if="mode === 'register' && setupRequired" class="block text-sm">
+          <span class="mb-1 block">{{ t('auth.setupCode') }}</span>
+          <input
+            v-model="setupToken"
+            type="password"
+            required
+            autocomplete="off"
+            class="field font-mono"
+            data-testid="setup-token"
+          />
+          <span class="mt-1 block text-xs text-slate-500">{{ t('auth.setupCodeHint') }}</span>
+        </label>
+        <label v-if="mode === 'recover'" class="block text-sm">
+          <span class="mb-1 block">{{ t('auth.recoveryCode') }}</span>
+          <input
+            v-model="recoveryInput"
+            type="text"
+            required
+            autocomplete="off"
+            spellcheck="false"
+            class="field font-mono"
+            data-testid="recovery-input"
+          />
+        </label>
+        <label
+          v-if="ldapMode && !mfaStep && !ldapEnrollStep && ldapProfiles.length > 1"
+          class="block text-sm"
         >
-          {{ t('auth.toSignIn') }}
+          <span class="mb-1 block">{{ t('ldap.useDirectory') }}</span>
+          <select v-model="ldapProfileId" class="input" data-testid="ldap-profile-select">
+            <option v-for="p in ldapProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </label>
+        <label v-if="ldapMode && !mfaStep && !ldapEnrollStep" class="block text-sm">
+          <span class="mb-1 block">{{ t('ldap.username') }}</span>
+          <input
+            v-model="ldapUser"
+            type="text"
+            required
+            autocomplete="username"
+            class="field"
+            data-testid="ldap-user"
+          />
+        </label>
+        <p v-if="ldapEnrollStep" class="text-sm text-slate-500" data-testid="ldap-enroll-hint">
+          {{ t('ldap.enrollHint') }}
+        </p>
+        <label v-if="mfaStep" class="block text-sm">
+          <span class="mb-1 block">{{ t('mfa.code') }}</span>
+          <input
+            v-model="mfaCode"
+            type="text"
+            :required="!auth.mfaOffers().webauthn"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            spellcheck="false"
+            class="field font-mono"
+            data-testid="mfa-code"
+          />
+          <span class="mt-1 block text-xs text-slate-500">{{ t('mfa.codeHint') }}</span>
+        </label>
+        <label v-if="!mfaStep && mode !== 'activate'" class="block text-sm">
+          <span class="mb-1 block">{{
+            ldapMode && !ldapEnrollStep ? t('ldap.password') : t('common.password')
+          }}</span>
+          <input
+            v-model="password"
+            type="password"
+            required
+            :autocomplete="
+              mode === 'signin' || mode === 'unlock' ? 'current-password' : 'new-password'
+            "
+            class="field"
+            data-testid="password"
+          />
+        </label>
+        <label
+          v-if="mode === 'register' || mode === 'recover' || ldapEnrollStep"
+          class="block text-sm"
+        >
+          <span class="mb-1 block">{{ t('auth.repeat') }}</span>
+          <input
+            v-model="repeat"
+            type="password"
+            required
+            autocomplete="new-password"
+            class="field"
+            data-testid="repeat"
+          />
+        </label>
+        <p
+          v-if="mode === 'register' || mode === 'recover'"
+          class="text-xs text-slate-500 dark:text-slate-400"
+        >
+          {{ t('auth.passwordHint') }}
+        </p>
+
+        <p
+          v-if="error"
+          class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+          role="alert"
+          data-testid="error"
+        >
+          {{ error }}
+        </p>
+
+        <button
+          type="submit"
+          class="btn-primary min-h-10 w-full text-[0.9375rem]"
+          :disabled="busy"
+          data-testid="submit"
+        >
+          {{ busy ? t('common.working') : mfaStep ? t('mfa.confirm') : title }}
+        </button>
+
+        <button
+          v-if="mfaStep && auth.mfaOffers().webauthn"
+          type="button"
+          class="btn min-h-10 w-full"
+          :disabled="busy"
+          data-testid="mfa-webauthn"
+          @click="useKey"
+        >
+          {{ t('mfa.useKey') }}
         </button>
         <button
-          v-if="mode === 'signin' && registrationOpen"
+          v-if="mfaStep"
           type="button"
-          class="underline"
-          data-testid="to-register"
-          @click="switchMode('register')"
+          class="text-sm underline"
+          data-testid="mfa-cancel"
+          @click="cancelMfaStep"
         >
-          {{ t('auth.toRegister') }}
+          {{ t('mfa.cancel') }}
+        </button>
+
+        <button
+          v-if="sso.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
+          type="button"
+          class="btn min-h-10 w-full"
+          data-testid="to-sso"
+          @click="goExternal('/api/v1/auth/sso/start')"
+        >
+          {{ sso.buttonText }}
         </button>
         <button
-          v-if="mode === 'signin' && !firstUser"
+          v-if="saml.enabled && mode === 'signin' && !mfaStep && !ldapEnrollStep"
           type="button"
-          class="underline"
-          data-testid="to-activate"
-          @click="switchMode('activate')"
+          class="btn min-h-10 w-full"
+          data-testid="to-saml"
+          @click="goExternal('/api/v1/auth/saml/start')"
         >
-          {{ t('invite.haveCode') }}
+          {{ saml.buttonText }}
         </button>
+
         <button
-          v-if="mode === 'signin'"
+          v-if="ldapAvailable && mode === 'signin' && !mfaStep && !ldapEnrollStep"
           type="button"
-          class="underline"
-          @click="switchMode('recover')"
+          class="text-sm underline"
+          data-testid="to-ldap"
+          @click="ldapMode ? leaveLdap() : ((ldapMode = true), (error = ''))"
         >
-          {{ t('auth.toRecover') }}
+          {{ ldapMode ? t('ldap.usePassword') : t('ldap.useDirectory') }}
         </button>
-      </div>
-      <div v-else class="text-sm">
-        <button
-          type="button"
-          class="underline"
-          @click="auth.signOut().then(() => router.replace('/login'))"
+
+        <div
+          v-if="mode !== 'unlock' && !mfaStep && !ldapMode"
+          class="flex flex-wrap justify-between gap-2 text-sm text-brand-600 dark:text-brand-500"
         >
-          {{ t('nav.signOut') }}
-        </button>
-      </div>
-    </form>
+          <button
+            v-if="mode !== 'signin'"
+            type="button"
+            class="underline"
+            @click="switchMode('signin')"
+          >
+            {{ t('auth.toSignIn') }}
+          </button>
+          <button
+            v-if="mode === 'signin' && registrationOpen"
+            type="button"
+            class="underline"
+            data-testid="to-register"
+            @click="switchMode('register')"
+          >
+            {{ t('auth.toRegister') }}
+          </button>
+          <button
+            v-if="mode === 'signin' && !firstUser"
+            type="button"
+            class="underline"
+            data-testid="to-activate"
+            @click="switchMode('activate')"
+          >
+            {{ t('invite.haveCode') }}
+          </button>
+          <button
+            v-if="mode === 'signin'"
+            type="button"
+            class="underline"
+            @click="switchMode('recover')"
+          >
+            {{ t('auth.toRecover') }}
+          </button>
+        </div>
+        <div v-else class="text-sm">
+          <button
+            type="button"
+            class="underline"
+            @click="auth.signOut().then(() => router.replace('/login'))"
+          >
+            {{ t('nav.signOut') }}
+          </button>
+        </div>
+      </form>
+    </div>
   </section>
 </template>
-
-<style scoped>
-.field {
-  width: 100%;
-  border-radius: 0.375rem;
-  border: 1px solid rgb(203 213 225);
-  background: transparent;
-  padding: 0.5rem 0.75rem;
-}
-.field:focus-visible {
-  outline: 2px solid var(--color-brand-500);
-  outline-offset: 1px;
-}
-:global(html.dark) .field {
-  border-color: rgb(51 65 85);
-}
-</style>

@@ -11,6 +11,8 @@
   "dependencies": {
     "@arklock/contracts": "1.20.0",
     "@arklock/crypto": "1.20.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/onest": "^5.3.1",
     "pinia": "^3.0.0",
     "qrcode-generator": "^1.4.4",
     "vue": "^3.5.0",

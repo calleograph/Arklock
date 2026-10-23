@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const ALLOWED =
-  /^(MIT|ISC|BSD-2-Clause|BSD-3-Clause|Apache-2\.0|BlueOak-1\.0\.0|0BSD|CC0-1\.0|Unlicense|Python-2\.0)$/;
+  /^(MIT|ISC|BSD-2-Clause|BSD-3-Clause|Apache-2\.0|BlueOak-1\.0\.0|0BSD|CC0-1\.0|Unlicense|Python-2\.0|OFL-1\.1 \(font\))$/;
 const tree = JSON.parse(
   execSync('npm ls --omit=dev --all --json', { maxBuffer: 1 << 28 }).toString(),
 );
@@ -30,6 +30,8 @@ for (const name of found.keys()) {
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
   let lic = pkg.license ?? pkg.licenses?.map((l) => l.type).join(' OR ') ?? 'UNKNOWN';
   if (typeof lic === 'object') lic = lic.type;
+  // Шрифты под OFL-1.1 допустимы: это свободная лицензия для файлов шрифтов, а не для кода
+  if (lic === 'OFL-1.1' && name.startsWith('@fontsource')) lic = 'OFL-1.1 (font)';
   const list = byLicense.get(lic) ?? [];
   list.push(`${name}@${pkg.version}`);
   const repo =

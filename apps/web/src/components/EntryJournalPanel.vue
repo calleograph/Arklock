@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 const props = withDefaults(
   defineProps<{
     vaultId: string;
@@ -71,9 +71,7 @@ const actionLabel = (action: string) => {
       <li v-for="row in rows" :key="row.id" class="space-y-1 py-3" data-testid="entry-journal-row">
         <div class="flex flex-wrap justify-between gap-2">
           <span class="font-medium">{{ actionLabel(row.action) }}</span
-          ><time class="text-xs text-slate-500" :datetime="row.at">{{
-            new Date(row.at).toLocaleString()
-          }}</time>
+          ><time class="text-xs text-slate-500" :datetime="row.at">{{ when(row.at) }}</time>
         </div>
         <p class="break-all text-xs text-slate-500">
           {{ row.actorName || row.actor || t('entryPanel.system')

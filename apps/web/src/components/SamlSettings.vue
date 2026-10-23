@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, day } from '../services/helpers';
 
 const { t } = useI18n();
 
@@ -299,7 +299,7 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
             }}</span>
             · {{ c.subject }} · {{ c.keyType.toUpperCase()
             }}{{ c.keyBits ? ` ${c.keyBits}` : '' }} · {{ t('saml.until') }}
-            {{ new Date(c.notAfter).toLocaleDateString() }} ({{ c.daysLeft }} {{ t('saml.days') }})
+            {{ day(c.notAfter) }} ({{ c.daysLeft }} {{ t('saml.days') }})
             <div class="break-all font-mono text-slate-500">SHA-256 {{ c.fingerprint256 }}</div>
           </template>
           <span v-else class="text-red-600">{{ t('saml.cert.invalid') }}</span>
@@ -435,7 +435,7 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
       <div v-if="spCertInfo" class="text-xs" data-testid="saml-sp-info">
         {{ t('saml.spCert') }}:
         <span :class="certClass(spCertInfo.state)">{{ t(`saml.cert.${spCertInfo.state}`) }}</span>
-        · {{ t('saml.until') }} {{ new Date(spCertInfo.notAfter).toLocaleDateString() }}
+        · {{ t('saml.until') }} {{ day(spCertInfo.notAfter) }}
       </div>
 
       <ul v-if="checks.length" class="space-y-1" data-testid="saml-checks">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { when } from '../services/helpers';
 import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -40,7 +41,7 @@ const fmtBytes = (n: number | null | undefined) => {
   }
   return `${v.toFixed(i ? 1 : 0)} ${u[i]}`;
 };
-const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleString() : '—');
+const fmtDate = (s: string | null) => (s ? when(s) : '—');
 const fmtUptime = (s: number) =>
   `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 const levelClass = (l: string) =>

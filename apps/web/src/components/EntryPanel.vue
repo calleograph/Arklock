@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import {
@@ -24,8 +24,9 @@ import EntryAccessPanel from './EntryAccessPanel.vue';
 import EntryJournalPanel from './EntryJournalPanel.vue';
 import EntrySettingsPanel from './EntrySettingsPanel.vue';
 import IconButton from './IconButton.vue';
+import SecretText from './SecretText.vue';
 import Icon from './Icon.vue';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import { api } from '../services/api';
 import { openSink } from '../services/download';
 import { NO_POLICY, checkPolicy, type PasswordPolicy } from '../services/policy';
@@ -61,6 +62,13 @@ const tab = ref<'details' | 'access' | 'journal' | 'settings'>('details');
 const subTab = ref<'files' | 'history' | 'share' | null>(null);
 const tabs = ['details', 'files', 'access', 'journal', 'settings'] as const;
 /** Вкладка «Файлы» — это данные записи с открытым списком вложений. */
+const tabBar = ref<HTMLElement | null>(null);
+/** Положение индикатора берётся у активной вкладки: подписи разной длины, ширина колонок не равная. */
+const ink = ref<Record<string, string>>({});
+function placeInk(): void {
+  const el = tabBar.value?.querySelector<HTMLElement>('[aria-selected="true"]');
+  if (el) ink.value = { '--tab-x': `${el.offsetLeft}px`, '--tab-w': `${el.offsetWidth}px` };
+}
 const shownTab = computed(() =>
   tab.value === 'details' && subTab.value === 'files' ? 'files' : tab.value,
 );
@@ -173,6 +181,13 @@ watch(() => [props.item?.id, props.item?.data.totp, form.value.totp, editing.val
 });
 timer = setInterval(refreshCode, 1000);
 onBeforeUnmount(() => timer && clearInterval(timer));
+
+watch(shownTab, () => void nextTick(placeInk));
+onMounted(() => {
+  void nextTick(placeInk);
+  window.addEventListener('resize', placeInk);
+});
+onBeforeUnmount(() => window.removeEventListener('resize', placeInk));
 
 // ---- буфер обмена
 const copied = ref('');
@@ -545,7 +560,7 @@ async function toggleArchive(): Promise<void> {
   }
 }
 
-const fmt = (iso: string) => new Date(iso).toLocaleString();
+const fmt = (iso: string) => when(iso);
 void api;
 </script>
 
@@ -566,8 +581,8 @@ void api;
     <div :class="editing ? 'card w-full max-w-2xl p-4 shadow-xl' : 'contents'">
       <!-- Просмотр -->
       <template v-if="item && !editing">
-        <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
-          <div class="min-w-0">
+        <div class="mb-4 flex items-start gap-2">
+          <div class="min-w-0 flex-1">
             <h2 class="truncate text-xl font-semibold tracking-tight" data-testid="view-title">
               {{ item.data.title }}
             </h2>
@@ -576,7 +591,7 @@ void api;
               <span v-for="tag in item.data.tags" :key="tag" class="badge">#{{ tag }}</span>
             </div>
           </div>
-          <div class="flex gap-1">
+          <div class="-mr-1.5 -mt-1 flex shrink-0">
             <IconButton
               v-if="canEdit"
               icon="edit"
@@ -603,7 +618,8 @@ void api;
         </div>
 
         <div
-          class="mb-3 grid grid-cols-5 gap-0.5 border-b border-slate-200 text-[13px] dark:border-slate-800"
+          ref="tabBar"
+          class="tabs mb-3 flex justify-between gap-3 overflow-x-auto"
           role="tablist"
           :aria-label="t('entryPanel.tabsLabel')"
           @keydown="tabKey"
@@ -614,12 +630,7 @@ void api;
             :key="value"
             type="button"
             role="tab"
-            class="-mb-px min-w-0 truncate px-0.5 py-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
-            :class="
-              shownTab === value
-                ? 'border-b-2 border-brand-500 font-medium'
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-            "
+            class="tab"
             :aria-selected="shownTab === value"
             :aria-controls="`entry-panel-${value === 'files' ? 'details' : value}`"
             :tabindex="shownTab === value ? 0 : -1"
@@ -629,6 +640,7 @@ void api;
           >
             {{ t(`entryPanel.tabs.${value}`) }}
           </button>
+          <span class="tabs-ink" aria-hidden="true" :style="ink" />
         </div>
         <!-- Второй уровень — переключатель вида внутри вкладки, а не ещё одна кнопка-действие -->
         <div
@@ -685,47 +697,52 @@ void api;
           role="tabpanel"
           aria-labelledby="entry-tab-details"
         >
-          <dl v-if="subTab !== 'files'" class="space-y-3 text-sm">
-            <div v-if="item.data.username">
-              <dt class="text-xs text-slate-500">{{ t('vault.username') }}</dt>
-              <dd class="flex items-center justify-between gap-2">
-                <span class="break-all" data-testid="view-username">{{ item.data.username }}</span>
-                <button type="button" class="btn" @click="copy('username', item.data.username)">
-                  {{ copied === 'username' ? t('common.copied') : t('common.copy') }}
-                </button>
+          <dl
+            v-if="subTab !== 'files'"
+            class="divide-y divide-slate-200 text-sm dark:divide-slate-800"
+          >
+            <div v-if="item.data.username" class="field-row">
+              <dt>{{ t('vault.username') }}</dt>
+              <dd>
+                <span class="min-w-0 flex-1 break-all" data-testid="view-username">{{
+                  item.data.username
+                }}</span>
+                <IconButton
+                  :icon="copied === 'username' ? 'check' : 'copy'"
+                  :label="copied === 'username' ? t('common.copied') : t('common.copy')"
+                  @click="copy('username', item.data.username)"
+                />
               </dd>
             </div>
-            <div v-if="item.data.password">
-              <dt class="text-xs text-slate-500">
+            <div v-if="item.data.password" class="field-row">
+              <dt>
                 {{ item.data.kind === 'apikey' ? t('vault.secret') : t('vault.password') }}
               </dt>
-              <dd class="flex items-center justify-between gap-2">
-                <span class="break-all font-mono" data-testid="view-password">{{
-                  revealed.has(-1) ? item.data.password : '••••••••••'
-                }}</span>
-                <span class="flex shrink-0 gap-1">
-                  <button
-                    type="button"
-                    class="btn"
-                    data-testid="btn-reveal"
-                    @click="toggleReveal(-1)"
-                  >
-                    {{ revealed.has(-1) ? t('common.hide') : t('common.show') }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn"
-                    data-testid="btn-copy-password"
-                    @click="copy('password', item.data.password)"
-                  >
-                    {{ copied === 'password' ? t('common.copied') : t('common.copy') }}
-                  </button>
-                </span>
+              <dd>
+                <SecretText
+                  class="min-w-0 flex-1"
+                  :value="item.data.password"
+                  :shown="revealed.has(-1)"
+                  data-testid="view-password"
+                />
+                <IconButton
+                  :icon="revealed.has(-1) ? 'eye-off' : 'eye'"
+                  :label="revealed.has(-1) ? t('common.hide') : t('common.show')"
+                  :active="revealed.has(-1)"
+                  data-testid="btn-reveal"
+                  @click="toggleReveal(-1)"
+                />
+                <IconButton
+                  :icon="copied === 'password' ? 'check' : 'copy'"
+                  :label="copied === 'password' ? t('common.copied') : t('common.copy')"
+                  data-testid="btn-copy-password"
+                  @click="copy('password', item.data.password)"
+                />
               </dd>
             </div>
-            <div v-if="linkedEntries.length" data-testid="links-view">
-              <dt class="text-xs text-slate-500">{{ t('vault.links') }}</dt>
-              <dd class="flex flex-wrap gap-1">
+            <div v-if="linkedEntries.length" class="field-row" data-testid="links-view">
+              <dt>{{ t('vault.links') }}</dt>
+              <dd class="flex-wrap">
                 <button
                   v-for="l in linkedEntries"
                   :key="l.id"
@@ -734,59 +751,76 @@ void api;
                   data-testid="link-open"
                   @click="emit('open', l.id)"
                 >
-                  🔗 {{ l.title }}
+                  <Icon name="external" /> {{ l.title }}
                 </button>
               </dd>
             </div>
-            <div v-if="item.data.url">
-              <dt class="text-xs text-slate-500">{{ t('vault.url') }}</dt>
-              <dd class="break-all">
+            <div v-if="item.data.url" class="field-row">
+              <dt>{{ t('vault.url') }}</dt>
+              <dd>
                 <a
                   v-if="/^https?:\/\//i.test(item.data.url)"
                   :href="item.data.url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-brand-600 underline"
+                  class="min-w-0 flex-1 break-all text-brand-600 underline decoration-brand-500/30 underline-offset-2 hover:decoration-brand-500"
                   >{{ item.data.url }}</a
                 >
-                <span v-else>{{ item.data.url }}</span>
+                <span v-else class="min-w-0 flex-1 break-all">{{ item.data.url }}</span>
               </dd>
             </div>
-            <div v-if="code">
-              <dt class="text-xs text-slate-500">{{ t('vault.totp') }}</dt>
-              <dd class="flex items-center justify-between gap-2">
-                <span class="font-mono text-lg tracking-widest" data-testid="view-totp">{{
+            <div v-if="code" class="field-row">
+              <dt>{{ t('vault.totp') }}</dt>
+              <dd>
+                <span class="flex-1 font-mono text-lg tracking-[0.2em]" data-testid="view-totp">{{
                   code
                 }}</span>
-                <span class="text-xs text-slate-500">{{ remaining }} {{ t('vault.sec') }}</span>
-                <button type="button" class="btn" @click="copy('totp', code)">
-                  {{ copied === 'totp' ? t('common.copied') : t('common.copy') }}
-                </button>
+                <!-- кольцо оставшегося времени кода: убывает линейно, как сам срок -->
+                <span
+                  class="totp-ring num text-[11px] text-slate-500"
+                  :style="{ '--left': remaining / 30 }"
+                  :aria-label="`${remaining} ${t('vault.sec')}`"
+                  >{{ remaining }}</span
+                >
+                <IconButton
+                  :icon="copied === 'totp' ? 'check' : 'copy'"
+                  :label="copied === 'totp' ? t('common.copied') : t('common.copy')"
+                  @click="copy('totp', code)"
+                />
               </dd>
             </div>
-            <div v-for="(f, i) in item.data.fields" :key="i">
-              <dt class="text-xs text-slate-500">{{ f.name }}</dt>
-              <dd class="flex items-center justify-between gap-2">
-                <span class="break-all" :class="f.secret ? 'font-mono' : ''">{{
-                  f.secret && !revealed.has(i) ? '••••••••' : f.value
-                }}</span>
-                <span class="flex gap-1">
-                  <button v-if="f.secret" type="button" class="btn" @click="toggleReveal(i)">
-                    {{ revealed.has(i) ? t('common.hide') : t('common.show') }}
-                  </button>
-                  <button type="button" class="btn" @click="copy('f' + i, f.value)">
-                    {{ copied === 'f' + i ? t('common.copied') : t('common.copy') }}
-                  </button>
-                </span>
+            <div v-for="(f, i) in item.data.fields" :key="i" class="field-row">
+              <dt>{{ f.name }}</dt>
+              <dd>
+                <SecretText
+                  v-if="f.secret"
+                  class="min-w-0 flex-1"
+                  :value="f.value"
+                  :shown="revealed.has(i)"
+                  mask="••••••••"
+                />
+                <span v-else class="min-w-0 flex-1 break-all">{{ f.value }}</span>
+                <IconButton
+                  v-if="f.secret"
+                  :icon="revealed.has(i) ? 'eye-off' : 'eye'"
+                  :label="revealed.has(i) ? t('common.hide') : t('common.show')"
+                  :active="revealed.has(i)"
+                  @click="toggleReveal(i)"
+                />
+                <IconButton
+                  :icon="copied === 'f' + i ? 'check' : 'copy'"
+                  :label="copied === 'f' + i ? t('common.copied') : t('common.copy')"
+                  @click="copy('f' + i, f.value)"
+                />
               </dd>
             </div>
-            <div v-if="item.data.notes">
-              <dt class="text-xs text-slate-500">{{ t('vault.notes') }}</dt>
+            <div v-if="item.data.notes" class="field-row">
+              <dt>{{ t('vault.notes') }}</dt>
               <dd class="whitespace-pre-wrap break-words" data-testid="view-notes">
                 {{ item.data.notes }}
               </dd>
             </div>
-            <div class="text-xs text-slate-500">
+            <div class="num pt-3 text-xs text-slate-500">
               {{ t('vault.updated') }}: {{ fmt(item.updatedAt) }}
               <span v-if="item.data.expiresAt">
                 · {{ t('vault.expires') }}: {{ item.data.expiresAt }}</span
@@ -1039,6 +1073,7 @@ void api;
                 :type="showPw ? 'text' : 'password'"
                 autocomplete="new-password"
                 class="input font-mono"
+                :aria-label="form.kind === 'apikey' ? t('vault.secret') : t('vault.password')"
                 data-testid="f-password"
               />
               <button type="button" class="btn" @click="showPw = !showPw">
@@ -1185,7 +1220,12 @@ void api;
             </span>
           </div>
           <div class="flex gap-2">
-            <select v-model="linkChoice" class="input" data-testid="f-link-select">
+            <select
+              v-model="linkChoice"
+              class="input"
+              :aria-label="t('vault.links')"
+              data-testid="f-link-select"
+            >
               <option value="">—</option>
               <option v-for="e in siblings" :key="e.id" :value="e.id">{{ e.data.title }}</option>
             </select>

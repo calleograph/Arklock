@@ -4,10 +4,14 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans:
-    'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial,
-    sans-serif;
+  /* Onest — гротеск, созданный для русского интерфейса; JetBrains Mono — для секретов, кодов и ключей. Оба лежат в сборке. */
+  --font-sans: 'Onest Variable', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-mono:
+    'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Единый характер движения: скольжение без отскока для перемещений и мягкий отскок для появлений. */
+  --ease-glide: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.18, 1.25, 0.4, 1);
   --color-brand-50: #eaf3fc;
   --color-brand-100: #d6e8f7;
   --color-brand-500: #1676c5;
@@ -171,6 +175,26 @@
   --color-red-600: #f87171;
 }
 
+/*
+ * Поверхности «точного инструмента»: волосяная граница, блик верхней кромки и тень с оттенком палитры темы.
+ * Свет падает сверху — блик всегда на верхней кромке, тень всегда снизу.
+ */
+:root {
+  --edge: color-mix(in srgb, var(--color-white) 80%, transparent);
+  --shade: var(--color-slate-950);
+  --surface-shadow:
+    inset 0 1px 0 var(--edge), 0 1px 2px color-mix(in srgb, var(--shade) 6%, transparent),
+    0 14px 32px -22px color-mix(in srgb, var(--shade) 30%, transparent);
+  --raised-shadow:
+    0 1px 2px color-mix(in srgb, var(--shade) 8%, transparent),
+    0 18px 44px -18px color-mix(in srgb, var(--shade) 38%, transparent);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--color-brand-500) 24%, transparent);
+}
+:root.dark {
+  --edge: rgb(255 255 255 / 0.05);
+  --shade: #000;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: 4.5rem;
@@ -178,8 +202,16 @@ html {
 
 body {
   @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
-  font-feature-settings: 'cv11', 'ss01';
+  /* едва заметный свет сверху: страница не плоская, но и не декоративная */
+  background-image: radial-gradient(
+    ellipse 70rem 24rem at 50% -10rem,
+    color-mix(in srgb, var(--color-brand-500) 9%, transparent),
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+  font-size: 0.9375rem;
   line-height: 1.5;
+  font-optical-sizing: auto;
   /* страница никогда не прокручивается вбок: широкие таблицы и коды прокручиваются внутри своих блоков */
   overflow-x: hidden;
   transition:
@@ -191,6 +223,10 @@ body {
   outline: 2px solid var(--color-brand-500);
   outline-offset: 2px;
 }
+/* пункт меню с фокусом выделяется подложкой — рамка поверх неё была бы второй подсветкой */
+[role='menuitem']:focus-visible {
+  outline: none;
+}
 
 ::selection {
   background: var(--color-brand-100);
@@ -198,10 +234,25 @@ body {
 }
 
 h1 {
-  @apply text-2xl font-semibold tracking-tight;
+  @apply text-[1.625rem] leading-tight font-semibold;
+  letter-spacing: -0.022em;
 }
 h2 {
-  @apply text-lg font-semibold tracking-tight;
+  @apply text-[1.0625rem] leading-snug font-semibold;
+  letter-spacing: -0.012em;
+}
+h3 {
+  @apply font-semibold;
+}
+p {
+  text-wrap: pretty;
+}
+/* секреты, коды и ключи — моноширинным: символы не путаются (l/1, O/0) */
+code,
+kbd,
+.font-mono {
+  font-family: var(--font-mono);
+  font-feature-settings: 'zero' 1;
 }
 
 /* таблицы: единый вид во всей программе */
@@ -209,7 +260,15 @@ table {
   @apply w-full border-collapse text-sm;
 }
 thead th {
-  @apply px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-500;
+  @apply px-3 py-2 text-left text-xs font-medium text-slate-500;
+  letter-spacing: 0.01em;
+}
+@layer base {
+  /* отступы ячеек по умолчанию; классы конкретной таблицы (utilities) сильнее базового слоя */
+  tbody td {
+    padding: 0.5rem 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
 }
 tbody tr {
   @apply transition-colors;
@@ -253,69 +312,128 @@ dialog::backdrop {
 }
 
 @layer components {
-  .btn {
-    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-xs transition-[background-color,border-color,box-shadow,transform] duration-150 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
+  /*
+   * Кнопки. Иерархия: основная (одна на экран), обычная, тихая (ghost), опасная.
+   * Наведение меняет цвет и глубину, нажатие «утапливает» кнопку (Kinetics: Push / Squish, укороченные),
+   * фокус с клавиатуры — кольцо акцента, загрузка — aria-busy со спиннером, блокировка — приглушение.
+   */
+  .btn,
+  .btn-primary,
+  .btn-danger,
+  .btn-ghost {
+    @apply relative inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] px-3 py-1.5 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
+    transition:
+      background-color 160ms var(--ease-out),
+      border-color 160ms var(--ease-out),
+      box-shadow 160ms var(--ease-out),
+      color 160ms var(--ease-out),
+      transform 90ms var(--ease-out);
   }
-  .btn:active:not(:disabled) {
-    transform: translateY(1px);
+  .btn {
+    @apply border border-slate-300 bg-white text-slate-800 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-slate-600 dark:hover:bg-slate-800;
+    box-shadow:
+      inset 0 1px 0 var(--edge),
+      0 1px 1.5px color-mix(in srgb, var(--shade) 7%, transparent);
   }
   .btn-primary {
-    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-brand-500 bg-brand-500 px-3.5 py-1.5 text-sm font-medium transition-[background-color,border-color,box-shadow,transform] duration-150 hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply border border-brand-600 bg-brand-500 px-3.5 hover:bg-brand-600;
     color: var(--on-brand);
     box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.14),
-      0 1px 2px rgb(15 99 168 / 0.28);
-  }
-  .btn-primary:active:not(:disabled) {
-    transform: translateY(1px);
+      inset 0 1px 0 rgb(255 255 255 / 0.16),
+      0 1px 2px color-mix(in srgb, var(--color-brand-600) 35%, transparent),
+      0 6px 16px -8px color-mix(in srgb, var(--color-brand-500) 60%, transparent);
   }
   .btn-danger {
-    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950;
+    @apply border border-red-300 bg-white text-red-700 hover:border-red-400 hover:bg-red-50 dark:border-red-900 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-950;
   }
   .btn-ghost {
-    @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    @apply px-2.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
   }
-  .input {
-    @apply min-h-9 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-xs transition-colors placeholder:text-slate-400 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
+  :is(.btn, .btn-primary, .btn-danger, .btn-ghost):active:not(:disabled) {
+    transform: translateY(1px) scale(0.985);
   }
-  .input:focus-visible {
+  :is(.btn, .btn-primary, .btn-danger, .btn-ghost):focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+  }
+  /* загрузка: подпись остаётся на месте (ширина не прыгает), поверх — спиннер */
+  :is(.btn, .btn-primary, .btn-danger)[aria-busy='true'] {
+    color: transparent !important;
+    pointer-events: none;
+  }
+  :is(.btn, .btn-primary, .btn-danger)[aria-busy='true']::after {
+    content: '';
+    position: absolute;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    border: 2px solid currentColor;
+    border-color: var(--on-brand) transparent var(--on-brand) var(--on-brand);
+    animation: spin 0.7s linear infinite;
+  }
+  .btn[aria-busy='true']::after {
+    border-color: var(--color-slate-500) transparent var(--color-slate-500) var(--color-slate-500);
+  }
+
+  /* Поля: подпись над полем, кольцо фокуса, ошибка — красная граница и текст под полем (aria-invalid). */
+  .input,
+  .field {
+    @apply min-h-9 w-full rounded-[9px] border border-slate-300 bg-white px-3 py-1.5 text-sm placeholder:text-slate-400 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
+    box-shadow: inset 0 1px 2px color-mix(in srgb, var(--shade) 5%, transparent);
+    transition:
+      border-color 150ms var(--ease-out),
+      box-shadow 150ms var(--ease-out);
+  }
+  .field {
+    @apply min-h-10 text-[0.9375rem];
+  }
+  .input:focus-visible,
+  .field:focus-visible {
     border-color: var(--color-brand-500);
-    outline-offset: 0;
-    box-shadow: 0 0 0 3px rgb(22 118 197 / 0.18);
+    outline: none;
+    box-shadow: var(--ring);
   }
+  :is(.input, .field)[aria-invalid='true'] {
+    border-color: var(--color-red-600);
+  }
+  select.input,
+  select.field {
+    @apply cursor-pointer pr-8;
+  }
+
+  /* Поверхность. Карточка нужна там, где уровень действительно отделяет содержимое. */
   .card {
-    @apply rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
-    box-shadow:
-      0 1px 2px rgb(15 35 60 / 0.04),
-      0 10px 28px -16px rgb(15 35 60 / 0.12);
-  }
-  /* сегментированный переключатель вида внутри вкладки */
-  .seg {
-    @apply rounded-md px-3 py-1 font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100;
-  }
-  .seg-on {
-    @apply bg-white text-slate-900 shadow-xs dark:bg-slate-900 dark:text-slate-100;
+    @apply rounded-[14px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
+    box-shadow: var(--surface-shadow);
   }
   .badge {
-    @apply inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
+    @apply inline-flex items-center rounded-[5px] bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
   }
   .badge-brand {
-    @apply inline-flex items-center rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
+    @apply inline-flex items-center rounded-[5px] bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
   }
   /* пустые состояния */
   .empty {
-    @apply flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700;
+    @apply flex flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700;
   }
   .empty-icon {
     @apply text-3xl opacity-70;
   }
-  /* загрузка: заготовки вместо пустого экрана */
+  /* загрузка: заготовки формы будущего содержимого с медленным бликом */
   .skeleton {
-    @apply animate-pulse rounded-md bg-slate-200 dark:bg-slate-800;
+    @apply rounded-md bg-slate-200 dark:bg-slate-800;
+    background-image: linear-gradient(
+      100deg,
+      transparent 30%,
+      color-mix(in srgb, var(--color-white) 55%, transparent) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
   }
   /* уведомления: ненавязчивые полосы внутри страницы */
   .notice {
-    @apply flex items-start gap-2 rounded-lg border px-3 py-2 text-sm;
+    @apply flex items-start gap-2 rounded-[10px] border px-3 py-2 text-sm;
   }
   .notice-ok {
     @apply border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200;
@@ -326,28 +444,153 @@ dialog::backdrop {
   .notice-warn {
     @apply border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200;
   }
-  /* пункты бокового меню и вкладок */
+  /* Пункты бокового меню: активный — полоса акцента слева и подложка. */
   .nav-link {
-    @apply inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    @apply relative inline-flex items-center gap-2.5 rounded-[9px] px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    transition:
+      background-color 150ms var(--ease-out),
+      color 150ms var(--ease-out);
+  }
+  .nav-link::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 22%;
+    bottom: 22%;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--color-brand-500);
+    transform: scaleY(0);
+    transition: transform 240ms var(--ease-spring);
   }
   .nav-link-active {
-    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700 dark:bg-brand-50;
-    box-shadow: inset 0 -2px 0 var(--color-brand-500);
+    @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700 dark:bg-brand-50 dark:text-brand-700;
+  }
+  .nav-link-active::before {
+    transform: scaleY(1);
+  }
+  /* сегментированный переключатель вида внутри вкладки */
+  .seg {
+    @apply rounded-md px-3 py-1 font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100;
+  }
+  .seg-on {
+    @apply bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--shade) 12%, transparent);
+  }
+  /* Строка «подпись — значение — действия» в карточке записи: значения выровнены, действия справа. */
+  .field-row {
+    @apply py-2.5 first:pt-0;
+  }
+  .field-row > dt {
+    @apply mb-0.5 text-xs font-medium text-slate-500;
+  }
+  .field-row > dd {
+    @apply -mr-1.5 flex min-h-9 items-center gap-0.5;
+  }
+  /* кольцо срока одноразового кода: conic-gradient по оставшейся доле */
+  .totp-ring {
+    @apply mr-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full;
+    background:
+      radial-gradient(closest-side, var(--color-white) 76%, transparent 78%),
+      conic-gradient(var(--color-brand-500) calc(var(--left, 1) * 360deg), var(--color-slate-200) 0);
+    transition: background 1s linear;
   }
   /* поле формы с подписью */
   .field-label {
     @apply mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300;
   }
+
+  /*
+   * Переключатель вместо флажка для настроек «вкл/выкл». Остаётся настоящим checkbox (клавиатура, формы, тесты);
+   * бегунок движется с пружиной (Kinetics: Switch Spring).
+   */
+  input[type='checkbox'].switch {
+    @apply relative shrink-0 cursor-pointer appearance-none rounded-full bg-slate-300 dark:bg-slate-700;
+    width: 2.25rem;
+    height: 1.25rem;
+    transition: background-color 180ms var(--ease-out);
+  }
+  input[type='checkbox'].switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+    transition: transform 320ms var(--ease-spring);
+  }
+  input[type='checkbox'].switch:checked {
+    background: var(--color-brand-500);
+  }
+  input[type='checkbox'].switch:checked::after {
+    transform: translateX(1rem);
+  }
+  input[type='checkbox'].switch:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+  }
+  input[type='checkbox'].switch:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  /*
+   * Вкладки с одним скользящим индикатором (Kinetics: Tab Pill Glide; «magic line»). Позицию и ширину задаёт
+   * компонент через --tab-x и --tab-w; линия переезжает, а не мигает на новом месте.
+   */
+  .tabs {
+    @apply relative border-b border-slate-200 dark:border-slate-800;
+  }
+  .tabs {
+    scrollbar-width: none;
+  }
+  .tab {
+    @apply relative shrink-0 px-0.5 py-2 text-[0.8125rem] font-medium whitespace-nowrap text-slate-500 hover:text-slate-800 dark:hover:text-slate-200;
+    transition: color 150ms var(--ease-out);
+  }
+  .tab[aria-selected='true'] {
+    @apply text-slate-900 dark:text-slate-100;
+  }
+  .tabs-ink {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    width: var(--tab-w, 0);
+    border-radius: 2px;
+    background: var(--color-brand-500);
+    transform: translateX(var(--tab-x, 0));
+    transition:
+      transform 400ms var(--ease-glide),
+      width 400ms var(--ease-glide);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
 }
 
 /* Движение: короткие переходы (opacity и transform), без лишних анимаций размеров. */
 .menu-pop {
-  animation: menu-pop 160ms var(--ease-out);
+  animation: menu-pop 260ms var(--ease-spring);
+  transform-origin: top;
 }
 @keyframes menu-pop {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translateY(-6px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -386,10 +629,78 @@ h1,
 h2 {
   text-wrap: balance;
 }
+/* Флажок выбора строки на компьютере появляется при наведении, фокусе или во время выбора; на касаниях виден всегда. */
+@media (hover: hover) {
+  .entry-row .row-check {
+    opacity: 0;
+    transition: opacity 120ms var(--ease-out);
+  }
+  .entry-row:hover .row-check,
+  .entry-row.selecting .row-check,
+  .entry-row .row-check:checked,
+  .entry-row .row-check:focus-visible {
+    opacity: 1;
+  }
+}
+/*
+ * Знак продукта на экране входа. Фирменное движение: пока вычисляются ключи (вход, разблокировка),
+ * дужка замка приподнимается — замок «открывается» вместе с сейфом.
+ */
+.brand-mark {
+  @apply flex size-16 items-center justify-center rounded-[18px] bg-brand-500;
+  color: var(--on-brand);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 18px 40px -18px color-mix(in srgb, var(--color-brand-500) 80%, transparent);
+}
+.brand-mark svg {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+.brand-shackle {
+  transition: transform 520ms var(--ease-spring);
+}
+.brand-mark.unlocking .brand-shackle {
+  transform: translateY(-3.5px);
+}
+/* Появление строк списка: короткий подъём лесенкой (Kinetics: Stagger Entrance), только у первых строк. */
+.rise {
+  animation: rise 360ms var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 8) * 28ms);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* смена значка (копировать → готово, показать → скрыть): уходящий размывается и уменьшается */
+.swap-enter-active,
+.swap-leave-active {
+  transition:
+    opacity 160ms var(--ease-out),
+    transform 220ms var(--ease-spring),
+    filter 160ms var(--ease-out);
+}
+.swap-enter-from {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.swap-leave-to {
+  opacity: 0;
+  transform: scale(0.7) rotate(-15deg);
+  filter: blur(3px);
+}
 @media (prefers-reduced-motion: reduce) {
   .menu-pop,
   .modal-fade,
-  .modal-fade > div {
+  .modal-fade > div,
+  .rise,
+  .skeleton {
     animation: none;
   }
 }

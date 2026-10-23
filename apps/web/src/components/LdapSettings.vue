@@ -3,7 +3,7 @@ import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 
 const { t } = useI18n({
   useScope: 'local',
@@ -438,7 +438,7 @@ const browse = () =>
     <div class="card max-w-2xl space-y-3 p-4 text-sm">
       <p class="text-xs text-slate-500">{{ t('directory.savedOnly') }}</p>
       <div v-if="lastSync" data-testid="ldap-last-sync">
-        {{ t('directory.lastSync') }}: {{ new Date(lastSync.at).toLocaleString() }} ·
+        {{ t('directory.lastSync') }}: {{ when(lastSync.at) }} ·
         {{ t('ldap.syncResult', lastSync) }}
         <ul
           v-if="lastSync.errors.length"

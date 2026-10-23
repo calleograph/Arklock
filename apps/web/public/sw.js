@@ -3,7 +3,8 @@
  * ставилось на главный экран. Запросы к API (/api/), страницы получения секрета (/h/) и любые не-GET запросы не кэшируются
  * никогда: ни шифртекст, ни ответы сервера в кэш не попадают. Обновление версии интерфейса подхватывается при следующей загрузке.
  */
-const CACHE = 'arklock-shell-v2';
+// v3: сбрасывает кэши, в которые старый сервер мог положить HTML вместо файла сборки
+const CACHE = 'arklock-shell-v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -71,7 +72,9 @@ self.addEventListener('fetch', (event) => {
         const hit = await cache.match(req);
         if (hit) return hit;
         const res = await fetch(req);
-        if (res.ok) await cache.put(req, res.clone());
+        // в кэш попадает только сам файл: HTML-ответ на запрос скрипта или стиля — признак ошибки сервера
+        if (res.ok && !(res.headers.get('content-type') ?? '').includes('text/html'))
+          await cache.put(req, res.clone());
         return res;
       })(),
     );

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import type { ApiTokenInfo } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
 import { authKeyFor } from '../services/account';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 
 const { t } = useI18n();
@@ -54,7 +54,7 @@ async function revoke(id: string): Promise<void> {
   await api('DELETE', `/auth/tokens/${id}`);
   await load();
 }
-const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : '—');
+const fmt = (s: string | null) => (s ? when(s) : '—');
 </script>
 
 <template>

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { decryptEntry, fingerprint, fromBase64Url } from '@arklock/crypto';
 import { api } from '../services/api';
-import { errorMessage, vaultLabel } from '../services/helpers';
+import { errorMessage, vaultLabel, day } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore, type MemberInfo } from '../stores/workspace';
 import EntrySettingsPanel from '../components/EntrySettingsPanel.vue';
@@ -498,7 +498,7 @@ void decryptEntry;
           <span class="min-w-0 truncate"
             >{{ targetLabel(g) }} → {{ g.subjectName }} · {{ t(`grant.${g.role}`)
             }}<span v-if="g.expiresAt" class="text-xs text-slate-500">
-              · {{ t('settings.until') }} {{ new Date(g.expiresAt).toLocaleDateString() }}</span
+              · {{ t('settings.until') }} {{ day(g.expiresAt) }}</span
             ></span
           >
           <button type="button" class="btn-danger" @click="revokeGrant(g.id)">

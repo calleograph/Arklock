@@ -104,6 +104,9 @@ describe('static web client', () => {
       const ui = await withWeb.inject('/vaults/abc');
       expect(ui.statusCode).toBe(200);
       expect(ui.headers['content-type']).toContain('text/html');
+      // отсутствующий файл сборки — 404, а не index.html (иначе service worker закэширует HTML вместо скрипта)
+      const asset = await withWeb.inject('/assets/index-missing.js');
+      expect(asset.statusCode).toBe(404);
       const api = await withWeb.inject('/api/v1/missing');
       expect(api.statusCode).toBe(404);
       expect(api.json().error.code).toBe('not_found');

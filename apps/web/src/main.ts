@@ -4,6 +4,8 @@ import App from './App.vue';
 import { i18n } from './i18n';
 import { router } from './router';
 import { useAuthStore } from './stores/auth';
+import '@fontsource-variable/onest';
+import '@fontsource-variable/jetbrains-mono';
 import './style.css';
 
 async function bootstrap(): Promise<void> {

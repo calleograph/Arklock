@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import {
   unreadNotifications,
   setNotificationCount,
@@ -171,7 +171,7 @@ const vaultName = (row: NotificationRow) =>
         <div class="flex flex-wrap justify-between gap-2">
           <p class="font-medium">{{ message(row) }}</p>
           <time :datetime="row.createdAt" class="text-xs text-slate-500">{{
-            new Date(row.createdAt).toLocaleString()
+            when(row.createdAt)
           }}</time>
         </div>
         <p class="mt-1 text-xs text-slate-500">

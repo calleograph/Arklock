@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { reauth } from '../services/account';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 
 const { t } = useI18n();
@@ -206,7 +206,7 @@ const act = (action: string, file?: string, guarded = false) =>
 
 const fmtSize = (n: number) =>
   n > 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GiB` : `${(n / (1 << 20)).toFixed(1)} MiB`;
-const fmtDate = (iso: string) => (iso ? new Date(iso).toLocaleString() : '—');
+const fmtDate = (iso: string) => (iso ? when(iso) : '—');
 const remoteNames = computed(() => new Set((snap.value?.items ?? []).map((i) => i.name)));
 const where = computed(() => {
   const s = snap.value;

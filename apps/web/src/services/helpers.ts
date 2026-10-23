@@ -1,4 +1,5 @@
 import { ApiError } from './api';
+import { i18n } from '../i18n';
 
 /**
  * Шифрование в браузере требует защищённого контекста (HTTPS или localhost): без него Web Crypto API недоступен.
@@ -137,3 +138,9 @@ export function vaultLabel(
     ? t('spaces.defaultName')
     : (v.name ?? '');
 }
+
+/** Дата и время на языке интерфейса, а не браузера: русский интерфейс в англоязычном браузере пишет даты по-русски. */
+export const when = (iso: string | number | Date): string =>
+  new Date(iso).toLocaleString(i18n.global.locale.value);
+export const day = (iso: string | number | Date): string =>
+  new Date(iso).toLocaleDateString(i18n.global.locale.value);

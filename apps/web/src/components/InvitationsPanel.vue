@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { email } from '@arklock/contracts';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 
 const { t } = useI18n();
 
@@ -73,7 +73,7 @@ async function revoke(id: string): Promise<void> {
   await load();
 }
 const copy = () => navigator.clipboard.writeText(created.value?.code ?? '').catch(() => undefined);
-const fmt = (s: string) => new Date(s).toLocaleString();
+const fmt = (s: string) => when(s);
 </script>
 
 <template>

@@ -350,11 +350,15 @@ void router;
 
 <template>
   <section class="space-y-3">
-    <div class="flex flex-wrap items-end gap-2" data-testid="workspace-toolbar">
-      <label class="min-w-0 flex-1 text-xs font-medium text-slate-500 sm:flex-none"
+    <div
+      class="grid grid-cols-2 items-end gap-2 sm:flex sm:flex-wrap"
+      data-testid="workspace-toolbar"
+    >
+      <label
+        class="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500 sm:flex-none"
         >{{ t('spaces.title')
         }}<select
-          class="input mt-1 sm:w-56"
+          class="input text-slate-900 sm:w-56 dark:text-slate-100"
           :value="ws.currentSpaceId ?? ''"
           data-testid="space-select"
           @change="ws.selectSpace(($event.target as HTMLSelectElement).value || null)"
@@ -363,10 +367,11 @@ void router;
           <option v-if="ws.personalAllowed" value="">{{ t('spaces.personal') }}</option>
         </select></label
       >
-      <label class="min-w-0 flex-1 text-xs font-medium text-slate-500 sm:flex-none"
+      <label
+        class="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500 sm:flex-none"
         >{{ t('ws.vault')
         }}<select
-          class="input mt-1 sm:w-64"
+          class="input text-slate-900 sm:w-64 dark:text-slate-100"
           :value="ws.currentId"
           data-testid="vault-select"
           @change="ws.select(($event.target as HTMLSelectElement).value)"
@@ -394,14 +399,16 @@ void router;
           </optgroup>
         </select></label
       >
-      <ActionMenu
-        :label="t('ws.actions')"
-        :title="t('ws.actionsTitle')"
-        align="left"
-        :items="vaultActions"
-        data-testid="vault-actions"
-        @select="onVaultAction"
-      />
+      <div class="col-span-2 sm:col-span-1">
+        <ActionMenu
+          :label="t('ws.actions')"
+          :title="t('ws.actionsTitle')"
+          align="left"
+          :items="vaultActions"
+          data-testid="vault-actions"
+          @select="onVaultAction"
+        />
+      </div>
     </div>
     <SpacesPanel v-if="showSpaces" @changed="refreshSpaces" />
 
@@ -453,7 +460,7 @@ void router;
 
     <div
       v-if="vault?.unlocked"
-      class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[15rem_minmax(0,1fr)_24rem]"
+      class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[14rem_minmax(0,1fr)_25rem]"
     >
       <nav class="flex gap-1 lg:hidden" :aria-label="t('corporate.mobileNavigation')">
         <button
@@ -584,7 +591,12 @@ void router;
       <!-- Список -->
       <div class="min-w-0 space-y-2" :class="mobileView === 'list' ? '' : 'hidden lg:block'">
         <div class="flex flex-wrap gap-2">
-          <select v-model="kindFilter" class="input w-auto" data-testid="kind-filter">
+          <select
+            v-model="kindFilter"
+            class="input w-auto"
+            :aria-label="t('ws.kindFilter')"
+            data-testid="kind-filter"
+          >
             <option value="">{{ t('vault.allKinds') }}</option>
             <option
               v-for="k in ['login', 'note', 'server', 'apikey', 'custom']"
@@ -594,7 +606,7 @@ void router;
               {{ t(`kind.${k}`) }}
             </option>
           </select>
-          <select v-model="sort" class="input w-auto">
+          <select v-model="sort" class="input w-auto" :aria-label="t('ws.sort')">
             <option value="title">{{ t('vault.sortTitle') }}</option>
             <option value="updated">{{ t('vault.sortUpdated') }}</option>
           </select>
@@ -727,14 +739,16 @@ void router;
               </div>
             </li>
             <li
-              v-for="e in list"
+              v-for="(e, i) in list"
               :key="e.id"
-              class="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
-              :class="
+              class="entry-row rise group flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/50"
+              :class="[
                 openId === e.id
-                  ? 'bg-brand-50 hover:bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand-500)]'
-                  : ''
-              "
+                  ? 'bg-brand-50 hover:bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand-500)] dark:hover:bg-brand-50'
+                  : '',
+                selected.size ? 'selecting' : '',
+              ]"
+              :style="{ '--i': i }"
               data-testid="entry-row"
               draggable="true"
               @dragstart="dragId = e.id"
@@ -744,22 +758,29 @@ void router;
                 type="checkbox"
                 :checked="selected.has(e.id)"
                 :aria-label="e.data.title"
+                class="row-check"
                 data-testid="row-check"
                 @click.stop
                 @change="toggle(e.id)"
               />
               <span
-                class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-sm font-semibold text-brand-700"
+                class="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-50 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-500/10"
                 aria-hidden="true"
                 >{{ (e.data.title || '?').trim().charAt(0).toUpperCase() }}</span
               >
               <div class="min-w-0 flex-1">
                 <button
                   type="button"
-                  class="block w-full truncate text-left font-medium"
+                  class="flex w-full min-w-0 items-center gap-1.5 text-left font-medium"
                   @click.stop="open(e)"
                 >
-                  {{ e.pinned ? '★ ' : '' }}{{ e.data.title }}
+                  <span class="truncate">{{ e.data.title }}</span>
+                  <Icon
+                    v-if="e.pinned"
+                    name="star"
+                    class="size-3.5 shrink-0 fill-amber-400 text-amber-500"
+                    :aria-label="t('vault.favorites')"
+                  />
                 </button>
                 <div class="truncate text-xs text-slate-500">
                   {{ e.data.username }}<span v-if="e.data.url"> · {{ e.data.url }}</span
