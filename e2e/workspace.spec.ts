@@ -317,13 +317,22 @@ test('administrator builds a structure and works with entries', async ({ browser
       .locator('svg'),
   ).toBeVisible();
 
-  // меню записи по правой кнопке: избранное без открытия карточки
-  await page.getByTestId('entry-row').filter({ hasText: 'Почта' }).click({ button: 'right' });
+  // меню записи по правой кнопке: избранное без открытия карточки. «Почта» уже в избранном
+  // (отмечена выше), поэтому пункт сначала убирает её оттуда, а повторный — возвращает
+  const mailRow = page.getByTestId('entry-row').filter({ hasText: 'Почта' });
+  await mailRow.click({ button: 'right' });
   await expect(page.getByTestId('context-menu')).toBeVisible();
+  await expect(page.getByTestId('ctx-pin')).toHaveText(/Убрать|Remove/);
   await page.getByTestId('ctx-pin').click();
   await expect(page.getByTestId('context-menu')).toHaveCount(0);
   await page.getByTestId('scope-favorites').click();
-  await expect(page.getByTestId('entry-row').filter({ hasText: 'Почта' })).toHaveCount(1);
+  await expect(mailRow).toHaveCount(0);
+  await page.getByTestId('scope-all').click();
+  await mailRow.click({ button: 'right' });
+  await expect(page.getByTestId('ctx-pin')).toHaveText(/В избранное|Add to/);
+  await page.getByTestId('ctx-pin').click();
+  await page.getByTestId('scope-favorites').click();
+  await expect(mailRow).toHaveCount(1);
   await page.getByTestId('scope-all').click();
 
   // сводка сейфа: показатель ведёт к отфильтрованному списку, фильтр в адресе и сбрасывается
