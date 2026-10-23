@@ -745,6 +745,8 @@ export default {
       'The password must contain at least {n} kinds of characters (lower, upper, digits, other).',
     minLength: 'Minimum password length (0 = no requirement)',
     classesLabel: 'Required character kinds (0–4)',
+    repeat: 'The password must not have more than {n} identical characters in a row.',
+    maxRepeatLabel: 'Most identical characters in a row (0 = no requirement)',
   },
   nav: { admin: 'Administration', settings: 'My settings' },
   kind: {
@@ -1027,6 +1029,7 @@ export default {
       linksHint: 'Limits for links people use to hand over secrets, and a note for recipients.',
     },
     linksMaxMinutes: 'Longest link lifetime, minutes (0 — 30 days)',
+    revealSeconds: 'Hide a shown password after, seconds (0 = keep shown)',
     linksMaxViews: 'Most views per link',
     linksNotice: 'Note for recipients',
     personalLockers: 'Allow personal vaults',

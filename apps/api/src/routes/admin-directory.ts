@@ -47,6 +47,10 @@ const SETTINGS: Record<string, z.ZodType> = {
   'security.reloadUnlock': z.boolean(),
   'policy.password.minLength': z.number().int().min(0).max(128),
   'policy.password.classes': z.number().int().min(0).max(4),
+  /** Не больше N одинаковых символов подряд (0 — без требования). Проверяет браузер: сервер паролей не видит. */
+  'policy.password.maxRepeat': z.number().int().min(0).max(20),
+  /** Через сколько секунд показанный пароль снова скрывается (0 — не скрывать). */
+  'security.revealSeconds': z.number().int().min(0).max(3600),
   /** Ограничения ссылок передачи: предельный срок, минут (0 — без своего ограничения), и число просмотров. */
   'links.maxMinutes': z.number().int().min(0).max(43_200),
   'links.maxViews': z.number().int().min(1).max(100),
@@ -71,6 +75,8 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'security.reloadUnlock': true,
   'policy.password.minLength': 0,
   'policy.password.classes': 0,
+  'policy.password.maxRepeat': 0,
+  'security.revealSeconds': 0,
   'links.maxMinutes': 0,
   'links.maxViews': 100,
   'links.notice': '',

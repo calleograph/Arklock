@@ -302,6 +302,7 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
     const keys = [
       'policy.password.minLength',
       'policy.password.classes',
+      'policy.password.maxRepeat',
       'security.passwordMaxAgeDays',
       ...chain.map((p) => policyKey(p.scope, p.id)),
     ];
@@ -328,7 +329,13 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
       const parsed = objectPasswordPolicy.safeParse(values.get(policyKey(item.scope, item.id)));
       if (parsed.success) sources.push({ ...item, policy: parsed.data });
     }
-    const effective = { minLength: 0, classes: 0, maxAgeDays: 0 };
+    // повтор символов задаётся только для организации: у папок и записей своих значений нет
+    const effective = {
+      minLength: 0,
+      classes: 0,
+      maxAgeDays: 0,
+      maxRepeat: numeric(values.get('policy.password.maxRepeat'), 20),
+    };
     for (const { policy } of sources) {
       effective.minLength = Math.max(effective.minLength, policy.minLength ?? 0);
       effective.classes = Math.max(effective.classes, policy.classes ?? 0);

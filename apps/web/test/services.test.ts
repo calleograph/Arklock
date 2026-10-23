@@ -46,11 +46,11 @@ describe('password policy', () => {
 
   it('ignores invalid values from the server', () => {
     expect(policyFrom({ 'policy.password.minLength': 'x', 'policy.password.classes': -1 })).toEqual(
-      { minLength: 0, classes: 0 },
+      { minLength: 0, classes: 0, maxRepeat: 0 },
     );
     expect(
       policyFrom({ 'policy.password.minLength': 99999, 'policy.password.classes': 9 }),
-    ).toEqual({ minLength: 128, classes: 4 });
+    ).toEqual({ minLength: 128, classes: 4, maxRepeat: 0 });
   });
 });
 
@@ -247,5 +247,17 @@ describe('значки папок и записей', () => {
     const back = importArklockJson(json);
     expect(back.items[0]!.data.icon).toEqual({ name: 'server', color: 'blue' });
     expect(back.folderIcons).toEqual({ Банки: { name: 'bank', color: 'green' } });
+  });
+});
+
+describe('password policy: identical characters in a row', () => {
+  it('counts runs by Unicode characters and reports only above the limit', async () => {
+    const { checkPolicy, policyFrom } = await import('../src/services/policy');
+    const p = { minLength: 0, classes: 0, maxRepeat: 2 };
+    expect(checkPolicy('aab', p)).toEqual([]);
+    expect(checkPolicy('aaab', p)).toEqual(['repeat']);
+    expect(checkPolicy('👍👍👍', p)).toEqual(['repeat']); // суррогатные пары — один символ
+    expect(checkPolicy('aaaa', { ...p, maxRepeat: 0 })).toEqual([]);
+    expect(policyFrom({ 'policy.password.maxRepeat': 99 }).maxRepeat).toBe(20);
   });
 });

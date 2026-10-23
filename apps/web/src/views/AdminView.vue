@@ -1102,6 +1102,38 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 "
             /></label>
             <label class="flex items-center justify-between gap-3"
+              ><span>{{ t('policy.maxRepeatLabel') }}</span
+              ><input
+                :value="settings['policy.password.maxRepeat'] ?? 0"
+                type="number"
+                min="0"
+                max="20"
+                class="input w-24"
+                data-testid="set-max-repeat"
+                @change="
+                  saveSetting(
+                    'policy.password.maxRepeat',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
+              ><span>{{ t('admin.revealSeconds') }}</span
+              ><input
+                :value="settings['security.revealSeconds'] ?? 0"
+                type="number"
+                min="0"
+                max="3600"
+                class="input w-24"
+                data-testid="set-reveal-seconds"
+                @change="
+                  saveSetting(
+                    'security.revealSeconds',
+                    Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+            <label class="flex items-center justify-between gap-3"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.passwordMaxAge')
                 }}<InfoHint :text="t('hint.passwordMaxAge.text')" /></span

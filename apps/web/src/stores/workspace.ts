@@ -109,6 +109,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** Записей в личном сейфе (без содержимого) и закрытые сотрудником уведомления — из профиля на сервере. */
   const personalEntries = ref(0);
   const dismissedNotices = ref<string[]>([]);
+  /** Через сколько секунд показанный пароль снова скрывается (0 — не скрывать), из настроек организации. */
+  const revealSeconds = ref(0);
   let keyLog: KeyLogEntry[] = [];
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
@@ -192,6 +194,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     personalDataRestricted.value = policy['vaults.personalDataRestricted'] === true;
     personalEntries.value = Number(policy['vaults.personalEntries'] ?? 0);
     dismissedNotices.value = (policy['notices.dismissed'] as string[] | undefined) ?? [];
+    revealSeconds.value = Number(policy['security.revealSeconds'] ?? 0) || 0;
     let infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
       (v) => personalAllowed.value || v.kind !== 'locker',
     );
@@ -1484,6 +1487,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     bulk,
     setPinned,
     setBranchPinned,
+    revealSeconds,
     revisions,
     restoreRevision,
     createBranch,

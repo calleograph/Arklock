@@ -1,3 +1,4 @@
+import { policyMessage, type Violation } from './policy';
 import { ApiError } from './api';
 import { i18n } from '../i18n';
 
@@ -17,12 +18,13 @@ export function errorMessage(e: unknown, t: T): string {
     switch (e.code) {
       case 'password_policy': {
         const policy = e.details as
-          { minLength?: number; classes?: number; violations?: unknown } | undefined;
+          | { minLength?: number; classes?: number; maxRepeat?: number; violations?: unknown }
+          | undefined;
         if (!Array.isArray(policy?.violations)) return t('corporate.policyViolation');
         return (
-          policy.violations
-            .filter((v) => v === 'length' || v === 'classes')
-            .map((v) => t(`policy.${v}`, { n: v === 'length' ? policy.minLength : policy.classes }))
+          (policy.violations as unknown[])
+            .filter((v): v is Violation => v === 'length' || v === 'classes' || v === 'repeat')
+            .map((v) => policyMessage(v, policy, t))
             .join(' ') || t('corporate.policyViolation')
         );
       }

@@ -424,3 +424,25 @@ it('bulk and cascading deletion enforce role denials', async () => {
   );
   expect((await member.req('GET', `/vaults/${vaultId}/attachments`)).statusCode).toBe(403);
 });
+
+it('the organization limit on repeated characters and the reveal time reach the clients', async () => {
+  expect(
+    (
+      await owner.req('PUT', '/admin/settings', {
+        'policy.password.maxRepeat': 3,
+        'security.revealSeconds': 20,
+      })
+    ).statusCode,
+  ).toBe(200);
+  const p = (await owner.req('GET', `/vaults/${vaultId}/entries/${entryId}/policy`)).json();
+  expect(p.effective.maxRepeat).toBe(3);
+  const policy = (await member.req('GET', '/auth/policy')).json();
+  expect(policy).toMatchObject({ 'policy.password.maxRepeat': 3, 'security.revealSeconds': 20 });
+  expect(
+    (await owner.req('PUT', '/admin/settings', { 'security.revealSeconds': -1 })).statusCode,
+  ).toBe(400);
+  await owner.req('PUT', '/admin/settings', {
+    'policy.password.maxRepeat': 0,
+    'security.revealSeconds': 0,
+  });
+});

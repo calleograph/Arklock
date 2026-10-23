@@ -32,7 +32,7 @@ import { errorMessage, when } from '../services/helpers';
 import { api } from '../services/api';
 import { openSink } from '../services/download';
 import { copyWithAutoClear, reportEntryEvent } from '../services/clipboard';
-import { NO_POLICY, checkPolicy, type PasswordPolicy } from '../services/policy';
+import { NO_POLICY, checkPolicy, type PasswordPolicy, policyMessage } from '../services/policy';
 import type { VaultView } from '../stores/workspace';
 
 const props = defineProps<{
@@ -157,6 +157,7 @@ watch(
     moreOpen.value = hasExtras();
     iconOpen.value = false;
     showPw.value = false;
+    clearHideTimers();
     revealed.value = new Set();
     error.value = '';
     tab.value = 'details';
@@ -280,11 +281,29 @@ async function reportEvent(
     if (action !== 'open') error.value = t('entryPanel.eventFailed');
   }
 }
+// показанное значение скрывается само через срок из настроек организации
+const hideTimers = new Map<number, ReturnType<typeof setTimeout>>();
+function clearHideTimers(): void {
+  for (const h of hideTimers.values()) clearTimeout(h);
+  hideTimers.clear();
+}
+onBeforeUnmount(clearHideTimers);
 function toggleReveal(index: number): void {
+  clearTimeout(hideTimers.get(index));
+  hideTimers.delete(index);
   if (revealed.value.has(index)) revealed.value.delete(index);
   else {
     revealed.value.add(index);
     void reportEvent('reveal', index === -1 ? 'password' : 'custom');
+    if (ws.revealSeconds > 0)
+      hideTimers.set(
+        index,
+        setTimeout(() => {
+          hideTimers.delete(index);
+          revealed.value.delete(index);
+          revealed.value = new Set(revealed.value);
+        }, ws.revealSeconds * 1000),
+      );
   }
   revealed.value = new Set(revealed.value);
 }
@@ -381,11 +400,7 @@ async function save(): Promise<void> {
   if (form.value.password && form.value.kind !== 'note') {
     const bad = checkPolicy(form.value.password, policy.value);
     if (bad.length) {
-      error.value = bad
-        .map((b) =>
-          t(`policy.${b}`, { n: b === 'length' ? policy.value.minLength : policy.value.classes }),
-        )
-        .join(' ');
+      error.value = bad.map((b) => policyMessage(b, policy.value, t)).join(' ');
       return;
     }
   }

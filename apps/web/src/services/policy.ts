@@ -4,11 +4,26 @@ export interface PasswordPolicy {
   minLength: number;
   /** Сколько классов символов обязательно: строчные, прописные, цифры, прочие (0–4). */
   classes: number;
+  /** Не больше стольких одинаковых символов подряд (0 — без требования). */
+  maxRepeat?: number;
 }
 
-export const NO_POLICY: PasswordPolicy = { minLength: 0, classes: 0 };
+export const NO_POLICY: PasswordPolicy = { minLength: 0, classes: 0, maxRepeat: 0 };
 
-export type Violation = 'length' | 'classes';
+export type Violation = 'length' | 'classes' | 'repeat';
+
+/** Самая длинная серия одинаковых символов (по символам Unicode, а не по кодовым единицам). */
+function longestRun(pw: string): number {
+  let best = 0;
+  let run = 0;
+  let prev = '';
+  for (const ch of pw) {
+    run = ch === prev ? run + 1 : 1;
+    prev = ch;
+    best = Math.max(best, run);
+  }
+  return best;
+}
 
 const classOf = (pw: string): number =>
   [/[a-zа-яё]/, /[A-ZА-ЯЁ]/, /[0-9]/, /[^A-Za-zА-Яа-яЁё0-9]/].filter((re) => re.test(pw)).length;
@@ -17,8 +32,19 @@ export function checkPolicy(password: string, policy: PasswordPolicy): Violation
   const out: Violation[] = [];
   if (policy.minLength > 0 && [...password].length < policy.minLength) out.push('length');
   if (policy.classes > 0 && classOf(password) < policy.classes) out.push('classes');
+  if (policy.maxRepeat && longestRun(password) > policy.maxRepeat) out.push('repeat');
   return out;
 }
+
+/** Текст нарушения: число в сообщении — из той же политики, по которой проверяли. */
+export const policyMessage = (
+  v: Violation,
+  p: Partial<PasswordPolicy>,
+  t: (key: string, args: Record<string, unknown>) => string,
+): string =>
+  t(`policy.${v}`, {
+    n: v === 'length' ? p.minLength : v === 'classes' ? p.classes : (p.maxRepeat ?? 0),
+  });
 
 /** Политика из ответа /auth/policy; некорректные значения игнорируются. */
 export function policyFrom(raw: Record<string, unknown>): PasswordPolicy {
@@ -27,5 +53,6 @@ export function policyFrom(raw: Record<string, unknown>): PasswordPolicy {
   return {
     minLength: Math.min(n(raw['policy.password.minLength']), 128),
     classes: Math.min(n(raw['policy.password.classes']), 4),
+    maxRepeat: Math.min(n(raw['policy.password.maxRepeat']), 20),
   };
 }
