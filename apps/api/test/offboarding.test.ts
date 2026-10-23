@@ -82,8 +82,12 @@ it('transfers ownership, blocks the account, ends sessions and lists vaults to r
   const users = (await admin.req('GET', '/admin/users')).json() as {
     id: string;
     disabled: boolean;
+    disabledReason: string | null;
   }[];
-  expect(users.find((u) => u.id === leaver.userId)!.disabled).toBe(true);
+  expect(users.find((u) => u.id === leaver.userId)).toMatchObject({
+    disabled: true,
+    disabledReason: 'offboarding',
+  });
   const members = (await admin.req('GET', `/vaults/${vaultId}/members`)).json().members as {
     userId: string;
     directRole: string;

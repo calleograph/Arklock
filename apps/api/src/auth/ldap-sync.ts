@@ -220,7 +220,12 @@ export async function syncLdapProfile(
         if (!found || found.disabled || ldapExternalId(profile.id, found.dn) !== user.externalId) {
           await tx
             .update(users)
-            .set({ disabledAt: user.disabledAt ?? new Date() })
+            // уже отключённого не переписываем: прежние время и причина остаются
+            .set(
+              user.disabledAt
+                ? { disabledAt: user.disabledAt }
+                : { disabledAt: new Date(), disabledReason: 'directory' as const },
+            )
             .where(eq(users.id, user.id));
           await tx
             .update(sessions)

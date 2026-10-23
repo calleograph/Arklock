@@ -144,6 +144,9 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         phone: target.phone,
         profileSource: target.profileSource,
         disabled: !!target.disabledAt,
+        disabledReason: target.disabledAt ? target.disabledReason : null,
+        disabledNote: target.disabledAt ? target.disabledNote : null,
+        disabledAt: target.disabledAt?.toISOString() ?? null,
         role: target.role,
         chief: target.chief,
         adminRoleId: target.adminRoleId,
@@ -354,7 +357,14 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         .where(and(eq(sessions.userId, id), isNull(sessions.revokedAt)));
       await tx
         .update(users)
-        .set({ disabledAt: now, adminRoleId: null, updatedAt: now })
+        .set({
+          disabledAt: now,
+          disabledReason: 'offboarding',
+          disabledNote: null,
+          disabledBy: user.id,
+          adminRoleId: null,
+          updatedAt: now,
+        })
         .where(eq(users.id, id));
       return {
         after,

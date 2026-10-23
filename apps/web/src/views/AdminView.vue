@@ -172,6 +172,9 @@ interface U {
   chief?: boolean;
   adminRoleId?: string | null;
   disabled: boolean;
+  /** Почему отключён: вручную, каталогом, при увольнении (null — не записано) */
+  disabledReason?: 'manual' | 'directory' | 'offboarding' | null;
+  disabledNote?: string | null;
   createdAt: string;
   lastSeenAt: string | null;
   authSource?: string;
@@ -211,6 +214,65 @@ const patchUser = (u: U, body: object) =>
         await api('PATCH', `/admin/users/${u.id}`, { ...body, acknowledgeAccessRisk: true });
     }
   }, loadUsers);
+// отключение спрашивает пояснение: оно остаётся в карточке и в списке (отмена — ничего не делать)
+function setDisabled(u: U, disabled: boolean): void {
+  if (!disabled) {
+    void patchUser(u, { disabled: false });
+    return;
+  }
+  const note = window.prompt(t('admin.disableNote', { name: u.name }), '');
+  if (note === null) return;
+  void patchUser(u, { disabled: true, disabledNote: note.trim() });
+}
+// массовое включение и отключение: по одному запросу на сотрудника, итог — общим сообщением
+const picked = ref<Set<string>>(new Set());
+const bulkBusy = ref(false);
+const pickable = (u: U) => u.id !== auth.user?.id && !u.chief;
+const pickedUsers = computed(() => visibleUsers.value.filter((u) => picked.value.has(u.id)));
+function togglePick(u: U): void {
+  const next = new Set(picked.value);
+  if (next.has(u.id)) next.delete(u.id);
+  else next.add(u.id);
+  picked.value = next;
+}
+const allPicked = computed(
+  () =>
+    visibleUsers.value.filter(pickable).length > 0 &&
+    visibleUsers.value.filter(pickable).every((u) => picked.value.has(u.id)),
+);
+function pickAll(): void {
+  picked.value = allPicked.value
+    ? new Set()
+    : new Set(visibleUsers.value.filter(pickable).map((u) => u.id));
+}
+async function bulkStatus(disabled: boolean): Promise<void> {
+  const list = pickedUsers.value.filter((u) => u.disabled !== disabled);
+  if (!list.length) return;
+  let note = '';
+  if (disabled) {
+    const answer = window.prompt(t('admin.bulkDisableNote', { n: list.length }), '');
+    if (answer === null) return;
+    note = answer.trim();
+  }
+  bulkBusy.value = true;
+  error.value = '';
+  const failed: string[] = [];
+  for (const u of list) {
+    try {
+      await api('PATCH', `/admin/users/${u.id}`, {
+        disabled,
+        ...(disabled ? { disabledNote: note } : {}),
+      });
+    } catch (e) {
+      failed.push(`${u.name}: ${errorMessage(e, t)}`);
+    }
+  }
+  bulkBusy.value = false;
+  picked.value = new Set();
+  notice.value = t('admin.bulkDone', { n: list.length - failed.length });
+  if (failed.length) error.value = failed.join('\n');
+  await loadUsers();
+}
 const offboarding = ref<U | null>(null);
 const profileOf = ref<U | null>(null);
 const endSessions = (u: U) =>
@@ -333,7 +395,7 @@ const userActions = (u: U): ActionItem[] => [
 function onUserAction(u: U, id: string): void {
   if (id === 'sessions') void endSessions(u);
   else if (id === 'mfa') void resetMfa(u);
-  else if (id === 'toggle') void patchUser(u, { disabled: !u.disabled });
+  else if (id === 'toggle') setDisabled(u, !u.disabled);
   else if (id === 'offboard') offboarding.value = u;
 }
 const userMenu = ref<{ x: number; y: number; u: U } | null>(null);
@@ -627,9 +689,46 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             @close="offboarding = null"
             @done="loadUsers"
           />
+          <div
+            v-if="pickedUsers.length"
+            class="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+            data-testid="users-bulk"
+          >
+            <span>{{ t('admin.picked', { n: pickedUsers.length }) }}</span>
+            <button
+              type="button"
+              class="btn-danger"
+              :disabled="bulkBusy"
+              data-testid="users-bulk-disable"
+              @click="bulkStatus(true)"
+            >
+              {{ t('admin.disable') }}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :disabled="bulkBusy"
+              data-testid="users-bulk-enable"
+              @click="bulkStatus(false)"
+            >
+              {{ t('admin.enable') }}
+            </button>
+            <button type="button" class="btn-ghost" @click="picked = new Set()">
+              {{ t('common.cancel') }}
+            </button>
+          </div>
           <table class="min-w-full text-sm" data-testid="users-table">
             <thead class="text-left text-xs text-slate-500">
               <tr>
+                <th class="w-8 pl-3">
+                  <input
+                    type="checkbox"
+                    :checked="allPicked"
+                    :aria-label="t('admin.pickAll')"
+                    data-testid="users-pick-all"
+                    @change="pickAll"
+                  />
+                </th>
                 <th class="px-3 py-2">{{ t('common.name') }}</th>
                 <th>{{ t('admin.role') }}</th>
                 <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
@@ -646,6 +745,16 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 data-testid="user-row"
                 @contextmenu.prevent="userMenu = { x: $event.clientX, y: $event.clientY, u }"
               >
+                <td class="w-8 pl-3">
+                  <input
+                    v-if="pickable(u)"
+                    type="checkbox"
+                    :checked="picked.has(u.id)"
+                    :aria-label="u.name"
+                    :data-testid="`user-pick-${u.email}`"
+                    @change="togglePick(u)"
+                  />
+                </td>
                 <td class="px-3 py-2">
                   <button
                     type="button"
@@ -694,6 +803,14 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
                     u.disabled ? t('admin.disabled') : t('admin.active')
                   }}</span>
+                  <span
+                    v-if="u.disabled && u.disabledReason"
+                    class="block text-xs text-slate-500"
+                    :title="u.disabledNote ?? ''"
+                    data-testid="user-disabled-reason"
+                    >{{ t(`admin.disabledBy.${u.disabledReason}`)
+                    }}<template v-if="u.disabledNote">: {{ u.disabledNote }}</template></span
+                  >
                 </td>
                 <td class="px-3 text-right">
                   <ActionMenu

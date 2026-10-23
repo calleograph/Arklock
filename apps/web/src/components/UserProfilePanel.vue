@@ -30,6 +30,9 @@ interface Profile {
     phone: string | null;
     profileSource: Record<string, 'ldap'>;
     disabled: boolean;
+    disabledReason?: 'manual' | 'directory' | 'offboarding' | null;
+    disabledNote?: string | null;
+    disabledAt?: string | null;
     role: string;
     chief?: boolean;
     adminRoleId: string | null;
@@ -127,6 +130,14 @@ async function endSessions(): Promise<void> {
             <span class="badge" :class="p.user.disabled ? 'text-red-700' : 'text-emerald-700'">{{
               p.user.disabled ? t('admin.disabled') : t('admin.active')
             }}</span>
+            <span
+              v-if="p.user.disabled && p.user.disabledReason"
+              class="badge"
+              data-testid="profile-disabled-reason"
+              >{{ t(`admin.disabledBy.${p.user.disabledReason}`)
+              }}<template v-if="p.user.disabledAt"> · {{ when(p.user.disabledAt) }}</template
+              ><template v-if="p.user.disabledNote">: {{ p.user.disabledNote }}</template></span
+            >
             <span class="badge">{{
               p.user.role === 'admin' ? t('admin.roleAdmin') : t('admin.roleMember')
             }}</span>

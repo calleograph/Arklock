@@ -508,6 +508,11 @@ describe('sign-in through the directory', () => {
       const r = (await admin.req('POST', '/admin/ldap/sync')).json();
       expect(r).toMatchObject({ total: 1, disabled: 1, custodyRisks: 0 });
       expect(
+        ((await admin.req('GET', '/admin/users')).json() as { email: string }[]).find(
+          (u) => u.email === 'alice@example.com',
+        ),
+      ).toMatchObject({ disabled: true, disabledReason: 'directory' });
+      expect(
         (await app.inject({ url: '/api/v1/vaults', headers: { authorization: `Bearer ${tok}` } }))
           .statusCode,
       ).toBe(401);

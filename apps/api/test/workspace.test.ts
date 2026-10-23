@@ -920,13 +920,33 @@ describe('administration', () => {
     await victim.login();
     expect((await victim.vaults()).length).toBe(1);
     expect(
-      (await admin.req('PATCH', `/admin/users/${victim.userId}`, { disabled: true })).statusCode,
+      (
+        await admin.req('PATCH', `/admin/users/${victim.userId}`, {
+          disabled: true,
+          disabledNote: 'Утерян ноутбук',
+        })
+      ).statusCode,
     ).toBe(200);
     expect((await victim.req('GET', '/vaults')).statusCode).toBe(401);
     expect((await victim.loginRaw()).statusCode).toBe(401);
+    // причина и пояснение видны в списке пользователей
+    const row = async () =>
+      ((await admin.req('GET', '/admin/users')).json() as { email: string }[]).find(
+        (u) => u.email === 'victim@example.com',
+      );
+    expect(await row()).toMatchObject({
+      disabled: true,
+      disabledReason: 'manual',
+      disabledNote: 'Утерян ноутбук',
+    });
     expect(
       (await admin.req('PATCH', `/admin/users/${victim.userId}`, { disabled: false })).statusCode,
     ).toBe(200);
+    expect(await row()).toMatchObject({
+      disabled: false,
+      disabledReason: null,
+      disabledNote: null,
+    });
     expect((await victim.loginRaw()).statusCode).toBe(200);
   });
 

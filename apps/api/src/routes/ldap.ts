@@ -346,7 +346,10 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
               ),
             );
           if (linked) {
-            await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, linked.id));
+            await db
+              .update(users)
+              .set({ disabledAt: new Date(), disabledReason: 'directory' })
+              .where(eq(users.id, linked.id));
             await db
               .update(sessions)
               .set({ revokedAt: new Date() })

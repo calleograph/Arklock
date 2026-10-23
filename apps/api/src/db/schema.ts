@@ -85,6 +85,11 @@ export const users = pgTable(
     recoveryWrappedPrivateKey: text('recovery_wrapped_private_key').notNull(),
     recoveryWrappedSignPrivateKey: text('recovery_wrapped_sign_private_key').notNull(),
     disabledAt: ts('disabled_at'),
+    /** Почему отключён: вручную, каталогом, при увольнении; null — причина не записана (до 1.41) или активен. */
+    disabledReason: text('disabled_reason', { enum: ['manual', 'directory', 'offboarding'] }),
+    /** Пояснение администратора к ручному отключению (видят только администраторы). */
+    disabledNote: text('disabled_note'),
+    disabledBy: uuid('disabled_by'),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },

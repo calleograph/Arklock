@@ -649,6 +649,16 @@ test('custom roles: an administrative role opens only its own sections for a del
   await expect(page.getByTestId('toggle-invited.person@example.com')).toBeVisible();
   await expect(page.getByTestId('offboard-invited.person@example.com')).toHaveCount(0);
   await page.keyboard.press('Escape');
+  // причина отключения видна в списке; массовое включение возвращает учётную запись
+  const invitedRow = page.getByTestId('user-row').filter({ hasText: 'invited.person@example.com' });
+  await expect(invitedRow.getByTestId('user-disabled-reason')).toContainText(
+    /при увольнении|when offboarded/,
+  );
+  await page.getByTestId('user-pick-invited.person@example.com').check();
+  await expect(page.getByTestId('users-bulk')).toContainText(/Выбрано: 1|Selected: 1/);
+  await page.getByTestId('users-bulk-enable').click();
+  await expect(invitedRow).toContainText(/активен|active/);
+  await expect(invitedRow.getByTestId('user-disabled-reason')).toHaveCount(0);
 
   // вебхук: секрет подписи показывается один раз
   await tab(page, 'webhooks');

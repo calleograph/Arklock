@@ -121,6 +121,8 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       chief: u.chief,
       adminRoleId: u.adminRoleId,
       disabled: !!u.disabledAt,
+      disabledReason: u.disabledAt ? u.disabledReason : null,
+      disabledNote: u.disabledAt ? u.disabledNote : null,
       authSource: u.authSource,
       createdAt: u.createdAt.toISOString(),
       lastSeenAt: seen.get(u.id) ? new Date(seen.get(u.id)!).toISOString() : null,
@@ -134,6 +136,8 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       z.object({
         role: z.enum(['admin', 'member']).optional(),
         disabled: z.boolean().optional(),
+        /** Пояснение к отключению: сохраняется в карточке. */
+        disabledNote: z.string().trim().max(200).optional(),
         acknowledgeAccessRisk: z.boolean().optional(),
         /** Административная роль (делегирование); null — снять. */
         adminRoleId: uuid.nullable().optional(),
@@ -187,7 +191,16 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       .set({
         ...(body.role ? { role: body.role } : {}),
         ...(body.adminRoleId !== undefined ? { adminRoleId: body.adminRoleId } : {}),
-        ...(body.disabled !== undefined ? { disabledAt: body.disabled ? new Date() : null } : {}),
+        ...(body.disabled === true && disabling
+          ? {
+              disabledAt: new Date(),
+              disabledReason: 'manual' as const,
+              disabledNote: body.disabledNote || null,
+              disabledBy: user.id,
+            }
+          : body.disabled === false
+            ? { disabledAt: null, disabledReason: null, disabledNote: null, disabledBy: null }
+            : {}),
         updatedAt: new Date(),
       })
       .where(eq(users.id, id));
