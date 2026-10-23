@@ -75,6 +75,7 @@ const rowIssues = computed(() => {
 });
 const issueText = (id: string) =>
   (rowIssues.value.get(id) ?? []).map((x) => t(`issue.${x}`)).join(', ');
+const pinnedFolders = computed(() => ws.branches.filter((b) => b.pinned && !b.deletedAt));
 const tagFilter = ref('');
 const sort = ref<'title' | 'updated'>('title');
 const selected = ref<Set<string>>(new Set());
@@ -955,6 +956,24 @@ void router;
         </ul>
 
         <div
+          v-if="scope === 'favorites' && pinnedFolders.length"
+          class="flex flex-wrap items-center gap-1.5 text-sm"
+          data-testid="favorite-folders"
+        >
+          <span class="text-xs text-slate-500">{{ t('vault.folders') }}:</span>
+          <button
+            v-for="b in pinnedFolders"
+            :key="b.id"
+            type="button"
+            class="badge gap-1 !py-1 hover:bg-slate-200 dark:hover:bg-slate-700"
+            :data-testid="`favorite-folder-${b.name}`"
+            @click="((scope = 'all'), (branchSel = b.id), (openId = null))"
+          >
+            <ObjectIcon :icon="b.icon" kind="folder" variant="inline" />{{ pathOf(b.id) }}
+          </button>
+        </div>
+
+        <div
           v-if="issueFilter"
           class="notice notice-warn flex items-center justify-between gap-2 !py-1.5 text-sm"
           role="status"
@@ -997,17 +1016,20 @@ void router;
                   class="!size-8 opacity-60"
                 />
                 <p>
-                  {{ query || tagFilter || kindFilter ? t('vault.noMatch') : t('vault.empty') }}
+                  {{
+                    query || tagFilter || kindFilter
+                      ? t('vault.noMatch')
+                      : scope === 'favorites'
+                        ? t('vault.emptyFavorites')
+                        : scope === 'archive'
+                          ? t('vault.emptyArchive')
+                          : scope === 'trash'
+                            ? t('vault.emptyTrash')
+                            : t('vault.empty')
+                  }}
                 </p>
                 <button
-                  v-if="
-                    canWrite &&
-                    scope !== 'trash' &&
-                    scope !== 'archive' &&
-                    !query &&
-                    !tagFilter &&
-                    !kindFilter
-                  "
+                  v-if="canWrite && scope === 'all' && !query && !tagFilter && !kindFilter"
                   type="button"
                   class="btn-primary"
                   @click="newEntry()"
@@ -1236,82 +1258,96 @@ void router;
           <ObjectIcon :icon="menuBranch.icon" kind="folder" variant="inline" />
           {{ menuBranch.name }}
         </h2>
-        <button
-          v-if="canWrite"
-          type="button"
-          class="btn w-full"
-          data-testid="folder-subfolder"
-          @click="newSubfolder(menuBranch!)"
-        >
-          <Icon name="folder-plus" /> {{ t('ws.newSubfolder') }}
-        </button>
-        <button
-          v-if="canWrite"
-          type="button"
-          class="btn w-full"
-          data-testid="folder-add-entry"
-          @click="newEntryIn(menuBranch!)"
-        >
-          <Icon name="plus" /> {{ t('ctx.addHere') }}
-        </button>
-        <button
-          type="button"
-          class="btn w-full"
-          data-testid="folder-rename"
-          @click="(renameFolder(menuBranch!), (menuBranch = null))"
-        >
-          {{ t('vault.rename') }}
-        </button>
-        <button
-          type="button"
-          class="btn w-full"
-          data-testid="folder-icon"
-          @click="openFolderIcon(menuBranch!)"
-        >
-          {{ t('icons.change') }}
-        </button>
-        <label class="block text-sm"
-          ><span class="field-label">{{ t('vault.moveTo') }}</span>
-          <select
-            class="input"
-            data-testid="folder-move"
-            @change="moveFolder(menuBranch!, ($event.target as HTMLSelectElement).value)"
+        <template v-if="menuBranch.access !== 'reader'">
+          <button
+            v-if="canWrite"
+            type="button"
+            class="btn w-full"
+            data-testid="folder-subfolder"
+            @click="newSubfolder(menuBranch!)"
           >
-            <option value="" disabled selected>…</option>
-            <option value="">{{ t('vault.root') }}</option>
-            <option v-for="b in folderTargets(menuBranch)" :key="b.id" :value="b.id">
-              {{ pathOf(b.id) }}
-            </option>
-          </select></label
-        >
+            <Icon name="folder-plus" /> {{ t('ws.newSubfolder') }}
+          </button>
+          <button
+            v-if="canWrite"
+            type="button"
+            class="btn w-full"
+            data-testid="folder-add-entry"
+            @click="newEntryIn(menuBranch!)"
+          >
+            <Icon name="plus" /> {{ t('ctx.addHere') }}
+          </button>
+          <button
+            type="button"
+            class="btn w-full"
+            data-testid="folder-rename"
+            @click="(renameFolder(menuBranch!), (menuBranch = null))"
+          >
+            {{ t('vault.rename') }}
+          </button>
+          <button
+            type="button"
+            class="btn w-full"
+            data-testid="folder-icon"
+            @click="openFolderIcon(menuBranch!)"
+          >
+            {{ t('icons.change') }}
+          </button>
+        </template>
         <button
-          v-if="folderEntries(menuBranch, false).length"
           type="button"
           class="btn w-full"
-          data-testid="folder-archive"
-          @click="archiveFolder(menuBranch!, true)"
+          data-testid="folder-pin"
+          @click="
+            (run(() => ws.setBranchPinned(menuBranch!, !menuBranch!.pinned)), (menuBranch = null))
+          "
         >
-          <Icon name="archive" />
-          {{ t('ws.archiveFolder', { n: folderEntries(menuBranch, false).length }) }}
+          <Icon name="star" /> {{ menuBranch.pinned ? t('ctx.unpin') : t('ctx.pin') }}
         </button>
-        <button
-          v-if="folderEntries(menuBranch, true).length"
-          type="button"
-          class="btn w-full"
-          data-testid="folder-unarchive"
-          @click="archiveFolder(menuBranch!, false)"
-        >
-          <Icon name="inbox" />
-          {{ t('ws.unarchiveFolder', { n: folderEntries(menuBranch, true).length }) }}
-        </button>
-        <button
-          type="button"
-          class="btn-danger w-full"
-          data-testid="folder-delete"
-          @click="removeFolder(menuBranch!)"
-        >
-          {{ t('vault.deleteFolder') }}
-        </button>
+        <template v-if="menuBranch.access !== 'reader'">
+          <label class="block text-sm"
+            ><span class="field-label">{{ t('vault.moveTo') }}</span>
+            <select
+              class="input"
+              data-testid="folder-move"
+              @change="moveFolder(menuBranch!, ($event.target as HTMLSelectElement).value)"
+            >
+              <option value="" disabled selected>…</option>
+              <option value="">{{ t('vault.root') }}</option>
+              <option v-for="b in folderTargets(menuBranch)" :key="b.id" :value="b.id">
+                {{ pathOf(b.id) }}
+              </option>
+            </select></label
+          >
+          <button
+            v-if="folderEntries(menuBranch, false).length"
+            type="button"
+            class="btn w-full"
+            data-testid="folder-archive"
+            @click="archiveFolder(menuBranch!, true)"
+          >
+            <Icon name="archive" />
+            {{ t('ws.archiveFolder', { n: folderEntries(menuBranch, false).length }) }}
+          </button>
+          <button
+            v-if="folderEntries(menuBranch, true).length"
+            type="button"
+            class="btn w-full"
+            data-testid="folder-unarchive"
+            @click="archiveFolder(menuBranch!, false)"
+          >
+            <Icon name="inbox" />
+            {{ t('ws.unarchiveFolder', { n: folderEntries(menuBranch, true).length }) }}
+          </button>
+          <button
+            type="button"
+            class="btn-danger w-full"
+            data-testid="folder-delete"
+            @click="removeFolder(menuBranch!)"
+          >
+            {{ t('vault.deleteFolder') }}
+          </button>
+        </template>
         <button type="button" class="btn w-full" @click="menuBranch = null">
           {{ t('common.cancel') }}
         </button>

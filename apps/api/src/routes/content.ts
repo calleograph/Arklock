@@ -23,6 +23,7 @@ import {
   entryRevisions,
   grants,
   pins,
+  branchPins,
   users,
   vaults,
 } from '../db/schema.js';
@@ -81,8 +82,13 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     };
   }
 
-  function branchRecord(b: typeof branches.$inferSelect, access: Access): BranchRecord {
+  function branchRecord(
+    b: typeof branches.$inferSelect,
+    access: Access,
+    pinned?: boolean,
+  ): BranchRecord {
     return {
+      ...(pinned === undefined ? {} : { pinned }),
       id: b.id,
       vaultId: b.vaultId,
       parentId: b.parentId,
@@ -101,6 +107,15 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .select({ id: pins.entryId })
       .from(pins)
       .where(and(eq(pins.userId, userId), inArray(pins.entryId, ids)));
+    return new Set(rows.map((r) => r.id));
+  }
+
+  async function pinnedBranches(userId: string, ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const rows = await db
+      .select({ id: branchPins.branchId })
+      .from(branchPins)
+      .where(and(eq(branchPins.userId, userId), inArray(branchPins.branchId, ids)));
     return new Set(rows.map((r) => r.id));
   }
 
@@ -160,10 +175,14 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       if (a) outEntries.push(entryRecord(e, a, pinned.has(e.id)));
     }
     const outBranches: BranchRecord[] = [];
+    const pinnedB = await pinnedBranches(
+      user.id,
+      brRows.map((b) => b.id),
+    );
     for (const b of brRows) {
       if (trash ? !b.deletedAt : !!b.deletedAt) continue;
       const a = access.branch(b.id);
-      if (a) outBranches.push(branchRecord(b, a));
+      if (a) outBranches.push(branchRecord(b, a, pinnedB.has(b.id)));
     }
     return { branches: outBranches, entries: outEntries };
   });
@@ -470,6 +489,26 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { user } = authOf(req);
     const { entryId } = parse(entryParams, req.params);
     await db.delete(pins).where(and(eq(pins.userId, user.id), eq(pins.entryId, entryId)));
+    return reply.status(204).send();
+  });
+
+  // избранная папка: видна только самому сотруднику, требует доступа к папке
+  app.put('/vaults/:vaultId/branches/:branchId/pin', async (req, reply) => {
+    const { user } = authOf(req);
+    const { vaultId, branchId } = parse(branchParams, req.params);
+    const access = await requireVault(db, vaultId, user.id);
+    await branchRow(vaultId, branchId);
+    if (!access.branch(branchId)) throw notFound();
+    await db.insert(branchPins).values({ userId: user.id, branchId }).onConflictDoNothing();
+    return reply.status(204).send();
+  });
+
+  app.delete('/vaults/:vaultId/branches/:branchId/pin', async (req, reply) => {
+    const { user } = authOf(req);
+    const { branchId } = parse(branchParams, req.params);
+    await db
+      .delete(branchPins)
+      .where(and(eq(branchPins.userId, user.id), eq(branchPins.branchId, branchId)));
     return reply.status(204).send();
   });
 

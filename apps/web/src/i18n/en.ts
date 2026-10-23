@@ -62,6 +62,10 @@ export default {
   vault: {
     title: 'Personal vault',
     empty: 'No entries here yet. Create the first one to save a login and password.',
+    emptyFavorites:
+      'Nothing in favourites yet. Star an entry or a folder — in its card or in the right-click menu.',
+    emptyArchive: 'The archive is empty.',
+    emptyTrash: 'The trash is empty.',
     add: 'Add entry',
     search: 'Search by title, username, address',
     entryTitle: 'Title',

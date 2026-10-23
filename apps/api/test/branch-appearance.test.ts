@@ -109,3 +109,26 @@ it('a folder keeps an encrypted appearance that the server cannot read; it survi
   [b] = await tree(owner, vault.id);
   expect(b!.metaCipher).toBeNull();
 });
+
+it('a favourite folder is personal: only its owner sees it pinned, and only with access to the folder', async () => {
+  const vault = await owner.createSharedVault('Favourites');
+  const made = await owner.createBranch(vault.id, vault.key, 'Bank');
+  expect(made.res.statusCode).toBe(201);
+  const pin = (c: TestClient, method: 'PUT' | 'DELETE') =>
+    c.req(method, `/vaults/${vault.id}/branches/${made.id}/pin`);
+  // без доступа к сейфу закрепить нельзя
+  expect((await pin(reader, 'PUT')).statusCode).toBe(404);
+  expect((await owner.addMember(vault.id, reader, 'reader', vault.key)).statusCode).toBe(204);
+  expect((await pin(owner, 'PUT')).statusCode).toBe(204);
+  expect((await pin(owner, 'PUT')).statusCode).toBe(204); // повтор не ошибка
+  expect((await tree(owner, vault.id))[0]!.pinned).toBe(true);
+  expect((await tree(reader, vault.id))[0]!.pinned).toBe(false);
+  expect((await pin(owner, 'DELETE')).statusCode).toBe(204);
+  expect((await tree(owner, vault.id))[0]!.pinned).toBe(false);
+  // удалённая папка уходит из избранного вместе с отметкой
+  expect((await pin(reader, 'PUT')).statusCode).toBe(204);
+  expect((await owner.req('DELETE', `/vaults/${vault.id}/branches/${made.id}`)).statusCode).toBe(
+    204,
+  );
+  expect((await pin(reader, 'PUT')).statusCode).toBe(404);
+});

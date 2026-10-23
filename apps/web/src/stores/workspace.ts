@@ -342,6 +342,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         access: b.access,
         deletedAt: b.deletedAt,
         icon: b.metaCipher ? await branchIcon(vaultId, b, key) : undefined,
+        pinned: b.pinned,
       };
     } catch {
       return null;
@@ -698,6 +699,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await api(pinned ? 'PUT' : 'DELETE', `/vaults/${item.vaultId}/entries/${item.id}/pin`);
     const upd = { ...item, pinned };
     entries.value = entries.value.map((e) => (e.id === item.id ? upd : e));
+  }
+
+  async function setBranchPinned(b: BranchItem, pinned: boolean): Promise<void> {
+    await api(pinned ? 'PUT' : 'DELETE', `/vaults/${currentId.value}/branches/${b.id}/pin`);
+    branches.value = branches.value.map((x) => (x.id === b.id ? { ...x, pinned } : x));
   }
 
   async function revisions(
@@ -1470,6 +1476,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     purgeEntry,
     bulk,
     setPinned,
+    setBranchPinned,
     revisions,
     restoreRevision,
     createBranch,

@@ -36,7 +36,7 @@ const open = computed(() => !props.collapsed.has(props.node.id));
       :class="selected === node.id ? 'nav-link-active !text-brand-700' : ''"
       :style="{ paddingLeft: `${depth * 12 + 4}px` }"
       data-testid="branch-row"
-      @contextmenu.prevent="node.access !== 'reader' && emit('menu', node)"
+      @contextmenu.prevent="emit('menu', node)"
       @dragover.prevent
       @drop.prevent="emit('drop', { branchId: node.id })"
     >
@@ -62,11 +62,16 @@ const open = computed(() => !props.collapsed.has(props.node.id));
         class="min-w-0 flex-1 truncate text-left"
         @click="emit('select', node.id)"
       >
-        <ObjectIcon :icon="node.icon" kind="folder" variant="inline" class="mr-1" />{{ node.name }}
+        <ObjectIcon :icon="node.icon" kind="folder" variant="inline" class="mr-1" />{{ node.name
+        }}<Icon
+          v-if="node.pinned"
+          name="star"
+          class="ml-1 inline size-3 fill-amber-400 align-[-1px] text-amber-500"
+          :aria-label="t('vault.favorites')"
+        />
       </button>
       <span class="text-xs text-slate-400">{{ counts.get(node.id) ?? '' }}</span>
       <button
-        v-if="node.access !== 'reader'"
         type="button"
         class="rounded px-1 text-slate-500 hover:bg-slate-200 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100 dark:hover:bg-slate-700"
         :aria-label="`${t('ws.folderActions')}: ${node.name}`"

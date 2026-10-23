@@ -364,6 +364,20 @@ export const entryRevisions = pgTable(
 );
 
 /** Закреплённые (избранные) записи пользователя. */
+/** Избранные папки сотрудника — как `pins` для записей; удаляются вместе с папкой или учётной записью. */
+export const branchPins = pgTable(
+  'branch_pins',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    branchId: uuid('branch_id')
+      .notNull()
+      .references(() => branches.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.branchId] })],
+);
+
 export const pins = pgTable(
   'pins',
   {

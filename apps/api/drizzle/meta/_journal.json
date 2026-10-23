@@ -85,6 +85,13 @@
       "when": 1792772556208,
       "tag": "0011_branch_appearance",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792784399583,
+      "tag": "0012_branch_pins",
+      "breakpoints": true
     }
   ]
 }

@@ -107,6 +107,8 @@ export const branchRecord = z.object({
   version: z.number().int(),
   deletedAt: z.string().nullable(),
   access: z.enum(['reader', 'editor', 'manager']),
+  /** папка в избранном у запросившего; есть в ответе дерева */
+  pinned: z.boolean().optional(),
 });
 export type BranchRecord = z.infer<typeof branchRecord>;
 

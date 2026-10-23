@@ -386,6 +386,21 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('branch-row').filter({ hasText: 'Банки' }).first().click();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.getByTestId('scope-all').click();
+
+  // избранная папка: видна в «Избранном» и переживает перезагрузку; оттуда открывается
+  await page.getByTestId('folder-menu-Банки').click();
+  await page.getByTestId('folder-pin').click();
+  await page.getByTestId('scope-favorites').click();
+  await expect(page.getByTestId('favorite-folder-Банки')).toBeVisible();
+  await page.reload();
+  await page.getByTestId('scope-favorites').click({ timeout: 60_000 });
+  await page.getByTestId('favorite-folder-Банки').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await page.getByTestId('folder-menu-Банки').click();
+  await page.getByTestId('folder-pin').click();
+  await page.getByTestId('scope-favorites').click();
+  await expect(page.getByTestId('favorite-folders')).toHaveCount(0);
+  await page.getByTestId('scope-all').click();
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {
