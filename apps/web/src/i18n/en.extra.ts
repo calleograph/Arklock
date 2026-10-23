@@ -488,6 +488,22 @@ export default {
     found: 'Found',
     notFound: 'Not found',
     syncResult: 'Checked: {total}, blocked: {disabled}, updated: {updated}',
+    preview: 'Preview sync',
+    previewSummary:
+      'Linked to the directory: {linked}. Will be disabled: {disable}, will change: {update}, unchanged: {unchanged}.',
+    willDisable: 'Will be disabled',
+    willUpdate: 'Groups or card fields will change',
+    fieldsChanged: 'card fields: {n}',
+    reason: {
+      missing: 'not in the directory',
+      disabled: 'disabled in the directory',
+      moved: 'moved in the directory (different DN)',
+    },
+    notYet: 'In the directory but never signed in: {n}',
+    notYetHint:
+      'The account appears at the first sign-in: the person creates their master password and keys.',
+    sampleData: 'Sample of directory data',
+    groupsShort: 'groups',
     ok: 'Connection works',
     fail: 'Error',
     hint: 'Directory passwords are checked by the directory and never stored. The master password is separate: it only decrypts your data in the browser.',

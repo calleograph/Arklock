@@ -258,7 +258,11 @@ export async function ldapBrowse(
       const result = await c.search(base, {
         scope: 'sub',
         filter,
-        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, 'ou', 'userAccountControl'],
+        // как в findUser: в нижнем регистре, иначе часть каталогов теряет userAccountControl
+        // и отключённые учётные записи выглядят активными
+        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, 'ou', 'userAccountControl'].map((a) =>
+          a.toLowerCase(),
+        ),
         sizeLimit: query.limit,
         paged: false,
       });

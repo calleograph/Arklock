@@ -32,6 +32,7 @@ import {
 import {
   revokeLdapProfileSessions,
   syncCirclesFor,
+  previewLdapProfile,
   syncLdapProfile,
   syncProfileFor,
 } from '../auth/ldap-sync.js';
@@ -266,6 +267,13 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     } catch (e) {
       return failure(e);
     }
+  });
+
+  /** Предпросмотр сверки: что изменится, без записи. */
+  app.post('/admin/ldap/sync/preview', { preHandler: adminOnly }, async (req) => {
+    const s = await stored(queryId(req));
+    if (!s || !s.enabled) throw new AppError(409, 'ldap_not_configured', 'LDAP is not enabled');
+    return previewLdapProfile(db, config.APP_SECRET, s);
   });
 
   /** Сверка со справочником: учётные записи, исчезнувшие из каталога или отключённые в нём, блокируются; круги обновляются. */

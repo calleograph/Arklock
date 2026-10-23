@@ -367,6 +367,12 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await user.getByTestId('f-save').click();
   await expect(user.getByTestId('view-title')).toHaveText('Каталог: запись');
 
+  // предпросмотр сверки: учётная запись связана с каталогом, отключать некого, ничего не записывается
+  await page.getByTestId('ldap-sync-preview').click();
+  await expect(page.getByTestId('ldap-preview')).toContainText(
+    /Связано с каталогом: 1\. Будет отключено: 0|Linked to the directory: 1\. Will be disabled: 0/,
+  );
+
   // новый вход: пароль каталога, затем мастер-пароль
   const again = await (await browser.newContext()).newPage();
   await again.goto('/login');

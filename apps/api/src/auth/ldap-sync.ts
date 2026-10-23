@@ -6,6 +6,7 @@ import { corporateAccessRisks } from '../corporate-continuity.js';
 import { notifyUsers } from '../notifications.js';
 import {
   circlesFor,
+  ldapBrowse,
   ldapLookup,
   profileAttrs,
   type DirectoryUser,
@@ -99,6 +100,99 @@ export async function revokeLdapProfileSessions(db: Db, profileId: string): Prom
           linked.map((u) => u.id),
         ),
       );
+}
+
+/**
+ * Предпросмотр сверки: те же правила, что у `syncLdapProfile`, без записи. Кого отключат, у кого изменятся
+ * группы и поля карточки, кто есть в каталоге, но ещё не входил (учётная запись появится при первом входе:
+ * мастер-пароль и ключи создаёт сам человек), и пример данных из каталога.
+ */
+export async function previewLdapProfile(db: Db, appSecret: string, profile: LdapProfile) {
+  const linked = (await db.select().from(users).where(eq(users.authSource, 'ldap'))).filter(
+    (u) => ldapIdentityProfile(u.externalId) === profile.id,
+  );
+  const secret = ldapBindSecret(profile, appSecret);
+  const managed = [...new Set(profile.groups.map((g) => g.circleId))];
+  const [circleRows, memberRows] = await Promise.all([
+    managed.length
+      ? db
+          .select({ id: circles.id, name: circles.name })
+          .from(circles)
+          .where(inArray(circles.id, managed))
+      : [],
+    managed.length && linked.length
+      ? db.select().from(circleMembers).where(inArray(circleMembers.circleId, managed))
+      : [],
+  ]);
+  const circleName = new Map(circleRows.map((c) => [c.id, c.name]));
+  const disable: { email: string; name: string; reason: 'missing' | 'disabled' | 'moved' }[] = [];
+  const update: {
+    email: string;
+    name: string;
+    join: string[];
+    leave: string[];
+    fields: string[];
+  }[] = [];
+  const errors: string[] = [];
+  let unchanged = 0;
+  let sample: Pick<DirectoryUser, 'email' | 'name' | 'profile' | 'groups'> | null = null;
+  for (const user of linked) {
+    try {
+      const found = await ldapLookup(profile, secret, user.email);
+      const reason = !found
+        ? 'missing'
+        : found.disabled
+          ? 'disabled'
+          : ldapExternalId(profile.id, found.dn) !== user.externalId
+            ? 'moved'
+            : null;
+      if (reason || !found) {
+        if (!user.disabledAt)
+          disable.push({ email: user.email, name: user.displayName, reason: reason ?? 'missing' });
+        continue;
+      }
+      sample ??= {
+        email: found.email,
+        name: found.name,
+        profile: found.profile,
+        groups: found.groups,
+      };
+      const { want } = circlesFor(profile, found.groups);
+      const mine = new Set(memberRows.filter((m) => m.userId === user.id).map((m) => m.circleId));
+      const join = want
+        .filter((c) => circleName.has(c) && !mine.has(c))
+        .map((c) => circleName.get(c)!);
+      const leave = managed
+        .filter((c) => circleName.has(c) && mine.has(c) && !want.includes(c))
+        .map((c) => circleName.get(c)!);
+      const values = { displayName: found.name.trim(), ...found.profile };
+      const fields = (Object.entries(values) as [keyof typeof values, string][])
+        .filter(([k, v]) => v && v !== (user[k] ?? ''))
+        .map(([k]) => k);
+      if (join.length || leave.length || fields.length)
+        update.push({ email: user.email, name: user.displayName, join, leave, fields });
+      else unchanged++;
+    } catch (e) {
+      errors.push(`${user.email}: ${(e as Error).message}`.slice(0, 200));
+    }
+  }
+  // кто есть в каталоге, но ещё не входил: учётную запись создаст первый вход
+  const known = new Set(linked.map((u) => u.email.toLowerCase()));
+  let notYet = { count: 0, sample: [] as { email: string; name: string }[], truncated: false };
+  try {
+    const dir = await ldapBrowse(profile, secret, { kind: 'users', limit: 500 });
+    const fresh = dir.entries.filter(
+      (e) => e.email && !e.disabled && !known.has(e.email.toLowerCase()),
+    );
+    notYet = {
+      count: fresh.length,
+      sample: fresh.slice(0, 10).map((e) => ({ email: e.email, name: e.name })),
+      truncated: dir.truncated,
+    };
+  } catch (e) {
+    errors.push(`browse: ${(e as Error).message}`.slice(0, 200));
+  }
+  return { linked: linked.length, disable, update, unchanged, notYet, sample, errors };
 }
 
 export async function syncLdapProfile(

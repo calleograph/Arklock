@@ -486,6 +486,25 @@ describe('sign-in through the directory', () => {
     ).toBe(200);
     directory[0]!.uac = '514';
     try {
+      // предпросмотр показывает то же, что сделает сверка, и ничего не меняет
+      const preview = (await admin.req('POST', '/admin/ldap/sync/preview')).json();
+      expect(preview).toMatchObject({
+        linked: 1,
+        disable: [{ email: 'alice@example.com', reason: 'disabled' }],
+        update: [],
+      });
+      // в каталоге есть, но ещё не входил — bob; отключённую в каталоге carol не предлагаем
+      expect(preview.notYet.sample.map((u: { email: string }) => u.email)).toContain(
+        'bob@example.com',
+      );
+      expect(preview.notYet.sample.map((u: { email: string }) => u.email)).not.toContain(
+        'carol@example.com',
+      );
+      expect(JSON.stringify(preview)).not.toMatch(/ldap-pass/);
+      expect(
+        (await app.inject({ url: '/api/v1/vaults', headers: { authorization: `Bearer ${tok}` } }))
+          .statusCode,
+      ).toBe(200);
       const r = (await admin.req('POST', '/admin/ldap/sync')).json();
       expect(r).toMatchObject({ total: 1, disabled: 1, custodyRisks: 0 });
       expect(
@@ -581,6 +600,13 @@ describe('multiple LDAP connections', () => {
     expect(people.ok).toBe(true);
     expect(people.entries.map((e: { email: string }) => e.email)).toEqual(['alice@example.com']);
     expect((await browse({ kind: 'users', q: '*' })).json().entries).toEqual([]);
+    // отключённая в каталоге учётная запись видна как отключённая
+    const all = (await browse({ kind: 'users' })).json().entries as {
+      email: string;
+      disabled: boolean;
+    }[];
+    expect(all.find((e) => e.email === 'carol@example.com')?.disabled).toBe(true);
+    expect(all.find((e) => e.email === 'bob@example.com')?.disabled).toBe(false);
     expect((await browse({ kind: 'groups' })).json().entries[0].dn).toBe(DEVS);
     expect((await browse({ kind: 'ous' })).json().entries[0].dn).toBe(`ou=people,${BASE}`);
     expect((await browse({ kind: 'users', baseDn: 'dc=outside,dc=com' })).json().ok).toBe(false);

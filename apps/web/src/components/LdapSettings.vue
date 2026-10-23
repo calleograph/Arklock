@@ -243,8 +243,24 @@ const lookup = () =>
     else lookupOut.value = { found: !!r.found, user: r.user };
   });
 
+// предпросмотр сверки: те же правила без записи — кого отключат, что изменится, кто ещё не входил
+interface Preview {
+  linked: number;
+  disable: { email: string; name: string; reason: 'missing' | 'disabled' | 'moved' }[];
+  update: { email: string; name: string; join: string[]; leave: string[]; fields: string[] }[];
+  unchanged: number;
+  notYet: { count: number; sample: { email: string; name: string }[]; truncated: boolean };
+  sample: { email: string; name: string; profile: Record<string, string>; groups: string[] } | null;
+  errors: string[];
+}
+const preview = ref<Preview | null>(null);
+const previewSync = () =>
+  wrap(async () => {
+    preview.value = await api<Preview>('POST', '/admin/ldap/sync/preview' + profileQuery());
+  });
 const sync = () =>
   wrap(async () => {
+    preview.value = null;
     const r = await api<{ total: number; disabled: number; updated: number; errors: string[] }>(
       'POST',
       '/admin/ldap/sync' + profileQuery(),
@@ -470,10 +486,83 @@ const browse = () =>
         <button type="button" class="btn" :disabled="busy" data-testid="ldap-test" @click="test">
           {{ t('ldap.test') }}
         </button>
+        <button
+          type="button"
+          class="btn"
+          :disabled="busy"
+          data-testid="ldap-sync-preview"
+          @click="previewSync"
+        >
+          {{ t('ldap.preview') }}
+        </button>
         <button type="button" class="btn" :disabled="busy" data-testid="ldap-sync" @click="sync">
           {{ t('ldap.sync') }}
         </button>
       </div>
+      <section
+        v-if="preview"
+        class="space-y-2 rounded-md border border-slate-200 p-3 text-xs dark:border-slate-700"
+        data-testid="ldap-preview"
+      >
+        <p class="font-medium">
+          {{
+            t('ldap.previewSummary', {
+              linked: preview.linked,
+              disable: preview.disable.length,
+              update: preview.update.length,
+              unchanged: preview.unchanged,
+            })
+          }}
+        </p>
+        <div v-if="preview.disable.length">
+          <p class="font-medium text-red-700 dark:text-red-300">{{ t('ldap.willDisable') }}</p>
+          <ul>
+            <li v-for="u in preview.disable" :key="u.email">
+              {{ u.name }} &lt;{{ u.email }}&gt; — {{ t(`ldap.reason.${u.reason}`) }}
+            </li>
+          </ul>
+        </div>
+        <div v-if="preview.update.length">
+          <p class="font-medium">{{ t('ldap.willUpdate') }}</p>
+          <ul>
+            <li v-for="u in preview.update" :key="u.email">
+              {{ u.name }}:
+              <span v-if="u.join.length">+ {{ u.join.join(', ') }} </span>
+              <span v-if="u.leave.length">− {{ u.leave.join(', ') }} </span>
+              <span v-if="u.fields.length"
+                >· {{ t('ldap.fieldsChanged', { n: u.fields.length }) }}</span
+              >
+            </li>
+          </ul>
+        </div>
+        <div v-if="preview.notYet.count">
+          <p class="font-medium">
+            {{ t('ldap.notYet', { n: preview.notYet.count })
+            }}{{ preview.notYet.truncated ? '+' : '' }}
+          </p>
+          <p class="text-slate-500">{{ t('ldap.notYetHint') }}</p>
+          <ul>
+            <li v-for="u in preview.notYet.sample" :key="u.email">
+              {{ u.name }} &lt;{{ u.email }}&gt;
+            </li>
+          </ul>
+        </div>
+        <div v-if="preview.sample">
+          <p class="font-medium">{{ t('ldap.sampleData') }}</p>
+          <p>
+            {{ preview.sample.name }} · {{ preview.sample.email }}
+            <template v-for="(v, k) in preview.sample.profile" :key="k"
+              ><span v-if="v"> · {{ v }}</span></template
+            >
+            <span v-if="preview.sample.groups.length">
+              · {{ preview.sample.groups.length }} {{ t('ldap.groupsShort') }}</span
+            >
+          </p>
+        </div>
+        <ul v-if="preview.errors.length" class="text-red-600">
+          <li v-for="(m, i) in preview.errors" :key="i">{{ m }}</li>
+        </ul>
+      </section>
       <form class="flex gap-2" @submit.prevent="lookup">
         <input
           v-model="lookupName"
