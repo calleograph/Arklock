@@ -15,6 +15,7 @@ import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
 import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
 import ContextMenu from '../components/ContextMenu.vue';
+import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
 import OffboardingPanel from '../components/OffboardingPanel.vue';
@@ -379,16 +380,7 @@ const saveRange = () =>
   }, loadSettings);
 
 // ---- журнал
-interface L {
-  id: number;
-  at: string;
-  actor: string;
-  actorName: string | null;
-  action: string;
-  target: string | null;
-  targetName: string | null;
-  detail: Record<string, unknown> | null;
-}
+type L = LedgerItem;
 // категории журнала — начала кодов действий (сервер фильтрует по началу)
 const LEDGER_KINDS = [
   '',
@@ -400,21 +392,22 @@ const LEDGER_KINDS = [
   'space.',
   'admin.',
 ] as const;
-// объект без имени: вид и начало идентификатора (полный — во всплывающей подсказке)
-const targetText = (l: L) => {
-  if (l.targetName) return l.targetName;
-  const m = /^([a-z]+):([0-9a-f]{8})[0-9a-f-]{28}$/.exec(l.target ?? '');
-  const key = m ? `admin.ledgerTarget.${m[1]}` : '';
-  return m && te(key) ? `${t(key)} ${m[2]}` : (l.target ?? '');
-};
-const actionText = (a: string) => {
-  const k = a.replace(/[.-]/g, '_');
-  for (const key of [`ledgerAction.${k}`, `entryPanel.actions.${k}`]) if (te(key)) return t(key);
-  return a;
-};
+const targetText = (l: L) => ledgerTarget(l, t, te);
+const actionText = (a: string) => ledgerAction(a, t, te);
 const ledger = ref<L[]>([]);
 const next = ref<number | null>(null);
 const filter = ref({ action: '', q: '', from: '', to: '' });
+// журнал одного сотрудника открывается из его карточки: /admin/ledger?user=…&name=…
+const ledgerUser = computed(() =>
+  typeof route.query.user === 'string'
+    ? { id: route.query.user, name: typeof route.query.name === 'string' ? route.query.name : '' }
+    : null,
+);
+// переход из карточки сотрудника начинает с чистого отбора: прежний поиск сузил бы его журнал
+watch(ledgerUser, (u) => {
+  if (u) filter.value = { action: '', q: '', from: '', to: '' };
+  if (tab.value === 'ledger') void loadLedger();
+});
 // одни и те же условия для списка и выгрузки: CSV должен содержать то, что видно на экране
 function ledgerParams(extra: Record<string, string>): URLSearchParams {
   const p = new URLSearchParams(extra);
@@ -422,6 +415,7 @@ function ledgerParams(extra: Record<string, string>): URLSearchParams {
   if (filter.value.q) p.set('q', filter.value.q);
   if (filter.value.from) p.set('from', new Date(filter.value.from).toISOString());
   if (filter.value.to) p.set('to', new Date(filter.value.to + 'T23:59:59').toISOString());
+  if (ledgerUser.value) p.set('user', ledgerUser.value.id);
   return p;
 }
 async function loadLedger(more = false): Promise<void> {
@@ -613,6 +607,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             :key="profileOf.id"
             :user-id="profileOf.id"
             :admin-roles="adminRoles"
+            :can-ledger="canTab('ledger')"
             @close="profileOf = null"
             @offboard="((offboarding = profileOf), (profileOf = null))"
             @changed="loadUsers"
@@ -1260,6 +1255,19 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               CSV
             </button>
           </form>
+          <p v-if="ledgerUser" class="flex items-center gap-2 text-sm" data-testid="ledger-user">
+            <span class="badge-brand">{{
+              t('admin.ledgerOnlyUser', { name: ledgerUser.name || ledgerUser.id.slice(0, 8) })
+            }}</span>
+            <button
+              type="button"
+              class="text-xs underline"
+              data-testid="ledger-user-clear"
+              @click="router.replace('/admin/ledger')"
+            >
+              {{ t('admin.ledgerAllUsers') }}
+            </button>
+          </p>
           <div class="card overflow-x-auto">
             <table class="min-w-full text-xs" data-testid="ledger-table">
               <thead class="text-left text-slate-500">

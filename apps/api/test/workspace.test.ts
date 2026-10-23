@@ -928,6 +928,22 @@ describe('administration', () => {
           `${i.actorName} ${i.targetName} ${i.target}`.includes('bob@example'),
       ),
     ).toBe(true);
+    // журнал сотрудника: его действия и действия над его учётной записью — и только они
+    const own = (await admin.req('GET', `/admin/ledger?user=${bob.userId}&limit=500`)).json();
+    const mine = (i: { actor: string; target: string | null }) =>
+      i.actor === `user:${bob.userId}` || i.target === `user:${bob.userId}`;
+    expect(own.items.length).toBeGreaterThan(0);
+    expect(own.items.every(mine)).toBe(true);
+    expect(own.items.length).toBe(all.items.filter(mine).length);
+    // поиск по IP: адрес входа хранится в подробностях события
+    const ip = all.items.find((i: { detail: { ip?: string } | null }) => i.detail?.ip)?.detail
+      .ip as string;
+    expect(ip).toBeTruthy();
+    const byIp = (
+      await admin.req('GET', `/admin/ledger?q=${encodeURIComponent(ip)}&limit=500`)
+    ).json();
+    expect(byIp.items.some((i: { action: string }) => i.action === 'auth.login')).toBe(true);
+    expect((await admin.req('GET', '/admin/ledger?user=not-a-uuid')).statusCode).toBe(400);
     expect((await bob.req('GET', '/admin/ledger')).statusCode).toBe(403);
     void entries;
   });

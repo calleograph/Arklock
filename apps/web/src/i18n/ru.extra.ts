@@ -1057,7 +1057,9 @@ export default {
     rangeOk: 'Соединение работает, формат ответа верный ({n} строк)',
     rangeFail: 'Не удалось: {r}',
     actionPrefix: 'Вид событий',
-    ledgerSearch: 'Сотрудник, действие или объект',
+    ledgerSearch: 'Сотрудник, действие, объект или IP',
+    ledgerOnlyUser: 'Только сотрудник: {name}',
+    ledgerAllUsers: 'Показать всех',
     ledgerTarget: {
       entry: 'Запись',
       branch: 'Папка',

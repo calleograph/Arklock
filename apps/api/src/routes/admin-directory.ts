@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
@@ -521,6 +521,8 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       z.object({
         action: z.string().max(100).optional(),
         actor: z.string().max(100).optional(),
+        // журнал сотрудника: его действия и действия над его учётной записью
+        user: z.string().uuid().optional(),
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
         q: z.string().max(100).optional(),
@@ -536,12 +538,15 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         ? sql`${ledger.action} like ${q.action.replace(/[%_\\]/g, '\\$&') + '%'}`
         : undefined,
       q.actor ? eq(ledger.actor, q.actor) : undefined,
+      q.user
+        ? or(eq(ledger.actor, `user:${q.user}`), eq(ledger.target, `user:${q.user}`))
+        : undefined,
       q.from ? sql`${ledger.at} >= ${q.from}` : undefined,
       q.to ? sql`${ledger.at} <= ${q.to}` : undefined,
       q.before ? sql`${ledger.id} < ${q.before}` : undefined,
       // поиск и по сотруднику: имя или почта автора и затронутой учётной записи
       q.q
-        ? sql`(${ledger.action} ilike ${like} or ${ledger.target} ilike ${like} or ${ledger.actor} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}) or ${ledger.target} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}))`
+        ? sql`(${ledger.action} ilike ${like} or ${ledger.target} ilike ${like} or ${ledger.detail}->>'ip' ilike ${like} or ${ledger.actor} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}) or ${ledger.target} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}))`
         : undefined,
     ].filter((c) => c !== undefined);
     const rows = await db

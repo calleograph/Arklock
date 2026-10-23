@@ -1047,7 +1047,9 @@ export default {
     rangeOk: 'Connection works, response format is valid ({n} lines)',
     rangeFail: 'Failed: {r}',
     actionPrefix: 'Event kind',
-    ledgerSearch: 'Person, action or object',
+    ledgerSearch: 'Person, action, object or IP',
+    ledgerOnlyUser: 'Only this person: {name}',
+    ledgerAllUsers: 'Show everyone',
     ledgerTarget: {
       entry: 'Entry',
       branch: 'Folder',

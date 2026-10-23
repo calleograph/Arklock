@@ -671,6 +671,9 @@ export const ruHelp = {
       'Параметры хоста Arklock не меняет сам: настройки внешнего reverse proxy и Docker остаются под вашим контролем.',
   },
   profile: {
+    journal: 'Последние действия',
+    journalAll: 'Весь журнал сотрудника',
+    journalEmpty: 'Событий пока нет.',
     close: 'Закрыть',
     groups: 'Группы',
     noGroups: 'Не состоит в группах.',
@@ -1450,6 +1453,9 @@ export const enHelp = {
       'Arklock does not change host settings itself: the external reverse proxy and Docker stay under your control.',
   },
   profile: {
+    journal: 'Recent actions',
+    journalAll: 'Full journal of this person',
+    journalEmpty: 'No events yet.',
     close: 'Close',
     groups: 'Groups',
     noGroups: 'Not in any group.',

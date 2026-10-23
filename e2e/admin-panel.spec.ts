@@ -233,6 +233,19 @@ test('administration sections show real data and perform real operations', async
     .slice(1);
   expect(csv.length).toBeGreaterThan(0);
   for (const line of csv) expect(line.toLowerCase()).toContain('smtp');
+
+  // журнал сотрудника: последние действия в карточке, оттуда — весь журнал с отбором по нему
+  await tab(page, 'users');
+  await page.getByTestId(`profile-open-${ADMIN.email}`).click();
+  await expect(page.getByTestId('profile-journal').locator('li').first()).toBeVisible();
+  await page.getByTestId('profile-journal-all').click();
+  await expect(page).toHaveURL(/\/admin\/ledger\?user=/);
+  await expect(page.getByTestId('ledger-user')).toBeVisible();
+  await expect(page.getByTestId('ledger-row').first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('ledger-user')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('ledger-user-clear').click();
+  await expect(page.getByTestId('ledger-user')).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- вход через каталог

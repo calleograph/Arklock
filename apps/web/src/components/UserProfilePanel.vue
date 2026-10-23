@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
 import { api } from '../services/api';
 import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
+import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
 
 /** Карточка сотрудника: статус, группы, сеансы и сейфы в одном месте — без перехода по разделам. */
-const props = defineProps<{ userId: string; adminRoles: { id: string; name: string }[] }>();
+const props = defineProps<{
+  userId: string;
+  adminRoles: { id: string; name: string }[];
+  /** у просматривающего есть доступ к журналу действий */
+  canLedger?: boolean;
+}>();
 const emit = defineEmits<{ close: []; offboard: []; changed: [] }>();
-const { t } = useI18n();
+const { t, te } = useI18n();
+const router = useRouter();
 const auth = useAuthStore();
 
 interface Profile {
@@ -48,7 +56,22 @@ async function load(): Promise<void> {
     error.value = errorMessage(e, t);
   }
 }
-onMounted(load);
+// последние действия сотрудника и над его учётной записью; весь журнал — в разделе «Журнал действий»
+const recent = ref<LedgerItem[] | null>(null);
+async function loadRecent(): Promise<void> {
+  if (!props.canLedger) return;
+  recent.value = (
+    await api<{ items: LedgerItem[] }>('GET', `/admin/ledger?user=${props.userId}&limit=10`).catch(
+      () => ({ items: [] }),
+    )
+  ).items;
+}
+const openJournal = () =>
+  router.push({
+    path: '/admin/ledger',
+    query: { user: props.userId, name: p.value?.user.name ?? '' },
+  });
+onMounted(() => void Promise.all([load(), loadRecent()]));
 
 const FIELDS = ['title', 'department', 'phone'] as const;
 type Field = (typeof FIELDS)[number];
@@ -238,6 +261,29 @@ async function endSessions(): Promise<void> {
             {{ t('profile.extras', { a: p.apiTokens, l: p.externalLinks }) }}
           </p>
         </div>
+      </div>
+      <div v-if="recent" data-testid="profile-journal">
+        <div class="mb-1.5 flex items-center justify-between gap-2">
+          <h3 class="text-xs font-medium text-slate-500">{{ t('profile.journal') }}</h3>
+          <button
+            type="button"
+            class="text-xs underline"
+            data-testid="profile-journal-all"
+            @click="openJournal"
+          >
+            {{ t('profile.journalAll') }}
+          </button>
+        </div>
+        <ul v-if="recent.length" class="divide-y divide-slate-200 text-xs dark:divide-slate-800">
+          <li v-for="l in recent" :key="l.id" class="flex flex-wrap gap-x-2 py-1">
+            <span class="num shrink-0 text-slate-500">{{ when(l.at) }}</span>
+            <span :title="l.action">{{ ledgerAction(l.action, t, te) }}</span>
+            <span class="min-w-0 truncate text-slate-500" :title="l.target ?? ''">{{
+              ledgerTarget(l, t, te)
+            }}</span>
+          </li>
+        </ul>
+        <p v-else class="text-xs text-slate-500">{{ t('profile.journalEmpty') }}</p>
       </div>
     </template>
   </section>
