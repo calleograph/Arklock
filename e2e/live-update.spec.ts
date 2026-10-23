@@ -58,10 +58,13 @@ test('register, store an entry, update to the new release from the browser', asy
   await expect(page.getByTestId('progress-state')).toHaveText('success', { timeout: 420_000 });
   await expect(page.getByTestId('history')).toContainText('update');
 
-  // После обновления приложение перезапущено: перезагружаем страницу, разблокируем, данные на месте.
+  // После обновления приложение перезапущено: перезагружаем страницу — сеанс и ключи сохраняются, данные на месте.
   await page.reload();
   // после обновления сеанс и разблокировка сохраняются: не экран входа и не запрос мастер-пароля
   await expect(page).not.toHaveURL(/\/(login|unlock)$/, { timeout: 90_000 });
+  // F5 оставляет на той же странице («Обновления»); записи проверяем в сейфе
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 90_000 });
   await openUpdates(page);
   await expect(page.getByTestId('installed-version')).toHaveText('0.0.2');
@@ -88,6 +91,9 @@ test('a release with a failing migration is recovered and the interface explains
   await page.reload();
   // после обновления сеанс и разблокировка сохраняются: не экран входа и не запрос мастер-пароля
   await expect(page).not.toHaveURL(/\/(login|unlock)$/, { timeout: 90_000 });
+  // F5 оставляет на той же странице («Обновления»); записи проверяем в сейфе
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
   await expect(page.getByTestId('entry-row')).toHaveCount(1, { timeout: 90_000 });
   await openUpdates(page);
   await expect(page.getByTestId('installed-version')).toHaveText('0.0.2');
