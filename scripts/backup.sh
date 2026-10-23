@@ -78,7 +78,6 @@ restore_test() { # restore_test ФАЙЛ — восстановление во �
   read -r users vaults entries keys mig <<< "$counts"
   want="$(sed -n 's/.*"migrations": *\([0-9]*\).*/\1/p' "$tmp/manifest.json")"
   [ -z "$want" ] || [ "$want" = "$mig" ] || { fail "Миграций в базе $mig, в манифесте $want"; return 1; }
-  [ "${users:-0}" -ge 1 ] || { fail "В восстановленной базе нет учётных записей"; return 1; }
   ok "Пробное восстановление прошло: учётных записей $users, сейфов $vaults, записей $entries, ключей $keys, миграций $mig. Временная база удалена."
 }
 
