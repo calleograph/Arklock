@@ -431,6 +431,13 @@ export const ruHelp = {
     admins: 'полных администраторов',
     enabled: 'Включено',
     none: 'Правил пока нет.',
+    effect: 'Что сделать',
+    effectNotify: 'Уведомить',
+    effectDeny: 'Запретить и уведомить',
+    deny: 'Запрет',
+    denyHint:
+      'Запрещаются только действия, которые выполняет сервер: удаление, изменение прав, ссылки, скачивание файлов. Показ пароля запретить нельзя — его расшифровывает браузер. Сами правила запрет не затрагивает: ошибочное правило всегда можно выключить.',
+    denied: 'Действие запрещено правилом «{rule}». Обратитесь к администратору.',
     fired: 'Сработало: {n}, последний раз {at}',
     neverFired: 'Ещё не срабатывало',
     clientReported:
@@ -1264,6 +1271,13 @@ export const enHelp = {
     admins: 'full administrators',
     enabled: 'Enabled',
     none: 'No rules yet.',
+    effect: 'What to do',
+    effectNotify: 'Notify',
+    effectDeny: 'Deny and notify',
+    deny: 'Deny',
+    denyHint:
+      'Only actions the server performs can be denied: deletion, access changes, links, file downloads. Showing a password cannot be denied — the browser decrypts it. Rules themselves are never denied: a wrong rule can always be switched off.',
+    denied: 'The action is denied by the rule “{rule}”. Contact your administrator.',
     fired: 'Fired {n} times, last at {at}',
     neverFired: 'Has not fired yet',
     clientReported:

@@ -113,6 +113,13 @@
       "when": 1792795793483,
       "tag": "0015_automation_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792796891123,
+      "tag": "0016_automation_deny",
+      "breakpoints": true
     }
   ]
 }

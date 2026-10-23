@@ -315,12 +315,33 @@ export const AUTOMATION_TRIGGERS = {
   'auth.login': ['auth.login'],
 } as const;
 export type AutomationTrigger = keyof typeof AUTOMATION_TRIGGERS;
-export const automationRuleWrite = z.object({
-  name: z.string().trim().min(1).max(100),
-  enabled: z.boolean().default(true),
-  trigger: z.enum(Object.keys(AUTOMATION_TRIGGERS) as [AutomationTrigger, ...AutomationTrigger[]]),
-  vaultId: uuid.nullable().default(null),
-  actorCircleId: uuid.nullable().default(null),
-  notifyCircles: z.array(uuid).max(50).default([]),
-  notifyAdmins: z.boolean().default(false),
-});
+/**
+ * Действия, которые сервер может запретить до их выполнения. Показ и копирование пароля сюда не входят:
+ * при сквозном шифровании расшифровка идёт в браузере, сервер её не видит. Вход — тоже: ошибочное правило
+ * закрыло бы доступ всем, в том числе администраторам.
+ */
+export const AUTOMATION_DENYABLE: readonly AutomationTrigger[] = [
+  'entry.delete',
+  'entry.purge',
+  'branch.delete',
+  'access.change',
+  'link.create',
+  'file.download',
+];
+export const automationRuleWrite = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    enabled: z.boolean().default(true),
+    trigger: z.enum(
+      Object.keys(AUTOMATION_TRIGGERS) as [AutomationTrigger, ...AutomationTrigger[]],
+    ),
+    effect: z.enum(['notify', 'deny']).default('notify'),
+    vaultId: uuid.nullable().default(null),
+    actorCircleId: uuid.nullable().default(null),
+    notifyCircles: z.array(uuid).max(50).default([]),
+    notifyAdmins: z.boolean().default(false),
+  })
+  .refine((r) => r.effect === 'notify' || AUTOMATION_DENYABLE.includes(r.trigger), {
+    message: 'This event cannot be denied',
+    path: ['trigger'],
+  });

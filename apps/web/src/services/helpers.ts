@@ -60,6 +60,10 @@ export function errorMessage(e: unknown, t: T): string {
         return t('files.stale');
       case 'self_deny':
         return t('entryPanel.selfDeny');
+      case 'denied_by_rule':
+        return t('automation.denied', {
+          rule: String((e.details as { rule?: string } | undefined)?.rule ?? ''),
+        });
       case 'network_error':
         return t('error.network');
       case 'forbidden':

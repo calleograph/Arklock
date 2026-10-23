@@ -689,6 +689,10 @@ export const automationRules = pgTable('automation_rules', {
   enabled: boolean('enabled').notNull().default(true),
   /** Триггер из списка AUTOMATION_TRIGGERS (contracts). */
   trigger: text('trigger').notNull(),
+  /** notify — уведомить после события; deny — запретить действие до него (только AUTOMATION_DENYABLE). */
+  effect: text('effect', { enum: ['notify', 'deny'] })
+    .notNull()
+    .default('notify'),
   vaultId: uuid('vault_id').references(() => vaults.id, { onDelete: 'cascade' }),
   actorCircleId: uuid('actor_circle_id').references(() => circles.id, { onDelete: 'cascade' }),
   notifyCircles: jsonb('notify_circles').$type<string[]>().notNull().default([]),

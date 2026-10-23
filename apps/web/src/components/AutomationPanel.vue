@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { AUTOMATION_TRIGGERS, type AutomationTrigger } from '@arklock/contracts';
+import {
+  AUTOMATION_DENYABLE,
+  AUTOMATION_TRIGGERS,
+  type AutomationTrigger,
+} from '@arklock/contracts';
 import { api } from '../services/api';
 import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -16,6 +20,7 @@ interface Rule {
   name: string;
   enabled: boolean;
   trigger: AutomationTrigger;
+  effect: 'notify' | 'deny';
   vaultId: string | null;
   actorCircleId: string | null;
   notifyCircles: string[];
@@ -29,12 +34,21 @@ const rules = ref<Rule[]>([]);
 const circles = ref<{ id: string; name: string }[]>([]);
 const error = ref('');
 const busy = ref(false);
-const TRIGGERS = Object.keys(AUTOMATION_TRIGGERS) as AutomationTrigger[];
+const ALL_TRIGGERS = Object.keys(AUTOMATION_TRIGGERS) as AutomationTrigger[];
+// запретить можно только то, что сервер выполняет сам (показ пароля идёт в браузере)
+const triggers = computed(() =>
+  form.value.effect === 'deny' ? [...AUTOMATION_DENYABLE] : ALL_TRIGGERS,
+);
+function setEffect(effect: 'notify' | 'deny'): void {
+  form.value.effect = effect;
+  if (!triggers.value.includes(form.value.trigger)) form.value.trigger = triggers.value[0]!;
+}
 const blank = () => ({
   id: '',
   name: '',
   enabled: true,
   trigger: 'entry.reveal' as AutomationTrigger,
+  effect: 'notify' as 'notify' | 'deny',
   vaultId: null as string | null,
   actorCircleId: null as string | null,
   notifyCircles: [] as string[],
@@ -80,6 +94,7 @@ const body = (r: ReturnType<typeof blank> | Rule) => ({
   name: r.name,
   enabled: r.enabled,
   trigger: r.trigger,
+  effect: r.effect,
   vaultId: r.vaultId,
   actorCircleId: r.actorCircleId,
   notifyCircles: r.notifyCircles,
@@ -147,11 +162,35 @@ const recipients = (r: Rule) =>
         ><span class="field-label">{{ t('automation.name') }}</span
         ><input v-model="form.name" required maxlength="100" class="input" data-testid="rule-name"
       /></label>
+      <fieldset class="flex flex-wrap gap-4" role="radiogroup">
+        <legend class="field-label">{{ t('automation.effect') }}</legend>
+        <label class="flex items-center gap-2"
+          ><input
+            type="radio"
+            :checked="form.effect === 'notify'"
+            data-testid="rule-effect-notify"
+            @change="setEffect('notify')"
+          />
+          {{ t('automation.effectNotify') }}</label
+        >
+        <label class="flex items-center gap-2"
+          ><input
+            type="radio"
+            :checked="form.effect === 'deny'"
+            data-testid="rule-effect-deny"
+            @change="setEffect('deny')"
+          />
+          {{ t('automation.effectDeny') }}</label
+        >
+      </fieldset>
+      <p v-if="form.effect === 'deny'" class="text-xs text-slate-500">
+        {{ t('automation.denyHint') }}
+      </p>
       <div class="grid gap-3 sm:grid-cols-3">
         <label class="block"
           ><span class="field-label">{{ t('automation.when') }}</span
           ><select v-model="form.trigger" class="input" data-testid="rule-trigger">
-            <option v-for="tr in TRIGGERS" :key="tr" :value="tr">
+            <option v-for="tr in triggers" :key="tr" :value="tr">
               {{ t(`automation.trigger.${tr.replace('.', '_')}`) }}
             </option>
           </select></label
@@ -202,7 +241,9 @@ const recipients = (r: Rule) =>
         <button
           type="submit"
           class="btn-primary"
-          :disabled="busy || (!form.notifyAdmins && !form.notifyCircles.length)"
+          :disabled="
+            busy || (form.effect === 'notify' && !form.notifyAdmins && !form.notifyCircles.length)
+          "
           data-testid="rule-save"
         >
           {{ t('common.save') }}
@@ -223,6 +264,9 @@ const recipients = (r: Rule) =>
       >
         <span class="min-w-0">
           <span class="font-medium" :class="r.enabled ? '' : 'text-slate-400'">{{ r.name }}</span>
+          <span v-if="r.effect === 'deny'" class="badge ml-1 text-red-700 dark:text-red-300">{{
+            t('automation.deny')
+          }}</span>
           <span class="block text-xs text-slate-500">
             {{ t(`automation.trigger.${r.trigger.replace('.', '_')}`) }} ·
             {{ r.vaultId ? vaultName(r.vaultId) : t('automation.anyVault') }} ·

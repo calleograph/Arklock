@@ -132,3 +132,84 @@ it('an actor outside the group does not trigger the rule; admins can be notified
   expect((await link(bob)).statusCode).toBe(201);
   expect((await adminInbox()).length).toBe(before + 1);
 });
+
+it('a deny rule stops the action before it happens, logs the attempt and tells the recipients', async () => {
+  // «показ пароля» запретить нельзя: расшифровка идёт в браузере
+  expect(
+    (
+      await admin.req('POST', '/admin/automation', {
+        name: 'x',
+        trigger: 'entry.reveal',
+        effect: 'deny',
+      })
+    ).statusCode,
+  ).toBe(400);
+  const rule = await admin.req('POST', '/admin/automation', {
+    name: 'Ничего не удалять в банке',
+    trigger: 'entry.delete',
+    effect: 'deny',
+    vaultId: bank.id,
+    actorCircleId: staff,
+    notifyCircles: [security],
+  });
+  expect(rule.statusCode).toBe(201);
+  const victim = (await admin.createEntry({ p: 3 }, { vaultId: bank.id, vaultKey: bank.key }))
+    .entryId;
+  const del = (c: TestClient, entryId: string) =>
+    c.req('DELETE', `/vaults/${bank.id}/entries/${entryId}?expectedVersion=1`);
+  const refused = await del(bob, victim);
+  expect(refused.statusCode).toBe(403);
+  expect(refused.json().error).toMatchObject({
+    code: 'denied_by_rule',
+    details: { rule: 'Ничего не удалять в банке' },
+  });
+  // массовое удаление — тоже
+  expect(
+    (
+      await bob.req('POST', `/vaults/${bank.id}/entries/bulk`, {
+        ids: [victim],
+        action: 'trash',
+      })
+    ).statusCode,
+  ).toBe(403);
+  // запись на месте; получатель знает о попытке
+  expect((await admin.req('GET', `/vaults/${bank.id}/entries/${victim}`)).statusCode).toBe(200);
+  const denied = (
+    (await guard.req('GET', '/notifications')).json().items as {
+      event: string;
+      detail: { rule?: string } | null;
+    }[]
+  ).filter((n) => n.event === 'automation.denied');
+  expect(denied[0]?.detail?.rule).toBe('Ничего не удалять в банке');
+  // условие «группа автора»: администратор вне группы удаляет
+  expect((await del(admin, victim)).statusCode).toBe(204);
+});
+
+it('a deny rule without conditions blocks everyone until it is switched off', async () => {
+  const made = (
+    await admin.req('POST', '/admin/automation', {
+      name: 'Без внешних ссылок',
+      trigger: 'link.create',
+      effect: 'deny',
+    })
+  ).json();
+  const link = () =>
+    admin.req('POST', '/handoffs', {
+      id: crypto.randomUUID(),
+      ciphertext: 'ak1.AAAAAAAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      expiresInMinutes: 60,
+      maxViews: 1,
+    });
+  expect((await link()).statusCode).toBe(403);
+  expect(
+    (
+      await admin.req('PUT', `/admin/automation/${made.id}`, {
+        name: 'Без внешних ссылок',
+        trigger: 'link.create',
+        effect: 'deny',
+        enabled: false,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await link()).statusCode).toBe(201);
+});

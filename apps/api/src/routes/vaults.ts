@@ -14,6 +14,7 @@ import type { VaultInfo, VaultRole } from '@arklock/contracts';
 import { loadAccess, loadRoleDefs, requireVault } from '../access.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
+import { enforceDenyRules } from '../automation.js';
 import { notifyUsers } from '../notifications.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -453,6 +454,11 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (existing?.role === 'owner') throw forbidden();
     if (existing)
       assertCanAssign(access, await assignmentPerms(existing.role, existing.customRoleId));
+    await enforceDenyRules(db, 'access.change', {
+      actor: `user:${user.id}`,
+      vaultId: vaultId,
+      target: `user:${userId}`,
+    });
     if (body.key) {
       if (body.key.keyVersion !== v.keyVersion)
         throw new AppError(409, 'stale_key_version', 'Vault key was rotated', {
@@ -520,6 +526,11 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (!existing) throw notFound();
     if (existing.role === 'owner') throw forbidden();
     assertCanAssign(access, await assignmentPerms(existing.role, existing.customRoleId));
+    await enforceDenyRules(db, 'access.change', {
+      actor: `user:${user.id}`,
+      vaultId: vaultId,
+      target: `user:${userId}`,
+    });
     await db.transaction(async (tx) => {
       await tx
         .delete(vaultMembers)

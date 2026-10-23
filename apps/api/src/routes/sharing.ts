@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { handoffCreate, signalPatch, signalsPost, uuid } from '@arklock/contracts';
 import { requireVault } from '../access.js';
 import { audit } from '../audit.js';
+import { enforceDenyRules } from '../automation.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { entries, handoffs, ledger, settings, signals, users, vaults } from '../db/schema.js';
@@ -103,6 +104,11 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .from(handoffs)
       .where(eq(handoffs.id, body.id));
     if (dupe) throw new AppError(409, 'already_exists', 'Link already exists');
+    await enforceDenyRules(db, 'link.create', {
+      actor: `user:${user.id}`,
+      vaultId: null,
+      target: `handoff:${body.id}`,
+    });
     // ограничения организации проверяет сервер: клиент мог бы прислать любой срок
     const maxMinutes = await setting('links.maxMinutes', 0);
     const maxViews = await setting('links.maxViews', 100);

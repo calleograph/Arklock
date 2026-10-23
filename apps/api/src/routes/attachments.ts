@@ -6,6 +6,7 @@ import { attachmentCreate, uuid } from '@arklock/contracts';
 import type { AttachmentRecord } from '@arklock/contracts';
 import { requireVault, type VaultAccess } from '../access.js';
 import { audit } from '../audit.js';
+import { enforceDenyRules } from '../automation.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import { BlobOffsetError, BlobSizeError } from '../blobs.js';
 import type { AppContext } from '../context.js';
@@ -243,6 +244,11 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     const a = await attachmentFor(vaultId, attachmentId);
     if (a.status !== 'ready') throw notFound();
     await entryFor(vaultId, a.entryId, access, 'reader');
+    await enforceDenyRules(db, 'file.download', {
+      actor: `user:${user.id}`,
+      vaultId: vaultId,
+      target: `entry:${a.entryId}`,
+    });
     const suffix = blobSuffix(a.keyVersion);
     const size = await blobs.size(a.id, suffix);
     if (size === null) throw new AppError(410, 'blob_missing', 'The stored file is missing');

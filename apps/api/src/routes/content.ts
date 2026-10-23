@@ -14,6 +14,7 @@ import {
 import type { BranchRecord, EntryRecord, RevisionRecord } from '@arklock/contracts';
 import { loadAccess, requireVault, type Access, type VaultAccess } from '../access.js';
 import { audit } from '../audit.js';
+import { enforceDenyRules } from '../automation.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
@@ -349,6 +350,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       entryAccess(access, e, 'editor');
       if (!e.deletedAt)
         throw new AppError(409, 'not_in_trash', 'Move the entry to the trash first');
+      await enforceDenyRules(db, 'entry.purge', {
+        actor: `user:${user.id}`,
+        vaultId: vaultId,
+        target: `entry:${entryId}`,
+      });
       const blobIds = await attachmentIdsOfEntries(db, [entryId]);
       await db.delete(entries).where(eq(entries.id, entryId));
       await ctx.blobs.remove(blobIds);
@@ -364,6 +370,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         currentVersion: e.version,
       });
     }
+    await enforceDenyRules(db, 'entry.delete', {
+      actor: `user:${user.id}`,
+      vaultId: vaultId,
+      target: `entry:${entryId}`,
+    });
     const removed = await db.transaction(async (tx) => {
       await lockVaultForWrite(tx, vaultId);
       return tx
@@ -674,6 +685,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const ids = await subtree(vaultId, branchId);
     // Удалять ветвь целиком может только тот, кто вправе менять всё её содержимое.
     await requireSubtreeEdit(access, ids);
+    await enforceDenyRules(db, purge ? 'entry.purge' : 'branch.delete', {
+      actor: `user:${user.id}`,
+      vaultId,
+      target: `branch:${branchId}`,
+    });
     if (purge) {
       if (!access.allows('trash.purge')) throw forbidden();
       if (!b.deletedAt)
@@ -807,6 +823,12 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .where(and(eq(entries.vaultId, vaultId), inArray(entries.id, body.ids)));
     if (rows.length !== body.ids.length) throw notFound();
     for (const e of rows) entryAccess(access, e, 'editor'); // вся операция отклоняется, если хоть на одну запись нет права
+    if (body.action === 'trash' || body.action === 'purge')
+      await enforceDenyRules(db, body.action === 'trash' ? 'entry.delete' : 'entry.purge', {
+        actor: `user:${user.id}`,
+        vaultId,
+        target: null,
+      });
     if (body.action === 'move') {
       const target = body.branchId ?? null;
       if (target) await branchRow(vaultId, target);
@@ -945,6 +967,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         .where(eq(circles.id, body.subjectId));
       if (!c) throw notFound();
     }
+    await enforceDenyRules(db, 'access.change', {
+      actor: `user:${user.id}`,
+      vaultId,
+      target: `${body.targetType}:${body.targetId}`,
+    });
     const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new AppError(400, 'validation_error', 'Expiry must be in the future');
@@ -983,6 +1010,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         ? access.branch(g.targetId)
         : access.entry(g.targetId, entry?.branchId ?? null);
     if (mine !== 'manager' && !access.isAdmin) throw notFound();
+    await enforceDenyRules(db, 'access.change', {
+      actor: `user:${user.id}`,
+      vaultId,
+      target: `${g.targetType}:${g.targetId}`,
+    });
     await db.delete(grants).where(eq(grants.id, grantId));
     await audit(db, `user:${user.id}`, 'grant.delete', `${g.targetType}:${g.targetId}`, {
       vault: vaultId,

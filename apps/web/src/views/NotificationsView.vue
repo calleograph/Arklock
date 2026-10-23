@@ -24,6 +24,11 @@ const busy = ref(false);
 const loaded = ref(false);
 const error = ref('');
 function message(row: NotificationRow): string {
+  if (row.event === 'automation.denied' && row.detail?.rule)
+    return t('notifications.ruleDenied', {
+      rule: row.detail.rule,
+      action: t(`automation.trigger.${(row.detail.action ?? '').replace('.', '_')}`),
+    });
   if (row.event === 'automation.rule' && row.detail?.rule)
     return t('notifications.ruleFired', {
       rule: row.detail.rule,

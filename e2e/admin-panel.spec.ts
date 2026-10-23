@@ -262,6 +262,21 @@ test('administration sections show real data and perform real operations', async
   await ruleRow.getByRole('button', { name: /Действия с правилом|Rule actions/ }).click();
   await page.getByTestId('rule-delete-Ссылки передачи').click();
   await expect(ruleRow).toHaveCount(0);
+  // запрет: событие из списка допустимых, отметка «Запрет» в списке
+  await page.getByTestId('rule-add').click();
+  await page.getByTestId('rule-effect-deny').check();
+  await expect(
+    page.getByTestId('rule-trigger').locator('option[value="entry.reveal"]'),
+  ).toHaveCount(0);
+  await page.getByTestId('rule-name').fill('Без ссылок');
+  await page.getByTestId('rule-trigger').selectOption('link.create');
+  await page.getByTestId('rule-save').click();
+  const denyRow = page.getByTestId('rule-row').filter({ hasText: 'Без ссылок' });
+  await expect(denyRow).toContainText(/Запрет|Deny/);
+  page.once('dialog', (d) => void d.accept());
+  await denyRow.getByRole('button', { name: /Действия с правилом|Rule actions/ }).click();
+  await page.getByTestId('rule-delete-Без ссылок').click();
+  await expect(denyRow).toHaveCount(0);
 });
 
 // ---------------------------------------------------------------- вход через каталог

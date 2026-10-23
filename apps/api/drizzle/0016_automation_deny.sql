@@ -1,0 +1,1 @@
+ALTER TABLE "automation_rules" ADD COLUMN "effect" text DEFAULT 'notify' NOT NULL;

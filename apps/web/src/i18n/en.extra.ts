@@ -14,6 +14,7 @@ export default {
     new: 'New',
     event: 'New event',
     ruleFired: 'Rule “{rule}” fired: {action}',
+    ruleDenied: 'Rule “{rule}” denied an action: {action}',
     open: 'Open related object',
     more: 'Show more',
     markRead: 'Mark read',

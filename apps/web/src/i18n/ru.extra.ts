@@ -14,6 +14,7 @@ export default {
     new: 'Новое',
     event: 'Новое событие',
     ruleFired: 'Сработало правило «{rule}»: {action}',
+    ruleDenied: 'Правило «{rule}» запретило действие: {action}',
     open: 'Перейти к объекту',
     more: 'Показать ещё',
     markRead: 'Прочитано',
