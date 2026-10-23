@@ -4,7 +4,7 @@
 
 FROM node:24-slim AS build
 WORKDIR /src
-COPY package.json package-lock.json tsconfig.base.json ./
+COPY package.json package-lock.json tsconfig.base.json VERSION ./
 COPY packages ./packages
 COPY apps ./apps
 # Сеть сборки бывает нестабильной: повторные попытки загрузки пакетов вместо немедленного отказа
