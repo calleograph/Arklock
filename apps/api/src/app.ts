@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import { API_PREFIX, type ErrorResponse } from '@arklock/contracts';
 import type { Config } from './config.js';
 import { createContext } from './context.js';
+import { loadPublicUrl } from './public-url.js';
 import type { Database } from './db/connect.js';
 import { AppError } from './errors.js';
 import { registerAdminRoutes } from './routes/admin.js';
@@ -12,6 +13,7 @@ import { registerRoleRoutes } from './routes/admin-roles.js';
 import { registerInvitationRoutes } from './routes/admin-invitations.js';
 import { registerAdminSyslogRoutes } from './routes/admin-syslog.js';
 import { registerPinRoutes } from './routes/pin.js';
+import { registerAdminNetworkRoutes } from './routes/admin-network.js';
 import { registerSessionReloadRoutes } from './routes/session-reload.js';
 import { registerAdminWebhookRoutes } from './routes/admin-webhooks.js';
 import { registerAdminOpsRoutes } from './routes/admin-ops.js';
@@ -98,6 +100,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   });
   app.decorate('routeTable', routeTable);
   const ctx = createContext(config, database);
+  await loadPublicUrl(ctx);
 
   app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -155,6 +158,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminSyslogRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminWebhookRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerPinRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminNetworkRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSessionReloadRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminOpsRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });

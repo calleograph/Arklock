@@ -56,7 +56,27 @@ async function refreshSpaces(): Promise<void> {
 const mobileView = ref<'folders' | 'list' | 'details'>('list');
 const detailPanel = ref<HTMLElement | null>(null);
 const error = ref('');
+/** Свёрнутые папки — по сейфу, в браузере сотрудника (удобство, не данные): переживают F5 и смену раздела. */
 const collapsed = ref<Set<string>>(new Set());
+const treeKey = () => `arklock.tree.${ws.currentId}`;
+watch(
+  () => ws.currentId,
+  () => {
+    try {
+      collapsed.value = new Set(JSON.parse(localStorage.getItem(treeKey()) ?? '[]') as string[]);
+    } catch {
+      collapsed.value = new Set();
+    }
+  },
+  { immediate: true },
+);
+watch(collapsed, (c) => {
+  try {
+    localStorage.setItem(treeKey(), JSON.stringify([...c]));
+  } catch {
+    /* хранилище недоступно — дерево просто раскроется при следующей загрузке */
+  }
+});
 const dialog = ref<null | { title: string; value: string; action: (v: string) => Promise<void> }>(
   null,
 );
@@ -331,7 +351,20 @@ async function submitDialog(): Promise<void> {
   dialog.value = null;
 }
 
-const newFolder = () => ask(t('vault.newFolder'), '', (v) => ws.createBranch(v, branchSel.value));
+/** Новая папка создаётся в выбранной папке (или в корне); подпись кнопки называет место. */
+const newFolderLabel = computed(() =>
+  selectedBranch.value
+    ? t('ws.newFolderIn', { name: selectedBranch.value.name })
+    : t('ws.newFolderRoot'),
+);
+const newFolder = () => ask(newFolderLabel.value, '', (v) => ws.createBranch(v, branchSel.value));
+const newSubfolder = (parent: BranchItem) => {
+  menuBranch.value = null;
+  ask(t('ws.newFolderIn', { name: parent.name }), '', async (v) => {
+    await ws.createBranch(v, parent.id);
+    if (collapsed.value.delete(parent.id)) collapsed.value = new Set(collapsed.value);
+  });
+};
 const renameFolder = (b: BranchItem) =>
   ask(t('vault.rename'), b.name, (v) => ws.renameBranch(b, v));
 const newVault = () =>
@@ -434,14 +467,23 @@ void router;
     >
       {{ t('vault.keyLogBroken') }}
     </p>
-    <p
-      v-if="ws.personalDataRestricted"
-      class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+    <div
+      v-if="ws.personalDataRestricted && !ws.dismissedNotices.includes('personal-restricted')"
+      class="notice notice-warn items-center justify-between"
       role="status"
       data-testid="personal-restricted"
     >
-      {{ t('corporate.personalRestricted') }}
-    </p>
+      <span>{{ t('corporate.personalRestricted', { n: ws.personalEntries }) }}</span>
+      <span class="flex shrink-0 gap-2">
+        <RouterLink to="/settings#personal" class="btn">{{ t('ws.more') }}</RouterLink>
+        <IconButton
+          icon="check"
+          :label="t('ws.dismiss')"
+          data-testid="personal-dismiss"
+          @click="ws.dismissNotice('personal-restricted')"
+        />
+      </span>
+    </div>
     <p
       v-if="vault?.problem === 'pending'"
       class="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200"
@@ -559,7 +601,7 @@ void router;
           <IconButton
             v-if="canWrite || branchSel"
             icon="folder-plus"
-            :label="t('vault.newFolder')"
+            :label="newFolderLabel"
             data-testid="btn-new-folder"
             @click="newFolder"
           />
@@ -815,7 +857,7 @@ void router;
       <div
         ref="detailPanel"
         tabindex="-1"
-        class="min-w-0 scroll-mt-20 space-y-2 lg:sticky lg:top-20 lg:self-start"
+        class="min-w-0 scroll-mt-16 space-y-2 lg:sticky lg:top-16 lg:max-h-[calc(100dvh-4.5rem)] lg:self-start lg:overflow-y-auto"
         :class="mobileView === 'details' ? '' : 'hidden lg:block'"
       >
         <EntryPanel
@@ -901,7 +943,7 @@ void router;
     <!-- Меню папки -->
     <div
       v-if="menuBranch"
-      class="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4"
+      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
       role="dialog"
       aria-modal="true"
       @click.self="menuBranch = null"
@@ -911,6 +953,15 @@ void router;
           <Icon name="folder" /> {{ menuBranch.name }}
         </h2>
         <button
+          v-if="canWrite"
+          type="button"
+          class="btn w-full"
+          data-testid="folder-subfolder"
+          @click="newSubfolder(menuBranch!)"
+        >
+          <Icon name="folder-plus" /> {{ t('ws.newSubfolder') }}
+        </button>
+        <button
           type="button"
           class="btn w-full"
           data-testid="folder-rename"
@@ -919,7 +970,7 @@ void router;
           {{ t('vault.rename') }}
         </button>
         <label class="block text-sm"
-          ><span class="mb-1 block">{{ t('vault.moveTo') }}</span>
+          ><span class="field-label">{{ t('vault.moveTo') }}</span>
           <select
             class="input"
             data-testid="folder-move"
@@ -969,7 +1020,7 @@ void router;
     <!-- Диалог ввода названия -->
     <div
       v-if="dialog"
-      class="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4"
+      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
       role="dialog"
       aria-modal="true"
     >

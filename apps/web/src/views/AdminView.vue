@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
@@ -9,6 +9,7 @@ import AdminSystem from '../components/AdminSystem.vue';
 import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
+import UpdatesView from './UpdatesView.vue';
 import WebhookSettings from '../components/WebhookSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
@@ -16,17 +17,24 @@ import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
 import OffboardingPanel from '../components/OffboardingPanel.vue';
 import UserProfilePanel from '../components/UserProfilePanel.vue';
+import NetworkSettings from '../components/NetworkSettings.vue';
 import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
 /** Вкладки настроек: карточки разложены по разделам, как в образце настроек. */
-type SettingsTab = 'main' | 'security' | 'storage' | 'notify';
-const settingsTab = ref<SettingsTab>('main');
+type SettingsTab = 'main' | 'security' | 'storage' | 'notify' | 'network';
+// раздел настроек открывается по ссылке ?section=… (например, из диагностики)
+const settingsTab = ref<SettingsTab>(
+  (['main', 'security', 'storage', 'notify', 'network'] as const).find(
+    (x) => x === useRoute().query.section,
+  ) ?? 'main',
+);
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'main', label: 'admin.settingsTab.main' },
   { id: 'security', label: 'admin.settingsTab.security' },
   { id: 'storage', label: 'admin.settingsTab.storage' },
   { id: 'notify', label: 'admin.settingsTab.notify' },
+  { id: 'network', label: 'admin.settingsTab.network' },
 ];
 const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
@@ -47,6 +55,7 @@ const TAB_ICON: Record<string, IconName> = {
   smtp: 'text',
   syslog: 'log',
   webhooks: 'external',
+  updates: 'sync',
   settings: 'settings',
   ledger: 'log',
 };
@@ -80,6 +89,7 @@ type Tab =
   | 'invitations'
   | 'roles'
   | 'saml'
+  | 'updates'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -114,13 +124,20 @@ const TAB_PERM: Record<Tab, string> = {
   webhooks: 'admin.integrations',
   invitations: 'admin.invitations',
   roles: 'admin.roles',
+  updates: 'admin.updates',
 };
 const adminPerms = ref<{ full: boolean; permissions: string[] } | null>(null);
 const canTab = (x: Tab) =>
   !adminPerms.value || adminPerms.value.full || adminPerms.value.permissions.includes(TAB_PERM[x]);
 const isFull = () => adminPerms.value?.full ?? auth.user?.role === 'admin';
-const tab = ref<Tab>((route.params.tab as Tab) || 'users');
-watch(tab, (v) => router.replace(`/admin/${v}`));
+/**
+ * Раздел берётся из адреса: F5 оставляет в нём, «Назад» и «Вперёд» переключают разделы,
+ * а переход пишется в историю браузера (а не заменяет её).
+ */
+const tab = computed<Tab>({
+  get: () => ((route.params.tab as Tab) || 'users') as Tab,
+  set: (v) => void router.push(`/admin/${v}`),
+});
 const error = ref('');
 const notice = ref('');
 
@@ -379,6 +396,7 @@ const GROUPS: { id: string; tabs: Tab[] }[] = [
       'storage',
       'diagnostics',
       'certificates',
+      'updates',
     ],
   },
   { id: 'integrations', tabs: ['ldap', 'sso', 'saml', 'smtp', 'syslog', 'webhooks'] },
@@ -397,6 +415,7 @@ const ALL_TABS: Tab[] = [
   'webhooks',
   'invitations',
   'roles',
+  'updates',
 ];
 onMounted(async () => {
   try {
@@ -404,20 +423,41 @@ onMounted(async () => {
   } catch {
     /* сервер всё равно проверяет каждый запрос */
   }
-  if (!canTab(tab.value)) tab.value = ALL_TABS.find(canTab) ?? tab.value;
+  if (!canTab(tab.value)) void router.replace(`/admin/${ALL_TABS.find(canTab) ?? 'users'}`);
   else await loadTab();
+  showActiveTab();
 });
-watch(tab, loadTab);
+// на телефоне меню — горизонтальная полоса: активный раздел не должен оставаться за краем
+const showActiveTab = () =>
+  void nextTick(() =>
+    document
+      .querySelector(`[data-testid="admin-tab-${tab.value}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
+  );
+watch(tab, () => {
+  void loadTab();
+  showActiveTab();
+});
+watch(
+  () => route.query.section,
+  (sec) => {
+    const found = SETTINGS_TABS.find((x) => x.id === sec);
+    if (found) settingsTab.value = found.id;
+  },
+);
 const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 </script>
 
 <template>
   <section class="space-y-4">
     <h1>{{ t('admin.title') }}</h1>
-    <div class="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[13.5rem_minmax(0,1fr)]">
-      <nav class="md:sticky md:top-20 md:self-start" :aria-label="t('admin.title')">
+    <div class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[12.5rem_minmax(0,1fr)]">
+      <nav
+        class="md:sticky md:top-16 md:max-h-[calc(100dvh-5rem)] md:self-start md:overflow-y-auto md:pr-1"
+        :aria-label="t('admin.title')"
+      >
         <div
-          class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-5 md:overflow-visible md:px-0 md:pb-0"
+          class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-3 md:overflow-visible md:px-0 md:pb-0"
         >
           <div
             v-for="g in GROUPS"
@@ -432,7 +472,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             <template v-for="x in g.tabs.filter(canTab)" :key="x">
               <button
                 type="button"
-                class="nav-link w-full whitespace-nowrap"
+                class="nav-link w-full whitespace-nowrap md:whitespace-normal md:text-left"
                 :class="tab === x ? 'nav-link-active' : ''"
                 :aria-current="tab === x ? 'page' : undefined"
                 :data-testid="`admin-tab-${x}`"
@@ -442,13 +482,6 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 {{ t(`admin.tab.${x}`) }}
               </button>
             </template>
-            <RouterLink
-              v-if="g.id === 'system' && auth.user?.role === 'admin'"
-              to="/admin/updates"
-              data-testid="nav-updates"
-              class="nav-link w-full whitespace-nowrap"
-              ><Icon name="sync" class="size-4 opacity-80" /> {{ t('nav.updates') }}</RouterLink
-            >
           </div>
         </div>
       </nav>
@@ -472,6 +505,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <RolesPanel v-if="tab === 'roles'" />
         <InvitationsPanel v-else-if="tab === 'invitations'" />
         <SyslogSettings v-else-if="tab === 'syslog'" />
+        <UpdatesView v-else-if="tab === 'updates'" />
         <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />
         <SamlSettings v-else-if="tab === 'saml'" />
@@ -823,6 +857,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             </button>
           </div>
           <AdminCorporateRecovery v-if="isFull() && settingsTab === 'security'" />
+          <NetworkSettings v-if="settingsTab === 'network'" />
           <section
             class="card space-y-3 p-4 text-sm"
             data-testid="settings-group-access"

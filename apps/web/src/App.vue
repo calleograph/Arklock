@@ -100,7 +100,7 @@ const initial = () =>
       class="sticky top-0 z-30 border-b border-slate-200 backdrop-blur dark:border-slate-800"
       style="background: var(--header-bg)"
     >
-      <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5 sm:px-6">
+      <div class="mx-auto flex max-w-screen-2xl items-center gap-3 px-3 py-2 sm:px-5">
         <RouterLink to="/" class="flex shrink-0 items-center gap-2.5" aria-label="Arklock">
           <span
             class="flex size-8 items-center justify-center rounded-lg bg-brand-500 shadow-xs"
@@ -327,7 +327,7 @@ const initial = () =>
         </div>
       </div>
     </header>
-    <main id="main" class="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+    <main id="main" class="mx-auto max-w-screen-2xl px-3 py-3 sm:px-5 sm:py-4">
       <RouterView />
     </main>
   </div>

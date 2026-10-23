@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 
@@ -26,6 +26,8 @@ mkdirSync(BLOB_WORKSPACE, { recursive: true });
 
 const common = {
   NODE_ENV: 'production',
+  // версия сервера как в рабочем образе: интерфейс сверяет её со своей сборкой
+  APP_VERSION: readFileSync('VERSION', 'utf8').trim(),
   HOST: '127.0.0.1',
   DATABASE_URL: 'pglite:memory',
   APP_SECRET: 'e2e-secret-e2e-secret-e2e-secret-12345',

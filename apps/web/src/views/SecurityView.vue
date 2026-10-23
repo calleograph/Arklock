@@ -124,7 +124,7 @@ async function submit(): Promise<void> {
     <form class="max-w-md space-y-3" @submit.prevent="submit">
       <h2 class="font-medium">{{ t('security.changePassword') }}</h2>
       <label class="block text-sm">
-        <span class="mb-1 block">{{ t('security.currentPassword') }}</span>
+        <span class="field-label">{{ t('security.currentPassword') }}</span>
         <input
           v-model="current"
           type="password"
@@ -134,11 +134,11 @@ async function submit(): Promise<void> {
         />
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block">{{ t('security.newPassword') }}</span>
+        <span class="field-label">{{ t('security.newPassword') }}</span>
         <input v-model="next" type="password" required autocomplete="new-password" class="field" />
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block">{{ t('auth.repeat') }}</span>
+        <span class="field-label">{{ t('auth.repeat') }}</span>
         <input
           v-model="repeat"
           type="password"

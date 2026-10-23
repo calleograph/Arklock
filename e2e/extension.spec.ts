@@ -93,6 +93,7 @@ test('the extension signs in, finds the entry for the page and fills the form; a
   await web.getByTestId('f-username').fill('robot@example.com');
   await web.getByTestId('f-password').fill('Ext-Secret-4242!');
   await web.getByTestId('f-url').fill(`http://127.0.0.1:${sitePort}/login`);
+  await web.getByTestId('f-more').evaluate((d) => ((d as HTMLDetailsElement).open = true));
   await web.getByTestId('f-totp').fill('JBSWY3DPEHPK3PXP');
   await web.getByTestId('f-save').click();
   await expect(web.getByTestId('view-title')).toHaveText('Тестовый сайт');

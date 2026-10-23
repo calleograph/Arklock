@@ -146,7 +146,7 @@ const cancel = () =>
       <p class="text-xs text-slate-500">{{ t('corpReplace.intro') }}</p>
       <form class="space-y-2" @submit.prevent="prepare">
         <label class="block"
-          ><span class="mb-1 block">{{ t('corpRecovery.phrase') }}</span
+          ><span class="field-label">{{ t('corpRecovery.phrase') }}</span
           ><input
             v-model="phrase"
             :type="showPhrase ? 'text' : 'password'"

@@ -209,7 +209,7 @@ body {
     transparent 70%
   );
   background-repeat: no-repeat;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   font-optical-sizing: auto;
   /* страница никогда не прокручивается вбок: широкие таблицы и коды прокручиваются внутри своих блоков */
@@ -238,12 +238,12 @@ body {
 }
 
 h1 {
-  @apply text-[1.625rem] leading-tight font-semibold;
-  letter-spacing: -0.022em;
+  @apply text-[1.375rem] leading-tight font-semibold;
+  letter-spacing: -0.02em;
 }
 h2 {
-  @apply text-[1.0625rem] leading-snug font-semibold;
-  letter-spacing: -0.012em;
+  @apply text-[0.9375rem] leading-snug font-semibold;
+  letter-spacing: -0.01em;
 }
 h3 {
   @apply font-semibold;
@@ -327,7 +327,7 @@ dialog::backdrop {
   .btn-primary,
   .btn-danger,
   .btn-ghost {
-    @apply relative inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-[9px] px-3 py-1.5 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
+    @apply relative inline-flex min-h-[2.125rem] cursor-pointer items-center justify-center gap-1.5 rounded-[9px] px-3 py-1 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
     transition:
       background-color 160ms var(--ease-out),
       border-color 160ms var(--ease-out),
@@ -384,7 +384,7 @@ dialog::backdrop {
   /* Поля: подпись над полем, кольцо фокуса, ошибка — красная граница и текст под полем (aria-invalid). */
   .input,
   .field {
-    @apply min-h-9 w-full rounded-[9px] border border-slate-300 bg-white px-3 py-1.5 text-sm placeholder:text-slate-400 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
+    @apply min-h-[2.125rem] w-full rounded-[9px] border border-slate-300 bg-white px-2.5 py-1 text-sm placeholder:text-slate-400 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
     box-shadow: inset 0 1px 2px color-mix(in srgb, var(--shade) 5%, transparent);
     transition:
       border-color 150ms var(--ease-out),
@@ -392,6 +392,16 @@ dialog::backdrop {
   }
   .field {
     @apply min-h-10 text-[0.9375rem];
+  }
+  /* на сенсорных экранах зоны нажатия не меньше 40 px: компактность только там, где есть мышь */
+  @media (pointer: coarse) {
+    .btn,
+    .btn-primary,
+    .btn-danger,
+    .btn-ghost,
+    .input {
+      min-height: 2.5rem;
+    }
   }
   .input:focus-visible,
   .field:focus-visible {
@@ -452,7 +462,7 @@ dialog::backdrop {
   }
   /* Пункты бокового меню: активный — полоса акцента слева и подложка. */
   .nav-link {
-    @apply relative inline-flex items-center gap-2.5 rounded-[9px] px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    @apply relative inline-flex items-center gap-2.5 rounded-[9px] px-2.5 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
     transition:
       background-color 150ms var(--ease-out),
       color 150ms var(--ease-out);
@@ -485,7 +495,7 @@ dialog::backdrop {
   }
   /* Строка «подпись — значение — действия» в карточке записи: значения выровнены, действия справа. */
   .field-row {
-    @apply py-2.5 first:pt-0;
+    @apply py-1.5 first:pt-0;
   }
   .field-row > dt {
     @apply mb-0.5 text-xs font-medium text-slate-500;

@@ -9,6 +9,7 @@ import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { publicUrlOf } from '../public-url.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
 import { parse } from '../errors.js';
 import type { SmtpConfig } from '../mail/smtp.js';
@@ -390,7 +391,7 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       );
     }
 
-    const pub = config.APP_PUBLIC_URL;
+    const pub = publicUrlOf(ctx);
     add(
       !pub
         ? {
@@ -398,8 +399,8 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
             level: 'warn',
             title: 'Публичный адрес',
             detail: 'Не задан',
-            cause: 'Не указан APP_PUBLIC_URL',
-            recommendation: 'Настройте reverse proxy с HTTPS и укажите адрес в конфигурации',
+            cause: 'Не указан адрес, по которому сотрудники открывают Arklock',
+            recommendation: 'Укажите его: Администрирование → Настройки → Сеть и доступ',
           }
         : !pub.startsWith('https://')
           ? {
@@ -477,7 +478,8 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
             title: 'Двухфакторная аутентификация',
             detail: 'Не обязательна',
             cause: 'Политика не включена',
-            recommendation: 'Настройки → «Обязательная двухфакторная аутентификация»',
+            recommendation:
+              'Администрирование → Настройки → Безопасность → «Обязательная двухфакторная аутентификация»',
           },
     );
 
@@ -493,8 +495,9 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   function certTargets(stored: StoredSmtp | null): { label: string; host: string; port: number }[] {
     const out: { label: string; host: string; port: number }[] = [];
-    if (config.APP_PUBLIC_URL?.startsWith('https://')) {
-      const u = new URL(config.APP_PUBLIC_URL);
+    const pub = publicUrlOf(ctx);
+    if (pub?.startsWith('https://')) {
+      const u = new URL(pub);
       out.push({ label: 'public', host: u.hostname, port: Number(u.port || 443) });
     }
     if (stored && stored.security === 'tls')
@@ -509,6 +512,6 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     const items = await Promise.all(
       targets.map(async (t) => ({ label: t.label, ...(await probeCertificate(t.host, t.port)) })),
     );
-    return { items, publicUrl: config.APP_PUBLIC_URL || null };
+    return { items, publicUrl: publicUrlOf(ctx) || null };
   });
 };

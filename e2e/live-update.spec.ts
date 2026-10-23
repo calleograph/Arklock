@@ -19,7 +19,7 @@ test.describe.configure({ mode: 'serial' });
 async function openUpdates(page: Page) {
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
-  await page.getByTestId('nav-updates').click();
+  await page.getByTestId('admin-tab-updates').click();
   await expect(page.getByTestId('helper-state')).toHaveText(/работает|running/, {
     timeout: 30_000,
   });

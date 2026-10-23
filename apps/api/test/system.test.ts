@@ -91,6 +91,7 @@ describe('static web client', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'arklock-web-'));
     writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>t</title>');
     const db = await connect('pglite:memory');
+    await db.migrate();
     const withWeb = await buildApp({
       config: loadConfig({
         DATABASE_URL: 'pglite:memory',

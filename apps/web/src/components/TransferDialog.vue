@@ -206,7 +206,7 @@ async function download(): Promise<void> {
 
 <template>
   <div
-    class="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4"
+    class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
     role="dialog"
     aria-modal="true"
   >
@@ -340,7 +340,7 @@ async function download(): Promise<void> {
 
       <div v-else class="space-y-3 text-sm">
         <label class="block"
-          ><span class="mb-1 block">{{ t('transfer.format') }}</span>
+          ><span class="field-label">{{ t('transfer.format') }}</span>
           <select v-model="exportFormat" class="input" data-testid="export-format">
             <option value="encrypted">{{ t('transfer.fmtEncrypted') }}</option>
             <option value="json">{{ t('transfer.fmtJson') }}</option>

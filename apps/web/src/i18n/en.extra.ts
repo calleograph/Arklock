@@ -398,7 +398,13 @@ export default {
       removed: 'Removed: {n}',
       report: 'Orphans: {o}, missing files: {m}',
     },
-    diag: { total: 'Overall', again: 'Check again', cause: 'Cause', fix: 'What to do' },
+    diag: {
+      total: 'Overall',
+      again: 'Check again',
+      cause: 'Cause',
+      fix: 'What to do',
+      go: 'Go to the setting',
+    },
     certs: {
       empty: "Nothing to check: set the server's public HTTPS address in the installation settings",
       days: 'days',
@@ -699,11 +705,11 @@ export default {
   },
   nav: { admin: 'Administration', settings: 'My settings' },
   kind: {
-    login: 'Login',
+    login: 'Login and password',
     note: 'Secure note',
     server: 'Server',
     apikey: 'API key',
-    custom: 'Custom',
+    custom: 'Other',
   },
   role: {
     owner: 'Owner',
@@ -750,6 +756,8 @@ export default {
     entryMoveTarget: 'Destination vault',
     entryMoveChoose: 'Move to vault…',
     entryMoveAction: 'Move',
+    entryMoveLocked:
+      'You have not received the destination vault key yet, so the entry cannot be moved there.',
     move: 'Move',
     selected: 'Selected: {n}',
     selectAll: 'Select all',
@@ -938,6 +946,7 @@ export default {
       security: 'Security',
       storage: 'Vaults and files',
       notify: 'Notifications',
+      network: 'Network and access',
     },
     settingsGroup: {
       access: 'Registration and access',
@@ -973,6 +982,7 @@ export default {
       saml: 'SAML 2.0',
       syslog: 'Log export (syslog)',
       webhooks: 'Webhooks',
+      updates: 'Updates',
       invitations: 'New users',
       roles: 'Roles',
     },

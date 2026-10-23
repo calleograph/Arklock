@@ -6,6 +6,7 @@ import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { publicUrlOf } from '../public-url.js';
 import { circles, invitations, users } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { sendMail } from '../mail/send.js';
@@ -28,7 +29,7 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
   app,
   { ctx },
 ) => {
-  const { db, config } = ctx;
+  const { db } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', async (req: FastifyRequest) => {
     await adminGate(ctx, req);
@@ -109,7 +110,7 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       createdBy: user.id,
       expiresAt: new Date(Date.now() + body.expiresInDays * 86_400_000),
     });
-    const base = config.APP_PUBLIC_URL?.replace(/\/$/, '') ?? '';
+    const base = publicUrlOf(ctx)?.replace(/\/$/, '') ?? '';
     const link = `${base}/login?invite=${encodeURIComponent(token)}`;
     let emailed = false;
     if (body.sendEmail) {

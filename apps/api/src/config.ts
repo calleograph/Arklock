@@ -20,6 +20,12 @@ const schema = z.object({
   BLOB_DIR: z.string().default(''),
   /** Публичный адрес (для проверки сертификата и диагностики). */
   APP_PUBLIC_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+  /** Адрес и порт публикации на хосте (из файла установки) — только для показа в «Сеть и доступ». */
+  APP_BIND: z.preprocess((v) => (v === '' ? undefined : v), z.string().max(100).optional()),
+  APP_HOST_PORT: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.coerce.number().int().optional(),
+  ),
   /** Каталог собранного веб-клиента; пусто — API без раздачи статики. */
   WEB_DIST: z.string().default(''),
   /** Сколько прокси стоит перед приложением (для корректного IP клиента). */

@@ -224,7 +224,7 @@ function toggleEnabled(): void {
               {{ t('corpRecovery.phraseHint', { n: MIN_RECOVERY_PASSPHRASE }) }}
             </p>
             <label class="block text-sm"
-              ><span class="mb-1 block">{{ t('corpRecovery.phrase') }}</span
+              ><span class="field-label">{{ t('corpRecovery.phrase') }}</span
               ><input
                 v-model="phrase"
                 :type="showPhrase ? 'text' : 'password'"
@@ -236,7 +236,7 @@ function toggleEnabled(): void {
                 data-testid="recovery-new-phrase"
             /></label>
             <label class="block text-sm"
-              ><span class="mb-1 block">{{ t('corpRecovery.repeatPhrase') }}</span
+              ><span class="field-label">{{ t('corpRecovery.repeatPhrase') }}</span
               ><input
                 v-model="phraseAgain"
                 data-testid="recovery-repeat-phrase"
@@ -335,7 +335,7 @@ function toggleEnabled(): void {
           <legend class="mb-2 text-sm font-medium">{{ t('corpRecovery.restoreAccess') }}</legend>
           <template v-if="!imported">
             <label class="block text-sm"
-              ><span class="mb-1 block">{{ t('corpRecovery.file') }}</span
+              ><span class="field-label">{{ t('corpRecovery.file') }}</span
               ><input
                 type="file"
                 accept=".json,application/json"
@@ -345,7 +345,7 @@ function toggleEnabled(): void {
             /></label>
             <p v-if="file" class="break-all text-xs text-slate-500">{{ file.name }}</p>
             <label class="block text-sm"
-              ><span class="mb-1 block">{{ t('corpRecovery.phrase') }}</span
+              ><span class="field-label">{{ t('corpRecovery.phrase') }}</span
               ><input
                 v-model="importPhrase"
                 type="password"

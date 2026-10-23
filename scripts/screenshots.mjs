@@ -63,11 +63,12 @@ const tid = (page, id) => page.getByTestId(id);
 
 async function addEntry(page, f) {
   await tid(page, 'add-entry').click();
-  if (f.kind) await tid(page, 'f-kind').selectOption(f.kind);
+  if (f.kind) await tid(page, `f-kind-${f.kind}`).click();
   await tid(page, 'f-title').fill(f.title);
   if (f.username) await tid(page, 'f-username').fill(f.username);
   if (f.password) await tid(page, 'f-password').fill(f.password);
   if (f.url) await tid(page, 'f-url').fill(f.url);
+  if (f.totp || f.tags) await page.getByTestId('f-more').evaluate((d) => (d.open = true));
   if (f.totp) await tid(page, 'f-totp').fill(f.totp);
   if (f.tags) await tid(page, 'f-tags').fill(f.tags);
   await tid(page, 'f-save').click();

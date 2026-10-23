@@ -28,9 +28,10 @@ withDefaults(
     <Transition name="swap" mode="out-in">
       <Icon :key="icon" :name="icon" class="!size-5" />
     </Transition>
+    <!-- скрытая подсказка сжата до нуля: у края экрана она не создаёт горизонтальную прокрутку -->
     <span
       role="tooltip"
-      class="pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 dark:bg-slate-100 dark:text-slate-900"
+      class="pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white opacity-0 shadow-lg transition-[opacity,scale] duration-150 scale-0 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:scale-100 group-focus-visible:opacity-100 dark:bg-slate-100 dark:text-slate-900"
       :class="placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'"
     >
       {{ label }}

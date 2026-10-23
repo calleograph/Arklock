@@ -47,17 +47,30 @@ test('administrator checks for updates and applies one from the browser', async 
 
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
-  await page.getByTestId('nav-updates').click();
+  await page.getByTestId('admin-tab-updates').click();
   await expect(page.getByTestId('helper-state')).toHaveText(/работает|running/, {
     timeout: 15_000,
   });
+  // «Обновления» — раздел администрирования: левое меню на месте, F5 и «Назад» работают
+  await expect(page.getByTestId('admin-tab-users')).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/updates$/);
+  await page.getByTestId('admin-tab-overview').click();
+  await expect(page).toHaveURL(/\/admin\/overview$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/admin\/updates$/);
+  await expect(page.getByTestId('helper-state')).toBeVisible();
   await expect(page.getByTestId('remote-status')).toHaveText(/не проверялась|not checked/);
-  await expect(page.getByTestId('btn-update')).toBeDisabled();
+  await expect(page.getByTestId('update-state')).toContainText(
+    /ещё не проверялось|not been checked/,
+  );
+  await expect(page.getByTestId('btn-update')).toHaveCount(0);
 
   // Проверка наличия обновления не требует подтверждения пароля.
   await page.getByTestId('btn-check').click();
   await expect(page.getByTestId('remote-status')).toHaveText('v9.9.9', { timeout: 15_000 });
   await expect(page.getByTestId('changelog')).toContainText('Тестовое изменение');
+  await expect(page.getByTestId('update-state')).toContainText(/9\.9\.9/);
+  await expect(page.getByTestId('btn-update')).toHaveText(/9\.9\.9/);
   await expect(page.getByTestId('btn-update')).toBeEnabled();
 
   // Штатное обновление выполняется по действующему сеансу администратора: окна мастер-пароля нет.

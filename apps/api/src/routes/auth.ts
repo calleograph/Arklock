@@ -29,6 +29,7 @@ import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
   circleMembers,
+  entries,
   invitations,
   keyLog,
   pinDevices,
@@ -42,6 +43,7 @@ import {
 import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
 import { AppError, notFound, parse } from '../errors.js';
+import { attachmentIdsOfVault } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
 import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
@@ -219,6 +221,69 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     };
   });
 
+  /** Записи в личном сейфе сотрудника (включая корзину); без содержимого. */
+  async function personalEntryCount(userId: string): Promise<number> {
+    const [row] = await db
+      .select({ n: count() })
+      .from(entries)
+      .innerJoin(vaults, eq(vaults.id, entries.vaultId))
+      .where(and(eq(vaults.kind, 'locker'), eq(vaults.createdBy, userId)));
+    return row?.n ?? 0;
+  }
+
+  /** Закрытое уведомление больше не показывается — в профиле на сервере, на любом устройстве. */
+  app.post('/auth/notices/:id/dismiss', { preHandler: auth }, async (req, reply) => {
+    const { user } = authOf(req);
+    const { id } = parse(z.object({ id: z.string().regex(/^[a-z0-9.-]{1,60}$/) }), req.params);
+    const list = new Set((user.dismissedNotices as string[]) ?? []);
+    list.add(id);
+    await db
+      .update(users)
+      .set({ dismissedNotices: [...list].slice(-50) })
+      .where(eq(users.id, user.id));
+    return reply.status(204).send();
+  });
+
+  /**
+   * Сотрудник удаляет свой личный сейф (записи, вложения, ключи) даже при запрещённых личных сейфах — без включения
+   * функции для всей организации. Только сам владелец и только с подтверждением мастер-паролем; необратимо.
+   * Администратор этого за сотрудника сделать не может.
+   */
+  app.post('/auth/personal-vault/erase', { preHandler: auth }, async (req, reply) => {
+    const { user } = authOf(req);
+    if (authOf(req).viaToken)
+      throw new AppError(403, 'forbidden', 'Not available with an API token');
+    const body = parse(
+      z.object({ authKey: z.string().min(20).max(100), confirm: z.literal(true) }),
+      req.body,
+    );
+    throttle(ctx, req, `erase:${user.email}`);
+    if (!verifyProof(user.authSalt, body.authKey, user.authHash)) {
+      recordFailure(ctx, req, `erase:${user.email}`);
+      throw new AppError(401, 'invalid_credentials', 'Master password is incorrect');
+    }
+    const lockers = await db
+      .select({ id: vaults.id })
+      .from(vaults)
+      .where(and(eq(vaults.kind, 'locker'), eq(vaults.createdBy, user.id)));
+    if (!lockers.length) throw notFound();
+    let removed = 0;
+    for (const l of lockers) {
+      const [{ n } = { n: 0 }] = await db
+        .select({ n: count() })
+        .from(entries)
+        .where(eq(entries.vaultId, l.id));
+      removed += n;
+      const blobIds = await attachmentIdsOfVault(db, l.id);
+      await db.delete(vaults).where(eq(vaults.id, l.id));
+      await ctx.blobs.remove(blobIds);
+    }
+    await audit(db, `user:${user.id}`, 'vault.personal.erase', `user:${user.id}`, {
+      entries: removed,
+    });
+    return reply.status(204).send();
+  });
+
   /** Публичные для вошедших пользователей политики (нужны интерфейсу для показа доступных действий). */
   app.get('/auth/policy', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
@@ -228,15 +293,10 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     return {
       'vaults.creators': get('vaults.creators', 'admins'),
       'vaults.personalLockers': personalAllowed,
-      'vaults.personalDataRestricted':
-        !personalAllowed &&
-        (
-          await db
-            .select({ id: vaults.id })
-            .from(vaults)
-            .where(and(eq(vaults.kind, 'locker'), eq(vaults.createdBy, user.id)))
-            .limit(1)
-        ).length > 0,
+      // о прежних личных данных сообщаем, только если они действительно есть (пустой сейф — не данные)
+      'vaults.personalDataRestricted': !personalAllowed && (await personalEntryCount(user.id)) > 0,
+      'vaults.personalEntries': await personalEntryCount(user.id),
+      'notices.dismissed': (user.dismissedNotices as string[]) ?? [],
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
       'security.mfaRequired': get('security.mfaRequired', 'off'),

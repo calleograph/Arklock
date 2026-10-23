@@ -142,27 +142,21 @@ test('administrator builds a structure and works with entries', async ({ browser
   await newFolder(page, 'Финансы');
   await page
     .getByTestId('branch-row')
-    .filter({ hasText: 'Финансы' })
-    .getByRole('button')
-    .nth(1)
+    .getByRole('button', { name: 'Финансы', exact: true })
     .click();
   await newFolder(page, 'Банки');
-  await page
-    .getByTestId('branch-row')
-    .filter({ hasText: 'Банки' })
-    .getByRole('button')
-    .nth(1)
-    .click();
+  await page.getByTestId('branch-row').getByRole('button', { name: 'Банки', exact: true }).click();
 
   // запись типа «сервер» с TOTP, генератором, дополнительным полем и метками
   await page.getByTestId('add-entry').click();
-  await page.getByTestId('f-kind').selectOption('server');
+  await page.getByTestId('f-kind-server').click();
   await page.getByTestId('f-title').fill('Сервер банка');
   await page.getByTestId('f-username').fill('root');
   await page.getByTestId('btn-generate').click();
   await expect(page.getByTestId('strength')).toBeVisible();
   const generated = await page.getByTestId('f-password').inputValue();
   expect(generated).toHaveLength(20);
+  await page.getByTestId('f-more').evaluate((d) => ((d as HTMLDetailsElement).open = true));
   await page.getByTestId('f-totp').fill('JBSWY3DPEHPK3PXP');
   await page.getByTestId('btn-add-field').click();
   await page.getByTestId('field-name-0').fill('IP');
@@ -235,6 +229,7 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('entry-row').first().click();
   const firstTitle = await page.getByTestId('view-title').innerText();
   await page.getByTestId('btn-edit').click();
+  await page.getByTestId('f-more').evaluate((d) => ((d as HTMLDetailsElement).open = true));
   await page.getByTestId('f-link-select').selectOption({ index: 1 });
   await page.getByTestId('btn-add-link').click();
   await page.getByTestId('f-save').click();
@@ -259,9 +254,7 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('bulk-move').click();
   await page
     .getByTestId('branch-row')
-    .filter({ hasText: 'Финансы' })
-    .getByRole('button')
-    .nth(1)
+    .getByRole('button', { name: 'Финансы', exact: true })
     .click();
   await expect(page.getByTestId('entry-row')).toHaveCount(2);
 
@@ -275,6 +268,19 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('folder-unarchive').click();
   await expect(page.getByTestId('entry-row')).toHaveCount(0);
   await page.getByTestId('scope-all').click();
+
+  // подпапка из меню папки создаётся внутри неё (вложенность без искусственного предела)
+  await page.getByTestId('folder-menu-Банки').click();
+  await page.getByTestId('folder-subfolder').click();
+  await page.getByTestId('name-input').fill('Production');
+  await page.getByTestId('name-ok').click();
+  const prod = page.getByTestId('branch-row').filter({ hasText: 'Production' });
+  await expect(prod).toBeVisible();
+  // отступ больше, чем у родителя: папка вложена, а не создана в корне
+  const pad = (l: typeof prod) => l.evaluate((el) => parseInt(getComputedStyle(el).paddingLeft));
+  expect(await pad(prod)).toBeGreaterThan(
+    await pad(page.getByTestId('branch-row').filter({ hasText: 'Банки' }).first()),
+  );
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {

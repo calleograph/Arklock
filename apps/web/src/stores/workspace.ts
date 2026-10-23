@@ -100,6 +100,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   /** Политика организации: false — личные сейфы не показываются и не принимают записи. */
   const personalAllowed = ref(false);
   const personalDataRestricted = ref(false);
+  /** Записей в личном сейфе (без содержимого) и закрытые сотрудником уведомления — из профиля на сервере. */
+  const personalEntries = ref(0);
+  const dismissedNotices = ref<string[]>([]);
   let keyLog: KeyLogEntry[] = [];
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
@@ -181,6 +184,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     );
     personalAllowed.value = policy['vaults.personalLockers'] === true;
     personalDataRestricted.value = policy['vaults.personalDataRestricted'] === true;
+    personalEntries.value = Number(policy['vaults.personalEntries'] ?? 0);
+    dismissedNotices.value = (policy['notices.dismissed'] as string[] | undefined) ?? [];
     let infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
       (v) => personalAllowed.value || v.kind !== 'locker',
     );
@@ -1233,6 +1238,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     };
   }
 
+  /** Закрытое уведомление не появляется снова ни после F5, ни на другом устройстве. */
+  async function dismissNotice(id: string): Promise<void> {
+    if (!dismissedNotices.value.includes(id))
+      dismissedNotices.value = [...dismissedNotices.value, id];
+    await api('POST', `/auth/notices/${id}/dismiss`).catch(() => undefined);
+  }
+
   async function enrollCorporateRecovery(
     vaultId: string,
     recipient: RecoveryRecipient,
@@ -1380,6 +1392,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     searchQuery,
     personalAllowed,
     personalDataRestricted,
+    personalEntries,
+    dismissedNotices,
+    dismissNotice,
     locker,
     branches,
     entries,

@@ -26,7 +26,9 @@ onMounted(async () => {
     <h2 class="font-semibold">{{ t('corporate.continuity') }}</h2>
     <p class="text-sm text-slate-500">{{ t('corporate.continuityHint') }}</p>
     <p v-if="error" class="text-sm text-red-600" role="alert">{{ error }}</p>
-    <p v-else-if="!vaults" class="text-sm text-slate-500" aria-busy="true">{{ t('ui.loading') }}</p>
+    <p v-else-if="!vaults" class="text-sm text-slate-500" aria-busy="true">
+      {{ t('common.loading') }}
+    </p>
     <p v-else-if="!vaults.length" class="text-sm text-slate-500">{{ t('corporate.noVaults') }}</p>
     <ul v-else class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
       <li

@@ -29,6 +29,8 @@ export interface AppContext {
   webhooks: WebhookSink;
   /** Кэш предельной длительности сеанса пользователей SAML (часы). */
   samlPolicy?: { hours: number; until: number };
+  /** Публичный адрес, заданный в панели (system.publicUrl); главнее APP_PUBLIC_URL из файла установки. */
+  publicUrlOverride?: string;
   mfaPolicyCache?: { value: MfaPolicy; until: number };
 }
 

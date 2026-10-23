@@ -4,3 +4,6 @@ declare module '*.vue' {
   const component: DefineComponent<object, object, unknown>;
   export default component;
 }
+
+/** Версия интерфейса из файла VERSION на момент сборки. */
+declare const __APP_VERSION__: string;

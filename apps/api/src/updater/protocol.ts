@@ -247,7 +247,13 @@ export class UpdaterChannel {
           return [];
         }
       });
-    const rs = remote?.status;
+    const latest = str(remote?.latest);
+    // Результат проверки записан помощником в момент проверки; после установки той же версии он устаревает.
+    // «Доступна» — только если найденная версия строго новее работающей.
+    const rs =
+      remote?.status === 'available' && latest && !semverGreater(latest, installed.version)
+        ? 'up_to_date'
+        : remote?.status;
     return {
       installed,
       helper: {
@@ -260,7 +266,7 @@ export class UpdaterChannel {
             checkedAt: str(remote.checked_at),
             status:
               rs === 'available' || rs === 'up_to_date' || rs === 'unreachable' ? rs : 'unknown',
-            latest: str(remote.latest),
+            latest,
             changelog: str(remote.changelog) ?? '',
             migrations: typeof remote.migrations === 'number' ? remote.migrations : null,
           }
@@ -458,4 +464,33 @@ export class UpdaterChannel {
     }
     return requestId;
   }
+}
+
+/**
+ * Сравнение версий по SemVer 2.0 (ведущая «v» допускается): a > b. Пререлиз младше выпуска с тем же номером,
+ * части пререлиза сравниваются по правилам SemVer. Непонятная строка не считается новее.
+ */
+export function semverGreater(a: string, b: string): boolean {
+  const parse = (v: string) => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(v.trim());
+    return m ? { core: [+m[1]!, +m[2]!, +m[3]!], pre: m[4] ? m[4].split('.') : [] } : null;
+  };
+  const x = parse(a);
+  const y = parse(b);
+  if (!x || !y) return false;
+  for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i]! > y.core[i]!;
+  if (!x.pre.length || !y.pre.length) return !x.pre.length && y.pre.length > 0;
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return false;
+    if (q === undefined) return true;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) return +p > +q;
+    if (pn !== qn) return !pn;
+    return p > q;
+  }
+  return false;
 }

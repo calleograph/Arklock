@@ -22,6 +22,7 @@ import { adminGate } from '../auth/adminperm.js';
 import { CHALLENGE_RE, type LoginOutcome } from '../auth/tickets.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { publicUrlOf } from '../public-url.js';
 import { settings, users } from '../db/schema.js';
 import { AppError, parse } from '../errors.js';
 import { openSetting, sealSetting } from '../secretbox.js';
@@ -88,10 +89,10 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
   }
   const secretOf = (s: Stored) =>
     s.clientSecretCipher ? openSetting(config.APP_SECRET, PURPOSE, s.clientSecretCipher) : '';
-  const redirectUri = () =>
-    config.APP_PUBLIC_URL
-      ? `${config.APP_PUBLIC_URL.replace(/\/$/, '')}/api/v1/auth/sso/callback`
-      : '';
+  const redirectUri = () => {
+    const pub = publicUrlOf(ctx);
+    return pub ? `${pub.replace(/\/$/, '')}/api/v1/auth/sso/callback` : '';
+  };
   const adminOnly = [
     auth,
     async (req: FastifyRequest) => {

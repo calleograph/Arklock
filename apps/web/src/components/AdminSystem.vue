@@ -384,6 +384,16 @@ watch(
 );
 
 const disks = computed(() => (data.value?.disks ?? []) as Json[]);
+/** Куда ведёт «Перейти к настройке» из диагностики: каждое предупреждение — с местом исправления. */
+const DIAG_LINK: Record<string, string> = {
+  'public-url': '/admin/settings?section=network',
+  smtp: '/admin/smtp',
+  'mfa-policy': '/admin/settings?section=security',
+  helper: '/admin/updates',
+  blobs: '/admin/storage',
+  'blobs-consistency': '/admin/storage',
+  database: '/admin/backups',
+};
 </script>
 
 <template>
@@ -827,6 +837,14 @@ const disks = computed(() => (data.value?.disks ?? []) as Json[]);
           <div v-if="c.recommendation" class="text-xs text-slate-500">
             {{ t('sys.diag.fix') }}: {{ c.recommendation }}
           </div>
+          <RouterLink
+            v-if="c.level !== 'ok' && DIAG_LINK[c.id]"
+            :to="DIAG_LINK[c.id]!"
+            class="mt-1 inline-block text-xs font-medium text-brand-600 underline"
+            :data-testid="`diag-go-${c.id}`"
+            :aria-label="`${t('sys.diag.go')}: ${c.title}`"
+            >{{ t('sys.diag.go') }} →</RouterLink
+          >
         </div>
       </div>
     </div>

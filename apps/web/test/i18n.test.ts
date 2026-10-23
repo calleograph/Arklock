@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { i18n } from '../src/i18n';
@@ -37,6 +37,32 @@ describe('единый словарь терминов', () => {
 
   it('в английском тексте сейф — vault, без «locker» и «circle»', () => {
     expect(Object.entries(en).filter(([, v]) => /locker|circle/i.test(v))).toEqual([]);
+  });
+
+  it('каждый ключ, написанный в коде буквально, есть в словаре', () => {
+    const src = path.resolve(__dirname, '../src');
+    const files = readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((f) =>
+      /\.(vue|ts)$/.test(f),
+    );
+    const missing = new Set<string>();
+    for (const f of files) {
+      const code = readFileSync(path.join(src, f), 'utf8');
+      // у компонента может быть свой словарь (useScope: 'local'): его разделы проверяет сам компонент
+      const local = code.includes("useScope: 'local'")
+        ? new Set([...code.matchAll(/^ {6}(\w+): \{/gm)].map((m) => m[1]))
+        : new Set<string>();
+      for (const m of code.matchAll(/\bt\(\s*'([a-zA-Z][\w-]*(?:\.[\w-]+)+)'/g))
+        if (!(m[1]! in ru) && !local.has(m[1]!.split('.')[0])) missing.add(`${f}: ${m[1]}`);
+    }
+    expect([...missing]).toEqual([]);
+  });
+
+  it('у каждого раздела администрирования есть название', () => {
+    const view = readFileSync(path.resolve(__dirname, '../src/views/AdminView.vue'), 'utf8');
+    const list = view.match(/const ALL_TABS: Tab\[\] = \[([^\]]+)\]/)![1]!;
+    const tabs = [...list.matchAll(/'(\w+)'/g)].map((m) => m[1]!);
+    expect(tabs.length).toBeGreaterThan(10);
+    expect(tabs.filter((x) => !(`admin.tab.${x}` in ru))).toEqual([]);
   });
 
   it('страница помощи ссылается только на существующие файлы документации', () => {

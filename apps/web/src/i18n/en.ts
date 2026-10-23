@@ -19,6 +19,7 @@ export default {
     copied: 'Copied',
     show: 'Show',
     hide: 'Hide',
+    loading: 'Loading…',
     working: 'Deriving keys…',
     confirmDelete: 'Delete this entry permanently?',
   },
@@ -114,6 +115,18 @@ export default {
     unreachable: 'repository unreachable',
     check: 'Check for updates',
     update: 'Update to',
+    updateTo: 'Update to version {v}',
+    reloadPage: 'Reload the page',
+    state: {
+      upToDate: 'You have the current version of Arklock — {v}.',
+      available: 'Version {v} is available. Installed now: {cur}.',
+      failed:
+        'Could not check for updates: the release repository did not answer. This does not mean there are no updates — try again later.',
+      notChecked: 'Updates have not been checked yet.',
+      running: 'An operation is running. Wait for it to finish: a second one cannot start.',
+      staleUi:
+        'The server is already on version {v}, but this tab still runs the previous interface. Reload the page.',
+    },
     rollback: 'Roll back',
     withRestore: 'restore the database from the backup',
     changes: 'Changes',
@@ -122,7 +135,8 @@ export default {
     migrations: 'Database migrations in the new version: {n}',
     history: 'History',
     confirmTitle: 'Confirm your master password',
-    confirmHint: 'This operation changes the system. Confirmation is valid for 5 minutes.',
+    confirmHint:
+      'A rollback changes the version and may bring back earlier data. Confirmation is valid for 15 minutes.',
     confirm: 'Confirm',
     queued: 'Waiting for the helper',
     errBusy: 'Another operation is already running',

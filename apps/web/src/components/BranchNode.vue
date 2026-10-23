@@ -31,7 +31,7 @@ const open = computed(() => !props.collapsed.has(props.node.id));
 <template>
   <li>
     <div
-      class="group flex items-center gap-1 rounded-lg px-1 py-1 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+      class="group relative flex items-center gap-1 rounded-lg px-1 py-1 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
       :class="selected === node.id ? 'nav-link-active !text-brand-700' : ''"
       :style="{ paddingLeft: `${depth * 12 + 4}px` }"
       data-testid="branch-row"
@@ -40,12 +40,20 @@ const open = computed(() => !props.collapsed.has(props.node.id));
     >
       <button
         type="button"
-        class="w-4 shrink-0 text-xs text-slate-500"
-        :aria-label="open ? 'collapse' : 'expand'"
+        class="flex size-5 shrink-0 items-center justify-center rounded text-slate-500 hover:bg-slate-200 disabled:invisible dark:hover:bg-slate-700"
+        :aria-label="`${open ? t('ws.collapse') : t('ws.expand')}: ${node.name}`"
+        :aria-expanded="children.length ? open : undefined"
         :disabled="!children.length"
         @click="emit('toggle', node.id)"
       >
-        {{ children.length ? (open ? '▾' : '▸') : '' }}
+        <svg
+          viewBox="0 0 16 16"
+          class="size-3 transition-transform duration-200"
+          :class="open ? 'rotate-90' : ''"
+          aria-hidden="true"
+        >
+          <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+        </svg>
       </button>
       <button
         type="button"

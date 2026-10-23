@@ -286,6 +286,78 @@ export const ruHelp = {
       owner: 'Полный контроль над сейфом.',
     },
   },
+  kindFields: {
+    service: 'Сервис или идентификатор ключа',
+    noteText: 'Защищённый текст',
+    more: 'Дополнительно: одноразовый код, свои поля, связи, метки, срок',
+    url: {
+      login: 'Адрес сайта или системы',
+      server: 'Адрес или IP (протокол и порт — в адресе)',
+      apikey: 'Адрес API',
+      note: 'Адрес',
+      custom: 'Адрес',
+    },
+  },
+  personal: {
+    title: 'Прежний личный сейф',
+    intro:
+      'Личные сейфы в организации отключены. Ваши прежние личные записи сохранены: {n}. Администратор не видит их содержимого и не может их удалить за вас.',
+    exportHint:
+      'Чтобы перенести записи в корпоративный сейф или выгрузить их, попросите администратора временно разрешить вам личный сейф.',
+    eraseTitle: 'Удалить личный сейф',
+    eraseWarn:
+      'Будут удалены все записи, вложения и ключи вашего личного сейфа. Отменить это нельзя. В резервных копиях данные останутся до истечения срока их хранения.',
+    eraseConfirm: 'Я понимаю, что записи будут удалены безвозвратно',
+    password: 'Мастер-пароль для подтверждения',
+    erase: 'Удалить безвозвратно',
+    erased: 'Личный сейф удалён.',
+  },
+  network: {
+    title: 'Сеть и доступ',
+    intro: 'Адрес, по которому сотрудники открывают Arklock, и параметры публикации сервера.',
+    publicUrl: 'Публичный адрес',
+    publicUrlHint:
+      'Полный адрес, по которому сотрудники открывают Arklock, например https://ark.example.com. Из него строятся ссылки в приглашениях и письмах, к нему привязаны ключи доступа (WebAuthn) и адреса возврата SSO и SAML. Сервер не берёт адрес из заголовков запроса.',
+    sourcePanel: 'задан в панели',
+    sourceInstall: 'из настроек установки',
+    sourceNone: 'не задан',
+    notSet: 'Не задан',
+    set: 'Указать адрес',
+    change: 'Изменить',
+    noHttps:
+      'Адрес без HTTPS: браузер не защитит мастер-пароль и ключи. Настройте HTTPS на reverse proxy.',
+    openedHere: 'Вы открыли Arklock именно по этому адресу — он работает.',
+    openedElsewhere:
+      'Сейчас Arklock открыт по адресу {here}. Убедитесь, что публичный адрес тоже доступен сотрудникам.',
+    useCurrent: 'Взять текущий адрес ({here})',
+    effectPasskeys:
+      'Ключи доступа ({n}) привязаны к прежнему адресу и перестанут работать: сотрудникам нужно будет добавить их заново.',
+    effectOidc: 'В настройках провайдера OIDC нужно обновить адрес возврата.',
+    effectSaml: 'В настройках провайдера SAML нужно обновить метаданные (Entity ID и адрес ACS).',
+    effectLinks:
+      'Новые приглашения и ссылки будут вести на новый адрес; уже отправленные — на прежний.',
+    resetToInstall: 'Вернуть адрес установки ({url})',
+    saved: 'Публичный адрес сохранён и применён без перезапуска.',
+    invalid: {
+      parse: 'Это не адрес. Пример: https://ark.example.com',
+      credentials: 'В адресе не должно быть имени пользователя и пароля.',
+      path: 'Укажите только схему, имя и порт, без пути и параметров: https://ark.example.com',
+      https: 'Нужен адрес с HTTPS (http допустим только для localhost).',
+    },
+    listen: 'Адрес и порт публикации',
+    listenHint:
+      'Где сервер принимает соединения на хосте. Задаётся при установке: sudo ./install.sh --bind … --port … (повторный запуск сохраняет данные).',
+    proxy: 'Доверенный reverse proxy',
+    proxyHint:
+      'Сколько прокси перед Arklock можно доверять при определении IP клиента. Меняется в файле установки (TRUSTED_PROXY_HOPS) с перезапуском.',
+    https: 'HTTPS',
+    httpsOn: 'Включён',
+    httpsOff: 'Не включён',
+    httpsHint:
+      'HTTPS обеспечивает установщик (Let’s Encrypt или свой сертификат) либо внешний reverse proxy. Сертификаты и сроки — в разделе «Сертификаты».',
+    hostNote:
+      'Параметры хоста Arklock не меняет сам: настройки внешнего reverse proxy и Docker остаются под вашим контролем.',
+  },
   profile: {
     close: 'Закрыть',
     groups: 'Группы',
@@ -325,8 +397,15 @@ export const ruHelp = {
     actionsTitle: 'Действия с сейфом и пространством',
     entryActions: 'Ещё действия с записью',
     moveEntry: 'Перенести в другой сейф',
+    more: 'Подробнее',
+    dismiss: 'Закрыть и больше не показывать',
     archiveFolder: 'В архив вместе с записями ({n})',
     folderActions: 'Действия с папкой',
+    newSubfolder: 'Создать подпапку',
+    collapse: 'Свернуть',
+    expand: 'Развернуть',
+    newFolderIn: 'Новая папка в «{name}»',
+    newFolderRoot: 'Новая папка в корне сейфа',
     unarchiveFolder: 'Вернуть записи из архива ({n})',
     kindFilter: 'Тип записей',
     searchShort: 'Поиск',
@@ -666,6 +745,78 @@ export const enHelp = {
       owner: 'Full control of the vault.',
     },
   },
+  kindFields: {
+    service: 'Service or key identifier',
+    noteText: 'Protected text',
+    more: 'More: one-time code, own fields, links, tags, expiry',
+    url: {
+      login: 'Website or system address',
+      server: 'Address or IP (protocol and port go in the address)',
+      apikey: 'API address',
+      note: 'Address',
+      custom: 'Address',
+    },
+  },
+  personal: {
+    title: 'Previous personal vault',
+    intro:
+      'Personal vaults are turned off in your organization. Your previous personal entries are kept: {n}. Administrators cannot see their contents or delete them for you.',
+    exportHint:
+      'To move the entries to a corporate vault or export them, ask an administrator to temporarily allow your personal vault.',
+    eraseTitle: 'Delete the personal vault',
+    eraseWarn:
+      'All entries, attachments and keys of your personal vault will be deleted. This cannot be undone. Backups keep the data until they expire.',
+    eraseConfirm: 'I understand the entries will be deleted for good',
+    password: 'Master password to confirm',
+    erase: 'Delete for good',
+    erased: 'The personal vault was deleted.',
+  },
+  network: {
+    title: 'Network and access',
+    intro: 'The address employees open Arklock at, and how the server is published.',
+    publicUrl: 'Public address',
+    publicUrlHint:
+      'The full address employees open Arklock at, for example https://ark.example.com. Links in invitations and emails are built from it; passkeys (WebAuthn) and the SSO and SAML return addresses are bound to it. The server never takes it from request headers.',
+    sourcePanel: 'set in the panel',
+    sourceInstall: 'from the installation settings',
+    sourceNone: 'not set',
+    notSet: 'Not set',
+    set: 'Set the address',
+    change: 'Change',
+    noHttps:
+      'The address has no HTTPS: the browser will not protect the master password and keys. Set up HTTPS on the reverse proxy.',
+    openedHere: 'You opened Arklock at exactly this address — it works.',
+    openedElsewhere:
+      'Arklock is open at {here} right now. Make sure the public address is reachable for employees too.',
+    useCurrent: 'Use the current address ({here})',
+    effectPasskeys:
+      'Passkeys ({n}) are bound to the previous address and will stop working: employees will have to add them again.',
+    effectOidc: 'Update the return address in the OIDC provider settings.',
+    effectSaml: 'Update the metadata (Entity ID and ACS address) in the SAML provider settings.',
+    effectLinks:
+      'New invitations and links will point to the new address; ones already sent keep the old one.',
+    resetToInstall: 'Return to the installation address ({url})',
+    saved: 'The public address is saved and applied without a restart.',
+    invalid: {
+      parse: 'This is not an address. Example: https://ark.example.com',
+      credentials: 'The address must not contain a user name or password.',
+      path: 'Enter only the scheme, host and port, without a path or parameters: https://ark.example.com',
+      https: 'An HTTPS address is required (http is allowed only for localhost).',
+    },
+    listen: 'Published address and port',
+    listenHint:
+      'Where the server accepts connections on the host. Set during installation: sudo ./install.sh --bind … --port … (running it again keeps the data).',
+    proxy: 'Trusted reverse proxy',
+    proxyHint:
+      'How many proxies in front of Arklock are trusted to report the client IP. Changed in the installation file (TRUSTED_PROXY_HOPS) with a restart.',
+    https: 'HTTPS',
+    httpsOn: 'On',
+    httpsOff: 'Off',
+    httpsHint:
+      'HTTPS is provided by the installer (Let’s Encrypt or your certificate) or an external reverse proxy. Certificates and expiry dates are in “Certificates”.',
+    hostNote:
+      'Arklock does not change host settings itself: the external reverse proxy and Docker stay under your control.',
+  },
   profile: {
     close: 'Close',
     groups: 'Groups',
@@ -705,8 +856,15 @@ export const enHelp = {
     actionsTitle: 'Vault and space actions',
     entryActions: 'More entry actions',
     moveEntry: 'Move to another vault',
+    more: 'Details',
+    dismiss: 'Close and do not show again',
     archiveFolder: 'Archive with its entries ({n})',
     folderActions: 'Folder actions',
+    newSubfolder: 'Create a subfolder',
+    collapse: 'Collapse',
+    expand: 'Expand',
+    newFolderIn: 'New folder in “{name}”',
+    newFolderRoot: 'New folder at the vault root',
     unarchiveFolder: 'Restore entries from the archive ({n})',
     kindFilter: 'Entry type',
     searchShort: 'Search',

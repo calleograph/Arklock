@@ -63,6 +63,8 @@ export const users = pgTable(
     adminRoleId: uuid('admin_role_id'),
     /** Цветовая тема интерфейса (личная настройка; к шифруемым данным не относится). */
     theme: text('theme'),
+    /** Закрытые сотрудником информационные уведомления (идентификаторы), чтобы они не появлялись снова. */
+    dismissedNotices: jsonb('dismissed_notices').notNull().default([]),
     /** Откуда учётная запись: local — мастер-пароль на сервере Arklock, ldap/oidc/saml — вход через корпоративный каталог или провайдера идентификации. */
     authSource: text('auth_source', { enum: ['local', 'ldap', 'oidc', 'saml'] })
       .notNull()

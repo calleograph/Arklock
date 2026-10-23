@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
 import NotificationPreferences from '../components/NotificationPreferences.vue';
 import PinSettings from '../components/PinSettings.vue';
+import PersonalVaultErase from '../components/PersonalVaultErase.vue';
+import { useWorkspaceStore } from '../stores/workspace';
 import { DEFAULT_THEME, isTheme, PREVIEW, THEMES, type ThemeId } from '../services/theme';
 import { errorMessage } from '../services/helpers';
 import {
@@ -15,6 +17,9 @@ import {
 
 const { t, locale } = useI18n();
 const auth = useAuthStore();
+const ws = useWorkspaceStore();
+// сведения о прежнем личном сейфе приходят вместе со списком сейфов; после F5 в «Настройках» его ещё нет
+if (!ws.vaults.length) void ws.loadVaults().catch(() => undefined);
 const error = ref('');
 const notice = ref('');
 const lockMinutes = ref<AutoLockMinutes>(autoLockMinutes());
@@ -128,6 +133,8 @@ function setLocale(value: 'ru' | 'en'): void {
         </button>
       </div>
     </div>
+
+    <PersonalVaultErase v-if="ws.personalDataRestricted" />
 
     <PinSettings />
 

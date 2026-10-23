@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { toBase64Url } from '@arklock/crypto';
+import { semverGreater } from '../src/updater/protocol.js';
 import { ReauthStore } from '../src/auth/reauth.js';
 import { settings } from '../src/db/schema.js';
 import { TestClient, createTestApp } from './helpers.js';
@@ -126,6 +127,17 @@ describe('updates overview', () => {
     expect(body.remote.changelog).toContain('new');
     expect(body.status).toMatchObject({ state: 'success', stepNo: 9, versionTo: '0.2.0' });
     expect(body.history).toHaveLength(1);
+  });
+
+  it('a check result for the version already running is not offered as an update', async () => {
+    writeFileSync(
+      path.join(dir, 'remote.json'),
+      JSON.stringify({ checked_at: '2026-10-11T10:00:00Z', status: 'available', latest: 'v0.1.0' }),
+    );
+    const body = (
+      await app.inject({ url: '/api/v1/admin/updates', headers: admin.authHeader() })
+    ).json();
+    expect(body.remote.status).toBe('up_to_date');
   });
 
   it('treats a stale heartbeat as a stopped helper', async () => {
@@ -289,5 +301,19 @@ describe('ReauthStore', () => {
     expect(store.check(token, 's1', t0 + 14 * 60_000)).toBe(true);
     expect(store.check(token, 's1', t0 + 15 * 60_000 + 1)).toBe(false);
     expect(store.check(undefined, 's1', t0)).toBe(false);
+  });
+});
+
+describe('semverGreater', () => {
+  it('orders releases and prereleases like SemVer', () => {
+    expect(semverGreater('v1.22.1', '1.22.0')).toBe(true);
+    expect(semverGreater('1.22.0', '1.22.0')).toBe(false);
+    expect(semverGreater('1.10.0', '1.9.9')).toBe(true);
+    expect(semverGreater('2.0.0-rc.1', '1.99.0')).toBe(true);
+    expect(semverGreater('1.0.0-rc.1', '1.0.0')).toBe(false);
+    expect(semverGreater('1.0.0', '1.0.0-rc.1')).toBe(true);
+    expect(semverGreater('1.0.0-rc.10', '1.0.0-rc.9')).toBe(true);
+    expect(semverGreater('1.0.0-beta', '1.0.0-alpha')).toBe(true);
+    expect(semverGreater('latest', '1.0.0')).toBe(false);
   });
 });

@@ -126,6 +126,7 @@ export const ADMIN_PATHS: [RegExp, AdminPerm][] = [
   ],
   [/^\/api\/v1\/admin\/backups(\/|$)/, 'admin.backups'],
   [/^\/api\/v1\/admin\/(updates|reauth)(\/|$)/, 'admin.updates'],
+  [/^\/api\/v1\/admin\/network(\/|$)/, 'admin.settings'],
   [/^\/api\/v1\/admin\/(ldap|sso|saml|smtp|syslog|webhooks)(\/|$)/, 'admin.integrations'],
   [/^\/api\/v1\/admin\/invitations(\/|$)/, 'admin.invitations'],
 ];

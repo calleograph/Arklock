@@ -59,6 +59,32 @@ const revealed = ref<Set<number>>(new Set());
 const error = ref('');
 const busy = ref(false);
 const tab = ref<'details' | 'access' | 'journal' | 'settings'>('details');
+/** Порядок типов — по частоте использования; значки — тот же набор, что и в интерфейсе. */
+const KIND_ORDER = ['login', 'server', 'apikey', 'note', 'custom'] as const;
+const KIND_ICON = {
+  login: 'key',
+  server: 'database',
+  apikey: 'totp',
+  note: 'text',
+  custom: 'tag',
+} as const;
+const URL_HINT: Record<string, string> = {
+  login: 'https://example.com/login',
+  server: 'ssh://db.example.com:22',
+  apikey: 'https://api.example.com/v1',
+  note: '',
+  custom: '',
+};
+const hasExtras = () =>
+  !!(
+    form.value.totp ||
+    form.value.fields.length ||
+    form.value.links?.length ||
+    tagsText.value ||
+    form.value.expiresAt
+  );
+const moreOpen = ref(false);
+moreOpen.value = hasExtras();
 const subTab = ref<'files' | 'history' | 'share' | null>(null);
 const tabs = ['details', 'files', 'access', 'journal', 'settings'] as const;
 /** Вкладка «Файлы» — это данные записи с открытым списком вложений. */
@@ -107,6 +133,7 @@ watch(
     editing.value = props.creating;
     form.value = props.item ? clone(normalizeEntry(props.item.data)) : blankEntry();
     tagsText.value = form.value.tags.join(', ');
+    moreOpen.value = hasExtras();
     showPw.value = false;
     revealed.value = new Set();
     error.value = '';
@@ -565,707 +592,768 @@ void api;
 </script>
 
 <template>
-  <!-- В режиме создания и редактирования форма открывается модальным окном поверх страницы -->
-  <section
-    :class="
-      editing
-        ? 'modal-fade fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-8'
-        : 'card p-4'
-    "
-    :role="editing ? 'dialog' : undefined"
-    :aria-modal="editing ? 'true' : undefined"
-    :aria-label="editing ? item?.data.title || t('vault.add') : undefined"
-    data-testid="entry-panel"
-    @keydown.esc.stop.prevent="cancelEditing"
-  >
-    <div :class="editing ? 'card w-full max-w-2xl p-4 shadow-xl' : 'contents'">
-      <!-- Просмотр -->
-      <template v-if="item && !editing">
-        <div class="mb-4 flex items-start gap-2">
-          <div class="min-w-0 flex-1">
-            <h2 class="truncate text-xl font-semibold tracking-tight" data-testid="view-title">
-              {{ item.data.title }}
-            </h2>
-            <div class="mt-1 flex flex-wrap gap-1">
-              <span class="badge">{{ t(`kind.${item.data.kind}`) }}</span>
-              <span v-for="tag in item.data.tags" :key="tag" class="badge">#{{ tag }}</span>
+  <!-- В режиме создания и редактирования форма открывается модальным окном поверх страницы;
+       в body, чтобы липкая колонка карточки не опускала окно под шапку -->
+  <Teleport to="body" :disabled="!editing">
+    <section
+      :class="
+        editing
+          ? 'modal-fade fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-8'
+          : 'card p-4'
+      "
+      :role="editing ? 'dialog' : undefined"
+      :aria-modal="editing ? 'true' : undefined"
+      :aria-label="editing ? item?.data.title || t('vault.add') : undefined"
+      data-testid="entry-panel"
+      @keydown.esc.stop.prevent="cancelEditing"
+    >
+      <div :class="editing ? 'card w-full max-w-2xl p-4 shadow-xl' : 'contents'">
+        <!-- Просмотр -->
+        <template v-if="item && !editing">
+          <div class="mb-4 flex items-start gap-2">
+            <div class="min-w-0 flex-1">
+              <h2 class="truncate text-xl font-semibold tracking-tight" data-testid="view-title">
+                {{ item.data.title }}
+              </h2>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="badge">{{ t(`kind.${item.data.kind}`) }}</span>
+                <span v-for="tag in item.data.tags" :key="tag" class="badge">#{{ tag }}</span>
+              </div>
+            </div>
+            <div class="-mr-1.5 -mt-1 flex shrink-0">
+              <IconButton
+                v-if="canEdit"
+                icon="edit"
+                :label="t('vault.edit')"
+                data-testid="btn-edit"
+                @click="editing = true"
+              />
+              <IconButton
+                v-if="canEdit"
+                :icon="item.data.archived ? 'inbox' : 'archive'"
+                :label="item.data.archived ? t('vault.unarchive') : t('vault.archiveEntry')"
+                data-testid="btn-archive"
+                @click="toggleArchive"
+              />
+              <IconButton
+                icon="star"
+                :label="item.pinned ? t('vault.unpin') : t('vault.pin')"
+                :active="item.pinned"
+                data-testid="btn-pin"
+                @click="ws.setPinned(item, !item.pinned)"
+              />
+              <slot name="actions" />
             </div>
           </div>
-          <div class="-mr-1.5 -mt-1 flex shrink-0">
-            <IconButton
-              v-if="canEdit"
-              icon="edit"
-              :label="t('vault.edit')"
-              data-testid="btn-edit"
-              @click="editing = true"
-            />
-            <IconButton
-              v-if="canEdit"
-              :icon="item.data.archived ? 'inbox' : 'archive'"
-              :label="item.data.archived ? t('vault.unarchive') : t('vault.archiveEntry')"
-              data-testid="btn-archive"
-              @click="toggleArchive"
-            />
-            <IconButton
-              icon="star"
-              :label="item.pinned ? t('vault.unpin') : t('vault.pin')"
-              :active="item.pinned"
-              data-testid="btn-pin"
-              @click="ws.setPinned(item, !item.pinned)"
-            />
-            <slot name="actions" />
-          </div>
-        </div>
 
-        <div
-          ref="tabBar"
-          class="tabs mb-3 flex justify-between gap-3 overflow-x-auto"
-          role="tablist"
-          :aria-label="t('entryPanel.tabsLabel')"
-          @keydown="tabKey"
-        >
-          <button
-            v-for="value in tabs"
-            :id="`entry-tab-${value}`"
-            :key="value"
-            type="button"
-            role="tab"
-            class="tab"
-            :aria-selected="shownTab === value"
-            :aria-controls="`entry-panel-${value === 'files' ? 'details' : value}`"
-            :tabindex="shownTab === value ? 0 : -1"
-            :data-entry-tab="value"
-            :data-testid="`tab-${value}`"
-            @click="selectTab(value)"
+          <div
+            ref="tabBar"
+            class="tabs mb-3 flex justify-between gap-3 overflow-x-auto"
+            role="tablist"
+            :aria-label="t('entryPanel.tabsLabel')"
+            @keydown="tabKey"
           >
-            {{ t(`entryPanel.tabs.${value}`) }}
-          </button>
-          <span class="tabs-ink" aria-hidden="true" :style="ink" />
-        </div>
-        <!-- Второй уровень — переключатель вида внутри вкладки, а не ещё одна кнопка-действие -->
-        <div
-          v-if="tab === 'access' || tab === 'journal'"
-          class="mb-3 inline-flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800"
-          role="group"
-        >
-          <template v-if="tab === 'access'">
             <button
+              v-for="value in tabs"
+              :id="`entry-tab-${value}`"
+              :key="value"
               type="button"
-              class="seg"
-              :class="{ 'seg-on': !subTab }"
-              :aria-pressed="!subTab"
-              @click="subTab = null"
+              role="tab"
+              class="tab"
+              :aria-selected="shownTab === value"
+              :aria-controls="`entry-panel-${value === 'files' ? 'details' : value}`"
+              :tabindex="shownTab === value ? 0 : -1"
+              :data-entry-tab="value"
+              :data-testid="`tab-${value}`"
+              @click="selectTab(value)"
             >
-              {{ t('entryPanel.actualAccess') }}
+              {{ t(`entryPanel.tabs.${value}`) }}
             </button>
-            <button
-              type="button"
-              class="seg"
-              :class="{ 'seg-on': subTab === 'share' }"
-              :aria-pressed="subTab === 'share'"
-              data-testid="tab-share"
-              @click="subTab = 'share'"
-            >
-              {{ t('vault.share') }}
-            </button>
-          </template>
-          <template v-else>
-            <button
-              type="button"
-              class="seg"
-              :class="{ 'seg-on': !subTab }"
-              :aria-pressed="!subTab"
-              @click="subTab = null"
-            >
-              {{ t('entryPanel.events') }}
-            </button>
-            <button
-              type="button"
-              class="seg"
-              :class="{ 'seg-on': subTab === 'history' }"
-              :aria-pressed="subTab === 'history'"
-              data-testid="tab-history"
-              @click="loadHistory"
-            >
-              {{ t('vault.history') }}
-            </button>
-          </template>
-        </div>
-        <div
-          v-show="tab === 'details'"
-          id="entry-panel-details"
-          role="tabpanel"
-          aria-labelledby="entry-tab-details"
-        >
-          <dl
-            v-if="subTab !== 'files'"
-            class="divide-y divide-slate-200 text-sm dark:divide-slate-800"
+            <span class="tabs-ink" aria-hidden="true" :style="ink" />
+          </div>
+          <!-- Второй уровень — переключатель вида внутри вкладки, а не ещё одна кнопка-действие -->
+          <div
+            v-if="tab === 'access' || tab === 'journal'"
+            class="mb-3 inline-flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800"
+            role="group"
           >
-            <div v-if="item.data.username" class="field-row">
-              <dt>{{ t('vault.username') }}</dt>
-              <dd>
-                <span class="min-w-0 flex-1 break-all" data-testid="view-username">{{
-                  item.data.username
-                }}</span>
-                <IconButton
-                  :icon="copied === 'username' ? 'check' : 'copy'"
-                  :label="copied === 'username' ? t('common.copied') : t('common.copy')"
-                  @click="copy('username', item.data.username)"
+            <template v-if="tab === 'access'">
+              <button
+                type="button"
+                class="seg"
+                :class="{ 'seg-on': !subTab }"
+                :aria-pressed="!subTab"
+                @click="subTab = null"
+              >
+                {{ t('entryPanel.actualAccess') }}
+              </button>
+              <button
+                type="button"
+                class="seg"
+                :class="{ 'seg-on': subTab === 'share' }"
+                :aria-pressed="subTab === 'share'"
+                data-testid="tab-share"
+                @click="subTab = 'share'"
+              >
+                {{ t('vault.share') }}
+              </button>
+            </template>
+            <template v-else>
+              <button
+                type="button"
+                class="seg"
+                :class="{ 'seg-on': !subTab }"
+                :aria-pressed="!subTab"
+                @click="subTab = null"
+              >
+                {{ t('entryPanel.events') }}
+              </button>
+              <button
+                type="button"
+                class="seg"
+                :class="{ 'seg-on': subTab === 'history' }"
+                :aria-pressed="subTab === 'history'"
+                data-testid="tab-history"
+                @click="loadHistory"
+              >
+                {{ t('vault.history') }}
+              </button>
+            </template>
+          </div>
+          <div
+            v-show="tab === 'details'"
+            id="entry-panel-details"
+            role="tabpanel"
+            aria-labelledby="entry-tab-details"
+          >
+            <dl
+              v-if="subTab !== 'files'"
+              class="divide-y divide-slate-200 text-sm dark:divide-slate-800"
+            >
+              <div v-if="item.data.username" class="field-row">
+                <dt>{{ t('vault.username') }}</dt>
+                <dd>
+                  <span class="min-w-0 flex-1 break-all" data-testid="view-username">{{
+                    item.data.username
+                  }}</span>
+                  <IconButton
+                    :icon="copied === 'username' ? 'check' : 'copy'"
+                    :label="copied === 'username' ? t('common.copied') : t('common.copy')"
+                    @click="copy('username', item.data.username)"
+                  />
+                </dd>
+              </div>
+              <div v-if="item.data.password" class="field-row">
+                <dt>
+                  {{ item.data.kind === 'apikey' ? t('vault.secret') : t('vault.password') }}
+                </dt>
+                <dd>
+                  <SecretText
+                    class="min-w-0 flex-1"
+                    :value="item.data.password"
+                    :shown="revealed.has(-1)"
+                    data-testid="view-password"
+                  />
+                  <IconButton
+                    :icon="revealed.has(-1) ? 'eye-off' : 'eye'"
+                    :label="revealed.has(-1) ? t('common.hide') : t('common.show')"
+                    :active="revealed.has(-1)"
+                    data-testid="btn-reveal"
+                    @click="toggleReveal(-1)"
+                  />
+                  <IconButton
+                    :icon="copied === 'password' ? 'check' : 'copy'"
+                    :label="copied === 'password' ? t('common.copied') : t('common.copy')"
+                    data-testid="btn-copy-password"
+                    @click="copy('password', item.data.password)"
+                  />
+                </dd>
+              </div>
+              <div v-if="linkedEntries.length" class="field-row" data-testid="links-view">
+                <dt>{{ t('vault.links') }}</dt>
+                <dd class="flex-wrap">
+                  <button
+                    v-for="l in linkedEntries"
+                    :key="l.id"
+                    type="button"
+                    class="btn"
+                    data-testid="link-open"
+                    @click="emit('open', l.id)"
+                  >
+                    <Icon name="external" /> {{ l.title }}
+                  </button>
+                </dd>
+              </div>
+              <div v-if="item.data.url" class="field-row">
+                <dt>{{ t('vault.url') }}</dt>
+                <dd>
+                  <a
+                    v-if="/^https?:\/\//i.test(item.data.url)"
+                    :href="item.data.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="min-w-0 flex-1 break-all text-brand-600 underline decoration-brand-500/30 underline-offset-2 hover:decoration-brand-500"
+                    >{{ item.data.url }}</a
+                  >
+                  <span v-else class="min-w-0 flex-1 break-all">{{ item.data.url }}</span>
+                </dd>
+              </div>
+              <div v-if="code" class="field-row">
+                <dt>{{ t('vault.totp') }}</dt>
+                <dd>
+                  <span class="flex-1 font-mono text-lg tracking-[0.2em]" data-testid="view-totp">{{
+                    code
+                  }}</span>
+                  <!-- кольцо оставшегося времени кода: убывает линейно, как сам срок -->
+                  <span
+                    class="totp-ring num text-[11px] text-slate-500"
+                    :style="{ '--left': remaining / 30 }"
+                    :aria-label="`${remaining} ${t('vault.sec')}`"
+                    >{{ remaining }}</span
+                  >
+                  <IconButton
+                    :icon="copied === 'totp' ? 'check' : 'copy'"
+                    :label="copied === 'totp' ? t('common.copied') : t('common.copy')"
+                    @click="copy('totp', code)"
+                  />
+                </dd>
+              </div>
+              <div v-for="(f, i) in item.data.fields" :key="i" class="field-row">
+                <dt>{{ f.name }}</dt>
+                <dd>
+                  <SecretText
+                    v-if="f.secret"
+                    class="min-w-0 flex-1"
+                    :value="f.value"
+                    :shown="revealed.has(i)"
+                    mask="••••••••"
+                  />
+                  <span v-else class="min-w-0 flex-1 break-all">{{ f.value }}</span>
+                  <IconButton
+                    v-if="f.secret"
+                    :icon="revealed.has(i) ? 'eye-off' : 'eye'"
+                    :label="revealed.has(i) ? t('common.hide') : t('common.show')"
+                    :active="revealed.has(i)"
+                    @click="toggleReveal(i)"
+                  />
+                  <IconButton
+                    :icon="copied === 'f' + i ? 'check' : 'copy'"
+                    :label="copied === 'f' + i ? t('common.copied') : t('common.copy')"
+                    @click="copy('f' + i, f.value)"
+                  />
+                </dd>
+              </div>
+              <div v-if="item.data.notes" class="field-row">
+                <dt>{{ t('vault.notes') }}</dt>
+                <dd class="whitespace-pre-wrap break-words" data-testid="view-notes">
+                  {{ item.data.notes }}
+                </dd>
+              </div>
+              <div class="num pt-3 text-xs text-slate-500">
+                {{ t('vault.updated') }}: {{ fmt(item.updatedAt) }}
+                <span v-if="item.data.expiresAt">
+                  · {{ t('vault.expires') }}: {{ item.data.expiresAt }}</span
+                >
+              </div>
+            </dl>
+
+            <div v-else class="space-y-3 text-sm" data-testid="files-panel">
+              <p class="text-xs text-slate-500">
+                {{ t('files.encryptedNote') }} {{ t('files.max', { n: storage.maxMiB }) }}
+              </p>
+              <p v-if="!storage.enabled" class="text-amber-700" role="alert">
+                {{ t('files.disabled') }}
+              </p>
+              <p v-else-if="!files" class="text-slate-500">{{ t('common.working') }}</p>
+              <p v-else-if="!files.length" class="text-slate-500" data-testid="files-empty">
+                {{ t('files.empty') }}
+              </p>
+              <ul v-else class="divide-y divide-slate-200 dark:divide-slate-800">
+                <li
+                  v-for="f in files"
+                  :key="f.id"
+                  class="flex flex-wrap items-center justify-between gap-2 py-2"
+                  data-testid="file-row"
+                >
+                  <span class="min-w-0 break-all"
+                    >{{ f.name }}
+                    <span class="text-xs text-slate-500">· {{ fmtSize(f.size) }}</span></span
+                  >
+                  <span class="flex gap-1">
+                    <button
+                      type="button"
+                      class="btn"
+                      :disabled="busy || f.problem"
+                      data-testid="file-download"
+                      @click="downloadFile(f)"
+                    >
+                      {{ t('files.download') }}
+                    </button>
+                    <button
+                      v-if="canEdit"
+                      type="button"
+                      class="btn"
+                      :disabled="busy"
+                      data-testid="file-remove"
+                      @click="removeFile(f)"
+                    >
+                      {{ confirmFile === f.id ? t('files.confirmRemove') : t('files.remove') }}
+                    </button>
+                  </span>
+                </li>
+              </ul>
+              <div v-if="progress" class="space-y-1" data-testid="file-progress">
+                <div class="truncate text-xs text-slate-500">{{ progress.label }}</div>
+                <progress class="w-full" :max="progress.total" :value="progress.done"></progress>
+              </div>
+              <div v-if="canEdit && storage.enabled">
+                <input
+                  ref="fileInput"
+                  type="file"
+                  multiple
+                  class="hidden"
+                  data-testid="file-input"
+                  @change="addFile"
                 />
-              </dd>
-            </div>
-            <div v-if="item.data.password" class="field-row">
-              <dt>
-                {{ item.data.kind === 'apikey' ? t('vault.secret') : t('vault.password') }}
-              </dt>
-              <dd>
-                <SecretText
-                  class="min-w-0 flex-1"
-                  :value="item.data.password"
-                  :shown="revealed.has(-1)"
-                  data-testid="view-password"
-                />
-                <IconButton
-                  :icon="revealed.has(-1) ? 'eye-off' : 'eye'"
-                  :label="revealed.has(-1) ? t('common.hide') : t('common.show')"
-                  :active="revealed.has(-1)"
-                  data-testid="btn-reveal"
-                  @click="toggleReveal(-1)"
-                />
-                <IconButton
-                  :icon="copied === 'password' ? 'check' : 'copy'"
-                  :label="copied === 'password' ? t('common.copied') : t('common.copy')"
-                  data-testid="btn-copy-password"
-                  @click="copy('password', item.data.password)"
-                />
-              </dd>
-            </div>
-            <div v-if="linkedEntries.length" class="field-row" data-testid="links-view">
-              <dt>{{ t('vault.links') }}</dt>
-              <dd class="flex-wrap">
                 <button
-                  v-for="l in linkedEntries"
-                  :key="l.id"
                   type="button"
                   class="btn"
-                  data-testid="link-open"
-                  @click="emit('open', l.id)"
+                  :disabled="busy"
+                  data-testid="file-add"
+                  @click="fileInput?.click()"
                 >
-                  <Icon name="external" /> {{ l.title }}
+                  {{ t('files.add') }}
                 </button>
-              </dd>
+              </div>
+              <p v-if="error" class="text-red-600" role="alert" data-testid="files-error">
+                {{ error }}
+              </p>
             </div>
-            <div v-if="item.data.url" class="field-row">
-              <dt>{{ t('vault.url') }}</dt>
-              <dd>
-                <a
-                  v-if="/^https?:\/\//i.test(item.data.url)"
-                  :href="item.data.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="min-w-0 flex-1 break-all text-brand-600 underline decoration-brand-500/30 underline-offset-2 hover:decoration-brand-500"
-                  >{{ item.data.url }}</a
+          </div>
+          <div
+            v-show="tab === 'journal'"
+            id="entry-panel-journal"
+            role="tabpanel"
+            aria-labelledby="entry-tab-journal"
+          >
+            <EntryJournalPanel
+              :key="item.id"
+              v-show="subTab !== 'history'"
+              :vault-id="vault.id"
+              :entry-id="item.id"
+              :active="tab === 'journal' && subTab !== 'history'"
+            />
+            <div v-if="subTab === 'history'" data-testid="history-list">
+              <p v-if="!history" class="text-sm text-slate-500">{{ t('common.working') }}</p>
+              <p v-else-if="!history.length" class="text-sm text-slate-500">
+                {{ t('vault.noHistory') }}
+              </p>
+              <ul v-else class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+                <li
+                  v-for="h in history"
+                  :key="h.rev.id"
+                  class="flex items-center justify-between gap-2 py-2"
+                  data-testid="history-row"
                 >
-                <span v-else class="min-w-0 flex-1 break-all">{{ item.data.url }}</span>
-              </dd>
-            </div>
-            <div v-if="code" class="field-row">
-              <dt>{{ t('vault.totp') }}</dt>
-              <dd>
-                <span class="flex-1 font-mono text-lg tracking-[0.2em]" data-testid="view-totp">{{
-                  code
-                }}</span>
-                <!-- кольцо оставшегося времени кода: убывает линейно, как сам срок -->
-                <span
-                  class="totp-ring num text-[11px] text-slate-500"
-                  :style="{ '--left': remaining / 30 }"
-                  :aria-label="`${remaining} ${t('vault.sec')}`"
-                  >{{ remaining }}</span
-                >
-                <IconButton
-                  :icon="copied === 'totp' ? 'check' : 'copy'"
-                  :label="copied === 'totp' ? t('common.copied') : t('common.copy')"
-                  @click="copy('totp', code)"
-                />
-              </dd>
-            </div>
-            <div v-for="(f, i) in item.data.fields" :key="i" class="field-row">
-              <dt>{{ f.name }}</dt>
-              <dd>
-                <SecretText
-                  v-if="f.secret"
-                  class="min-w-0 flex-1"
-                  :value="f.value"
-                  :shown="revealed.has(i)"
-                  mask="••••••••"
-                />
-                <span v-else class="min-w-0 flex-1 break-all">{{ f.value }}</span>
-                <IconButton
-                  v-if="f.secret"
-                  :icon="revealed.has(i) ? 'eye-off' : 'eye'"
-                  :label="revealed.has(i) ? t('common.hide') : t('common.show')"
-                  :active="revealed.has(i)"
-                  @click="toggleReveal(i)"
-                />
-                <IconButton
-                  :icon="copied === 'f' + i ? 'check' : 'copy'"
-                  :label="copied === 'f' + i ? t('common.copied') : t('common.copy')"
-                  @click="copy('f' + i, f.value)"
-                />
-              </dd>
-            </div>
-            <div v-if="item.data.notes" class="field-row">
-              <dt>{{ t('vault.notes') }}</dt>
-              <dd class="whitespace-pre-wrap break-words" data-testid="view-notes">
-                {{ item.data.notes }}
-              </dd>
-            </div>
-            <div class="num pt-3 text-xs text-slate-500">
-              {{ t('vault.updated') }}: {{ fmt(item.updatedAt) }}
-              <span v-if="item.data.expiresAt">
-                · {{ t('vault.expires') }}: {{ item.data.expiresAt }}</span
-              >
-            </div>
-          </dl>
-
-          <div v-else class="space-y-3 text-sm" data-testid="files-panel">
-            <p class="text-xs text-slate-500">
-              {{ t('files.encryptedNote') }} {{ t('files.max', { n: storage.maxMiB }) }}
-            </p>
-            <p v-if="!storage.enabled" class="text-amber-700" role="alert">
-              {{ t('files.disabled') }}
-            </p>
-            <p v-else-if="!files" class="text-slate-500">{{ t('common.working') }}</p>
-            <p v-else-if="!files.length" class="text-slate-500" data-testid="files-empty">
-              {{ t('files.empty') }}
-            </p>
-            <ul v-else class="divide-y divide-slate-200 dark:divide-slate-800">
-              <li
-                v-for="f in files"
-                :key="f.id"
-                class="flex flex-wrap items-center justify-between gap-2 py-2"
-                data-testid="file-row"
-              >
-                <span class="min-w-0 break-all"
-                  >{{ f.name }}
-                  <span class="text-xs text-slate-500">· {{ fmtSize(f.size) }}</span></span
-                >
-                <span class="flex gap-1">
+                  <div class="min-w-0">
+                    <div class="font-medium">v{{ h.rev.version }} · {{ fmt(h.rev.savedAt) }}</div>
+                    <div class="truncate text-xs text-slate-500">
+                      {{
+                        h.data ? `${h.data.title} · ${h.data.username}` : t('vault.undecryptable')
+                      }}
+                    </div>
+                  </div>
                   <button
+                    v-if="canEdit && h.data"
                     type="button"
-                    class="btn"
-                    :disabled="busy || f.problem"
-                    data-testid="file-download"
-                    @click="downloadFile(f)"
-                  >
-                    {{ t('files.download') }}
-                  </button>
-                  <button
-                    v-if="canEdit"
-                    type="button"
-                    class="btn"
+                    class="btn shrink-0"
                     :disabled="busy"
-                    data-testid="file-remove"
-                    @click="removeFile(f)"
+                    data-testid="btn-revert"
+                    @click="revert(h.rev.id)"
                   >
-                    {{ confirmFile === f.id ? t('files.confirmRemove') : t('files.remove') }}
+                    {{ t('vault.revert') }}
                   </button>
-                </span>
-              </li>
-            </ul>
-            <div v-if="progress" class="space-y-1" data-testid="file-progress">
-              <div class="truncate text-xs text-slate-500">{{ progress.label }}</div>
-              <progress class="w-full" :max="progress.total" :value="progress.done"></progress>
+                </li>
+              </ul>
             </div>
-            <div v-if="canEdit && storage.enabled">
-              <input
-                ref="fileInput"
-                type="file"
-                multiple
-                class="hidden"
-                data-testid="file-input"
-                @change="addFile"
-              />
+          </div>
+          <div
+            v-show="tab === 'access'"
+            id="entry-panel-access"
+            role="tabpanel"
+            aria-labelledby="entry-tab-access"
+          >
+            <EntryAccessPanel
+              :key="item.id"
+              v-show="subTab !== 'share'"
+              :vault-id="vault.id"
+              :entry-id="item.id"
+              :active="tab === 'access' && subTab !== 'share'"
+              @changed="emit('changed')"
+            />
+            <div v-if="subTab === 'share'" class="space-y-3 text-sm">
+              <p class="text-slate-500">{{ t('vault.shareHint') }}</p>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="block"
+                  ><span class="mb-1 block text-xs">{{ t('vault.linkLifetime') }}</span>
+                  <select v-model="share.minutes" class="input" data-testid="share-minutes">
+                    <option :value="15">15 {{ t('vault.min') }}</option>
+                    <option :value="60">1 {{ t('vault.hour') }}</option>
+                    <option :value="1440">24 {{ t('vault.hour') }}</option>
+                    <option :value="10080">7 {{ t('vault.days') }}</option>
+                  </select></label
+                >
+                <label class="block"
+                  ><span class="mb-1 block text-xs">{{ t('vault.linkViews') }}</span>
+                  <select v-model="share.views" class="input" data-testid="share-views">
+                    <option :value="1">1</option>
+                    <option :value="3">3</option>
+                    <option :value="10">10</option>
+                  </select></label
+                >
+              </div>
+              <label class="block"
+                ><span class="mb-1 block text-xs">{{ t('vault.linkPassphrase') }}</span>
+                <input
+                  v-model="share.passphrase"
+                  type="password"
+                  autocomplete="off"
+                  class="input"
+                  data-testid="share-passphrase"
+              /></label>
+              <label class="flex items-center gap-2"
+                ><input v-model="share.notes" type="checkbox" /> {{ t('vault.linkNotes') }}</label
+              >
               <button
                 type="button"
-                class="btn"
+                class="btn-primary"
                 :disabled="busy"
-                data-testid="file-add"
-                @click="fileInput?.click()"
+                data-testid="btn-create-link"
+                @click="createLink"
               >
-                {{ t('files.add') }}
+                {{ t('vault.createLink') }}
               </button>
-            </div>
-            <p v-if="error" class="text-red-600" role="alert" data-testid="files-error">
-              {{ error }}
-            </p>
-          </div>
-        </div>
-        <div
-          v-show="tab === 'journal'"
-          id="entry-panel-journal"
-          role="tabpanel"
-          aria-labelledby="entry-tab-journal"
-        >
-          <EntryJournalPanel
-            :key="item.id"
-            v-show="subTab !== 'history'"
-            :vault-id="vault.id"
-            :entry-id="item.id"
-            :active="tab === 'journal' && subTab !== 'history'"
-          />
-          <div v-if="subTab === 'history'" data-testid="history-list">
-            <p v-if="!history" class="text-sm text-slate-500">{{ t('common.working') }}</p>
-            <p v-else-if="!history.length" class="text-sm text-slate-500">
-              {{ t('vault.noHistory') }}
-            </p>
-            <ul v-else class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
-              <li
-                v-for="h in history"
-                :key="h.rev.id"
-                class="flex items-center justify-between gap-2 py-2"
-                data-testid="history-row"
-              >
-                <div class="min-w-0">
-                  <div class="font-medium">v{{ h.rev.version }} · {{ fmt(h.rev.savedAt) }}</div>
-                  <div class="truncate text-xs text-slate-500">
-                    {{ h.data ? `${h.data.title} · ${h.data.username}` : t('vault.undecryptable') }}
-                  </div>
-                </div>
-                <button
-                  v-if="canEdit && h.data"
-                  type="button"
-                  class="btn shrink-0"
-                  :disabled="busy"
-                  data-testid="btn-revert"
-                  @click="revert(h.rev.id)"
-                >
-                  {{ t('vault.revert') }}
+              <div v-if="link" class="rounded-md bg-emerald-50 p-2 dark:bg-emerald-950">
+                <p class="break-all font-mono text-xs" data-testid="share-link">{{ link }}</p>
+                <button type="button" class="btn mt-2" @click="copy('link', link)">
+                  {{ copied === 'link' ? t('common.copied') : t('common.copy') }}
                 </button>
-              </li>
-            </ul>
-          </div>
-        </div>
-        <div
-          v-show="tab === 'access'"
-          id="entry-panel-access"
-          role="tabpanel"
-          aria-labelledby="entry-tab-access"
-        >
-          <EntryAccessPanel
-            :key="item.id"
-            v-show="subTab !== 'share'"
-            :vault-id="vault.id"
-            :entry-id="item.id"
-            :active="tab === 'access' && subTab !== 'share'"
-            @changed="emit('changed')"
-          />
-          <div v-if="subTab === 'share'" class="space-y-3 text-sm">
-            <p class="text-slate-500">{{ t('vault.shareHint') }}</p>
-            <div class="grid grid-cols-2 gap-2">
-              <label class="block"
-                ><span class="mb-1 block text-xs">{{ t('vault.linkLifetime') }}</span>
-                <select v-model="share.minutes" class="input" data-testid="share-minutes">
-                  <option :value="15">15 {{ t('vault.min') }}</option>
-                  <option :value="60">1 {{ t('vault.hour') }}</option>
-                  <option :value="1440">24 {{ t('vault.hour') }}</option>
-                  <option :value="10080">7 {{ t('vault.days') }}</option>
-                </select></label
-              >
-              <label class="block"
-                ><span class="mb-1 block text-xs">{{ t('vault.linkViews') }}</span>
-                <select v-model="share.views" class="input" data-testid="share-views">
-                  <option :value="1">1</option>
-                  <option :value="3">3</option>
-                  <option :value="10">10</option>
-                </select></label
-              >
+              </div>
             </div>
-            <label class="block"
-              ><span class="mb-1 block text-xs">{{ t('vault.linkPassphrase') }}</span>
+          </div>
+          <div
+            v-show="tab === 'settings'"
+            id="entry-panel-settings"
+            role="tabpanel"
+            aria-labelledby="entry-tab-settings"
+          >
+            <EntrySettingsPanel
+              :key="item.id"
+              :vault-id="vault.id"
+              :entry-id="item.id"
+              :active="tab === 'settings'"
+              :password="item.data.password"
+              :password-changed-at="item.data.passwordChangedAt"
+              @policy="policy = $event"
+            />
+          </div>
+          <p v-if="error" class="mt-2 text-sm text-red-600" role="alert">{{ error }}</p>
+        </template>
+
+        <!-- Редактор -->
+        <form v-else-if="editing" class="space-y-3" data-testid="entry-form" @submit.prevent="save">
+          <h2 class="font-semibold">{{ item ? t('vault.edit') : t('vault.add') }}</h2>
+          <!-- тип записи: компактный ряд со значками, а не выпадающий список -->
+          <div
+            class="flex flex-wrap gap-1"
+            role="radiogroup"
+            :aria-label="t('vault.kind')"
+            data-testid="f-kind"
+          >
+            <button
+              v-for="k in KIND_ORDER"
+              :key="k"
+              type="button"
+              role="radio"
+              class="inline-flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="
+                form.kind === k
+                  ? 'border-brand-500 bg-brand-50 text-brand-700'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+              "
+              :aria-checked="form.kind === k"
+              :data-testid="`f-kind-${k}`"
+              @click="form.kind = k"
+            >
+              <Icon :name="KIND_ICON[k]" class="size-3.5" />{{ t(`kind.${k}`) }}
+            </button>
+          </div>
+          <div>
+            <label class="block text-sm"
+              ><span class="field-label">{{ t('vault.folder') }}</span>
+              <select v-model="branchChoice" class="input" data-testid="f-folder">
+                <option :value="null">{{ t('vault.root') }}</option>
+                <option v-for="b in branchOptions" :key="b.id" :value="b.id">{{ b.label }}</option>
+              </select></label
+            >
+          </div>
+          <label class="block text-sm"
+            ><span class="field-label">{{ t('vault.entryTitle') }}</span>
+            <input
+              v-model="form.title"
+              required
+              maxlength="200"
+              class="input"
+              data-testid="f-title"
+          /></label>
+          <template v-if="form.kind !== 'note'">
+            <label class="block text-sm"
+              ><span class="field-label">{{
+                form.kind === 'apikey' ? t('kindFields.service') : t('vault.username')
+              }}</span>
               <input
-                v-model="share.passphrase"
-                type="password"
+                v-model="form.username"
+                maxlength="300"
                 autocomplete="off"
                 class="input"
-                data-testid="share-passphrase"
+                data-testid="f-username"
             /></label>
-            <label class="flex items-center gap-2"
-              ><input v-model="share.notes" type="checkbox" /> {{ t('vault.linkNotes') }}</label
-            >
-            <button
-              type="button"
-              class="btn-primary"
-              :disabled="busy"
-              data-testid="btn-create-link"
-              @click="createLink"
-            >
-              {{ t('vault.createLink') }}
-            </button>
-            <div v-if="link" class="rounded-md bg-emerald-50 p-2 dark:bg-emerald-950">
-              <p class="break-all font-mono text-xs" data-testid="share-link">{{ link }}</p>
-              <button type="button" class="btn mt-2" @click="copy('link', link)">
-                {{ copied === 'link' ? t('common.copied') : t('common.copy') }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div
-          v-show="tab === 'settings'"
-          id="entry-panel-settings"
-          role="tabpanel"
-          aria-labelledby="entry-tab-settings"
-        >
-          <EntrySettingsPanel
-            :key="item.id"
-            :vault-id="vault.id"
-            :entry-id="item.id"
-            :active="tab === 'settings'"
-            :password="item.data.password"
-            :password-changed-at="item.data.passwordChangedAt"
-            @policy="policy = $event"
-          />
-        </div>
-        <p v-if="error" class="mt-2 text-sm text-red-600" role="alert">{{ error }}</p>
-      </template>
-
-      <!-- Редактор -->
-      <form v-else-if="editing" class="space-y-3" data-testid="entry-form" @submit.prevent="save">
-        <h2 class="font-semibold">{{ item ? t('vault.edit') : t('vault.add') }}</h2>
-        <div class="grid grid-cols-2 gap-2">
-          <label class="block text-sm"
-            ><span class="mb-1 block">{{ t('vault.kind') }}</span>
-            <select v-model="form.kind" class="input" data-testid="f-kind">
-              <option v-for="k in ENTRY_KINDS" :key="k" :value="k">{{ t(`kind.${k}`) }}</option>
-            </select></label
-          >
-          <label class="block text-sm"
-            ><span class="mb-1 block">{{ t('vault.folder') }}</span>
-            <select v-model="branchChoice" class="input" data-testid="f-folder">
-              <option :value="null">{{ t('vault.root') }}</option>
-              <option v-for="b in branchOptions" :key="b.id" :value="b.id">{{ b.label }}</option>
-            </select></label
-          >
-        </div>
-        <label class="block text-sm"
-          ><span class="mb-1 block">{{ t('vault.entryTitle') }}</span>
-          <input v-model="form.title" required maxlength="200" class="input" data-testid="f-title"
-        /></label>
-        <template v-if="form.kind !== 'note'">
-          <label class="block text-sm"
-            ><span class="mb-1 block">{{
-              form.kind === 'apikey' ? t('vault.keyId') : t('vault.username')
-            }}</span>
-            <input
-              v-model="form.username"
-              maxlength="300"
-              autocomplete="off"
-              class="input"
-              data-testid="f-username"
-          /></label>
-          <div class="text-sm">
-            <span class="mb-1 block">{{
-              form.kind === 'apikey' ? t('vault.secret') : t('vault.password')
-            }}</span>
-            <div class="flex gap-1">
-              <input
-                v-model="form.password"
-                :type="showPw ? 'text' : 'password'"
-                autocomplete="new-password"
-                class="input font-mono"
-                :aria-label="form.kind === 'apikey' ? t('vault.secret') : t('vault.password')"
-                data-testid="f-password"
+            <div class="text-sm">
+              <span class="field-label">{{
+                form.kind === 'apikey' ? t('vault.secret') : t('vault.password')
+              }}</span>
+              <div class="flex gap-1">
+                <input
+                  v-model="form.password"
+                  :type="showPw ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  class="input font-mono"
+                  :aria-label="form.kind === 'apikey' ? t('vault.secret') : t('vault.password')"
+                  data-testid="f-password"
+                />
+                <button type="button" class="btn" @click="showPw = !showPw">
+                  {{ showPw ? t('common.hide') : t('common.show') }}
+                </button>
+              </div>
+              <PasswordGenerator
+                v-if="showGenerator"
+                class="mt-2"
+                :min-length="policy.minLength"
+                @use="useGenerated"
               />
-              <button type="button" class="btn" @click="showPw = !showPw">
-                {{ showPw ? t('common.hide') : t('common.show') }}
-              </button>
+              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  class="text-brand-600 underline"
+                  data-testid="btn-generator"
+                  :aria-expanded="showGenerator"
+                  @click="showGenerator = !showGenerator"
+                >
+                  {{ showGenerator ? t('generator.close') : t('generator.open') }}
+                </button>
+                <button
+                  type="button"
+                  class="text-brand-600 underline"
+                  data-testid="btn-generate"
+                  @click="generate('password')"
+                >
+                  {{ t('vault.generate') }}
+                </button>
+                <button
+                  type="button"
+                  class="text-brand-600 underline"
+                  data-testid="btn-phrase"
+                  @click="generate('phrase')"
+                >
+                  {{ t('vault.generatePhrase') }}
+                </button>
+                <span
+                  v-if="form.password"
+                  :class="
+                    strength.score >= 3
+                      ? 'text-emerald-600'
+                      : strength.score === 2
+                        ? 'text-amber-600'
+                        : 'text-red-600'
+                  "
+                  data-testid="strength"
+                  >{{ t(`strength.${strength.score}`) }} · {{ strength.bits }}
+                  {{ t('vault.bits') }}</span
+                >
+              </div>
             </div>
-            <PasswordGenerator
-              v-if="showGenerator"
-              class="mt-2"
-              :min-length="policy.minLength"
-              @use="useGenerated"
-            />
-            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
-              <button
-                type="button"
-                class="text-brand-600 underline"
-                data-testid="btn-generator"
-                :aria-expanded="showGenerator"
-                @click="showGenerator = !showGenerator"
-              >
-                {{ showGenerator ? t('generator.close') : t('generator.open') }}
-              </button>
-              <button
-                type="button"
-                class="text-brand-600 underline"
-                data-testid="btn-generate"
-                @click="generate('password')"
-              >
-                {{ t('vault.generate') }}
-              </button>
-              <button
-                type="button"
-                class="text-brand-600 underline"
-                data-testid="btn-phrase"
-                @click="generate('phrase')"
-              >
-                {{ t('vault.generatePhrase') }}
-              </button>
-              <span
-                v-if="form.password"
-                :class="
-                  strength.score >= 3
-                    ? 'text-emerald-600'
-                    : strength.score === 2
-                      ? 'text-amber-600'
-                      : 'text-red-600'
-                "
-                data-testid="strength"
-                >{{ t(`strength.${strength.score}`) }} · {{ strength.bits }}
-                {{ t('vault.bits') }}</span
-              >
-            </div>
-          </div>
+            <label class="block text-sm"
+              ><span class="field-label">{{ t(`kindFields.url.${form.kind}`) }}</span>
+              <input
+                v-model="form.url"
+                maxlength="500"
+                class="input"
+                :placeholder="URL_HINT[form.kind]"
+                data-testid="f-url"
+            /></label>
+          </template>
           <label class="block text-sm"
-            ><span class="mb-1 block">{{ t('vault.url') }}</span>
-            <input v-model="form.url" maxlength="500" class="input" data-testid="f-url"
-          /></label>
-          <label class="block text-sm"
-            ><span class="mb-1 block">{{ t('vault.totpSecret') }}</span>
-            <input
-              v-model="form.totp"
-              autocomplete="off"
-              spellcheck="false"
-              class="input font-mono"
-              data-testid="f-totp"
-              placeholder="otpauth://… / JBSWY3DPEHPK3PXP"
+            ><span class="field-label">{{
+              form.kind === 'note' ? t('kindFields.noteText') : t('vault.notes')
+            }}</span>
+            <textarea
+              v-model="form.notes"
+              :rows="form.kind === 'note' ? 8 : 2"
+              maxlength="20000"
+              class="input"
+              data-testid="f-notes"
             />
-            <span v-if="code" class="mt-1 block font-mono text-xs text-slate-500"
-              >{{ t('vault.totpPreview') }}: {{ code }}</span
-            ></label
+          </label>
+
+          <!-- необязательное — под раскрытием; открыто, если что-то из этого уже заполнено -->
+          <details
+            class="rounded-[10px] border border-slate-200 dark:border-slate-800"
+            :open="moreOpen"
+            data-testid="f-more"
+            @toggle="moreOpen = ($event.target as HTMLDetailsElement).open"
           >
-        </template>
-        <label class="block text-sm"
-          ><span class="mb-1 block">{{ t('vault.notes') }}</span>
-          <textarea
-            v-model="form.notes"
-            rows="form.kind === 'note' ? 8 : 3"
-            maxlength="20000"
-            class="input"
-            data-testid="f-notes"
-          />
-        </label>
-
-        <fieldset class="space-y-2">
-          <legend class="text-sm">{{ t('vault.fields') }}</legend>
-          <div v-for="(f, i) in form.fields" :key="i" class="flex gap-1">
-            <input
-              v-model="f.name"
-              :placeholder="t('vault.fieldName')"
-              class="input"
-              :data-testid="`field-name-${i}`"
-            />
-            <input
-              v-model="f.value"
-              :type="f.secret ? 'password' : 'text'"
-              :placeholder="t('vault.fieldValue')"
-              class="input"
-              :data-testid="`field-value-${i}`"
-            />
-            <div
-              class="flex shrink-0 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
-              role="radiogroup"
-              :aria-label="t('vault.fieldType')"
+            <summary
+              class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300"
             >
-              <button
-                v-for="opt in FIELD_TYPES"
-                :key="opt.key"
-                type="button"
-                role="radio"
-                class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
-                :class="
-                  f.secret === opt.secret
-                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50'
-                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                "
-                :aria-checked="f.secret === opt.secret"
-                :data-testid="`field-type-${opt.key}-${i}`"
-                @click="f.secret = opt.secret"
-              >
-                <Icon :name="opt.icon" class="size-3.5" />
-                {{ t(opt.label) }}
-              </button>
+              {{ t('kindFields.more') }}
+            </summary>
+            <div class="space-y-3 border-t border-slate-200 p-3 dark:border-slate-800">
+              <template v-if="form.kind !== 'note'">
+                <label class="block text-sm"
+                  ><span class="field-label">{{ t('vault.totpSecret') }}</span>
+                  <input
+                    v-model="form.totp"
+                    autocomplete="off"
+                    spellcheck="false"
+                    class="input font-mono"
+                    data-testid="f-totp"
+                    placeholder="otpauth://… / JBSWY3DPEHPK3PXP"
+                  />
+                  <span v-if="code" class="mt-1 block font-mono text-xs text-slate-500"
+                    >{{ t('vault.totpPreview') }}: {{ code }}</span
+                  ></label
+                >
+              </template>
+              <fieldset class="space-y-2">
+                <legend class="text-sm">{{ t('vault.fields') }}</legend>
+                <div v-for="(f, i) in form.fields" :key="i" class="flex gap-1">
+                  <input
+                    v-model="f.name"
+                    :placeholder="t('vault.fieldName')"
+                    class="input"
+                    :data-testid="`field-name-${i}`"
+                  />
+                  <input
+                    v-model="f.value"
+                    :type="f.secret ? 'password' : 'text'"
+                    :placeholder="t('vault.fieldValue')"
+                    class="input"
+                    :data-testid="`field-value-${i}`"
+                  />
+                  <div
+                    class="flex shrink-0 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+                    role="radiogroup"
+                    :aria-label="t('vault.fieldType')"
+                  >
+                    <button
+                      v-for="opt in FIELD_TYPES"
+                      :key="opt.key"
+                      type="button"
+                      role="radio"
+                      class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
+                      :class="
+                        f.secret === opt.secret
+                          ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50'
+                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      "
+                      :aria-checked="f.secret === opt.secret"
+                      :data-testid="`field-type-${opt.key}-${i}`"
+                      @click="f.secret = opt.secret"
+                    >
+                      <Icon :name="opt.icon" class="size-3.5" />
+                      {{ t(opt.label) }}
+                    </button>
+                  </div>
+                  <button type="button" class="btn" @click="form.fields.splice(i, 1)">×</button>
+                </div>
+                <button type="button" class="btn" data-testid="btn-add-field" @click="addField">
+                  {{ t('vault.addField') }}
+                </button>
+              </fieldset>
+
+              <fieldset class="space-y-1 text-sm" data-testid="links-editor">
+                <legend class="text-xs text-slate-500">{{ t('vault.links') }}</legend>
+                <div class="flex flex-wrap gap-1">
+                  <span v-for="id in form.links ?? []" :key="id" class="badge">
+                    {{ titleOf(id) || '…' }}
+                    <button
+                      type="button"
+                      class="ml-1"
+                      :aria-label="t('vault.links')"
+                      @click="removeLink(id)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
+                <div class="flex gap-2">
+                  <select
+                    v-model="linkChoice"
+                    class="input"
+                    :aria-label="t('vault.links')"
+                    data-testid="f-link-select"
+                  >
+                    <option value="">—</option>
+                    <option v-for="e in siblings" :key="e.id" :value="e.id">
+                      {{ e.data.title }}
+                    </option>
+                  </select>
+                  <button
+                    type="button"
+                    class="btn"
+                    :disabled="!linkChoice"
+                    data-testid="btn-add-link"
+                    @click="addLink"
+                  >
+                    {{ t('vault.addLink') }}
+                  </button>
+                </div>
+              </fieldset>
+
+              <div class="grid grid-cols-2 gap-2">
+                <label class="block text-sm"
+                  ><span class="field-label">{{ t('vault.tags') }}</span>
+                  <input
+                    v-model="tagsText"
+                    class="input"
+                    data-testid="f-tags"
+                    placeholder="work, prod"
+                /></label>
+                <label class="block text-sm"
+                  ><span class="field-label">{{ t('vault.expires') }}</span>
+                  <input v-model="form.expiresAt" type="date" class="input"
+                /></label>
+              </div>
             </div>
-            <button type="button" class="btn" @click="form.fields.splice(i, 1)">×</button>
-          </div>
-          <button type="button" class="btn" data-testid="btn-add-field" @click="addField">
-            {{ t('vault.addField') }}
-          </button>
-        </fieldset>
+          </details>
 
-        <fieldset class="space-y-1 text-sm" data-testid="links-editor">
-          <legend class="text-xs text-slate-500">{{ t('vault.links') }}</legend>
-          <div class="flex flex-wrap gap-1">
-            <span v-for="id in form.links ?? []" :key="id" class="badge">
-              {{ titleOf(id) || '…' }}
-              <button
-                type="button"
-                class="ml-1"
-                :aria-label="t('vault.links')"
-                @click="removeLink(id)"
-              >
-                ×
-              </button>
-            </span>
-          </div>
-          <div class="flex gap-2">
-            <select
-              v-model="linkChoice"
-              class="input"
-              :aria-label="t('vault.links')"
-              data-testid="f-link-select"
-            >
-              <option value="">—</option>
-              <option v-for="e in siblings" :key="e.id" :value="e.id">{{ e.data.title }}</option>
-            </select>
-            <button
-              type="button"
-              class="btn"
-              :disabled="!linkChoice"
-              data-testid="btn-add-link"
-              @click="addLink"
-            >
-              {{ t('vault.addLink') }}
+          <p v-if="error" class="text-sm text-red-600" role="alert" data-testid="form-error">
+            {{ error }}
+          </p>
+          <div
+            class="sticky bottom-0 -mx-1 flex gap-2 bg-white/95 px-1 py-2 backdrop-blur dark:bg-slate-900/95"
+          >
+            <button type="submit" class="btn-primary" :disabled="busy" data-testid="f-save">
+              {{ t('common.save') }}
+            </button>
+            <button type="button" class="btn" @click="cancelEditing">
+              {{ t('common.cancel') }}
             </button>
           </div>
-        </fieldset>
-
-        <div class="grid grid-cols-2 gap-2">
-          <label class="block text-sm"
-            ><span class="mb-1 block">{{ t('vault.tags') }}</span>
-            <input v-model="tagsText" class="input" data-testid="f-tags" placeholder="work, prod"
-          /></label>
-          <label class="block text-sm"
-            ><span class="mb-1 block">{{ t('vault.expires') }}</span>
-            <input v-model="form.expiresAt" type="date" class="input"
-          /></label>
-        </div>
-
-        <p v-if="error" class="text-sm text-red-600" role="alert" data-testid="form-error">
-          {{ error }}
-        </p>
-        <div class="flex gap-2">
-          <button type="submit" class="btn-primary" :disabled="busy" data-testid="f-save">
-            {{ t('common.save') }}
-          </button>
-          <button type="button" class="btn" @click="cancelEditing">
-            {{ t('common.cancel') }}
-          </button>
-        </div>
-      </form>
-      <p v-else class="text-sm text-slate-500">{{ t('vault.selectEntry') }}</p>
-      <span class="hidden">{{ vault.id }}</span>
-    </div>
-  </section>
+        </form>
+        <p v-else class="text-sm text-slate-500">{{ t('vault.selectEntry') }}</p>
+        <span class="hidden">{{ vault.id }}</span>
+      </div>
+    </section>
+  </Teleport>
 </template>

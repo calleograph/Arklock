@@ -16,6 +16,7 @@ import { notifySecurity } from '../mail/send.js';
 import { hasTotp, mfaPolicy } from '../auth/mfa.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { publicUrlOf } from '../public-url.js';
 import { users, webauthnCredentials } from '../db/schema.js';
 import { AppError, parse } from '../errors.js';
 import { verifyProof } from '../security.js';
@@ -33,18 +34,19 @@ export const registerWebauthnRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
   app,
   { ctx },
 ) => {
-  const { db, config } = ctx;
+  const { db } = ctx;
   const auth = requireAuth(ctx);
   const pending = new Map<string, { challenge: string; expiresAt: number }>();
 
   function rp(): { id: string; origin: string } {
-    if (!config.APP_PUBLIC_URL)
+    const pub = publicUrlOf(ctx);
+    if (!pub)
       throw new AppError(
         409,
         'public_url_required',
         'Set the public address (APP_PUBLIC_URL) first',
       );
-    const u = new URL(config.APP_PUBLIC_URL);
+    const u = new URL(pub);
     return { id: u.hostname, origin: u.origin };
   }
 
@@ -71,7 +73,7 @@ export const registerWebauthnRoutes: FastifyPluginAsync<{ ctx: AppContext }> = a
       .where(eq(webauthnCredentials.userId, user.id))
       .orderBy(desc(webauthnCredentials.createdAt));
     return {
-      available: !!config.APP_PUBLIC_URL,
+      available: !!publicUrlOf(ctx),
       credentials: rows.map((c) => ({
         id: c.id,
         name: c.name,

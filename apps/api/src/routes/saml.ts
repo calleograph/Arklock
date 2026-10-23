@@ -29,6 +29,7 @@ import {
 import { CHALLENGE_RE, PendingStore, type LoginOutcome } from '../auth/tickets.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
+import { publicUrlOf } from '../public-url.js';
 import { circles, sessions, settings, users } from '../db/schema.js';
 import { AppError, parse } from '../errors.js';
 import { openSetting, sealSetting } from '../secretbox.js';
@@ -164,8 +165,10 @@ export const registerSamlRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   }
   const keyOf = (s: SamlStored) =>
     s.spKeyCipher ? openSetting(config.APP_SECRET, PURPOSE, s.spKeyCipher) : '';
-  const urlsOf = (s: Pick<SamlConfig, 'spEntityId'>) =>
-    config.APP_PUBLIC_URL ? spUrls(config.APP_PUBLIC_URL, s) : null;
+  const urlsOf = (s: Pick<SamlConfig, 'spEntityId'>) => {
+    const pub = publicUrlOf(ctx);
+    return pub ? spUrls(pub, s) : null;
+  };
   const adminOnly = [auth, async (req: FastifyRequest) => adminGate(ctx, req)];
 
   const certReport = (pems: string[]) =>
@@ -210,7 +213,7 @@ export const registerSamlRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       spKeyCipher: prev.spKeyCipher,
     };
     if (body.enabled) {
-      if (!config.APP_PUBLIC_URL)
+      if (!publicUrlOf(ctx))
         throw new AppError(
           409,
           'public_url_required',

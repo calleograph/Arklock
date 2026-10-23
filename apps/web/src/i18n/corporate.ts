@@ -36,7 +36,7 @@ export const ruCorporate = {
     policyUnavailable:
       'Не удалось загрузить политику. Возраст и соответствие требованиям не проверены.',
     personalRestricted:
-      'Личное пространство отключено политикой организации. Ваши прежние данные и ключи сохранены. Для экспорта или переноса попросите администратора временно разрешить личный сейф.',
+      'Личные сейфы отключены в организации. В вашем прежнем личном сейфе сохранено записей: {n}. Их можно удалить в «Настройках»; для переноса попросите администратора временно разрешить личный сейф.',
     pending: 'Есть сейфы, для которых ещё ожидается выдача ключа.',
     continuity: 'Сохранность корпоративного доступа',
     continuityHint:
@@ -98,7 +98,7 @@ export const enCorporate = {
       'Weak passwords score below 2 out of 4. Reuse is checked within this vault. Age starts at the last password change. Breach checks run separately.',
     policyUnavailable: 'Policy could not be loaded. Age and policy compliance were not checked.',
     personalRestricted:
-      'Your organization disabled personal vaults. Existing data and keys are preserved. Ask an administrator to temporarily allow your personal vault to export or move the data.',
+      'Your organization turned off personal vaults. Your previous personal vault still holds {n} entries. You can delete them in “Settings”; to move them, ask an administrator to temporarily allow your personal vault.',
     pending: 'Some vaults are still waiting for a key to be issued.',
     continuity: 'Corporate access continuity',
     continuityHint:

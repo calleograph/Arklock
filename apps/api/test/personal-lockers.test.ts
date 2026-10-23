@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { createVaultKey, sealVaultKeyFor, signKeyGrant } from '@arklock/crypto';
+import { createVaultKey, sealVaultKeyFor, signKeyGrant, toBase64Url } from '@arklock/crypto';
 import { entries, settings, vaultKeys, vaults } from '../src/db/schema.js';
 import { TestClient, createTestApp } from './helpers.js';
 
@@ -123,5 +123,69 @@ describe('corporate personal-vault policy', () => {
       { vaultId: corporate.id, vaultKey: await admin.openVault(corporate) },
     );
     expect(made.res.statusCode).toBe(201);
+  });
+
+  it('an empty personal vault is not reported; a closed notice stays closed for this person', async () => {
+    const carol = new TestClient(app, 'carol@example.com', 'carol-password-12345');
+    await carol.register();
+    await carol.login();
+    await policy({ 'vaults.personalLockerUsers': [carol.userId] });
+    const vaultId = crypto.randomUUID();
+    const sealedKey = await sealVaultKeyFor(
+      createVaultKey(),
+      carol.publicKey,
+      vaultId,
+      carol.userId,
+      1,
+    );
+    const signature = await signKeyGrant(carol.signPrivateKey, vaultId, carol.userId, 1, sealedKey);
+    expect(
+      (await carol.req('POST', '/auth/locker', { vaultId, sealedKey, signature })).statusCode,
+    ).toBe(201);
+    await policy({ 'vaults.personalLockerUsers': [] });
+    expect((await carol.req('GET', '/auth/policy')).json()['vaults.personalDataRestricted']).toBe(
+      false,
+    );
+    expect((await bob.req('POST', '/auth/notices/personal-restricted/dismiss')).statusCode).toBe(
+      204,
+    );
+    const again = new TestClient(app, 'bob@example.com', 'bob-password-12345');
+    await again.login();
+    expect((await again.req('GET', '/auth/policy')).json()['notices.dismissed']).toContain(
+      'personal-restricted',
+    );
+  });
+
+  it('only the owner erases their personal vault, with the master password, even while personal vaults are off', async () => {
+    const authKey = toBase64Url((await bob.derive()).keys.authKey);
+    expect(
+      (
+        await bob.req('POST', '/auth/personal-vault/erase', {
+          authKey: 'A'.repeat(43),
+          confirm: true,
+        })
+      ).statusCode,
+    ).toBe(401);
+    // администратор чужой личный сейф этой операцией не удалит: она работает только для своего
+    const adminKey = toBase64Url((await admin.derive()).keys.authKey);
+    expect(
+      (await admin.req('POST', '/auth/personal-vault/erase', { authKey: adminKey, confirm: true }))
+        .statusCode,
+    ).toBe(404);
+    expect(
+      await database.db.select().from(entries).where(eq(entries.id, saved.entryId)),
+    ).toHaveLength(1);
+    expect(
+      (await bob.req('POST', '/auth/personal-vault/erase', { authKey, confirm: true })).statusCode,
+    ).toBe(204);
+    expect(await database.db.select().from(entries).where(eq(entries.id, saved.entryId))).toEqual(
+      [],
+    );
+    expect(await database.db.select().from(vaults).where(eq(vaults.id, saved.vaultId))).toEqual([]);
+    expect((await bob.req('GET', '/auth/policy')).json()['vaults.personalDataRestricted']).toBe(
+      false,
+    );
+    const log = (await admin.req('GET', '/admin/ledger?action=vault.personal')).json();
+    expect(JSON.stringify(log)).toContain('vault.personal.erase');
   });
 });

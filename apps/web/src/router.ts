@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router';
 import AuthView from './views/AuthView.vue';
 import SecurityView from './views/SecurityView.vue';
 import StatusView from './views/StatusView.vue';
-import UpdatesView from './views/UpdatesView.vue';
 import AdminView from './views/AdminView.vue';
 import HandoffOpenView from './views/HandoffOpenView.vue';
 import SsoDoneView from './views/SsoDoneView.vue';
@@ -36,7 +35,7 @@ export const router = createRouter({
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
     { path: '/sso/done', name: 'sso-done', component: SsoDoneView },
     {
-      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|saml|syslog|webhooks|invitations|roles)?',
+      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|saml|syslog|webhooks|invitations|roles|updates)?',
       name: 'admin',
       component: AdminView,
       meta: { requiresUnlock: true, requiresAdmin: true },
@@ -55,12 +54,6 @@ export const router = createRouter({
     },
     { path: '/status', name: 'status', component: StatusView },
     { path: '/help', name: 'help', component: () => import('./views/HelpView.vue') },
-    {
-      path: '/admin/updates',
-      name: 'updates',
-      component: UpdatesView,
-      meta: { requiresUnlock: true, requiresAdmin: true },
-    },
     { path: '/login', name: 'login', component: AuthView, meta: { guestOnly: true } },
     { path: '/unlock', name: 'unlock', component: AuthView },
     { path: '/:pathMatch(.*)*', redirect: '/' },

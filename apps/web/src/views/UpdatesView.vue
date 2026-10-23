@@ -64,6 +64,16 @@ const showProgress = computed(
 const running = computed(
   () => data.value?.status.state === 'running' || data.value?.pending === true,
 );
+const latestPlain = computed(() => (data.value?.remote?.latest ?? '').replace(/^v/, ''));
+/** Сервер уже работает в другой версии, а во вкладке старый интерфейс — нужен F5. */
+const staleUi = computed(
+  () =>
+    !!data.value &&
+    !running.value &&
+    data.value.installed.version !== '0.0.0' &&
+    data.value.installed.version !== __APP_VERSION__,
+);
+const reloadPage = () => location.reload();
 const updateAvailable = computed(
   () => data.value?.remote?.status === 'available' && !!data.value.remote.latest,
 );
@@ -154,7 +164,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 
 <template>
   <section class="space-y-6">
-    <h1 class="text-xl font-semibold">{{ t('updates.title') }}</h1>
+    <h2>{{ t('updates.title') }}</h2>
     <p
       v-if="error && !askPassword"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
@@ -165,6 +175,51 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
     </p>
 
     <template v-if="data">
+      <!-- состояние одной фразой: есть ли что ставить, и что делать -->
+      <p
+        v-if="staleUi"
+        class="notice notice-warn items-center justify-between"
+        role="status"
+        data-testid="update-state"
+      >
+        <span>{{ t('updates.state.staleUi', { v: data.installed.version }) }}</span>
+        <button type="button" class="btn" @click="reloadPage">{{ t('updates.reloadPage') }}</button>
+      </p>
+      <p v-else-if="running" class="notice notice-warn" role="status" data-testid="update-state">
+        {{ t('updates.state.running') }}
+      </p>
+      <p
+        v-else-if="updateAvailable"
+        class="notice border-brand-100 bg-brand-50 text-brand-700"
+        role="status"
+        data-testid="update-state"
+      >
+        {{ t('updates.state.available', { v: latestPlain, cur: data.installed.version }) }}
+      </p>
+      <p
+        v-else-if="data.remote?.status === 'up_to_date'"
+        class="notice notice-ok"
+        role="status"
+        data-testid="update-state"
+      >
+        {{ t('updates.state.upToDate', { v: data.installed.version }) }}
+      </p>
+      <p
+        v-else-if="data.remote"
+        class="notice notice-error"
+        role="status"
+        data-testid="update-state"
+      >
+        {{ t('updates.state.failed') }}
+      </p>
+      <p
+        v-else
+        class="notice border-slate-200 text-slate-600"
+        role="status"
+        data-testid="update-state"
+      >
+        {{ t('updates.state.notChecked') }}
+      </p>
       <dl
         class="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900"
         data-testid="updates-info"
@@ -241,7 +296,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
       <div class="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+          class="btn"
           :disabled="busy || running || !data.helper.alive"
           data-testid="btn-check"
           @click="check"
@@ -249,18 +304,18 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           {{ t('updates.check') }}
         </button>
         <button
+          v-if="updateAvailable"
           type="button"
-          class="rounded-md bg-brand-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
-          :disabled="busy || running || !data.helper.alive || !updateAvailable"
+          class="btn-primary"
+          :disabled="busy || running || !data.helper.alive"
           data-testid="btn-update"
           @click="update"
         >
-          {{ t('updates.update') }}
-          <span v-if="updateAvailable">{{ data.remote?.latest }}</span>
+          {{ t('updates.updateTo', { v: latestPlain }) }}
         </button>
         <button
           type="button"
-          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+          class="btn"
           :disabled="busy || running || !data.helper.alive"
           data-testid="btn-rollback"
           @click="rollback"
@@ -326,7 +381,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 
     <div
       v-if="askPassword"
-      class="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4"
+      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
       role="dialog"
       aria-modal="true"
     >

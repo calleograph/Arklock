@@ -412,6 +412,7 @@ export default {
       again: 'Проверить снова',
       cause: 'Причина',
       fix: 'Что делать',
+      go: 'Перейти к настройке',
     },
     certs: {
       empty:
@@ -713,11 +714,11 @@ export default {
   },
   nav: { admin: 'Администрирование', settings: 'Мои настройки' },
   kind: {
-    login: 'Учётная запись',
+    login: 'Логин и пароль',
     note: 'Защищённая заметка',
     server: 'Сервер',
     apikey: 'API-ключ',
-    custom: 'Произвольная',
+    custom: 'Другое',
   },
   role: {
     owner: 'Владелец',
@@ -764,6 +765,7 @@ export default {
     entryMoveTarget: 'Сейф для переноса',
     entryMoveChoose: 'Перенести в сейф…',
     entryMoveAction: 'Перенести',
+    entryMoveLocked: 'Ключ сейфа назначения вам ещё не выдан — перенести запись туда пока нельзя.',
     move: 'Переместить',
     selected: 'Выбрано: {n}',
     selectAll: 'Выбрать все',
@@ -953,6 +955,7 @@ export default {
       security: 'Безопасность',
       storage: 'Сейфы и файлы',
       notify: 'Уведомления',
+      network: 'Сеть и доступ',
     },
     settingsGroup: {
       access: 'Регистрация и доступ',
@@ -986,8 +989,9 @@ export default {
       ldap: 'Каталог (LDAP)',
       sso: 'Единый вход (SSO)',
       saml: 'SAML 2.0',
-      syslog: 'Отправка журнала (syslog)',
+      syslog: 'Журнал в syslog',
       webhooks: 'Вебхуки',
+      updates: 'Обновления',
       invitations: 'Новые пользователи',
       roles: 'Роли',
     },
