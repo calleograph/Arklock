@@ -86,7 +86,8 @@ export interface BranchItem {
   parentId: string | null;
   name: string;
   version: number;
-  access: 'reader' | 'editor' | 'manager';
+  /** structure — видеть папку и создавать в ней, не читая записей */
+  access: 'reader' | 'editor' | 'manager' | 'structure';
   deletedAt: string | null;
   /** Значок папки — из отдельно зашифрованного оформления. */
   icon?: ObjectIcon;

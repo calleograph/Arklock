@@ -385,6 +385,14 @@ test('administrator builds a structure and works with entries', async ({ browser
   // щелчок по уже выбранной папке закрывает запись и показывает панель папки
   await page.getByTestId('branch-row').filter({ hasText: 'Банки' }).first().click();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
+  // «Структура» предлагается для папки (не для записи): видеть и сдавать, не читая
+  await page.getByTestId('folder-tab-access').click();
+  await page.getByTestId('grant-open').click();
+  await expect(page.getByTestId('grant-level').locator('option[value="structure"]')).toHaveCount(1);
+  await page
+    .getByTestId('grant-dialog')
+    .getByRole('button', { name: /Отмена|Cancel/ })
+    .click();
   await page.getByTestId('scope-all').click();
 
   // избранная папка: видна в «Избранном» и переживает перезагрузку; оттуда открывается
@@ -552,6 +560,7 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await page.getByTestId('entry-row').filter({ hasText: 'Общий сервер' }).click();
   await page.getByTestId('tab-access').click();
   await page.getByTestId('grant-open').click();
+  await expect(page.getByTestId('grant-level').locator('option[value="structure"]')).toHaveCount(0);
   await page.getByTestId('grant-search').fill('member');
   await expect(page.getByTestId(`grant-option-${MEMBER.email}`)).toContainText(
     /уже есть доступ|already has access/,

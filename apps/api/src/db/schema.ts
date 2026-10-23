@@ -405,7 +405,8 @@ export const grants = pgTable(
     targetId: uuid('target_id').notNull(),
     subjectType: text('subject_type', { enum: ['user', 'circle'] }).notNull(),
     subjectId: uuid('subject_id').notNull(),
-    role: text('role', { enum: ['none', 'reader', 'editor', 'manager'] }).notNull(),
+    // structure — только для ветвей: видеть папки и создавать в них, не читая записей
+    role: text('role', { enum: ['none', 'reader', 'editor', 'manager', 'structure'] }).notNull(),
     expiresAt: ts('expires_at'),
     createdBy: uuid('created_by').notNull(),
     createdAt: ts('created_at').notNull().defaultNow(),

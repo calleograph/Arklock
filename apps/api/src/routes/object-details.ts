@@ -75,7 +75,9 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
       const targetId = (entryId ?? branchId)!;
       const { access, entry } = await readableObject(vaultId, targetId, user.id);
       const objectAccess = (candidate: VaultAccess) =>
-        scope === 'entry' ? candidate.entry(targetId, entry.branchId) : candidate.branch(targetId);
+        scope === 'entry'
+          ? candidate.entry(targetId, entry.branchId)
+          : (candidate.branch(targetId) ?? (candidate.structureAt(targetId) ? 'structure' : null));
       const canManage =
         access.allows('grant.manage') && (access.isAdmin || objectAccess(access) === 'manager');
       const ancestorIds = access.ancestors(entry.branchId);
@@ -279,7 +281,8 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
         .select()
         .from(branches)
         .where(and(eq(branches.id, targetId), eq(branches.vaultId, vaultId)));
-      if (!branch || !access.branch(targetId)) throw notFound();
+      // политика нужна и при «Структуре»: сдаваемая запись проверяется по требованиям папки
+      if (!branch || (!access.branch(targetId) && !access.structureAt(targetId))) throw notFound();
       branchId = targetId;
       canManage = access.branch(targetId) === 'manager';
     }

@@ -287,6 +287,8 @@ export const ruHelp = {
       manager: 'Как редактирование, а также назначает и отзывает права других.',
       none: 'Явный запрет: сильнее любого разрешения, в том числе через группу или папку.',
       owner: 'Полный контроль над сейфом.',
+      structure:
+        'Видит эту папку и вложенные, создаёт в них записи и подпапки, но не читает записи — даже свои. Подходит, чтобы сдавать пароли в отдел.',
     },
   },
   kindFields: {
@@ -733,6 +735,8 @@ export const ruHelp = {
     archiveFolder: 'В архив вместе с записями ({n})',
     folderActions: 'Действия с папкой',
     newSubfolder: 'Создать подпапку',
+    handedIn:
+      'Запись сдана в папку «{folder}». Читать записи этой папки вы не можете: у вас право «Структура».',
     collapse: 'Свернуть',
     expand: 'Развернуть',
     newFolderIn: 'Новая папка в «{name}»',
@@ -1077,6 +1081,8 @@ export const enHelp = {
       manager: 'Like edit, and also grants and revokes access for others.',
       none: 'Explicit deny: stronger than any allow, including through a group or folder.',
       owner: 'Full control of the vault.',
+      structure:
+        'Sees this folder and its subfolders, creates entries and subfolders there, but cannot read entries — not even their own. Useful for handing passwords in to a team.',
     },
   },
   kindFields: {
@@ -1521,6 +1527,8 @@ export const enHelp = {
     archiveFolder: 'Archive with its entries ({n})',
     folderActions: 'Folder actions',
     newSubfolder: 'Create a subfolder',
+    handedIn:
+      'The entry was handed in to “{folder}”. You cannot read entries in this folder: your access is Structure.',
     collapse: 'Collapse',
     expand: 'Expand',
     newFolderIn: 'New folder in “{name}”',

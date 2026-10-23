@@ -61,6 +61,8 @@ export class VaultAccess {
     /** Названия пользовательских ролей (для отображения). */
     readonly customRoles: string[] = [],
     private readonly objectDenials: Set<string> = new Set(),
+    /** Ветви с правом «Структура»: видна сама ветвь и вложенные, можно создавать записи и подпапки, записи не читаются. */
+    private readonly structure: Set<string> = new Set(),
   ) {}
 
   get isMember(): boolean {
@@ -117,6 +119,22 @@ export class VaultAccess {
     return this.cap(
       maxAccess(this.branch(branchId), this.grantMap.get(`entry:${entryId}`) ?? null),
     );
+  }
+
+  /**
+   * «Структура» на ветви или её предке. Это не уровень доступа: она не участвует в `branch()` и `entry()`,
+   * поэтому чтения записей не даёт. Явный запрет на любой ветви цепочки её отменяет.
+   */
+  structureAt(branchId: string | null): boolean {
+    const chain = this.ancestors(branchId);
+    if (chain.some((id) => this.objectDenials.has(`branch:${id}`))) return false;
+    return chain.some((id) => this.structure.has(id));
+  }
+
+  /** Создание записей и подпапок в ветви: изменение по правам или «Структура». */
+  canCreateIn(branchId: string | null): boolean {
+    const a = this.branch(branchId);
+    return (a !== null && ACCESS_RANK[a] >= ACCESS_RANK.editor) || this.structureAt(branchId);
   }
 
   /** Цепочка ветвей от указанной вверх (для проверки циклов при перемещении). */
@@ -247,6 +265,7 @@ export async function loadAccess(
   const grantRows = await db.select().from(grants).where(eq(grants.vaultId, vaultId));
   const grantMap = new Map<string, Access>();
   const objectDenials = new Set<string>();
+  const structure = new Set<string>();
   for (const g of grantRows) {
     if (g.expiresAt && g.expiresAt.getTime() <= nowMs) continue;
     const mine =
@@ -258,10 +277,14 @@ export async function loadAccess(
       objectDenials.add(key);
       continue;
     }
+    if (g.role === 'structure') {
+      if (g.targetType === 'branch') structure.add(g.targetId);
+      continue;
+    }
     grantMap.set(key, maxAccess(grantMap.get(key) ?? null, g.role) as Access);
   }
   // Член хранилища с ролью limited существует только пока есть гранты; без ролей и грантов доступа нет вообще.
-  if (!role && grantMap.size > 0) role = 'limited';
+  if (!role && (grantMap.size > 0 || structure.size > 0)) role = 'limited';
 
   const brRows = await db
     .select({ id: branches.id, parentId: branches.parentId })
@@ -278,6 +301,7 @@ export async function loadAccess(
     denied,
     customNames,
     objectDenials,
+    structure,
   );
 }
 

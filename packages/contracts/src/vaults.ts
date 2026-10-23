@@ -5,7 +5,8 @@ import { corporateRecoveryEnroll } from './corporate-recovery.js';
 /** Роли в хранилище (по убыванию полномочий). limited — доступ только по грантам на ветви и записи. */
 export const vaultRole = z.enum(['owner', 'admin', 'editor', 'reader', 'limited']);
 export type VaultRole = z.infer<typeof vaultRole>;
-export const grantRole = z.enum(['none', 'reader', 'editor', 'manager']);
+/** structure — только для папок: видеть папку и вложенные, создавать записи и подпапки, не читая записей. */
+export const grantRole = z.enum(['none', 'reader', 'editor', 'manager', 'structure']);
 export type GrantRole = z.infer<typeof grantRole>;
 
 const MAX_BLOB = 512 * 1024;
@@ -108,7 +109,7 @@ export const branchRecord = z.object({
   keyVersion: z.number().int(),
   version: z.number().int(),
   deletedAt: z.string().nullable(),
-  access: z.enum(['reader', 'editor', 'manager']),
+  access: z.enum(['reader', 'editor', 'manager', 'structure']),
   /** папка в избранном у запросившего; есть в ответе дерева */
   pinned: z.boolean().optional(),
 });

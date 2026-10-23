@@ -132,6 +132,7 @@ export default {
       manager: 'Управление',
       owner: 'Владелец',
       none: 'Запрещено',
+      structure: 'Структура',
     },
     yourAccess: 'Ваши права',
     actualAccess: 'Фактический доступ',

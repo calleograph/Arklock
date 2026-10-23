@@ -85,7 +85,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
 
   function branchRecord(
     b: typeof branches.$inferSelect,
-    access: Access,
+    access: BranchRecord['access'],
     pinned?: boolean,
   ): BranchRecord {
     return {
@@ -182,7 +182,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     );
     for (const b of brRows) {
       if (trash ? !b.deletedAt : !!b.deletedAt) continue;
-      const a = access.branch(b.id);
+      const a = access.branch(b.id) ?? (access.structureAt(b.id) ? 'structure' : null);
       if (a) outBranches.push(branchRecord(b, a, pinnedB.has(b.id)));
     }
     return { branches: outBranches, entries: outEntries };
@@ -208,7 +208,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     if (!access.allows('entry.create')) throw forbidden();
     const branchId = body.branchId ?? null;
     if (branchId) await branchRow(vaultId, branchId);
-    if (!atLeast(access.branch(branchId), 'editor')) throw forbidden();
+    if (!access.canCreateIn(branchId)) throw forbidden();
     const kv = await vaultKeyVersion(vaultId);
     if (body.keyVersion !== kv) throw staleKey(kv);
     const id = body.id ?? crypto.randomUUID();
@@ -517,7 +517,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { vaultId, branchId } = parse(branchParams, req.params);
     const access = await requireVault(db, vaultId, user.id);
     await branchRow(vaultId, branchId);
-    if (!access.branch(branchId)) throw notFound();
+    if (!access.branch(branchId) && !access.structureAt(branchId)) throw notFound();
     await db.insert(branchPins).values({ userId: user.id, branchId }).onConflictDoNothing();
     return reply.status(204).send();
   });
@@ -540,7 +540,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const access = await requireVault(db, vaultId, user.id);
     if (!access.allows('branch.manage')) throw forbidden();
     if (body.parentId) await branchRow(vaultId, body.parentId);
-    if (!atLeast(access.branch(body.parentId), 'editor')) throw forbidden();
+    if (!access.canCreateIn(body.parentId)) throw forbidden();
     const kv = await vaultKeyVersion(vaultId);
     if (body.keyVersion !== kv) throw staleKey(kv);
     const [dupe] = await db
@@ -557,7 +557,11 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     });
     await audit(db, `user:${user.id}`, 'branch.create', `branch:${body.id}`, { vault: vaultId });
     reply.status(201);
-    return branchRecord(row!, 'manager');
+    // подпапка наследует «Структуру»: создавший её по этому праву не получает управления
+    return branchRecord(
+      row!,
+      atLeast(access.branch(body.parentId), 'editor') ? 'manager' : 'structure',
+    );
   });
 
   /** Переименование и перемещение. Перемещение в собственного потомка (цикл) отклоняется. */
@@ -927,6 +931,9 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       !access.isAdmin
     ) {
       throw new AppError(400, 'self_deny', 'You cannot deny access to yourself');
+    }
+    if (body.role === 'structure' && body.targetType !== 'branch') {
+      throw new AppError(400, 'validation_error', 'The structure level applies to folders only');
     }
     if (body.subjectType === 'user') {
       const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, body.subjectId));

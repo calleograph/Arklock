@@ -483,9 +483,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           ...enc,
         });
     const item = (await decryptEntryRecord(vault.id, rec))!;
-    entries.value = existing
-      ? entries.value.map((e) => (e.id === id ? item : e))
-      : [...entries.value, item];
+    const handedIn =
+      !existing && branches.value.find((b) => b.id === item.branchId)?.access === 'structure';
+    if (!handedIn)
+      entries.value = existing
+        ? entries.value.map((e) => (e.id === id ? item : e))
+        : [...entries.value, item];
     return item;
   }
 

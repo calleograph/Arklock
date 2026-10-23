@@ -589,6 +589,13 @@ const folderTargets = (b: BranchItem) => {
 
 function onSaved(item: EntryItem): void {
   creating.value = false;
+  const folder = ws.branches.find((b) => b.id === item.branchId);
+  if (folder?.access === 'structure') {
+    // сданную запись читать нельзя: она не открывается и не попадает в список
+    flash.value = t('ws.handedIn', { folder: folder.name });
+    setTimeout(() => (flash.value = ''), 6000);
+    return;
+  }
   openId.value = item.id;
   showDetails();
 }
@@ -1141,7 +1148,7 @@ void router;
           </template>
         </EntryPanel>
         <FolderPanel
-          v-else-if="selectedBranch"
+          v-else-if="selectedBranch && selectedBranch.access !== 'structure'"
           :key="selectedBranch.id"
           :vault-id="vault.id"
           :branch="selectedBranch"
@@ -1277,6 +1284,8 @@ void router;
           >
             <Icon name="plus" /> {{ t('ctx.addHere') }}
           </button>
+        </template>
+        <template v-if="menuBranch.access === 'editor' || menuBranch.access === 'manager'">
           <button
             type="button"
             class="btn w-full"
@@ -1304,7 +1313,7 @@ void router;
         >
           <Icon name="star" /> {{ menuBranch.pinned ? t('ctx.unpin') : t('ctx.pin') }}
         </button>
-        <template v-if="menuBranch.access !== 'reader'">
+        <template v-if="menuBranch.access === 'editor' || menuBranch.access === 'manager'">
           <label class="block text-sm"
             ><span class="field-label">{{ t('vault.moveTo') }}</span>
             <select

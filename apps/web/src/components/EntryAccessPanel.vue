@@ -54,11 +54,15 @@ interface Access {
 const data = ref<Access | null>(null);
 const error = ref('');
 const busy = ref(false);
-const roles = ['reader', 'editor', 'manager', 'none'];
+const roles = computed(() =>
+  props.targetType === 'branch'
+    ? ['reader', 'editor', 'manager', 'structure', 'none']
+    : ['reader', 'editor', 'manager', 'none'],
+);
 const showGrant = ref(false);
 const notice = ref('');
 const levels = computed(() =>
-  roles.map((r) => ({
+  roles.value.map((r) => ({
     value: r,
     label: t(`entryPanel.roles.${r}`),
     hint: t(`entryPanel.levelHints.${r}`),
@@ -151,10 +155,10 @@ const sourceName = (grant: Grant) =>
 const RANK: Record<string, number> = { reader: 1, editor: 2, manager: 3 };
 const choices = (grant: Grant) =>
   grant.inherited
-    ? roles.filter(
+    ? roles.value.filter(
         (r) => r === grant.role || r === 'none' || (RANK[r] ?? 0) > (RANK[grant.role] ?? 0),
       )
-    : roles;
+    : roles.value;
 // своё правило для участника уже есть — наследуемое переопределено, второй выбор не нужен
 const overridden = (grant: Grant) =>
   grant.inherited &&
