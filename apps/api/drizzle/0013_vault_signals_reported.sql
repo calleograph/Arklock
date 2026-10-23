@@ -1,0 +1,1 @@
+ALTER TABLE "vaults" ADD COLUMN "signals_reported_at" timestamp with time zone;

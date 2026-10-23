@@ -26,6 +26,7 @@ interface VaultRow {
   groups: number;
   entries: number;
   lastChange: string | null;
+  security: { high: number; medium: number; checkedAt: string | null };
 }
 interface SpaceRow {
   id: string;
@@ -35,6 +36,12 @@ interface SpaceRow {
   isDefault: boolean;
   vaults: VaultRow[];
 }
+// итог подразделения: открытые события по риску и сейфы, которые ни разу не проверялись
+const totals = (sp: SpaceRow) => ({
+  high: sp.vaults.reduce((a, v) => a + v.security.high, 0),
+  medium: sp.vaults.reduce((a, v) => a + v.security.medium, 0),
+  unchecked: sp.vaults.filter((v) => !v.security.checkedAt).length,
+});
 const status = ref<Status | null>(null);
 const structure = ref<SpaceRow[]>([]);
 const people = ref<(Person & { disabled: boolean })[]>([]);
@@ -201,6 +208,12 @@ async function cancel(): Promise<void> {
               s.archived ? t('chief.archived') : s.publicToOrg ? t('chief.open') : t('chief.closed')
             }}</span
           >
+          <span
+            v-if="s.vaults.length"
+            class="ml-2 text-xs font-normal"
+            :data-testid="`structure-risk-${s.id}`"
+            >{{ t('chief.riskTotals', totals(s)) }}</span
+          >
         </h3>
         <p v-if="!s.vaults.length" class="text-xs text-slate-500">{{ t('chief.noVaults') }}</p>
         <div v-else class="mt-1 overflow-x-auto">
@@ -212,6 +225,7 @@ async function cancel(): Promise<void> {
                 <th class="pr-3">{{ t('chief.members') }}</th>
                 <th class="pr-3">{{ t('chief.groups') }}</th>
                 <th class="pr-3">{{ t('chief.entries') }}</th>
+                <th class="pr-3">{{ t('chief.security') }}</th>
                 <th>{{ t('chief.lastChange') }}</th>
               </tr>
             </thead>
@@ -227,6 +241,27 @@ async function cancel(): Promise<void> {
                 <td class="pr-3 tabular-nums">{{ v.members }}</td>
                 <td class="pr-3 tabular-nums">{{ v.groups }}</td>
                 <td class="pr-3 tabular-nums">{{ v.entries }}</td>
+                <td
+                  class="whitespace-nowrap pr-3 text-xs"
+                  :title="v.security.checkedAt ? when(v.security.checkedAt) : ''"
+                  data-testid="structure-security"
+                >
+                  <span v-if="!v.security.checkedAt" class="text-slate-500">{{
+                    t('chief.unchecked')
+                  }}</span>
+                  <template v-else-if="v.security.high || v.security.medium">
+                    <span v-if="v.security.high" class="text-red-600">{{
+                      t('chief.high', { n: v.security.high })
+                    }}</span>
+                    <span v-if="v.security.high && v.security.medium"> · </span>
+                    <span v-if="v.security.medium" class="text-amber-700 dark:text-amber-300">{{
+                      t('chief.medium', { n: v.security.medium })
+                    }}</span>
+                  </template>
+                  <span v-else class="text-emerald-700 dark:text-emerald-300">{{
+                    t('chief.clean')
+                  }}</span>
+                </td>
                 <td class="whitespace-nowrap text-xs">
                   {{ v.lastChange ? when(v.lastChange) : '—' }}
                 </td>

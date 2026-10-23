@@ -6,7 +6,7 @@ import { requireVault } from '../access.js';
 import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { entries, handoffs, ledger, signals, users } from '../db/schema.js';
+import { entries, handoffs, ledger, signals, users, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { AttemptLimiter } from '../rateLimit.js';
 
@@ -210,6 +210,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
           auto: true,
         });
     }
+    await db.update(vaults).set({ signalsReportedAt: now }).where(eq(vaults.id, vaultId));
     return { created, resolved: gone.length };
   });
 

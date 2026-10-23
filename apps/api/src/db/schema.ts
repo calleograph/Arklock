@@ -161,6 +161,8 @@ export const vaults = pgTable('vaults', {
   keyVersion: integer('key_version').notNull().default(1),
   createdBy: uuid('created_by'),
   createdAt: ts('created_at').notNull().defaultNow(),
+  /** Последний отчёт инспектора о сейфе: без него «0 проблем» нельзя отличить от «не проверялся». */
+  signalsReportedAt: ts('signals_reported_at'),
 });
 
 /** Прямое членство и роль в хранилище. Ключ хранилища выдаётся отдельно (vault_keys). */

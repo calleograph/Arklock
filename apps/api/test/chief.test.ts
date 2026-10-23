@@ -90,6 +90,33 @@ it('the metadata overview is for the chief only and carries no secrets', async (
   expect(res.body).not.toMatch(/cipher|sealed|nonce|wrapped/i);
 });
 
+it('the overview shows open security events by risk and whether the vault was ever checked', async () => {
+  const vault = await chief.createSharedVault('Risk-Vault');
+  const e1 = (await chief.createEntry({ p: 1 }, { vaultId: vault.id, vaultKey: vault.key }))
+    .entryId;
+  const e2 = (await chief.createEntry({ p: 2 }, { vaultId: vault.id, vaultKey: vault.key }))
+    .entryId;
+  const row = async () =>
+    (await chief.req('GET', '/admin/structure'))
+      .json()
+      .flatMap((s: { vaults: { id: string }[] }) => s.vaults)
+      .find((v: { id: string }) => v.id === vault.id);
+  // ни одного отчёта: «0 проблем» не выдаётся за «проверено»
+  expect((await row()).security).toMatchObject({ high: 0, medium: 0, checkedAt: null });
+  const report = await chief.req('POST', `/vaults/${vault.id}/signals`, {
+    items: [
+      { entryId: e1, type: 'weak' },
+      { entryId: e1, type: 'reused' },
+      { entryId: e2, type: 'compromised' },
+    ],
+    checkedTypes: ['weak', 'reused', 'compromised'],
+  });
+  expect(report.statusCode).toBe(200);
+  const sec = (await row()).security;
+  expect(sec).toMatchObject({ high: 1, medium: 2, byType: { weak: 1, reused: 1, compromised: 1 } });
+  expect(sec.checkedAt).toEqual(expect.any(String));
+});
+
 it('the chief role passes only when the successor confirms; old sessions end', async () => {
   // без повторного подтверждения мастер-паролем передача не начинается
   expect(

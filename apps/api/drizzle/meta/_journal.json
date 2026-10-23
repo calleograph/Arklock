@@ -92,6 +92,13 @@
       "when": 1792784399583,
       "tag": "0012_branch_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792791072728,
+      "tag": "0013_vault_signals_reported",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, max, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, max, ne } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
@@ -12,6 +12,7 @@ import {
   entries,
   sessions,
   settings,
+  signals,
   spaces,
   users,
   vaultCircles,
@@ -193,10 +194,15 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   app.get('/admin/structure', async (req) => {
     const { user } = authOf(req);
     if (!user.chief) throw chiefRequired();
-    const [spaceRows, vaultRows, owners, members, groups, stats] = await Promise.all([
+    const [spaceRows, vaultRows, owners, members, groups, stats, open] = await Promise.all([
       db.select().from(spaces).orderBy(asc(spaces.createdAt)),
       db
-        .select({ id: vaults.id, name: vaults.name, spaceId: vaults.spaceId })
+        .select({
+          id: vaults.id,
+          name: vaults.name,
+          spaceId: vaults.spaceId,
+          checkedAt: vaults.signalsReportedAt,
+        })
         .from(vaults)
         .where(eq(vaults.kind, 'shared'))
         .orderBy(asc(vaults.name)),
@@ -218,7 +224,25 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         .from(entries)
         .where(isNull(entries.deletedAt))
         .groupBy(entries.vaultId),
+      // открытые события безопасности: только метаданные, которые сообщили браузеры и сервер
+      db
+        .select({ vaultId: signals.vaultId, type: signals.type, n: count() })
+        .from(signals)
+        .innerJoin(entries, and(eq(entries.id, signals.entryId), isNull(entries.deletedAt)))
+        .where(inArray(signals.status, ['open', 'in_progress']))
+        .groupBy(signals.vaultId, signals.type),
     ]);
+    const HIGH = new Set(['compromised', 'rotate']);
+    const security = (vaultId: string) => {
+      const rows = open.filter((o) => o.vaultId === vaultId);
+      const sum = (high: boolean) =>
+        rows.filter((r) => HIGH.has(r.type) === high).reduce((a, r) => a + r.n, 0);
+      return {
+        high: sum(true),
+        medium: sum(false),
+        byType: Object.fromEntries(rows.map((r) => [r.type, r.n])),
+      };
+    };
     const by = <T extends { vaultId: string }>(rows: T[]) =>
       new Map(rows.map((r) => [r.vaultId, r]));
     const [m, g, s] = [by(members), by(groups), by(stats)];
@@ -238,6 +262,7 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           groups: g.get(v.id)?.n ?? 0,
           entries: s.get(v.id)?.n ?? 0,
           lastChange: s.get(v.id)?.last ? new Date(s.get(v.id)!.last!).toISOString() : null,
+          security: { ...security(v.id), checkedAt: v.checkedAt?.toISOString() ?? null },
         })),
     }));
   });

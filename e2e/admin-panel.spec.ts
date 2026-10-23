@@ -786,6 +786,10 @@ test('the chief administrator sees the organization, edits a card and hands the 
   await page.goto('/admin/organization');
   await expect(page.getByTestId('chief-current')).toContainText(ADMIN.name);
   await expect(page.getByTestId('structure-vault').first()).toBeVisible();
+  // безопасность сейфа видна главному: без отчёта инспектора — «не проверялся», не «проблем нет»
+  await expect(page.getByTestId('structure-security').first()).toHaveText(
+    /не проверялся|never checked|проблем нет|no problems|риск|risk/,
+  );
 
   // преемник — новый сотрудник: приглашение и активация своим мастер-паролем
   await tab(page, 'invitations');
