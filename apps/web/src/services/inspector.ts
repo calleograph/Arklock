@@ -1,4 +1,5 @@
-import { estimateStrength } from '@arklock/crypto';
+import { estimateStrength, findInRange, sha1Hex } from '@arklock/crypto';
+import { api } from './api';
 import type { EntryItem } from './model';
 import { checkPolicy, NO_POLICY, type PasswordPolicy } from './policy';
 
@@ -49,4 +50,39 @@ export function inspect(entries: EntryItem[], o: InspectOptions): Issue[] {
     }
   }
   return issues;
+}
+
+/** Отпечаток набора записей сейфа: результат проверки утечек годится, пока записи не менялись. */
+export const entriesSnapshot = (vaultId: string | null, entries: EntryItem[]) =>
+  `${vaultId}:${entries
+    .map((e) => `${e.id}:${e.version}`)
+    .sort()
+    .join(',')}`;
+
+/**
+ * Проверка паролей по базам утечек: наружу уходит только префикс SHA-1 из 5 символов, пароли не передаются.
+ * Возвращает запись → сколько раз пароль встречается в утечках (только найденные).
+ */
+export async function checkBreaches(
+  entries: EntryItem[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<Map<string, number>> {
+  const withPw = entries.filter((e) => e.data.password && e.data.kind !== 'note');
+  const found = new Map<string, number>();
+  const cache = new Map<string, string>();
+  let done = 0;
+  onProgress?.(0, withPw.length);
+  for (const e of withPw) {
+    const hash = await sha1Hex(e.data.password);
+    const prefix = hash.slice(0, 5);
+    let body = cache.get(prefix);
+    if (body === undefined) {
+      body = await api<string>('GET', `/security/range/${prefix}`);
+      cache.set(prefix, body);
+    }
+    const count = findInRange(body, hash.slice(5));
+    if (count > 0) found.set(e.id, count);
+    onProgress?.(++done, withPw.length);
+  }
+  return found;
 }

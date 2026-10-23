@@ -285,6 +285,58 @@ test('administrator builds a structure and works with entries', async ({ browser
   expect(await pad(prod)).toBeGreaterThan(
     await pad(page.getByTestId('branch-row').filter({ hasText: 'Банки' }).first()),
   );
+
+  // значок папки: выбор из каталога с цветом, хранится зашифрованным и виден после F5
+  await page.getByTestId('folder-menu-Банки').click();
+  await page.getByTestId('folder-icon').click();
+  await page.getByTestId('icon-search').fill('банк');
+  await page.getByTestId('icon-bank').click();
+  await page.getByTestId('icon-color-green').click();
+  await page.getByTestId('folder-icon-save').click();
+  const bankIcon = page
+    .getByTestId('branch-row')
+    .filter({ hasText: 'Банки' })
+    .first()
+    .getByTestId('object-icon')
+    .locator('svg');
+  await expect(bankIcon).toHaveClass(/text-emerald/);
+  await page.reload();
+  await expect(bankIcon).toHaveClass(/text-emerald/, { timeout: 30_000 });
+
+  // значок записи — в её зашифрованных данных; виден в списке
+  await page.getByTestId('entry-row').filter({ hasText: 'Почта' }).click();
+  await page.getByTestId('btn-edit').click();
+  await page.getByTestId('f-icon').click();
+  await page.getByTestId('icon-mail').click();
+  await page.getByTestId('f-save').click();
+  await expect(
+    page
+      .getByTestId('entry-row')
+      .filter({ hasText: 'Почта' })
+      .getByTestId('object-icon')
+      .locator('svg'),
+  ).toBeVisible();
+
+  // меню записи по правой кнопке: избранное без открытия карточки
+  await page.getByTestId('entry-row').filter({ hasText: 'Почта' }).click({ button: 'right' });
+  await expect(page.getByTestId('context-menu')).toBeVisible();
+  await page.getByTestId('ctx-pin').click();
+  await expect(page.getByTestId('context-menu')).toHaveCount(0);
+  await page.getByTestId('scope-favorites').click();
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Почта' })).toHaveCount(1);
+  await page.getByTestId('scope-all').click();
+
+  // сводка сейфа: показатель ведёт к отфильтрованному списку, фильтр в адресе и сбрасывается
+  await addEntry(page, { title: 'Слабый доступ', username: 'w', password: '123456' });
+  await page.goto('/');
+  await page.getByTestId('overview-weak').click();
+  await expect(page.getByTestId('issue-filter')).toBeVisible();
+  await expect(page).toHaveURL(/issue=weak/);
+  await expect(page.getByTestId('entry-row')).toHaveCount(1);
+  await expect(page.getByTestId('entry-row')).toContainText('Слабый доступ');
+  await page.getByTestId('issue-filter-clear').click();
+  await expect(page.getByTestId('issue-filter')).toHaveCount(0);
+  expect(await page.getByTestId('entry-row').count()).toBeGreaterThan(1);
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {

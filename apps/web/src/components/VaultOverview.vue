@@ -1,34 +1,36 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useWorkspaceStore } from '../stores/workspace';
-import { api } from '../services/api';
-import { inspect } from '../services/inspector';
-import { policyFrom } from '../services/policy';
+import { ApiError } from '../services/api';
+import type { IssueType } from '../services/inspector';
+import type { useVaultIssues } from '../services/vaultIssues';
 
+/**
+ * Сводка сейфа на главном экране. Каждый показатель — переход к отфильтрованному списку записей:
+ * число без возможности открыть сами записи не показываем.
+ */
+const props = defineProps<{ vi: ReturnType<typeof useVaultIssues> }>();
+const emit = defineEmits<{ filter: [IssueType] }>();
 const { t } = useI18n();
-const ws = useWorkspaceStore();
-const policy = ref<Record<string, unknown> | null>(null);
-const policyFailed = ref(false);
-onMounted(async () => {
+const breachError = ref('');
+const count = (type: IssueType) => props.vi.idsOf(type).size;
+
+async function checkLeaks(): Promise<void> {
+  breachError.value = '';
   try {
-    policy.value = await api('GET', '/auth/policy');
-  } catch {
-    policyFailed.value = true;
+    await props.vi.runBreachCheck();
+  } catch (e) {
+    // недоступность сервиса не означает «пароли безопасны»
+    breachError.value =
+      e instanceof ApiError && e.code === 'range_unavailable'
+        ? t('inspector.unavailable')
+        : t('error.generic');
   }
-});
-const active = computed(() => ws.entries.filter((e) => !e.data.archived));
-const issues = computed(() =>
-  inspect(active.value, {
-    maxAgeDays: policy.value ? Number(policy.value['security.passwordMaxAgeDays'] ?? 365) : 0,
-    policy: policy.value ? policyFrom(policy.value) : undefined,
-  }),
-);
-const count = (type: string) => issues.value.filter((i) => i.type === type).length;
+}
 </script>
 
 <template>
-  <section class="card space-y-4 p-4" data-testid="vault-overview">
+  <section class="card space-y-3 p-4" data-testid="vault-overview">
     <div>
       <h2 class="font-semibold">{{ t('corporate.summary') }}</h2>
       <p class="mt-1 text-xs text-slate-500">{{ t('corporate.scope') }}</p>
@@ -36,32 +38,66 @@ const count = (type: string) => issues.value.filter((i) => i.type === type).leng
     <dl class="grid grid-cols-2 gap-3 text-sm">
       <div>
         <dt class="text-slate-500">{{ t('corporate.total') }}</dt>
-        <dd class="num text-2xl font-semibold">{{ active.length }}</dd>
+        <dd class="num text-2xl font-semibold">{{ vi.active.value.length }}</dd>
       </div>
       <div>
         <dt class="text-slate-500">{{ t('corporate.favorites') }}</dt>
-        <dd class="num text-2xl font-semibold">{{ active.filter((e) => e.pinned).length }}</dd>
-      </div>
-    </dl>
-    <dl class="space-y-2 border-t border-slate-200 pt-3 text-sm dark:border-slate-800">
-      <div
-        v-for="type in ['weak', 'reused', 'old', 'compromised']"
-        :key="type"
-        class="flex items-center justify-between gap-2"
-      >
-        <dt>{{ t(`issue.${type}`) }}</dt>
-        <dd class="num font-medium">
-          {{
-            type === 'compromised'
-              ? t('corporate.unchecked')
-              : type === 'old' && !policy
-                ? t('corporate.noData')
-                : count(type)
-          }}
+        <dd class="num text-2xl font-semibold">
+          {{ vi.active.value.filter((e) => e.pinned).length }}
         </dd>
       </div>
     </dl>
-    <p v-if="policyFailed" class="text-xs text-amber-700 dark:text-amber-300" role="alert">
+    <ul class="space-y-1 border-t border-slate-200 pt-3 text-sm dark:border-slate-800">
+      <li v-for="type in ['weak', 'reused', 'old', 'expired', 'compromised'] as const" :key="type">
+        <!-- утечки ещё не проверялись: показываем это честно и даём проверить на месте -->
+        <div
+          v-if="type === 'compromised' && !vi.breached.value"
+          class="flex items-center justify-between gap-2 px-2 py-1"
+        >
+          <span>{{ t(`issue.${type}`) }}</span>
+          <button
+            type="button"
+            class="text-xs font-medium text-brand-600 underline disabled:opacity-60"
+            :disabled="!!vi.progress.value"
+            data-testid="overview-breach-check"
+            @click="checkLeaks"
+          >
+            {{
+              vi.progress.value
+                ? t('overview.progress', {
+                    done: vi.progress.value.done,
+                    total: vi.progress.value.total,
+                  })
+                : t('overview.checkLeaks')
+            }}
+          </button>
+        </div>
+        <div
+          v-else-if="type === 'old' && !vi.policy.value"
+          class="flex items-center justify-between gap-2 px-2 py-1"
+        >
+          <span>{{ t(`issue.${type}`) }}</span>
+          <span class="text-slate-500">{{ t('corporate.noData') }}</span>
+        </div>
+        <button
+          v-else
+          type="button"
+          class="flex w-full items-center justify-between gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-slate-800"
+          :disabled="!count(type)"
+          :data-testid="`overview-${type}`"
+          @click="emit('filter', type)"
+        >
+          <span>{{ t(`issue.${type}`) }}</span>
+          <span
+            class="num font-medium"
+            :class="count(type) ? (type === 'compromised' ? 'text-red-600' : 'text-amber-600') : ''"
+            >{{ count(type) }}</span
+          >
+        </button>
+      </li>
+    </ul>
+    <p v-if="breachError" class="text-xs text-red-600" role="alert">{{ breachError }}</p>
+    <p v-if="vi.policyFailed.value" class="text-xs text-amber-700 dark:text-amber-300" role="alert">
       {{ t('corporate.policyUnavailable') }}
     </p>
     <p class="text-xs text-slate-500">{{ t('corporate.method') }}</p>

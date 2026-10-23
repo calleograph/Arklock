@@ -214,3 +214,38 @@ describe('Passwork JSON import', () => {
     expect(() => importPassworkJson('{"items":[]}')).toThrow(/не экспорт Passwork/);
   });
 });
+
+describe('значки папок и записей', () => {
+  it('в данные проходят только известный значок, цвет и PNG; остальное отбрасывается', async () => {
+    const { cleanIcon } = await import('../src/services/objectIcons');
+    expect(cleanIcon({ name: 'bank', color: 'green' })).toEqual({ name: 'bank', color: 'green' });
+    expect(cleanIcon({ name: 'nope', color: 'purple' })).toBeUndefined();
+    expect(cleanIcon({ image: 'data:image/svg+xml;base64,PHN2Zz4=' })).toBeUndefined();
+    expect(cleanIcon({ image: 'javascript:alert(1)' })).toBeUndefined();
+    expect(cleanIcon({ image: 'data:image/png;base64,iVBORw0KGgo=' })).toEqual({
+      image: 'data:image/png;base64,iVBORw0KGgo=',
+    });
+    expect(cleanIcon({ image: 'data:image/png;base64,' + 'A'.repeat(20_000) })).toBeUndefined();
+    expect(cleanIcon('bank')).toBeUndefined();
+  });
+
+  it('значки записей и папок переживают выгрузку и загрузку Arklock', () => {
+    const json = exportJson(
+      [item('one', { icon: { name: 'server', color: 'blue' } })],
+      [
+        {
+          id: 'b1',
+          parentId: null,
+          name: 'Банки',
+          version: 1,
+          access: 'manager',
+          deletedAt: null,
+          icon: { name: 'bank', color: 'green' },
+        },
+      ],
+    );
+    const back = importArklockJson(json);
+    expect(back.items[0]!.data.icon).toEqual({ name: 'server', color: 'blue' });
+    expect(back.folderIcons).toEqual({ Банки: { name: 'bank', color: 'green' } });
+  });
+});

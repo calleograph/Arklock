@@ -225,3 +225,43 @@ export async function rewrapBranchName(
   const name = await decryptBranchName(nameCipher, oldKey, vaultId, branchId, oldVersion);
   return encryptBranchName(name, newKey, vaultId, branchId, newVersion);
 }
+
+/**
+ * Оформление ветви (значок, цвет, своё изображение) — JSON, зашифрованный ключом хранилища отдельно от названия:
+ * сервер не видит, какой значок выбран. Контекст свой, поэтому шифртекст названия и оформления не взаимозаменяемы.
+ */
+export async function encryptBranchMeta(
+  meta: string,
+  vaultKey: Uint8Array,
+  vaultId: string,
+  branchId: string,
+  keyVersion: number,
+): Promise<string> {
+  return encrypt(vaultKey, utf8(meta), ctx('branch-meta', vaultId, branchId, keyVersion));
+}
+
+export async function decryptBranchMeta(
+  metaCipher: string,
+  vaultKey: Uint8Array,
+  vaultId: string,
+  branchId: string,
+  keyVersion: number,
+): Promise<string> {
+  return fromUtf8(
+    await decrypt(vaultKey, metaCipher, ctx('branch-meta', vaultId, branchId, keyVersion)),
+  );
+}
+
+/** Перешифрование оформления ветви новым ключом хранилища (ротация). */
+export async function rewrapBranchMeta(
+  metaCipher: string,
+  oldKey: Uint8Array,
+  newKey: Uint8Array,
+  vaultId: string,
+  branchId: string,
+  oldVersion: number,
+  newVersion: number,
+): Promise<string> {
+  const meta = await decryptBranchMeta(metaCipher, oldKey, vaultId, branchId, oldVersion);
+  return encryptBranchMeta(meta, newKey, vaultId, branchId, newVersion);
+}

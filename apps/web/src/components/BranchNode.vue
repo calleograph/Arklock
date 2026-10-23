@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Icon from './Icon.vue';
+import ObjectIcon from './ObjectIcon.vue';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { BranchItem } from '../services/model';
@@ -35,6 +36,7 @@ const open = computed(() => !props.collapsed.has(props.node.id));
       :class="selected === node.id ? 'nav-link-active !text-brand-700' : ''"
       :style="{ paddingLeft: `${depth * 12 + 4}px` }"
       data-testid="branch-row"
+      @contextmenu.prevent="node.access !== 'reader' && emit('menu', node)"
       @dragover.prevent
       @drop.prevent="emit('drop', { branchId: node.id })"
     >
@@ -60,7 +62,7 @@ const open = computed(() => !props.collapsed.has(props.node.id));
         class="min-w-0 flex-1 truncate text-left"
         @click="emit('select', node.id)"
       >
-        <Icon name="folder" class="mr-1 align-[-2px]" />{{ node.name }}
+        <ObjectIcon :icon="node.icon" kind="folder" variant="inline" class="mr-1" />{{ node.name }}
       </button>
       <span class="text-xs text-slate-400">{{ counts.get(node.id) ?? '' }}</span>
       <button

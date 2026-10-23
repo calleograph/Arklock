@@ -3,8 +3,10 @@ import { defineStore } from 'pinia';
 import {
   createHandoff,
   createVaultKey,
+  decryptBranchMeta,
   decryptBranchName,
   decryptEntry,
+  encryptBranchMeta,
   encryptBranchName,
   encryptEntry,
   fromBase64Url,
@@ -16,6 +18,7 @@ import {
   openAttachmentKey,
   openAttachmentMeta,
   openVaultKey,
+  rewrapBranchMeta,
   rewrapBranchName,
   rewrapEntry,
   sealVaultKeyFor,
@@ -46,6 +49,7 @@ import {
 } from '../services/model';
 import { useAuthStore } from './auth';
 import { checkPolicy, type PasswordPolicy } from '../services/policy';
+import { cleanIcon, type ObjectIcon } from '../services/objectIcons';
 import type { RecoveryRecipient, RecoverySecrets } from '../services/corporate-recovery';
 
 /** Ключи хранилищ — вне реактивного состояния; стираются при блокировке. */
@@ -88,6 +92,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const currentId = ref<string | null>(null);
   const branches = shallowRef<BranchItem[]>([]);
   const entries = shallowRef<EntryItem[]>([]);
+  /** Итог последней проверки утечек: для какого набора записей и что найдено (только в памяти вкладки). */
+  const breaches = shallowRef<{ snapshot: string; found: Map<string, number> } | null>(null);
   const trash = shallowRef<{ branches: BranchItem[]; entries: EntryItem[] }>({
     branches: [],
     entries: [],
@@ -313,6 +319,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
+  // испорченное оформление не мешает показать папку: остаётся значок по умолчанию
+  async function branchIcon(vaultId: string, b: BranchRecord, key: Uint8Array) {
+    try {
+      return cleanIcon(
+        JSON.parse(await decryptBranchMeta(b.metaCipher!, key, vaultId, b.id, b.keyVersion)),
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
   async function decryptBranchRecord(vaultId: string, b: BranchRecord): Promise<BranchItem | null> {
     const key = keyOf(vaultId, b.keyVersion);
     if (!key) return null;
@@ -324,6 +341,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         version: b.version,
         access: b.access,
         deletedAt: b.deletedAt,
+        icon: b.metaCipher ? await branchIcon(vaultId, b, key) : undefined,
       };
     } catch {
       return null;
@@ -730,12 +748,24 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     id: string,
     name: string,
     parentId: string | null,
+    icon?: ObjectIcon,
   ): Promise<void> {
     const { vault, key } = needKey();
     await api('POST', `/vaults/${vault.id}/branches`, {
       id,
       parentId,
       nameCipher: await encryptBranchName(name.trim(), key, vault.id, id, vault.keyVersion),
+      ...(icon
+        ? {
+            metaCipher: await encryptBranchMeta(
+              JSON.stringify(icon),
+              key,
+              vault.id,
+              id,
+              vault.keyVersion,
+            ),
+          }
+        : {}),
       keyVersion: vault.keyVersion,
     });
   }
@@ -749,6 +779,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const { vault, key } = needKey();
     await api('PATCH', `/vaults/${vault.id}/branches/${b.id}`, {
       nameCipher: await encryptBranchName(name.trim(), key, vault.id, b.id, vault.keyVersion),
+      keyVersion: vault.keyVersion,
+    });
+    await loadTree();
+  }
+
+  /** Значок папки: шифруется ключом сейфа вместе с названием; undefined — значок по умолчанию. */
+  async function setBranchIcon(b: BranchItem, icon: ObjectIcon | undefined): Promise<void> {
+    const { vault, key } = needKey();
+    await api('PATCH', `/vaults/${vault.id}/branches/${b.id}`, {
+      nameCipher: await encryptBranchName(b.name, key, vault.id, b.id, vault.keyVersion),
+      metaCipher: icon
+        ? await encryptBranchMeta(JSON.stringify(icon), key, vault.id, b.id, vault.keyVersion)
+        : null,
       keyVersion: vault.keyVersion,
     });
     await loadTree();
@@ -951,6 +994,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
             b.keyVersion,
             newVersion,
           ),
+          // оформление перешифровывается вместе с названием: иначе после ротации значок пропал бы
+          metaCipher: b.metaCipher
+            ? await rewrapBranchMeta(
+                b.metaCipher,
+                oldKey,
+                newKey,
+                vaultId,
+                b.id,
+                b.keyVersion,
+                newVersion,
+              )
+            : null,
         });
       }
       // Вложения: файлы перешифровываются новыми ключами и загружаются заранее; метаданные уходят в запрос ротации
@@ -1420,6 +1475,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createBranchWithId,
     audit,
     renameBranch,
+    breaches,
+    setBranchIcon,
     moveBranch,
     moveEntry,
     deleteBranch,

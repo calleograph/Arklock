@@ -8,6 +8,7 @@ import {
   fromUtf8,
   DEFAULT_KDF,
 } from '@arklock/crypto';
+import { cleanIcon, type ObjectIcon } from './objectIcons';
 import { blankEntry, type BranchItem, type EntryData, type EntryItem } from './model';
 import { deriveKeys } from './kdf';
 
@@ -22,6 +23,8 @@ export interface ImportItem {
 export interface ImportResult {
   items: ImportItem[];
   errors: string[];
+  /** Значки папок из выгрузки Arklock: путь (части через \u0000) → значок. */
+  folderIcons?: Record<string, ObjectIcon>;
 }
 
 // ------------------------------------------------------------------ CSV
@@ -291,7 +294,7 @@ export interface ArklockExport {
   format: 'arklock-export';
   version: 1;
   exportedAt: string;
-  branches: { id: string; parentId: string | null; name: string }[];
+  branches: { id: string; parentId: string | null; name: string; icon?: ObjectIcon }[];
   entries: (EntryData & { branchId: string | null })[];
 }
 
@@ -311,12 +314,18 @@ export function importArklockJson(text: string): ImportResult {
     }
     return out;
   };
+  const folderIcons: Record<string, ObjectIcon> = {};
+  for (const b of doc.branches) {
+    const icon = cleanIcon(b.icon);
+    if (icon) folderIcons[pathOf(b.id).join('\u0000')] = icon;
+  }
   return {
     items: doc.entries.map(({ branchId, ...data }) => ({
       data: { ...blankEntry(data.kind), ...data },
       path: pathOf(branchId),
     })),
     errors: [],
+    folderIcons,
   };
 }
 
@@ -390,7 +399,7 @@ export function exportJson(entries: EntryItem[], branches: BranchItem[]): string
     format: 'arklock-export',
     version: 1,
     exportedAt: new Date().toISOString(),
-    branches: branches.map((b) => ({ id: b.id, parentId: b.parentId, name: b.name })),
+    branches: branches.map((b) => ({ id: b.id, parentId: b.parentId, name: b.name, icon: b.icon })),
     entries: entries.map((e) => ({ ...e.data, branchId: e.branchId })),
   };
   return JSON.stringify(doc, null, 2);

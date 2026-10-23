@@ -87,6 +87,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       vaultId: b.vaultId,
       parentId: b.parentId,
       nameCipher: b.nameCipher,
+      metaCipher: b.metaCipher,
       keyVersion: b.keyVersion,
       version: b.version,
       deletedAt: b.deletedAt?.toISOString() ?? null,
@@ -516,12 +517,18 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       updatedAt: new Date(),
       version: b.version + 1,
     };
-    if (body.nameCipher !== undefined) {
+    // название и оформление зашифрованы текущим ключом хранилища: устаревший ключ отклоняется
+    const encrypted = body.nameCipher !== undefined || !!body.metaCipher;
+    if (encrypted) {
       const kv = await vaultKeyVersion(vaultId);
       if ((body.keyVersion ?? kv) !== kv) throw staleKey(kv);
-      patch.nameCipher = body.nameCipher;
+      // оформление другой версии ключа, чем название, не прочитать: меняются только вместе с текущей версией
+      if (body.nameCipher === undefined && b.keyVersion !== kv)
+        throw new AppError(409, 'stale_key_version', 'Re-encrypt the branch name first');
       patch.keyVersion = kv;
     }
+    if (body.nameCipher !== undefined) patch.nameCipher = body.nameCipher;
+    if (body.metaCipher !== undefined) patch.metaCipher = body.metaCipher;
     if (body.parentId !== undefined && body.parentId !== b.parentId) {
       await requireSubtreeEdit(access, await subtree(vaultId, branchId));
       if (body.parentId) {
@@ -538,11 +545,7 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       patch.parentId = body.parentId;
     }
     const [row] = await db.transaction(async (tx) => {
-      await lockVaultForWrite(
-        tx,
-        vaultId,
-        body.nameCipher === undefined ? undefined : body.keyVersion,
-      );
+      await lockVaultForWrite(tx, vaultId, encrypted ? body.keyVersion : undefined);
       return tx
         .update(branches)
         .set(patch)

@@ -2,9 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { findInRange, sha1Hex } from '@arklock/crypto';
 import { api, ApiError } from '../services/api';
-import { inspect, type Issue } from '../services/inspector';
+import {
+  checkBreaches as runCheck,
+  entriesSnapshot,
+  inspect,
+  type Issue,
+} from '../services/inspector';
 import { NO_POLICY, policyFrom, type PasswordPolicy } from '../services/policy';
 import { useWorkspaceStore } from '../stores/workspace';
 
@@ -72,43 +76,32 @@ onMounted(async () => {
   if (!ws.vaults.length) await ws.loadVaults();
   if (ws.current?.unlocked && !ws.entries.length) await ws.loadTree();
   analyze();
+  // утечки уже проверялись (например, из обзора сейфа) для этого же набора записей — показываем итог
+  const b = ws.breaches;
+  if (b && b.snapshot === entriesSnapshot(ws.currentId, ws.entries)) {
+    issues.value.push(
+      ...[...b.found].map(([entryId, info]) => ({ entryId, type: 'compromised' as const, info })),
+    );
+    breachChecked.value = true;
+  }
 });
 
 /** Проверка по базе утечек: наружу уходит только префикс SHA-1 из 5 символов; пароли не передаются. */
 async function checkBreaches(): Promise<void> {
   breachError.value = '';
   breachChecked.value = false;
-  const withPw = ws.entries.filter((e) => e.data.password && e.data.kind !== 'note');
-  breachProgress.value = { done: 0, total: withPw.length };
-  const found: Issue[] = [];
-  const cache = new Map<string, string>();
-  const snapshot = ws.entries
-    .map((e) => `${e.id}:${e.version}`)
-    .sort()
-    .join(',');
-  const vaultId = ws.currentId;
+  const snapshot = entriesSnapshot(ws.currentId, ws.entries);
   try {
-    for (const e of withPw) {
-      const hash = await sha1Hex(e.data.password);
-      const prefix = hash.slice(0, 5);
-      let body = cache.get(prefix);
-      if (body === undefined) {
-        body = await api<string>('GET', `/security/range/${prefix}`);
-        cache.set(prefix, body);
-      }
-      const count = findInRange(body, hash.slice(5));
-      if (count > 0) found.push({ entryId: e.id, type: 'compromised', info: count });
-      breachProgress.value = { done: breachProgress.value.done + 1, total: withPw.length };
-    }
-    if (
-      vaultId === ws.currentId &&
-      snapshot ===
-        ws.entries
-          .map((e) => `${e.id}:${e.version}`)
-          .sort()
-          .join(',')
-    ) {
-      issues.value = [...issues.value.filter((i) => i.type !== 'compromised'), ...found];
+    const found = await runCheck(ws.entries, (done, total) => {
+      breachProgress.value = { done, total };
+    });
+    // записи могли измениться за время проверки — тогда итог относится к прежнему набору
+    if (snapshot === entriesSnapshot(ws.currentId, ws.entries)) {
+      ws.breaches = { snapshot, found };
+      issues.value = [
+        ...issues.value.filter((i) => i.type !== 'compromised'),
+        ...[...found].map(([entryId, info]) => ({ entryId, type: 'compromised' as const, info })),
+      ];
       breachChecked.value = true;
     }
   } catch (e) {

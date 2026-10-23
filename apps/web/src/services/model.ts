@@ -1,4 +1,5 @@
 /** Модель расшифрованных данных рабочего пространства. Существует только в памяти браузера. */
+import { cleanIcon, type ObjectIcon } from './objectIcons';
 
 export type EntryKind = 'login' | 'note' | 'server' | 'apikey' | 'custom';
 
@@ -30,6 +31,8 @@ export interface EntryData {
   links?: string[];
   /** В архиве: запись не показывается в обычных списках и не предлагается для заполнения, но хранится и ищется в разделе «Архив». */
   archived?: boolean;
+  /** Значок записи (каталог, цвет или своё изображение) — внутри зашифрованного содержимого. */
+  icon?: ObjectIcon;
 }
 
 export const blankEntry = (kind: EntryKind = 'login'): EntryData => ({
@@ -60,6 +63,7 @@ export function normalizeEntry(raw: unknown): EntryData {
     tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
     links: Array.isArray(r.links) ? r.links.map(String).slice(0, 50) : [],
     archived: r.archived === true,
+    icon: cleanIcon(r.icon),
   };
 }
 
@@ -84,6 +88,8 @@ export interface BranchItem {
   version: number;
   access: 'reader' | 'editor' | 'manager';
   deletedAt: string | null;
+  /** Значок папки — из отдельно зашифрованного оформления. */
+  icon?: ObjectIcon;
 }
 
 /** Текст для поиска по записи (секретные поля и пароль в индекс не входят). */

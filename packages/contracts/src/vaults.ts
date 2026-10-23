@@ -76,26 +76,33 @@ export const entryRecord = z.object({
 });
 export type EntryRecord = z.infer<typeof entryRecord>;
 
+/** Оформление ветви: значок и цвет или небольшое изображение (PNG до 64×64), зашифрованные клиентом. */
+const branchMeta = sealedValue(24_576);
 export const branchWrite = z.object({
   id: uuid,
   parentId: uuid.nullable(),
   nameCipher: sealedValue(2048),
+  metaCipher: branchMeta.nullable().optional(),
   keyVersion: z.number().int().min(1),
 });
 export const branchPatch = z
   .object({
     parentId: uuid.nullable().optional(),
     nameCipher: sealedValue(2048).optional(),
+    /** null — вернуть значок по умолчанию. */
+    metaCipher: branchMeta.nullable().optional(),
     keyVersion: z.number().int().min(1).optional(),
   })
-  .refine((body) => body.nameCipher === undefined || body.keyVersion !== undefined, {
-    message: 'A key version is required for encrypted branch names',
-  });
+  .refine(
+    (body) => (body.nameCipher === undefined && !body.metaCipher) || body.keyVersion !== undefined,
+    { message: 'A key version is required for encrypted branch names and appearance' },
+  );
 export const branchRecord = z.object({
   id: uuid,
   vaultId: uuid,
   parentId: uuid.nullable(),
   nameCipher: z.string(),
+  metaCipher: z.string().nullable(),
   keyVersion: z.number().int(),
   version: z.number().int(),
   deletedAt: z.string().nullable(),
@@ -185,6 +192,8 @@ export const rotatePost = z
           id: uuid,
           expectedVersion: z.number().int().min(1),
           nameCipher: sealedValue(2048),
+          /** Перешифрованное оформление; не передано — оформление сбрасывается (старым ключом его уже не прочитать). */
+          metaCipher: branchMeta.nullable().optional(),
         }),
       )
       .max(20000),

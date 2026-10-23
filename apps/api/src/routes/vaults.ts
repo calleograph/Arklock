@@ -958,6 +958,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           .update(branches)
           .set({
             nameCipher: b.nameCipher,
+            metaCipher: b.metaCipher ?? null,
             keyVersion: body.newKeyVersion,
             version: sql`${branches.version} + 1`,
           })

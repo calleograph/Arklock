@@ -16,6 +16,13 @@ import { useWorkspaceStore } from '../stores/workspace';
 import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
 import { searchText, type BranchItem, type EntryItem } from '../services/model';
 import { api } from '../services/api';
+import ObjectIcon from '../components/ObjectIcon.vue';
+import IconPicker from '../components/IconPicker.vue';
+import type { ObjectIcon as ObjectIconData } from '../services/objectIcons';
+import { useVaultIssues } from '../services/vaultIssues';
+import ContextMenu from '../components/ContextMenu.vue';
+import { copyWithAutoClear, reportEntryEvent } from '../services/clipboard';
+import type { IssueType } from '../services/inspector';
 
 const { t } = useI18n({
   useScope: 'local',
@@ -43,6 +50,23 @@ const branchSel = ref<string | null>(null);
 /** Строка поиска живёт в шапке; здесь читается из общего состояния. */
 const query = toRef(ws, 'searchQuery');
 const kindFilter = ref('');
+// фильтр «проблемные записи» из сводки сейфа; хранится в адресе, переживает F5 и «Назад»
+const vi = useVaultIssues();
+const ISSUE_TYPES: IssueType[] = ['weak', 'reused', 'old', 'expired', 'compromised', 'policy'];
+const issueFilter = computed<IssueType | null>(() => {
+  const q = route.query.issue;
+  return typeof q === 'string' && (ISSUE_TYPES as string[]).includes(q) ? (q as IssueType) : null;
+});
+function setIssueFilter(type: IssueType | null): void {
+  const query = { ...route.query };
+  if (type) query.issue = type;
+  else delete query.issue;
+  if (type) {
+    scope.value = 'all';
+    branchSel.value = null;
+  }
+  void router.replace({ query });
+}
 const tagFilter = ref('');
 const sort = ref<'title' | 'updated'>('title');
 const selected = ref<Set<string>>(new Set());
@@ -82,6 +106,23 @@ const dialog = ref<null | { title: string; value: string; action: (v: string) =>
 );
 const moveTarget = ref<string>('');
 const menuBranch = ref<BranchItem | null>(null);
+// значок папки: черновик в окне выбора, сохраняется зашифрованным вместе с названием
+const iconBranch = ref<BranchItem | null>(null);
+const iconDraft = ref<ObjectIconData | undefined>(undefined);
+function openFolderIcon(b: BranchItem): void {
+  iconBranch.value = b;
+  iconDraft.value = b.icon ? { ...b.icon } : undefined;
+  menuBranch.value = null;
+}
+const iconSaving = ref(false);
+async function saveFolderIcon(): Promise<void> {
+  const b = iconBranch.value;
+  if (!b) return;
+  iconSaving.value = true;
+  await run(() => ws.setBranchIcon(b, iconDraft.value));
+  iconSaving.value = false;
+  if (!error.value) iconBranch.value = null;
+}
 const showTransfer = ref(false);
 const creatorsPolicy = ref(false);
 
@@ -217,8 +258,10 @@ const list = computed<EntryItem[]>(() => {
     base = ws.entries.filter((e) => !e.data.archived && e.branchId && ids.has(e.branchId));
   } else base = ws.entries.filter((e) => !e.data.archived);
   const q = query.value.trim().toLowerCase();
+  const issueIds = issueFilter.value ? vi.idsOf(issueFilter.value) : null;
   const out = base.filter(
     (e) =>
+      (!issueIds || issueIds.has(e.id)) &&
       (!q || searchText(e.data).includes(q) || pathOf(e.branchId).toLowerCase().includes(q)) &&
       (!kindFilter.value || e.data.kind === kindFilter.value) &&
       (!tagFilter.value || e.data.tags.includes(tagFilter.value)),
@@ -282,6 +325,94 @@ const entryActions = computed<ActionItem[]>(() => [
     : []),
   { id: 'trash', label: t('vault.toTrash'), icon: 'trash', danger: true, testid: 'btn-trash' },
 ]);
+// меню записи по правой кнопке: частые действия без открытия карточки
+const ctxMenu = ref<{ x: number; y: number; entry: EntryItem } | null>(null);
+const flash = ref('');
+function openEntryMenu(ev: MouseEvent, e: EntryItem): void {
+  ctxMenu.value = { x: ev.clientX, y: ev.clientY, entry: e };
+}
+const ctxItems = computed<ActionItem[]>(() => {
+  const e = ctxMenu.value?.entry;
+  if (!e) return [];
+  const edit = e.access !== 'reader' && scope.value !== 'trash';
+  return [
+    { id: 'open', label: t('ctx.open'), icon: 'external', testid: 'ctx-open' },
+    ...(e.data.username
+      ? [
+          {
+            id: 'copy-username',
+            label: t('ctx.copyUsername'),
+            icon: 'copy' as const,
+            testid: 'ctx-copy-username',
+          },
+        ]
+      : []),
+    ...(e.data.password && e.data.kind !== 'note'
+      ? [
+          {
+            id: 'copy-password',
+            label: t('ctx.copyPassword'),
+            icon: 'key' as const,
+            testid: 'ctx-copy-password',
+          },
+        ]
+      : []),
+    ...(e.data.url
+      ? [{ id: 'copy-url', label: t('ctx.copyUrl'), icon: 'copy' as const, testid: 'ctx-copy-url' }]
+      : []),
+    ...(scope.value !== 'trash'
+      ? [
+          {
+            id: 'pin',
+            label: e.pinned ? t('ctx.unpin') : t('ctx.pin'),
+            icon: 'star' as const,
+            testid: 'ctx-pin',
+          },
+        ]
+      : []),
+    ...(edit
+      ? [
+          {
+            id: 'archive',
+            label: e.data.archived ? t('ctx.unarchive') : t('ctx.archive'),
+            icon: 'archive' as const,
+            testid: 'ctx-archive',
+          },
+          {
+            id: 'trash',
+            label: t('vault.toTrash'),
+            icon: 'trash' as const,
+            danger: true,
+            testid: 'ctx-trash',
+          },
+        ]
+      : []),
+  ];
+});
+async function copyFromMenu(
+  e: EntryItem,
+  value: string,
+  field: 'username' | 'password' | 'custom',
+) {
+  await copyWithAutoClear(value);
+  flash.value = t('common.copied');
+  setTimeout(() => (flash.value = ''), 2000);
+  // отметка в журнале; её сбой не мешает пользоваться скопированным
+  void reportEntryEvent(e, 'copy', field).catch(() => undefined);
+}
+function onCtx(id: string): void {
+  const e = ctxMenu.value?.entry;
+  if (!e) return;
+  if (id === 'open') open(e);
+  else if (id === 'copy-username') void run(() => copyFromMenu(e, e.data.username, 'username'));
+  else if (id === 'copy-password') void run(() => copyFromMenu(e, e.data.password, 'password'));
+  else if (id === 'copy-url') void run(() => copyFromMenu(e, e.data.url, 'custom'));
+  else if (id === 'pin') void run(() => ws.setPinned(e, !e.pinned));
+  else if (id === 'archive')
+    void run(() => ws.saveEntry({ ...e.data, archived: !e.data.archived }, e));
+  else if (id === 'trash') void run(() => ws.trashEntry(e));
+}
+
 function onEntryAction(id: string): void {
   if (id === 'move') moving.value = true;
   else if (id === 'trash') void run(() => ws.trashEntry(opened.value!));
@@ -548,7 +679,9 @@ void router;
               class="nav-link w-full"
               :class="scope === 'all' && !branchSel ? 'nav-link-active' : ''"
               data-testid="scope-all"
-              @click="((scope = 'all'), (branchSel = null), (mobileView = 'list'))"
+              @click="
+                ((scope = 'all'), (branchSel = null), (mobileView = 'list'), setIssueFilter(null))
+              "
               @dragover.prevent
               @drop.prevent="dropOn(null, dragId)"
             >
@@ -753,6 +886,23 @@ void router;
           </li>
         </ul>
 
+        <div
+          v-if="issueFilter"
+          class="notice notice-warn flex items-center justify-between gap-2 !py-1.5 text-sm"
+          role="status"
+          data-testid="issue-filter"
+        >
+          <span>{{ t('overview.filter', { what: t(`issue.${issueFilter}`) }) }}</span>
+          <button
+            type="button"
+            class="text-xs font-medium underline"
+            data-testid="issue-filter-clear"
+            @click="setIssueFilter(null)"
+          >
+            {{ t('overview.clear') }}
+          </button>
+        </div>
+
         <div class="card">
           <div
             v-if="list.length"
@@ -813,6 +963,7 @@ void router;
               draggable="true"
               @dragstart="dragId = e.id"
               @click="open(e)"
+              @contextmenu.prevent="openEntryMenu($event, e)"
             >
               <input
                 type="checkbox"
@@ -823,11 +974,7 @@ void router;
                 @click.stop
                 @change="toggle(e.id)"
               />
-              <span
-                class="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-brand-50 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-500/10"
-                aria-hidden="true"
-                >{{ (e.data.title || '?').trim().charAt(0).toUpperCase() }}</span
-              >
+              <ObjectIcon :icon="e.data.icon" kind="entry" :label="e.data.title" />
               <div class="min-w-0 flex-1">
                 <button
                   type="button"
@@ -890,7 +1037,7 @@ void router;
           :branch="selectedBranch"
           @changed="run(() => ws.loadTree())"
         />
-        <VaultOverview v-else />
+        <VaultOverview v-else :vi="vi" @filter="setIssueFilter" />
         <div v-if="opened && scope === 'trash'" class="flex gap-2">
           <button
             type="button"
@@ -940,6 +1087,54 @@ void router;
       </div>
     </div>
 
+    <ContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :items="ctxItems"
+      :label="ctxMenu.entry.data.title"
+      @select="onCtx"
+      @close="ctxMenu = null"
+    />
+    <p
+      v-if="flash"
+      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-[10px] bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      role="status"
+      data-testid="flash"
+    >
+      {{ flash }}
+    </p>
+
+    <!-- Значок папки -->
+    <div
+      v-if="iconBranch"
+      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('icons.folderTitle', { name: iconBranch.name })"
+      @click.self="iconBranch = null"
+      @keydown.esc="iconBranch = null"
+    >
+      <div class="card w-full max-w-sm space-y-3 p-4" data-testid="folder-icon-dialog">
+        <h2 class="font-semibold">{{ t('icons.folderTitle', { name: iconBranch.name }) }}</h2>
+        <IconPicker v-model="iconDraft" kind="folder" :label="iconBranch.name" />
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="iconSaving"
+            data-testid="folder-icon-save"
+            @click="saveFolderIcon"
+          >
+            {{ t('common.save') }}
+          </button>
+          <button type="button" class="btn" @click="iconBranch = null">
+            {{ t('common.cancel') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Меню папки -->
     <div
       v-if="menuBranch"
@@ -950,7 +1145,8 @@ void router;
     >
       <div class="card w-full max-w-sm space-y-3 p-4" data-testid="folder-menu">
         <h2 class="flex items-center gap-2 font-semibold">
-          <Icon name="folder" /> {{ menuBranch.name }}
+          <ObjectIcon :icon="menuBranch.icon" kind="folder" variant="inline" />
+          {{ menuBranch.name }}
         </h2>
         <button
           v-if="canWrite"
@@ -968,6 +1164,14 @@ void router;
           @click="(renameFolder(menuBranch!), (menuBranch = null))"
         >
           {{ t('vault.rename') }}
+        </button>
+        <button
+          type="button"
+          class="btn w-full"
+          data-testid="folder-icon"
+          @click="openFolderIcon(menuBranch!)"
+        >
+          {{ t('icons.change') }}
         </button>
         <label class="block text-sm"
           ><span class="field-label">{{ t('vault.moveTo') }}</span>

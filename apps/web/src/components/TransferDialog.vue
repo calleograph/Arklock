@@ -121,7 +121,8 @@ async function runImport(): Promise<void> {
       let id = folderIds.get(key);
       if (!id) {
         id = crypto.randomUUID();
-        await ws.createBranchWithId(id, path[i - 1]!, parent);
+        // значок папки из выгрузки Arklock восстанавливается вместе с папкой
+        await ws.createBranchWithId(id, path[i - 1]!, parent, result.value?.folderIcons?.[key]);
         folderIds.set(key, id);
       }
       parent = id;

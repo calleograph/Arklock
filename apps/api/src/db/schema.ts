@@ -304,6 +304,8 @@ export const branches = pgTable(
       .references(() => vaults.id, { onDelete: 'cascade' }),
     parentId: uuid('parent_id'),
     nameCipher: text('name_cipher').notNull(),
+    /** Оформление (значок, цвет, своё изображение), зашифрованное ключом хранилища; нет — значок по умолчанию. */
+    metaCipher: text('meta_cipher'),
     keyVersion: integer('key_version').notNull(),
     version: integer('version').notNull().default(1),
     /** Элементы, удалённые вместе, имеют общую группу корзины и восстанавливаются вместе. */

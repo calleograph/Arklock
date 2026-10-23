@@ -37,6 +37,11 @@ import {
   verifyTotp,
   WORDLIST,
   generateAccountKeyPair,
+  createVaultKey,
+  decryptBranchMeta,
+  encryptBranchMeta,
+  encryptBranchName,
+  rewrapBranchMeta,
 } from '../src/index.js';
 
 const ascii = (s: string) => new TextEncoder().encode(s);
@@ -354,5 +359,22 @@ describe('streaming attachments', () => {
     ).toBe(true);
     expect(chunkCount(0)).toBe(1);
     expect(chunkCount(1024 * 1024 + 1)).toBe(2);
+  });
+});
+
+describe('branch appearance', () => {
+  it('is bound to its vault, branch and key version and cannot stand in for the name', async () => {
+    const key = createVaultKey();
+    const meta = JSON.stringify({ name: 'bank', color: 'green' });
+    const c = await encryptBranchMeta(meta, key, 'v1', 'b1', 1);
+    expect(await decryptBranchMeta(c, key, 'v1', 'b1', 1)).toBe(meta);
+    await expect(decryptBranchMeta(c, key, 'v1', 'b2', 1)).rejects.toThrow(CryptoAuthError);
+    await expect(decryptBranchMeta(c, key, 'v1', 'b1', 2)).rejects.toThrow(CryptoAuthError);
+    // шифртекст названия ветви не расшифровывается как оформление
+    const name = await encryptBranchName('Bank', key, 'v1', 'b1', 1);
+    await expect(decryptBranchMeta(name, key, 'v1', 'b1', 1)).rejects.toThrow(CryptoAuthError);
+    const next = createVaultKey();
+    const moved = await rewrapBranchMeta(c, key, next, 'v1', 'b1', 1, 2);
+    expect(await decryptBranchMeta(moved, next, 'v1', 'b1', 2)).toBe(meta);
   });
 });

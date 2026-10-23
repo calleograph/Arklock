@@ -26,9 +26,12 @@ import EntrySettingsPanel from './EntrySettingsPanel.vue';
 import IconButton from './IconButton.vue';
 import SecretText from './SecretText.vue';
 import Icon from './Icon.vue';
+import ObjectIcon from './ObjectIcon.vue';
+import IconPicker from './IconPicker.vue';
 import { errorMessage, when } from '../services/helpers';
 import { api } from '../services/api';
 import { openSink } from '../services/download';
+import { copyWithAutoClear, reportEntryEvent } from '../services/clipboard';
 import { NO_POLICY, checkPolicy, type PasswordPolicy } from '../services/policy';
 import type { VaultView } from '../stores/workspace';
 
@@ -84,6 +87,7 @@ const hasExtras = () =>
     form.value.expiresAt
   );
 const moreOpen = ref(false);
+const iconOpen = ref(false);
 moreOpen.value = hasExtras();
 const subTab = ref<'files' | 'history' | 'share' | null>(null);
 const tabs = ['details', 'files', 'access', 'journal', 'settings'] as const;
@@ -134,6 +138,7 @@ watch(
     form.value = props.item ? clone(normalizeEntry(props.item.data)) : blankEntry();
     tagsText.value = form.value.tags.join(', ');
     moreOpen.value = hasExtras();
+    iconOpen.value = false;
     showPw.value = false;
     revealed.value = new Set();
     error.value = '';
@@ -223,7 +228,7 @@ const copied = ref('');
 async function copy(label: string, value: string): Promise<void> {
   const item = props.item;
   try {
-    await navigator.clipboard.writeText(value);
+    await copyWithAutoClear(value);
     copied.value = label;
     if (label !== 'link')
       void reportEvent(
@@ -231,15 +236,7 @@ async function copy(label: string, value: string): Promise<void> {
         label === 'password' || label === 'username' || label === 'totp' ? label : 'custom',
         item,
       );
-    setTimeout(async () => {
-      copied.value = '';
-      try {
-        if ((await navigator.clipboard.readText()) === value)
-          await navigator.clipboard.writeText('');
-      } catch {
-        /* чтение буфера может быть запрещено */
-      }
-    }, 30_000);
+    setTimeout(() => (copied.value = ''), 30_000);
   } catch {
     error.value = t('entryPanel.clipboardFailed');
   }
@@ -252,10 +249,7 @@ async function reportEvent(
 ): Promise<void> {
   if (!item) return;
   try {
-    await api('POST', `/vaults/${item.vaultId}/entries/${item.id}/events`, {
-      action,
-      field,
-    });
+    await reportEntryEvent(item, action, field);
   } catch {
     // неудачная отметка об открытии не мешает работе; о показе и копировании секрета — сообщаем
     if (action !== 'open') error.value = t('entryPanel.eventFailed');
@@ -613,6 +607,7 @@ const fmt = (iso: string) => when(iso);
         <!-- Просмотр -->
         <template v-if="item && !editing">
           <div class="mb-4 flex items-start gap-2">
+            <ObjectIcon :icon="item.data.icon" kind="entry" :label="item.data.title" />
             <div class="min-w-0 flex-1">
               <h2 class="truncate text-xl font-semibold tracking-tight" data-testid="view-title">
                 {{ item.data.title }}
@@ -1099,15 +1094,37 @@ const fmt = (iso: string) => when(iso);
               </select></label
             >
           </div>
-          <label class="block text-sm"
-            ><span class="field-label">{{ t('vault.entryTitle') }}</span>
-            <input
-              v-model="form.title"
-              required
-              maxlength="200"
-              class="input"
-              data-testid="f-title"
-          /></label>
+          <div class="text-sm">
+            <label for="f-title" class="field-label">{{ t('vault.entryTitle') }}</label>
+            <div class="flex gap-1.5">
+              <!-- значок рядом с названием: нажатие раскрывает компактный выбор под полем -->
+              <button
+                type="button"
+                class="shrink-0 rounded-[10px] focus-visible:shadow-[var(--ring)] focus-visible:outline-none"
+                :aria-label="t('icons.title')"
+                :aria-expanded="iconOpen"
+                data-testid="f-icon"
+                @click="iconOpen = !iconOpen"
+              >
+                <ObjectIcon :icon="form.icon" kind="entry" :label="form.title" />
+              </button>
+              <input
+                id="f-title"
+                v-model="form.title"
+                required
+                maxlength="200"
+                class="input"
+                data-testid="f-title"
+              />
+            </div>
+            <IconPicker
+              v-if="iconOpen"
+              v-model="form.icon"
+              kind="entry"
+              :label="form.title"
+              class="mt-2 rounded-[10px] border border-slate-200 p-2 dark:border-slate-700"
+            />
+          </div>
           <template v-if="form.kind !== 'note'">
             <label class="block text-sm"
               ><span class="field-label">{{
