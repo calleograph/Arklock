@@ -219,6 +219,20 @@ test('administration sections show real data and perform real operations', async
   await tab(page, 'smtp');
   await expect(page.getByTestId('smtp-host')).toHaveValue('127.0.0.1', { timeout: 60_000 });
   await expect(page.getByTestId('smtp-password')).toHaveValue('');
+
+  // журнал: выгрузка CSV содержит то же, что отфильтровано на экране (раньше учитывалась только группа)
+  await tab(page, 'ledger');
+  await page.getByTestId('ledger-search').fill('smtp');
+  await page.getByTestId('ledger-apply').click();
+  await expect(page.getByTestId('ledger-row').first()).toBeVisible();
+  const ledgerCsv = page.waitForEvent('download');
+  await page.getByTestId('ledger-export').click();
+  const csv = readFileSync(await (await ledgerCsv).path(), 'utf8')
+    .trim()
+    .split('\n')
+    .slice(1);
+  expect(csv.length).toBeGreaterThan(0);
+  for (const line of csv) expect(line.toLowerCase()).toContain('smtp');
 });
 
 // ---------------------------------------------------------------- вход через каталог
@@ -575,11 +589,16 @@ test('custom roles: an administrative role opens only its own sections for a del
     .click();
 
   // увольнение: предпросмотр, подтверждение, блокировка
+  // действия со строкой — в меню «⋯»: после увольнения пункта «Уволить» в нём нет
+  await page.getByTestId('user-actions-invited.person@example.com').click();
   await page.getByTestId('offboard-invited.person@example.com').click();
   await expect(page.getByTestId('offboarding')).toBeVisible();
   await page.getByTestId('offboarding-confirm').click();
   await expect(page.getByTestId('offboarding').getByRole('status')).toBeVisible();
+  await page.getByTestId('user-actions-invited.person@example.com').click();
+  await expect(page.getByTestId('toggle-invited.person@example.com')).toBeVisible();
   await expect(page.getByTestId('offboard-invited.person@example.com')).toHaveCount(0);
+  await page.keyboard.press('Escape');
 
   // вебхук: секрет подписи показывается один раз
   await tab(page, 'webhooks');

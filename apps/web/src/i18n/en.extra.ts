@@ -128,6 +128,7 @@ export default {
     roles: { reader: 'Read', editor: 'Edit', manager: 'Manage', owner: 'Owner', none: 'Denied' },
     yourAccess: 'Your permissions',
     actualAccess: 'Effective access',
+    cryptoShort: 'A deny does not revoke an already issued vault key',
     cryptoNotice:
       'The server checks access. Entries share a vault encryption key: denying access cannot revoke previously received keys or copied secrets. Use separate vaults for cryptographic isolation.',
     denied: 'Explicit deny',
@@ -1020,6 +1021,7 @@ export default {
     disabled: 'disabled',
     active: 'active',
     endSessions: 'End sessions',
+    userActions: 'User actions',
     enable: 'Enable',
     disable: 'Disable',
     offboard: 'Offboard',

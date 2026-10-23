@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vaultLabel } from '../services/helpers';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -150,7 +151,13 @@ async function report(): Promise<void> {
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h1 class="text-xl font-semibold">
         {{ t('inspector.title') }}:
-        {{ ws.current?.kind === 'locker' ? t('vault.locker') : ws.current?.name }}
+        {{
+          ws.current?.kind === 'locker'
+            ? t('vault.locker')
+            : ws.current
+              ? vaultLabel(ws.current, t)
+              : ''
+        }}
       </h1>
       <button type="button" class="btn" @click="router.push('/')">{{ t('settings.back') }}</button>
     </div>

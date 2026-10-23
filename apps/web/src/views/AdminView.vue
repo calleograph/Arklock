@@ -13,6 +13,8 @@ import UpdatesView from './UpdatesView.vue';
 import WebhookSettings from '../components/WebhookSettings.vue';
 import InvitationsPanel from '../components/InvitationsPanel.vue';
 import Icon, { type IconName } from '../components/Icon.vue';
+import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
+import ContextMenu from '../components/ContextMenu.vue';
 import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
 import OffboardingPanel from '../components/OffboardingPanel.vue';
@@ -291,6 +293,45 @@ const removeFromCircle = (uid: string) =>
     circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
   }, loadCircles);
 
+// действия со строкой — в меню «⋯» и по правой кнопке: строка таблицы не растёт на ноутбуке
+const userActions = (u: U): ActionItem[] => [
+  {
+    id: 'sessions',
+    label: t('admin.endSessions'),
+    icon: 'logout',
+    testid: `end-sessions-${u.email}`,
+  },
+  { id: 'mfa', label: t('adminx.resetMfa'), icon: 'key', testid: `reset-mfa-${u.email}` },
+  ...(u.id !== auth.user?.id && !u.chief
+    ? [
+        {
+          id: 'toggle',
+          label: u.disabled ? t('admin.enable') : t('admin.disable'),
+          icon: 'lock' as const,
+          danger: !u.disabled,
+          testid: `toggle-${u.email}`,
+        },
+      ]
+    : []),
+  ...(!u.disabled && !u.chief && u.id !== auth.user?.id && (isFull() || u.role !== 'admin')
+    ? [
+        {
+          id: 'offboard',
+          label: t('admin.offboard'),
+          icon: 'user' as const,
+          danger: true,
+          testid: `offboard-${u.email}`,
+        },
+      ]
+    : []),
+];
+function onUserAction(u: U, id: string): void {
+  if (id === 'sessions') void endSessions(u);
+  else if (id === 'mfa') void resetMfa(u);
+  else if (id === 'toggle') void patchUser(u, { disabled: !u.disabled });
+  else if (id === 'offboard') offboarding.value = u;
+}
+const userMenu = ref<{ x: number; y: number; u: U } | null>(null);
 const resetMfa = (u: { id: string }) =>
   window.confirm(t('admin.confirmDelete')) &&
   run(async () => {
@@ -374,21 +415,27 @@ const actionText = (a: string) => {
 const ledger = ref<L[]>([]);
 const next = ref<number | null>(null);
 const filter = ref({ action: '', q: '', from: '', to: '' });
-async function loadLedger(more = false): Promise<void> {
-  const p = new URLSearchParams({ limit: '50' });
+// одни и те же условия для списка и выгрузки: CSV должен содержать то, что видно на экране
+function ledgerParams(extra: Record<string, string>): URLSearchParams {
+  const p = new URLSearchParams(extra);
   if (filter.value.action) p.set('action', filter.value.action);
   if (filter.value.q) p.set('q', filter.value.q);
   if (filter.value.from) p.set('from', new Date(filter.value.from).toISOString());
   if (filter.value.to) p.set('to', new Date(filter.value.to + 'T23:59:59').toISOString());
+  return p;
+}
+async function loadLedger(more = false): Promise<void> {
+  const p = ledgerParams({ limit: '50' });
   if (more && next.value) p.set('before', String(next.value));
   const r = await api<{ items: L[]; next: number | null }>('GET', `/admin/ledger?${p}`);
   ledger.value = more ? [...ledger.value, ...r.items] : r.items;
   next.value = r.next;
 }
 async function exportLedger(): Promise<void> {
-  const p = new URLSearchParams({ limit: '500', format: 'csv' });
-  if (filter.value.action) p.set('action', filter.value.action);
-  const r = await api<{ csv: string }>('GET', `/admin/ledger?${p}`);
+  const r = await api<{ csv: string }>(
+    'GET',
+    `/admin/ledger?${ledgerParams({ limit: '500', format: 'csv' })}`,
+  );
   const url = URL.createObjectURL(new Blob([r.csv], { type: 'text/csv' }));
   const a = document.createElement('a');
   a.href = url;
@@ -483,8 +530,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
   <section class="space-y-4">
     <h1>{{ t('admin.title') }}</h1>
     <div class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[12.5rem_minmax(0,1fr)]">
+      <!-- меню не выше видимой части экрана: иначе прокрутка к активному разделу сдвигает всю страницу -->
       <nav
-        class="md:sticky md:top-16 md:max-h-[calc(100dvh-5rem)] md:self-start md:overflow-y-auto md:pr-1"
+        class="md:sticky md:top-16 md:max-h-[calc(100dvh-8.25rem)] md:self-start md:overflow-y-auto md:pr-1"
         :aria-label="t('admin.title')"
       >
         <div
@@ -595,6 +643,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 :key="u.id"
                 class="border-t border-slate-200 dark:border-slate-800"
                 data-testid="user-row"
+                @contextmenu.prevent="userMenu = { x: $event.clientX, y: $event.clientY, u }"
               >
                 <td class="px-3 py-2">
                   <button
@@ -645,42 +694,13 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     u.disabled ? t('admin.disabled') : t('admin.active')
                   }}</span>
                 </td>
-                <td class="space-x-1 whitespace-nowrap px-3 text-right">
-                  <button type="button" class="btn" @click="endSessions(u)">
-                    {{ t('admin.endSessions') }}
-                  </button>
-                  <button
-                    type="button"
-                    class="btn"
-                    :data-testid="`reset-mfa-${u.email}`"
-                    @click="resetMfa(u)"
-                  >
-                    {{ t('adminx.resetMfa') }}
-                  </button>
-                  <button
-                    type="button"
-                    :class="u.disabled ? 'btn' : 'btn-danger'"
-                    :disabled="u.id === auth.user?.id || u.chief"
-                    :title="u.chief ? t('error.chiefAdmin') : undefined"
-                    :data-testid="`toggle-${u.email}`"
-                    @click="patchUser(u, { disabled: !u.disabled })"
-                  >
-                    {{ u.disabled ? t('admin.enable') : t('admin.disable') }}
-                  </button>
-                  <button
-                    v-if="
-                      !u.disabled &&
-                      !u.chief &&
-                      u.id !== auth.user?.id &&
-                      (isFull() || u.role !== 'admin')
-                    "
-                    type="button"
-                    class="btn-danger ml-1"
-                    :data-testid="`offboard-${u.email}`"
-                    @click="offboarding = u"
-                  >
-                    {{ t('admin.offboard') }}
-                  </button>
+                <td class="px-3 text-right">
+                  <ActionMenu
+                    :title="`${t('admin.userActions')}: ${u.name}`"
+                    :items="userActions(u)"
+                    :data-testid="`user-actions-${u.email}`"
+                    @select="(id) => onUserAction(u, id)"
+                  />
                 </td>
               </tr>
             </tbody>
@@ -1282,5 +1302,14 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         </div>
       </div>
     </div>
+    <ContextMenu
+      v-if="userMenu"
+      :x="userMenu.x"
+      :y="userMenu.y"
+      :items="userActions(userMenu.u)"
+      :label="`${t('admin.userActions')}: ${userMenu.u.name}`"
+      @select="(id) => onUserAction(userMenu!.u, id)"
+      @close="userMenu = null"
+    />
   </section>
 </template>

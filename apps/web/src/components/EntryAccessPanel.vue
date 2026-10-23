@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import GrantDialog, { type Recipient } from './GrantDialog.vue';
 import Icon from './Icon.vue';
+import InfoHint from './InfoHint.vue';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -197,11 +198,14 @@ function sourceLabel(source: string): string {
           <Icon name="share" /> {{ t('grantDlg.open') }}
         </button>
       </div>
-      <p
-        class="rounded-md bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+      <!-- граница защиты видна всегда одной строкой, подробности раскрываются -->
+      <details
+        class="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+        data-testid="crypto-notice"
       >
-        {{ t('entryPanel.cryptoNotice') }}
-      </p>
+        <summary class="cursor-pointer">{{ t('entryPanel.cryptoShort') }}</summary>
+        <p class="mt-1">{{ t('entryPanel.cryptoNotice') }}</p>
+      </details>
       <section class="space-y-2">
         <h3 class="font-medium">{{ t('entryPanel.actualAccess') }}</h3>
         <ul class="divide-y divide-slate-200 dark:divide-slate-800">
@@ -231,8 +235,9 @@ function sourceLabel(source: string): string {
         </ul>
       </section>
       <section class="space-y-2">
-        <h3 class="font-medium">{{ t('entryPanel.rules') }}</h3>
-        <p class="text-xs text-slate-500">{{ t('entryPanel.inheritanceHint') }}</p>
+        <h3 class="flex items-center gap-1 font-medium">
+          {{ t('entryPanel.rules') }}<InfoHint :text="t('entryPanel.inheritanceHint')" />
+        </h3>
         <p v-if="!data.grants.length" class="text-slate-500">{{ t('entryPanel.noRules') }}</p>
         <ul class="space-y-2">
           <li
