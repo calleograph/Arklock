@@ -317,6 +317,14 @@ function rowClick(e: EntryItem): void {
   if (pressedLong) pressedLong = false;
   else open(e);
 }
+async function newEntryIn(b: BranchItem): Promise<void> {
+  menuBranch.value = null;
+  scope.value = 'all';
+  branchSel.value = b.id;
+  // смена папки закрывает открытую запись и форму (watch ниже) — форму открываем после неё
+  await nextTick();
+  newEntry();
+}
 function newEntry(from: EntryItem | null = null): void {
   openId.value = null;
   cloneOf.value = from;
@@ -1242,7 +1250,7 @@ void router;
           type="button"
           class="btn w-full"
           data-testid="folder-add-entry"
-          @click="((scope = 'all'), (branchSel = menuBranch!.id), (menuBranch = null), newEntry())"
+          @click="newEntryIn(menuBranch!)"
         >
           <Icon name="plus" /> {{ t('ctx.addHere') }}
         </button>

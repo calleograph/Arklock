@@ -372,6 +372,17 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('ctx-purge').click();
   await expect(copyRow).toHaveCount(0);
   await page.getByTestId('scope-all').click();
+
+  // «Новая запись в этой папке» из меню другой папки: форма открывается и остаётся открытой
+  await page.getByTestId('folder-menu-Банки').click();
+  await page.getByTestId('folder-add-entry').click();
+  await page.getByTestId('f-title').fill('Запись в папке');
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Запись в папке');
+  await expect(page.getByTestId('entry-row').filter({ hasText: 'Запись в папке' })).toContainText(
+    'Банки',
+  );
+  await page.getByTestId('scope-all').click();
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {
