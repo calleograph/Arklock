@@ -6,7 +6,7 @@ import { requireVault } from '../access.js';
 import { audit } from '../audit.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { entries, handoffs, signals, users } from '../db/schema.js';
+import { entries, handoffs, ledger, signals, users } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { AttemptLimiter } from '../rateLimit.js';
 
@@ -163,10 +163,26 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         .onConflictDoNothing()
         .returning({ id: signals.id });
       created += res.length;
-      if (res.length)
+      if (res.length) {
         await audit(db, `user:${user.id}`, 'signal.create', `signal:${res[0]!.id}`, {
           vault: vaultId,
         });
+        continue;
+      }
+      // проблема вернулась: решённое событие открывается снова, проигнорированное остаётся решением человека
+      const reopened = await db
+        .update(signals)
+        .set({ status: 'open', assignedTo: null, updatedAt: now })
+        .where(
+          and(
+            eq(signals.entryId, i.entryId),
+            eq(signals.type, i.type),
+            eq(signals.status, 'resolved'),
+          ),
+        )
+        .returning({ id: signals.id });
+      for (const r of reopened)
+        await audit(db, `user:${user.id}`, 'signal.reopen', `signal:${r.id}`, { vault: vaultId });
     }
     // Проблемы, которых при полной проверке больше нет, закрываются как устранённые.
     const keep = new Set(items.map((i) => `${i.entryId}:${i.type}`));
@@ -183,11 +199,17 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const gone = open
       .filter((s) => allowed.has(s.entryId) && !keep.has(`${s.entryId}:${s.type}`))
       .map((s) => s.id);
-    if (gone.length)
+    if (gone.length) {
       await db
         .update(signals)
         .set({ status: 'resolved', updatedAt: now })
         .where(inArray(signals.id, gone));
+      for (const g of gone)
+        await audit(db, `user:${user.id}`, 'signal.resolve', `signal:${g}`, {
+          vault: vaultId,
+          auto: true,
+        });
+    }
     return { created, resolved: gone.length };
   });
 
@@ -260,9 +282,62 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .where(eq(signals.id, signalId))
       .returning();
     await audit(db, `user:${user.id}`, 'signal.update', `signal:${signalId}`, {
+      vault: vaultId,
       status: body.status ?? null,
+      ...(body.assignedTo !== undefined ? { assignedTo: body.assignedTo } : {}),
     });
     return { id: row!.id, status: row!.status, assignedTo: row!.assignedTo };
+  });
+
+  /** История события: создание, смены статуса и ответственного, закрытие — из журнала действий. */
+  app.get('/vaults/:vaultId/signals/:signalId/history', { preHandler: auth }, async (req) => {
+    const { user } = authOf(req);
+    const { vaultId, signalId } = parse(z.object({ vaultId: uuid, signalId: uuid }), req.params);
+    const access = await requireVault(db, vaultId, user.id);
+    if (!access.isAdmin) throw forbidden();
+    const [s] = await db
+      .select({ entryId: signals.entryId, branchId: entries.branchId })
+      .from(signals)
+      .innerJoin(entries, eq(entries.id, signals.entryId))
+      .where(and(eq(signals.id, signalId), eq(signals.vaultId, vaultId)));
+    if (!s || !access.entry(s.entryId, s.branchId)) throw notFound();
+    const rows = await db
+      .select()
+      .from(ledger)
+      .where(eq(ledger.target, `signal:${signalId}`))
+      .orderBy(asc(ledger.id))
+      .limit(200);
+    const detailOf = (d: unknown) => (d ?? {}) as Record<string, unknown>;
+    const ids = [
+      ...new Set(
+        rows.flatMap((r) => [
+          r.actor.startsWith('user:') ? r.actor.slice(5) : '',
+          String(detailOf(r.detail).assignedTo ?? ''),
+        ]),
+      ),
+    ].filter((x) => /^[0-9a-f-]{36}$/.test(x));
+    const people = ids.length
+      ? await db
+          .select({ id: users.id, name: users.displayName })
+          .from(users)
+          .where(inArray(users.id, ids))
+      : [];
+    const names = new Map(people.map((p) => [p.id, p.name]));
+    return rows.map((r) => {
+      const d = detailOf(r.detail);
+      const assigned = typeof d.assignedTo === 'string' ? d.assignedTo : null;
+      return {
+        at: r.at.toISOString(),
+        action: r.action,
+        actorName: r.actor.startsWith('user:') ? (names.get(r.actor.slice(5)) ?? null) : null,
+        status: typeof d.status === 'string' ? d.status : null,
+        assigned: d.assignedTo === undefined ? undefined : assigned,
+        assignedName: assigned ? (names.get(assigned) ?? null) : null,
+        auto: d.auto === true,
+        clientReported: d.clientReported === true,
+        reason: typeof d.reason === 'string' ? d.reason : null,
+      };
+    });
   });
 
   void config;

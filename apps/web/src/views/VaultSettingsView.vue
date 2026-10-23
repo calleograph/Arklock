@@ -7,13 +7,13 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { decryptEntry, fingerprint, fromBase64Url } from '@arklock/crypto';
 import { api } from '../services/api';
-import { errorMessage, vaultLabel, day } from '../services/helpers';
+import { errorMessage, vaultLabel, day, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore, type MemberInfo } from '../stores/workspace';
 import EntrySettingsPanel from '../components/EntrySettingsPanel.vue';
 import VaultCorporateRecovery from '../components/VaultCorporateRecovery.vue';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const ws = useWorkspaceStore();
@@ -45,10 +45,86 @@ const grants = ref<
   }[]
 >([]);
 const signals = ref<
-  { id: string; entryId: string; type: string; status: string; assignedName: string | null }[]
+  {
+    id: string;
+    entryId: string;
+    type: string;
+    status: string;
+    assignedName: string | null;
+    createdAt: string;
+  }[]
 >([]);
+// риск по типу: утечка и «смените пароль после увольнения» — высокий, остальное — средний
+const risk = (type: string) => (type === 'compromised' || type === 'rotate' ? 'high' : 'medium');
+interface SignalStep {
+  at: string;
+  action: string;
+  actorName: string | null;
+  status: string | null;
+  assigned?: string | null;
+  assignedName: string | null;
+  auto: boolean;
+  clientReported: boolean;
+  reason: string | null;
+}
+const histories = ref<Record<string, SignalStep[]>>({});
+async function toggleHistory(sid: string): Promise<void> {
+  if (histories.value[sid]) {
+    const { [sid]: _, ...rest } = histories.value;
+    histories.value = rest;
+    return;
+  }
+  histories.value = {
+    ...histories.value,
+    [sid]: await api<SignalStep[]>('GET', `/vaults/${id}/signals/${sid}/history`),
+  };
+}
+const stepText = (h: SignalStep) =>
+  [
+    t(`signalHistory.${h.action.replace('signal.', '')}`),
+    h.status ? t(`signalStatus.${h.status}`) : '',
+    h.reason === 'offboarding' ? t('signalHistory.offboarding') : '',
+    h.auto ? t('signalHistory.auto') : '',
+    h.clientReported ? t('signalHistory.clientReported') : '',
+    h.assigned === null
+      ? t('signalHistory.unassigned')
+      : h.assignedName
+        ? t('signalHistory.assigned', { name: h.assignedName })
+        : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+// время реакции — от создания до первого действия человека, закрытия — до последнего закрытия
+function took(from: string, to: string): string {
+  const min = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 60_000));
+  const [n, unit] =
+    min < 120
+      ? [min, 'minute']
+      : min < 2880
+        ? [Math.round(min / 60), 'hour']
+        : [Math.round(min / 1440), 'day'];
+  return new Intl.NumberFormat(locale.value, { style: 'unit', unit, unitDisplay: 'short' }).format(
+    n,
+  );
+}
+function timings(steps: SignalStep[]): string {
+  const created = steps.find((h) => h.action === 'signal.create');
+  if (!created) return '';
+  const first = steps.find((h) => h.action === 'signal.update' && h.at >= created.at);
+  const closed = [...steps]
+    .reverse()
+    .find(
+      (h) => h.action === 'signal.resolve' || h.status === 'resolved' || h.status === 'dismissed',
+    );
+  return [
+    first ? t('signalHistory.reaction', { t: took(created.at, first.at) }) : '',
+    closed ? t('signalHistory.closed', { t: took(created.at, closed.at) }) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
 const entryTitles = ref<Map<string, string>>(new Map());
-const newName = ref(vault.value?.name ?? '');
+const newName = ref(vault.value ? vaultLabel(vault.value, t) : '');
 const rotationHint = ref(false);
 
 async function load(): Promise<void> {
@@ -202,7 +278,15 @@ const targetLabel = (g: { targetType: string; targetId: string }) =>
   grantTargets.value.find((x) => x.id === g.targetId)?.label ?? g.targetId.slice(0, 8);
 
 const setSignal = (sid: string, body: object) =>
-  run(() => api('PATCH', `/vaults/${id}/signals/${sid}`, body));
+  run(async () => {
+    await api('PATCH', `/vaults/${id}/signals/${sid}`, body);
+    // открытая история не должна отставать от только что сделанного изменения
+    if (histories.value[sid])
+      histories.value = {
+        ...histories.value,
+        [sid]: await api<SignalStep[]>('GET', `/vaults/${id}/signals/${sid}/history`),
+      };
+  });
 const pending = computed(() => info.value?.members.filter((m) => !m.hasKey) ?? []);
 void decryptEntry;
 </script>
@@ -429,10 +513,15 @@ void decryptEntry;
           :key="s.id"
           class="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
         >
-          <span
+          <span class="min-w-0">
+            <span
+              class="badge mr-1"
+              :class="risk(s.type) === 'high' ? 'text-red-700 dark:text-red-300' : ''"
+              >{{ t(`signalRisk.${risk(s.type)}`) }}</span
             >{{ t(`issue.${s.type}`) }} —
-            {{ entryTitles.get(s.entryId) ?? s.entryId.slice(0, 8) }}</span
-          >
+            {{ entryTitles.get(s.entryId) ?? s.entryId.slice(0, 8) }}
+            <span class="text-xs text-slate-500">· {{ when(s.createdAt) }}</span>
+          </span>
           <span class="flex items-center gap-1">
             <select
               :value="s.status"
@@ -454,7 +543,27 @@ void decryptEntry;
             >
               {{ s.assignedName ?? t('settings.assignMe') }}
             </button>
+            <button
+              type="button"
+              class="btn-ghost text-xs"
+              :aria-expanded="!!histories[s.id]"
+              :data-testid="`signal-history-${s.id}`"
+              @click="toggleHistory(s.id).catch((e) => (error = errorMessage(e, t)))"
+            >
+              {{ histories[s.id] ? t('signalHistory.hide') : t('signalHistory.show') }}
+            </button>
           </span>
+          <div v-if="histories[s.id]" class="w-full text-xs text-slate-600 dark:text-slate-300">
+            <p v-if="timings(histories[s.id]!)" class="font-medium">
+              {{ timings(histories[s.id]!) }}
+            </p>
+            <ol class="mt-1 space-y-0.5" data-testid="signal-history">
+              <li v-for="(h, i) in histories[s.id]" :key="i">
+                <span class="num text-slate-500">{{ when(h.at) }}</span>
+                {{ h.actorName ?? '—' }}: {{ stepText(h) }}
+              </li>
+            </ol>
+          </div>
         </li>
         <li v-if="!signals.length" class="px-3 py-2 text-slate-500">—</li>
       </ul>

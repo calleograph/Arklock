@@ -228,7 +228,14 @@ async function report(): Promise<void> {
     <p v-if="breachError" class="text-sm text-amber-700" role="alert" data-testid="breach-error">
       {{ breachError }}
     </p>
-    <p v-if="reported" class="text-sm text-emerald-700" role="status">{{ reported }}</p>
+    <p
+      v-if="reported"
+      class="text-sm text-emerald-700"
+      role="status"
+      data-testid="inspector-reported"
+    >
+      {{ reported }}
+    </p>
 
     <div v-for="[type, list] in grouped" :key="type" class="card">
       <h2 class="border-b border-slate-200 px-3 py-2 font-medium dark:border-slate-800">

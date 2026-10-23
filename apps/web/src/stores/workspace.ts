@@ -474,6 +474,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           ...enc,
           branchId: branchId === undefined ? existing.branchId : branchId,
           expectedVersion: existing.version,
+          // сервер не видит содержимого: о смене пароля сообщаем, чтобы закрыть «требуется смена пароля»
+          ...(existing.data.password !== clean.password ? { passwordChanged: true } : {}),
         })
       : await api<EntryRecord>('POST', `/vaults/${vault.id}/entries`, {
           id,

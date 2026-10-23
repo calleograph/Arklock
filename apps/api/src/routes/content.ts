@@ -23,6 +23,7 @@ import {
   entryRevisions,
   grants,
   pins,
+  signals,
   branchPins,
   users,
   vaults,
@@ -315,6 +316,24 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       `entry:${entryId}`,
       { vault: vaultId, branch: branchId },
     );
+    if (body.passwordChanged) {
+      const closed = await db
+        .update(signals)
+        .set({ status: 'resolved', updatedAt: now })
+        .where(
+          and(
+            eq(signals.entryId, entryId),
+            eq(signals.type, 'rotate'),
+            inArray(signals.status, ['open', 'in_progress']),
+          ),
+        )
+        .returning({ id: signals.id });
+      for (const c of closed)
+        await audit(db, `user:${user.id}`, 'signal.resolve', `signal:${c.id}`, {
+          vault: vaultId,
+          clientReported: true,
+        });
+    }
     return entryRecord(updated, a, (await pinnedSet(user.id, [entryId])).has(entryId));
   });
 

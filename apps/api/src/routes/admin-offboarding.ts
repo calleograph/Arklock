@@ -2,6 +2,7 @@ import { and, count, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
+import { loadAccess } from '../access.js';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -17,6 +18,7 @@ import {
   handoffs,
   pinDevices,
   sessions,
+  signals,
   spaceMembers,
   spaces,
   users,
@@ -29,6 +31,8 @@ import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { notifyUsers } from '../notifications.js';
 import { hasPasskey, hasTotp } from '../auth/mfa.js';
 import { spaceAccess } from '../spaces.js';
+
+const ROTATE_MAX = 2000;
 
 /** Корпоративные сейфы сотрудника: роль, число живых записей и другие действующие владельцы. */
 async function heldVaults(db: Db, userId: string) {
@@ -291,6 +295,35 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
           { vaults: risks },
         );
 
+      // пароли записей, которые сотрудник мог видеть, стоит сменить: событие «требуется смена пароля»
+      // по каждой (доступ считается до удаления членства; повторное увольнение открывает событие снова)
+      const rotate: { id: string; vault: string }[] = [];
+      for (const v of after) {
+        const acc = await loadAccess(txDb, v.id, id);
+        const rows = await tx
+          .select({ id: entries.id, branchId: entries.branchId })
+          .from(entries)
+          .where(and(eq(entries.vaultId, v.id), isNull(entries.deletedAt)));
+        // shortcut: не больше ROTATE_MAX событий на сейф; для сейфов крупнее остаётся ротация ключа из ответа
+        for (const e of rows.filter((r) => acc.entry(r.id, r.branchId)).slice(0, ROTATE_MAX)) {
+          const [sig] = await tx
+            .insert(signals)
+            .values({
+              id: crypto.randomUUID(),
+              vaultId: v.id,
+              entryId: e.id,
+              type: 'rotate',
+              reportedBy: user.id,
+            })
+            .onConflictDoUpdate({
+              target: [signals.entryId, signals.type],
+              set: { status: 'open', assignedTo: null, updatedAt: new Date() },
+            })
+            .returning({ id: signals.id });
+          rotate.push({ id: sig!.id, vault: v.id });
+        }
+      }
+
       const vaultIds = after.map((v) => v.id);
       if (vaultIds.length) {
         await tx
@@ -323,7 +356,13 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         .update(users)
         .set({ disabledAt: now, adminRoleId: null, updatedAt: now })
         .where(eq(users.id, id));
-      return { after, tokens: tokens.length, links: links.length, newOwners: [...newOwners] };
+      return {
+        after,
+        tokens: tokens.length,
+        links: links.length,
+        newOwners: [...newOwners],
+        rotate,
+      };
     });
 
     // участники затронутых сейфов узнают, что ключ сейфа стоит заменить
@@ -347,6 +386,12 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       resourceType: 'user',
       resourceId: id,
     });
+    for (const r of result.rotate)
+      await audit(db, `user:${user.id}`, 'signal.create', `signal:${r.id}`, {
+        vault: r.vault,
+        reason: 'offboarding',
+        user: id,
+      });
     await audit(db, `user:${user.id}`, 'admin.user.offboard', `user:${id}`, {
       vaults: result.after.length,
       transfers: body.transfers.length,
@@ -360,6 +405,8 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       rotateVaults: result.after.map((v) => ({ id: v.id, name: v.name, entries: v.entries })),
       tokensRevoked: result.tokens,
       linksRevoked: result.links,
+      /** Записи, по которым открыто событие «требуется смена пароля». */
+      rotateEntries: result.rotate.length,
     };
   });
 };

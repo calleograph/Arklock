@@ -445,7 +445,8 @@ export const signals = pgTable(
     entryId: uuid('entry_id')
       .notNull()
       .references(() => entries.id, { onDelete: 'cascade' }),
-    type: text('type', { enum: ['weak', 'reused', 'compromised', 'expired'] }).notNull(),
+    // rotate — «требуется смена пароля» после увольнения сотрудника с доступом; создаёт только сервер
+    type: text('type', { enum: ['weak', 'reused', 'compromised', 'expired', 'rotate'] }).notNull(),
     status: text('status', { enum: ['open', 'in_progress', 'resolved', 'dismissed'] })
       .notNull()
       .default('open'),

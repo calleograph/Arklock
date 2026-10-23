@@ -469,6 +469,19 @@ test('import (CSV), encrypted export and the security inspector', async () => {
   await expect(page.getByTestId('count-weak')).not.toHaveText('0');
   await expect(page.getByTestId('count-reused')).toHaveText('2');
   expect(bodies.join('')).not.toContain('Zq8!vN3');
+
+  // отчёт администраторам: события в настройках сейфа, у события — история с риском и создателем
+  await page.getByTestId('btn-report').click();
+  await expect(page.getByTestId('inspector-reported')).toBeVisible();
+  await page.getByRole('button', { name: /Назад|Back/ }).click();
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-vault-settings').click();
+  const firstSignal = page.getByTestId('signals-list').locator('li').first();
+  await expect(firstSignal).toContainText(/риск|risk/);
+  await firstSignal.locator('[data-testid^="signal-history-"]').click();
+  await expect(firstSignal.getByTestId('signal-history')).toContainText(/Создано|Created/);
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
 });
 
 test('a second user joins a shared vault; revoking access and rotating the key', async ({

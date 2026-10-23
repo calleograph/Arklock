@@ -56,6 +56,8 @@ export const entryWrite = z.object({
 export const entryUpdate = entryWrite.omit({ id: true }).extend({
   /** Версия записи, на которой основано изменение (контроль конфликтов). */
   expectedVersion: z.number().int().min(1),
+  /** Пароль в записи сменён — сообщает браузер (сервер содержимого не видит); закрывает «требуется смена пароля». */
+  passwordChanged: z.boolean().optional(),
 });
 export const entryDelete = z.object({ expectedVersion: z.number().int().min(1) });
 
