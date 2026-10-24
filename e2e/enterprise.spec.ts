@@ -232,6 +232,35 @@ test('стало: остальные 19 подразделений списко�
   expect(again.length).toBe(vaults.length);
 });
 
+test('мастер: участники и начальные папки в сейфе отдела', async () => {
+  test.setTimeout(300_000);
+  await page.getByTestId('dept-mode-one').click();
+  await page.getByTestId('dept-name').fill('Отдел с папками');
+  await page.getByTestId('dept-head').selectOption('');
+  await page.getByTestId('dept-member-filter').fill('staff03');
+  await page.getByTestId(`dept-member-${staffEmail(2)}`).check();
+  await page.getByTestId('dept-folders').fill('Серверы, Сеть');
+  await page.getByTestId('dept-create').click();
+  await expect(page.getByTestId('dept-state')).toHaveText('Готово', { timeout: 120_000 });
+  const circles = (await api('GET', '/admin/circles')).json as { id: string; name: string }[];
+  const c = circles.find((x) => x.name === 'Отдел с папками')!;
+  const members = (await api('GET', `/admin/circles/${c.id}/members`)).json as { email: string }[];
+  expect(members.map((m) => m.email)).toEqual([staffEmail(2)]);
+  // папки созданы в сейфе отдела (названия зашифрованы — проверяется через интерфейс)
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await page.getByTestId('space-select').selectOption({ label: 'Отдел с папками' });
+  await expect(page.getByTestId('branch-row').filter({ hasText: 'Серверы' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByTestId('branch-row').filter({ hasText: 'Сеть' })).toBeVisible();
+  // вернуться в мастер для следующих сценариев
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-departments').click();
+  await page.getByTestId('dept-mode-many').click();
+});
+
 test('неверная строка блокирует создание и объясняет причину', async () => {
   await page.getByTestId('dept-list').fill('Новый отдел; nobody@corp.example\nНовый отдел');
   await expect(page.getByTestId('dept-create')).toBeDisabled();
@@ -726,4 +755,56 @@ test('безопасность: слабые пароли отдела видн�
   const row = page.getByTestId('structure-vault').filter({ hasText: 'Финансы' }).first();
   await expect(row.getByTestId('structure-security')).toContainText('3', { timeout: 30_000 });
   await page.screenshot({ path: 'docs/screenshots/ux-organization-security.png' });
+});
+
+test('доступ между отделами: временный доступ руководителю закупок на 7 дней и отзыв — замер', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const hc = new TestClient(httpApp(BASE), headEmail(10), PASSWORD); // Логистика
+  await hc.login();
+  const vault = (await hc.vaults()).find((v) => v.name === 'Логистика')!;
+  const key = await hc.openVault(vault);
+  await hc.createEntry(
+    {
+      kind: 'login',
+      title: 'Склад-портал',
+      username: 'log',
+      password: 'Correct-Horse-Battery-9!x',
+      url: '',
+      notes: '',
+      totp: '',
+      tags: [],
+      fields: [],
+      links: [],
+    },
+    { vaultId: vault.id, vaultKey: key },
+  );
+  const head = await login(browser, headEmail(10));
+  await head.getByTestId('vault-select').selectOption({ label: 'Логистика' });
+  await head.getByTestId('entry-row').first().click();
+
+  const g = new Counter(head, 'Временный доступ другому отделу на 7 дней');
+  await g.click('tab-access');
+  g.screen();
+  await g.click('grant-open');
+  await g.fill('grant-search', headEmail(11));
+  await g.click(`grant-option-${headEmail(11)}`);
+  await g.pick('grant-term', '7');
+  await g.click('grant-submit');
+  const row = head.getByTestId('entry-access-grant').filter({ hasText: headEmail(11) });
+  await expect(row).toHaveCount(1);
+  // срок виден прямо в строке назначения
+  await expect(row.getByTestId('grant-expiry')).not.toHaveValue('');
+  record(g);
+
+  const r = new Counter(head, 'Отозвать выданный доступ');
+  head.once('dialog', (d) => void d.accept());
+  r.clicks++;
+  await row.getByRole('button', { name: /Отозвать|Revoke/ }).click();
+  await expect(
+    head.getByTestId('entry-access-grant').filter({ hasText: headEmail(11) }),
+  ).toHaveCount(0);
+  record(r);
+  await head.context().close();
 });
