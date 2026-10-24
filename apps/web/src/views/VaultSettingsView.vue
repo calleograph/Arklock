@@ -51,7 +51,7 @@ const signals = ref<
     type: string;
     status: string;
     assignedName: string | null;
-    cause: { id: string; name: string | null } | null;
+    cause: { id: string; name: string | null; reason?: 'offboarding' | 'revoked' } | null;
     createdAt: string;
     updatedAt: string;
   }[]
@@ -552,7 +552,17 @@ void decryptEntry;
             >{{ t(`issue.${s.type}`) }} —
             {{ entryTitles.get(s.entryId) ?? s.entryId.slice(0, 8) }}
             <span v-if="s.cause" class="mr-1 text-xs text-slate-500" data-testid="signal-cause"
-              >· {{ t('settings.signalCause', { name: s.cause.name ?? '—' }) }}</span
+              >·
+              {{
+                t(
+                  s.cause.reason === 'revoked'
+                    ? 'settings.signalCauseRevoked'
+                    : 'settings.signalCause',
+                  {
+                    name: s.cause.name ?? '—',
+                  },
+                )
+              }}</span
             >
             <span class="text-xs text-slate-500"
               >· {{ when(s.createdAt) }}

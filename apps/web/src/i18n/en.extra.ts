@@ -802,7 +802,7 @@ export default {
       do: 'change the password or extend the entry.',
     },
     rotate: {
-      why: 'an offboarded employee could see or keep this password.',
+      why: 'someone who lost access (offboarded or removed from the vault) could see or keep this password.',
       do: 'change it in the external system and save the new one here — the event closes by itself.',
     },
   },
@@ -995,6 +995,7 @@ export default {
     signals: 'Security events',
     assignMe: 'Assign to me',
     signalCause: 'after offboarding {name}',
+    signalCauseRevoked: 'after access was revoked from {name}',
     signalOpen: 'Open entry',
     signalTab: { active: 'Open: {n}', closed: 'Closed: {n}' },
     signalClosedAt: 'closed {at}',

@@ -740,7 +740,7 @@ export const ruHelp = {
     accessUntilHint:
       'В это время учётная запись отключится сама, сеансы завершатся. Для временных сотрудников и подрядчиков; администраторам не задаётся.',
     journalEmpty: 'Событий пока нет.',
-    rotation: 'Смена паролей после увольнения',
+    rotation: 'Смена паролей после потери доступа',
     rotationSummary: 'Закрыто {closed} из {total} · доступно вам {available}',
     rotationHint:
       'Остальные события разбирают администраторы этих сейфов: у вас нет доступа к их записям.',
@@ -1595,7 +1595,7 @@ export const enHelp = {
     accessUntilHint:
       'At this time the account is disabled automatically and its sessions end. For temporary staff and contractors; not for administrators.',
     journalEmpty: 'No events yet.',
-    rotation: 'Password changes after offboarding',
+    rotation: 'Password changes after lost access',
     rotationSummary: 'Closed {closed} of {total} · available to you {available}',
     rotationHint:
       'The rest are handled by administrators of these vaults: you have no access to their entries.',

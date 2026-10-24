@@ -27,12 +27,11 @@ import {
   vaults,
 } from '../db/schema.js';
 import { chiefRequired } from './chief.js';
+import { openRotateSignals, visibleEntries } from '../rotate-signals.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { notifyUsers } from '../notifications.js';
 import { hasPasskey, hasTotp } from '../auth/mfa.js';
 import { spaceAccess } from '../spaces.js';
-
-const ROTATE_MAX = 2000;
 
 /**
  * «Смените пароль» после увольнения сотрудника — одно общее событие по всем его записям: всего, открыто
@@ -341,30 +340,14 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       // по каждой (доступ считается до удаления членства; повторное увольнение открывает событие снова)
       const rotate: { id: string; vault: string }[] = [];
       for (const v of after) {
-        const acc = await loadAccess(txDb, v.id, id);
-        const rows = await tx
-          .select({ id: entries.id, branchId: entries.branchId })
-          .from(entries)
-          .where(and(eq(entries.vaultId, v.id), isNull(entries.deletedAt)));
-        // shortcut: не больше ROTATE_MAX событий на сейф; для сейфов крупнее остаётся ротация ключа из ответа
-        for (const e of rows.filter((r) => acc.entry(r.id, r.branchId)).slice(0, ROTATE_MAX)) {
-          const [sig] = await tx
-            .insert(signals)
-            .values({
-              id: crypto.randomUUID(),
-              vaultId: v.id,
-              entryId: e.id,
-              type: 'rotate',
-              reportedBy: user.id,
-              causeUserId: id,
-            })
-            .onConflictDoUpdate({
-              target: [signals.entryId, signals.type],
-              set: { status: 'open', assignedTo: null, causeUserId: id, updatedAt: new Date() },
-            })
-            .returning({ id: signals.id });
-          rotate.push({ id: sig!.id, vault: v.id });
-        }
+        const ids = await openRotateSignals(txDb, {
+          vaultId: v.id,
+          entryIds: await visibleEntries(txDb, v.id, id),
+          cause: id,
+          reason: 'offboarding',
+          reportedBy: user.id,
+        });
+        rotate.push(...ids.map((sid) => ({ id: sid, vault: v.id })));
       }
 
       const vaultIds = after.map((v) => v.id);

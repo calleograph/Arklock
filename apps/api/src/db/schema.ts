@@ -471,6 +471,8 @@ export const signals = pgTable(
     reportedBy: uuid('reported_by').notNull(),
     // для rotate — уволенный сотрудник, из-за которого пароль стоит сменить (последний, если их несколько)
     causeUserId: uuid('cause_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // почему пароль стоит сменить: увольнение или отзыв доступа к сейфу
+    causeReason: text('cause_reason', { enum: ['offboarding', 'revoked'] }),
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },

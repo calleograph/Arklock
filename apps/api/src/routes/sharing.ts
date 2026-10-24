@@ -298,7 +298,13 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       assignedTo: s.assignedTo,
       assignedName: s.assignedTo ? (names.get(s.assignedTo) ?? null) : null,
       // для «смените пароль» — после чьего увольнения
-      cause: s.causeUserId ? { id: s.causeUserId, name: names.get(s.causeUserId) ?? null } : null,
+      cause: s.causeUserId
+        ? {
+            id: s.causeUserId,
+            name: names.get(s.causeUserId) ?? null,
+            reason: s.causeReason ?? 'offboarding',
+          }
+        : null,
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
     }));

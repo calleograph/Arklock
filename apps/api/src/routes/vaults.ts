@@ -12,6 +12,8 @@ import {
 } from '@arklock/contracts';
 import type { VaultInfo, VaultRole } from '@arklock/contracts';
 import { loadAccess, loadRoleDefs, requireVault } from '../access.js';
+import { openRotateSignals, visibleEntries } from '../rotate-signals.js';
+import type { Db } from '../db/connect.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
 import { enforceDenyRules } from '../automation.js';
@@ -531,7 +533,10 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       vaultId: vaultId,
       target: `user:${userId}`,
     });
-    await db.transaction(async (tx) => {
+    const rotate = await db.transaction(async (tx) => {
+      const txDb = tx as unknown as Db;
+      // пароли, которые сотрудник видел и больше не увидит, стоит сменить; доступ через группу остаётся — тогда нет
+      const before = await visibleEntries(txDb, vaultId, userId);
       await tx
         .delete(vaultMembers)
         .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
@@ -561,11 +566,26 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             ),
           ),
         );
+      const after = await visibleEntries(txDb, vaultId, userId);
+      return openRotateSignals(txDb, {
+        vaultId,
+        entryIds: [...before].filter((e) => !after.has(e)),
+        cause: userId,
+        reason: 'revoked',
+        reportedBy: user.id,
+      });
     });
+    for (const sid of rotate)
+      await audit(db, `user:${user.id}`, 'signal.create', `signal:${sid}`, {
+        vault: vaultId,
+        reason: 'revoked',
+        user: userId,
+      });
     await audit(db, `user:${user.id}`, 'vault.member.remove', `vault:${vaultId}`, {
       member: userId,
+      rotateEntries: rotate.length,
     });
-    return { rotationRecommended: true };
+    return { rotationRecommended: true, rotateEntries: rotate.length };
   });
 
   app.put('/vaults/:vaultId/circles/:circleId', async (req, reply) => {

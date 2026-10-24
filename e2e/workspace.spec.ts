@@ -656,6 +656,10 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   await page.getByTestId('btn-vault-settings').click();
   await page.getByTestId(`remove-${MEMBER.email}`).click();
   await expect(page.getByTestId('rotation-hint')).toBeVisible();
+  // пароль, который участник видел, стоит сменить: событие с причиной «отзыв доступа»
+  await expect(page.getByTestId('signal-cause')).toContainText(
+    new RegExp(`(после отзыва доступа|after access was revoked from):? ${MEMBER.name}`),
+  );
   page.once('dialog', (d) => void d.accept());
   await page.getByTestId('btn-rotate-hint').click();
   await expect(page.getByTestId('settings-notice')).toBeVisible({ timeout: 90_000 });
@@ -724,9 +728,7 @@ test('offboarding a member: one «change passwords» summary in the card, the ca
   // (следующие сценарии продолжают с рабочего места администратора)
   const row = page.getByTestId('signals-list').locator('li').filter({ hasText: LEAVER.name });
   await row.getByRole('button', { name: /История|History/ }).click();
-  await expect(row.getByTestId('signal-advice')).toContainText(
-    /уволенный сотрудник|offboarded employee/,
-  );
+  await expect(row.getByTestId('signal-advice')).toContainText(/потерявший доступ|lost access/);
   // отклонённое событие уходит в архив закрытых — со временем закрытия
   await row.locator('select').selectOption('dismissed');
   await expect(row).toHaveCount(0);

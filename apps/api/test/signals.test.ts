@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { encryptEntry } from '@arklock/crypto';
-import { settings, signals, users } from '../src/db/schema.js';
+import {
+  circleMembers,
+  circles,
+  settings,
+  signals,
+  users,
+  vaultCircles,
+} from '../src/db/schema.js';
 import { createTestApp, TestClient } from './helpers.js';
 
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
@@ -36,7 +43,7 @@ type Signal = {
   entryId: string;
   type: string;
   status: string;
-  cause: { id: string; name: string | null } | null;
+  cause: { id: string; name: string | null; reason?: string } | null;
 };
 const rotation = async (who: TestClient) =>
   (await who.req('GET', `/admin/users/${bob.userId}/profile`)).json().rotation;
@@ -108,7 +115,11 @@ it('offboarding opens «change the password» for entries the person could see, 
     reason: 'offboarding',
   });
   // общее событие увольнения: всего, открыто, доступно просматривающему — по сейфам
-  expect(rotate[0]!.cause).toEqual({ id: bob.userId, name: expect.any(String) });
+  expect(rotate[0]!.cause).toEqual({
+    id: bob.userId,
+    name: expect.any(String),
+    reason: 'offboarding',
+  });
   expect(await rotation(admin)).toEqual({
     total: 1,
     open: 1,
@@ -184,4 +195,29 @@ it('a weekly password-health report tells vault administrators how many events a
   expect((await runMaintenance(fixture.database.db)).digest).toBe(0);
   const later = new Date(Date.now() + 8 * 86_400_000);
   expect((await runMaintenance(fixture.database.db, later)).digest).toBeGreaterThanOrEqual(1);
+});
+
+it('removing a member opens «change the password» for what they lost; access kept through a group does not', async () => {
+  const db = fixture.database.db;
+  const dan = new TestClient(fixture.app, 'sig-dan@example.com', 'sig-dan-password-12');
+  await dan.register();
+  await dan.login();
+  // доступ и напрямую, и через группу: снятие прямого участия ничего не отнимает
+  const circleId = crypto.randomUUID();
+  await db.insert(circles).values({ id: circleId, name: 'Signals readers' });
+  await db.insert(circleMembers).values({ circleId, userId: dan.userId });
+  await db.insert(vaultCircles).values({ vaultId, circleId, role: 'reader' });
+  expect((await admin.addMember(vaultId, dan, 'reader', vaultKey)).statusCode).toBe(204);
+  const kept = await admin.req('DELETE', `/vaults/${vaultId}/members/${dan.userId}`);
+  expect(kept.json().rotateEntries).toBe(0);
+
+  // без группы — все записи, которые он видел, получают событие с причиной «отзыв доступа»
+  await db.delete(vaultCircles).where(eq(vaultCircles.circleId, circleId));
+  expect((await admin.addMember(vaultId, dan, 'reader', vaultKey)).statusCode).toBe(204);
+  const removed = await admin.req('DELETE', `/vaults/${vaultId}/members/${dan.userId}`);
+  expect(removed.json().rotateEntries).toBe(2);
+  const rows = (await list()).filter((x) => x.type === 'rotate' && x.cause?.id === dan.userId);
+  expect(rows).toHaveLength(2);
+  expect(rows.every((r) => r.status === 'open')).toBe(true);
+  expect(rows.map((r) => r.cause?.reason)).toEqual(['revoked', 'revoked']);
 });
