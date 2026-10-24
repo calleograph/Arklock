@@ -368,6 +368,12 @@ test('administrator builds a structure and works with entries', async ({ browser
   // сводка сейфа: показатель ведёт к отфильтрованному списку, фильтр в адресе и сбрасывается
   await addEntry(page, { title: 'Слабый доступ', username: 'w', password: '123456' });
   await page.goto('/');
+  // доля паролей без проблем: слабый пароль есть — не 100 %, утечки не проверялись — сказано
+  await expect(page.getByTestId('overview-health')).toContainText(/\d+%/);
+  await expect(page.getByTestId('overview-health')).not.toContainText('100%');
+  await expect(page.getByTestId('overview-health')).toContainText(
+    /без проверки утечек|breaches not checked/,
+  );
   await page.getByTestId('overview-weak').click();
   await expect(page.getByTestId('issue-filter')).toBeVisible();
   await expect(page).toHaveURL(/issue=weak/);

@@ -478,6 +478,9 @@ export const ruHelp = {
   },
   overview: {
     checkLeaks: 'Проверить',
+    health: 'Пароли в порядке',
+    healthOf: '{ok} из {total}',
+    healthNoLeaks: 'без проверки утечек',
     progress: 'Проверка {done} из {total}…',
     filter: 'Показаны: {what}',
     clear: 'Показать все записи',
@@ -1332,6 +1335,9 @@ export const enHelp = {
   },
   overview: {
     checkLeaks: 'Check',
+    health: 'Passwords in good shape',
+    healthOf: '{ok} of {total}',
+    healthNoLeaks: 'breaches not checked',
     progress: 'Checking {done} of {total}…',
     filter: 'Showing: {what}',
     clear: 'Show all entries',

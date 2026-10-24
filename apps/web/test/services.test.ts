@@ -344,3 +344,23 @@ describe('текст уведомлений', () => {
     );
   });
 });
+
+describe('здоровье паролей', () => {
+  it('считает записи с паролем без проблем, заметки и пустые пароли не учитывает, округляет вниз', async () => {
+    const { passwordHealth } = await import('../src/services/inspector');
+    const list = [
+      item('a', { password: 'x' }),
+      item('b', { password: 'y' }),
+      item('c', { password: 'z' }),
+      item('note', { kind: 'note', password: 'n' }),
+      item('empty', { password: '' }),
+    ];
+    expect(passwordHealth(list, [{ entryId: 'b', type: 'weak' }])).toEqual({
+      ok: 2,
+      total: 3,
+      percent: 66,
+    });
+    expect(passwordHealth(list, [])).toMatchObject({ ok: 3, percent: 100 });
+    expect(passwordHealth([], [])).toEqual({ ok: 0, total: 0, percent: 100 });
+  });
+});

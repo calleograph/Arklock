@@ -86,3 +86,18 @@ export async function checkBreaches(
   }
   return found;
 }
+
+/**
+ * Здоровье паролей: сколько записей с паролем не имеют ни одной проблемы инспектора.
+ * Заметки и записи без пароля не учитываются; без записей с паролем — 100 %.
+ */
+export function passwordHealth(
+  entries: EntryItem[],
+  issues: Issue[],
+): { ok: number; total: number; percent: number } {
+  const withPassword = entries.filter((e) => e.data.kind !== 'note' && e.data.password);
+  const bad = new Set(issues.map((i) => i.entryId));
+  const ok = withPassword.filter((e) => !bad.has(e.id)).length;
+  const total = withPassword.length;
+  return { ok, total, percent: total ? Math.floor((ok * 100) / total) : 100 };
+}

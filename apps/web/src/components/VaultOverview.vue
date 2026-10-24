@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ApiError } from '../services/api';
-import type { IssueType } from '../services/inspector';
+import { passwordHealth, type IssueType } from '../services/inspector';
 import type { useVaultIssues } from '../services/vaultIssues';
 
 /**
@@ -14,6 +14,8 @@ const emit = defineEmits<{ filter: [IssueType] }>();
 const { t } = useI18n();
 const breachError = ref('');
 const count = (type: IssueType) => props.vi.idsOf(type).size;
+// округление вниз: «100 %» — только когда проблем действительно нет
+const health = computed(() => passwordHealth(props.vi.active.value, props.vi.issues.value));
 
 async function checkLeaks(): Promise<void> {
   breachError.value = '';
@@ -44,6 +46,26 @@ async function checkLeaks(): Promise<void> {
         <dt class="text-slate-500">{{ t('corporate.favorites') }}</dt>
         <dd class="num text-2xl font-semibold">
           {{ vi.active.value.filter((e) => e.pinned).length }}
+        </dd>
+      </div>
+      <div v-if="health.total" class="col-span-2" data-testid="overview-health">
+        <dt class="text-slate-500">{{ t('overview.health') }}</dt>
+        <dd class="flex items-baseline gap-2">
+          <span
+            class="num text-2xl font-semibold"
+            :class="
+              health.percent >= 90
+                ? 'text-emerald-600'
+                : health.percent >= 60
+                  ? 'text-amber-600'
+                  : 'text-red-600'
+            "
+            >{{ health.percent }}%</span
+          >
+          <span class="text-xs text-slate-500"
+            >{{ t('overview.healthOf', { ok: health.ok, total: health.total }) }}
+            <template v-if="!vi.breached.value">· {{ t('overview.healthNoLeaks') }}</template></span
+          >
         </dd>
       </div>
     </dl>
