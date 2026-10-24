@@ -3,6 +3,7 @@ import type { BlobStore } from './blobs.js';
 import type { Db } from './db/connect.js';
 import { audit } from './audit.js';
 import { expireAccounts } from './account-expiry.js';
+import { rotateExpiredAccess } from './rotate-signals.js';
 import { loadAccess } from './access.js';
 import {
   entries,
@@ -53,6 +54,7 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
     journal: await pruneLedger(db, now),
     digest: await signalsDigest(db, now),
     expired,
+    lapsed: await rotateExpiredAccess(db, now),
   };
 }
 

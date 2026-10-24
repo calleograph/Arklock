@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/connect.js';
 import { circleMembers, circles, sessions, settings, users } from '../db/schema.js';
+import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
 import { audit } from '../audit.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 import { notifyUsers } from '../notifications.js';
@@ -70,17 +71,38 @@ export async function syncCirclesFor(
     .from(circles)
     .where(inArray(circles.id, managed));
   const valid = new Set(existing.map((c) => c.id));
-  await db.transaction(async (tx) => {
-    for (const cid of managed) {
-      if (!valid.has(cid)) continue;
-      if (want.includes(cid))
-        await tx.insert(circleMembers).values({ circleId: cid, userId }).onConflictDoNothing();
-      else
-        await tx
-          .delete(circleMembers)
-          .where(and(eq(circleMembers.circleId, cid), eq(circleMembers.userId, userId)));
-    }
-  });
+  const apply = () =>
+    db.transaction(async (tx) => {
+      for (const cid of managed) {
+        if (!valid.has(cid)) continue;
+        if (want.includes(cid))
+          await tx.insert(circleMembers).values({ circleId: cid, userId }).onConflictDoNothing();
+        else
+          await tx
+            .delete(circleMembers)
+            .where(and(eq(circleMembers.circleId, cid), eq(circleMembers.userId, userId)));
+      }
+    });
+  // каталог исключил из группы, в которой сотрудник состоит: «смените пароль» по потерянному;
+  // при обычном входе без изменений состава лишних расчётов доступа нет
+  const leaving = managed.filter((cid) => valid.has(cid) && !want.includes(cid));
+  const member = leaving.length
+    ? await db
+        .select({ id: circleMembers.circleId })
+        .from(circleMembers)
+        .where(and(eq(circleMembers.userId, userId), inArray(circleMembers.circleId, leaving)))
+    : [];
+  if (!member.length) return void (await apply());
+  const vaultIds = [
+    ...new Set((await Promise.all(member.map((m) => circleVaults(db, m.id)))).flat()),
+  ];
+  const { opened } = await rotateLostAccess(
+    db,
+    vaultIds.map((vaultId) => ({ vaultId, userId })),
+    apply,
+    userId, // каталог — не человек: автором события записан сам сотрудник (столбец обязателен)
+  );
+  await auditRotations(db, 'system:directory', opened);
 }
 
 export async function revokeLdapProfileSessions(db: Db, profileId: string): Promise<void> {

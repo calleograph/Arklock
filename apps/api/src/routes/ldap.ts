@@ -17,6 +17,8 @@ import { adminGate } from '../auth/adminperm.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { circleMembers, circles, sessions, settings, users } from '../db/schema.js';
+import type { Db } from '../db/connect.js';
+import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
 import { AppError, parse } from '../errors.js';
 import { sealSetting } from '../secretbox.js';
 import { bundle } from './auth.js';
@@ -176,15 +178,28 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         prev ? profiles.map((p) => (p.id === id ? value : p)) : [...profiles, value],
         user.id,
       );
-      if (removedCircles.length && linkedIds.length)
-        await tx
-          .delete(circleMembers)
-          .where(
-            and(
-              inArray(circleMembers.circleId, removedCircles),
-              inArray(circleMembers.userId, linkedIds),
-            ),
-          );
+      if (removedCircles.length && linkedIds.length) {
+        // группа больше не сопоставлена каталогу: её участники из каталога теряют её доступ — «смените пароль»
+        const txDb = tx as unknown as Db;
+        const vaultIds = [
+          ...new Set((await Promise.all(removedCircles.map((c) => circleVaults(txDb, c)))).flat()),
+        ];
+        const { opened } = await rotateLostAccess(
+          txDb,
+          linkedIds.flatMap((userId) => vaultIds.map((vaultId) => ({ vaultId, userId }))),
+          () =>
+            tx
+              .delete(circleMembers)
+              .where(
+                and(
+                  inArray(circleMembers.circleId, removedCircles),
+                  inArray(circleMembers.userId, linkedIds),
+                ),
+              ),
+          user.id,
+        );
+        await auditRotations(txDb, `user:${user.id}`, opened);
+      }
       if (!value.enabled || (prev && (prev.url !== value.url || prev.baseDn !== value.baseDn)))
         await revokeLdapProfileSessions(tx, id);
       await audit(tx, `user:${user.id}`, 'admin.ldap.save', `ldap:${id}`, {

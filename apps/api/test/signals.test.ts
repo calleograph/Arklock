@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { encryptEntry } from '@arklock/crypto';
 import {
@@ -10,6 +10,7 @@ import {
   signals,
   users,
   vaultCircles,
+  vaultMembers,
 } from '../src/db/schema.js';
 import { createTestApp, TestClient } from './helpers.js';
 
@@ -273,4 +274,48 @@ it('a deny rule, leaving a group and a group leaving the vault also open «chang
   await db.insert(circleMembers).values({ circleId: team, userId: gus.userId });
   expect((await admin.req('DELETE', `/vaults/${vaultId}/circles/${team}`)).statusCode).toBe(200);
   expect(await openedFor(gus.userId)).toBe(2);
+});
+
+it('expired access and a directory that drops a group member open «change the password» too', async () => {
+  const db = fixture.database.db;
+  const { runMaintenance } = await import('../src/maintenance.js');
+  const { syncCirclesFor } = await import('../src/auth/ldap-sync.js');
+  const openedFor = async (userId: string) =>
+    (await db.select().from(ledger).where(eq(ledger.action, 'signal.create'))).filter(
+      (r) => (r.detail as { user?: string } | null)?.user === userId,
+    ).length;
+  const person = async (name: string) => {
+    const c = new TestClient(fixture.app, `sig-${name}@example.com`, `sig-${name}-password-12`);
+    await c.register();
+    await c.login();
+    return c;
+  };
+
+  // прямое участие со сроком: истекло после прошлой проверки — обслуживание открывает события
+  // (обслуживание «через 8 дней» в тесте отчёта запомнило свою проверку — начинаем с чистой)
+  await db.delete(settings).where(eq(settings.key, 'access.expirySweptAt'));
+  const hal = await person('hal');
+  expect((await admin.addMember(vaultId, hal, 'reader', vaultKey)).statusCode).toBe(204);
+  const soon = new Date(Date.now() + 1000);
+  await db
+    .update(vaultMembers)
+    .set({ expiresAt: soon })
+    .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, hal.userId)));
+  const later = new Date(Date.now() + 60_000);
+  expect((await runMaintenance(db, later)).lapsed).toBe(2);
+  expect(await openedFor(hal.userId)).toBe(2);
+  // повторная проверка то же истечение не считает
+  expect((await runMaintenance(db, new Date(later.getTime() + 1000))).lapsed).toBe(0);
+
+  // каталог больше не видит сотрудника в группе — он выходит из неё и теряет её доступ
+  const ivy = await person('ivy');
+  const crew = crypto.randomUUID();
+  await db.insert(circles).values({ id: crew, name: 'Directory crew' });
+  await db.insert(circleMembers).values({ circleId: crew, userId: ivy.userId });
+  await db.insert(vaultCircles).values({ vaultId, circleId: crew, role: 'reader' });
+  const cfg = { groups: [{ dn: 'cn=crew,dc=example,dc=com', circleId: crew }] };
+  await syncCirclesFor(db, ivy.userId, cfg as never, ['cn=crew,dc=example,dc=com']);
+  expect(await openedFor(ivy.userId)).toBe(0);
+  await syncCirclesFor(db, ivy.userId, cfg as never, []);
+  expect(await openedFor(ivy.userId)).toBe(2);
 });
