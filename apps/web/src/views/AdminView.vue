@@ -503,6 +503,13 @@ const GEN_CLASSES = ['lower', 'upper', 'digits', 'symbols'] as const;
 const genClassesOn = computed(
   () => GEN_CLASSES.filter((c) => settings.value[`generator.${c}`] !== false).length,
 );
+// срок хранения журнала: готовые значения и текущее, если его задали через API (например, 30 дней)
+const ledgerKeepOptions = computed(() => {
+  const cur = Number(settings.value['ledger.retentionDays'] ?? 0);
+  return [...new Set([0, 90, 180, 365, 730, 1825, cur])].sort(
+    (a, b) => (a || Infinity) - (b || Infinity),
+  );
+});
 const ledger = ref<L[]>([]);
 const next = ref<number | string | null>(null);
 // сортировка — на сервере: страницы «показать ещё» продолжают тот же порядок
@@ -1468,6 +1475,29 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.ledgerDays') }}<InfoHint :text="t('hint.ledgerDays.text')" /></span
+              ><select
+                :value="settings['ledger.retentionDays'] ?? 0"
+                class="input w-auto"
+                data-testid="set-ledger-days"
+                @change="
+                  saveSetting(
+                    'ledger.retentionDays',
+                    Number(($event.target as HTMLSelectElement).value),
+                  )
+                "
+              >
+                <option v-for="d in ledgerKeepOptions" :key="d" :value="d">
+                  {{
+                    te(`admin.ledgerKeep.${d}`)
+                      ? t(`admin.ledgerKeep.${d}`)
+                      : t('admin.ledgerKeepDays', { n: d })
+                  }}
+                </option>
+              </select></label
+            >
             <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('adminx.attachMax') }}<InfoHint :text="t('hint.attachMax.text')" /></span

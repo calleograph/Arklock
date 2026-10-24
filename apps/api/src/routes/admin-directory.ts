@@ -35,6 +35,11 @@ const SETTINGS: Record<string, z.ZodType> = {
   'vaults.personalLockerUsers': z.array(uuid).max(10000),
   'vaults.personalLockerCircles': z.array(uuid).max(10000),
   'trash.retentionDays': z.number().int().min(1).max(3650),
+  /** Срок хранения журнала действий, дней: 0 — бессрочно, иначе не меньше 30 (короче — слишком легко стереть следы). */
+  'ledger.retentionDays': z
+    .number()
+    .int()
+    .refine((v) => v === 0 || (v >= 30 && v <= 3650)),
   'session.idleHours': z.number().min(0.25).max(720),
   /** Предельная длительность сеанса от входа, часов; 0 — без ограничения (кроме общего срока SESSION_MAX_DAYS). */
   'session.maxHours': z.number().min(0).max(8760),
@@ -74,6 +79,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'vaults.personalLockerUsers': [],
   'vaults.personalLockerCircles': [],
   'trash.retentionDays': 30,
+  'ledger.retentionDays': 0,
   'session.idleHours': 12,
   'session.maxHours': 0,
   'security.passwordMaxAgeDays': 365,

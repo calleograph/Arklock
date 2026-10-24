@@ -173,6 +173,9 @@ export const ruHelp = {
     trashDays: {
       text: 'Сколько дней удалённые записи лежат в корзине, прежде чем исчезнут безвозвратно.',
     },
+    ledgerDays: {
+      text: 'Сколько хранить журнал действий. Старые события удаляются при плановом обслуживании, само удаление записывается в журнал и уходит в syslog и вебхуки. Не меньше 30 дней: короче — слишком легко стереть следы.',
+    },
     attachMax: { text: 'Наибольший размер одного прикрепляемого файла. 0 — вложения запрещены.' },
     vaultQuota: {
       text: 'Сколько мегабайт файлов можно хранить в одном сейфе. 0 — без ограничения.',
@@ -521,6 +524,7 @@ export const ruHelp = {
     mb: 'МБ',
   },
   ledgerAction: {
+    ledger_pruned: 'Удалены события старше срока хранения журнала',
     admin_backup_download: 'Выгрузка резервной копии',
     admin_backup_offsite_config: 'Настройка удалённого места для копий',
     admin_backup_upload: 'Загрузка резервной копии',
@@ -1019,6 +1023,9 @@ export const enHelp = {
     trashDays: {
       text: 'How many days deleted entries stay in the trash before they are removed for good.',
     },
+    ledgerDays: {
+      text: 'How long to keep the action journal. Older events are removed during scheduled maintenance; the removal itself is recorded and sent to syslog and webhooks. At least 30 days: shorter would make covering tracks too easy.',
+    },
     attachMax: {
       text: 'The largest size of one attached file. 0 means attachments are not allowed.',
     },
@@ -1367,6 +1374,7 @@ export const enHelp = {
     mb: 'MB',
   },
   ledgerAction: {
+    ledger_pruned: 'Events older than the journal retention removed',
     admin_backup_download: 'Backup downloaded',
     admin_backup_offsite_config: 'Offsite backup settings changed',
     admin_backup_upload: 'Backup uploaded',

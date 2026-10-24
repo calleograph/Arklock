@@ -1056,7 +1056,7 @@ export default {
       passwordsHint:
         'Requirements for passwords people save in entries, and when they count as outdated.',
       storage: 'Vaults and files',
-      storageHint: 'Trash, attachments, quotas and personal vaults.',
+      storageHint: 'Trash, action journal, attachments, quotas and personal vaults.',
       notify: 'Notifications',
       notifyHint: 'Emails about security events.',
       links: 'Sharing links',
@@ -1146,6 +1146,16 @@ export default {
     sessionIdle: 'End session after inactivity, hours',
     sessionMax: 'Maximum session length, hours (0 — no limit)',
     trashDays: 'Trash retention, days',
+    ledgerDays: 'Keep the action journal',
+    ledgerKeepDays: '{n} days',
+    ledgerKeep: {
+      0: 'forever',
+      90: '3 months',
+      180: '6 months',
+      365: '1 year',
+      730: '2 years',
+      1825: '5 years',
+    },
     passwordMaxAge: 'Maximum password age, days (0 — do not check)',
     rangeTitle: 'Compromised password check',
     rangeHint:

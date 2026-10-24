@@ -264,6 +264,24 @@ test('administration sections show real data and perform real operations', async
   await expect.poll(() => sortState('at')).toBe('descending');
   await expect(page.getByTestId('ledger-row').first()).not.toHaveText(oldest);
 
+  // срок хранения журнала: сохраняется и переживает перезагрузку; по умолчанию — бессрочно
+  await tab(page, 'settings');
+  await page.getByTestId('settings-tab-storage').click();
+  await expect(page.getByTestId('set-ledger-days')).toHaveValue('0');
+  let saved = page.waitForResponse(
+    (r) => r.url().endsWith('/admin/settings') && r.request().method() === 'PUT',
+  );
+  await page.getByTestId('set-ledger-days').selectOption('365');
+  expect((await saved).status()).toBe(200);
+  await page.reload();
+  await page.getByTestId('settings-tab-storage').click({ timeout: 60_000 });
+  await expect(page.getByTestId('set-ledger-days')).toHaveValue('365');
+  saved = page.waitForResponse(
+    (r) => r.url().endsWith('/admin/settings') && r.request().method() === 'PUT',
+  );
+  await page.getByTestId('set-ledger-days').selectOption('0');
+  expect((await saved).status()).toBe(200);
+
   // правила автоматизации: создать, увидеть в списке, выключить, удалить
   await tab(page, 'automation');
   await page.getByTestId('rule-add').click();
