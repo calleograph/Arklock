@@ -732,6 +732,10 @@ export const ruHelp = {
   profile: {
     journal: 'Последние действия',
     journalAll: 'Весь журнал сотрудника',
+    accessUntil: 'Срок действия учётной записи',
+    accessUntilClear: 'Бессрочно',
+    accessUntilHint:
+      'В это время учётная запись отключится сама, сеансы завершатся. Для временных сотрудников и подрядчиков; администраторам не задаётся.',
     journalEmpty: 'Событий пока нет.',
     rotation: 'Смена паролей после увольнения',
     rotationSummary: 'Закрыто {closed} из {total} · доступно вам {available}',
@@ -1580,6 +1584,10 @@ export const enHelp = {
   profile: {
     journal: 'Recent actions',
     journalAll: 'Full journal of this person',
+    accessUntil: 'Account access until',
+    accessUntilClear: 'No end date',
+    accessUntilHint:
+      'At this time the account is disabled automatically and its sessions end. For temporary staff and contractors; not for administrators.',
     journalEmpty: 'No events yet.',
     rotation: 'Password changes after offboarding',
     rotationSummary: 'Closed {closed} of {total} · available to you {available}',

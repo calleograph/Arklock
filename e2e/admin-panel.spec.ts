@@ -680,6 +680,25 @@ test('custom roles: an administrative role opens only its own sections for a del
 
   await page.getByTestId('profile-open-invited.person@example.com').click();
   await expect(page.getByTestId('profile-groups')).toContainText('Аудиторы журнала');
+  // срок действия учётной записи: задаётся в карточке, виден в карточке и в списке, снимается
+  const until = new Date(Date.now() + 3 * 86_400_000);
+  const local = new Date(until.getTime() - until.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+  await page.getByTestId('profile-access-until-input').fill(local);
+  await page.getByTestId('profile-access-until-save').click();
+  await expect(page.getByTestId('profile-access-until-badge')).toBeVisible();
+  await expect(
+    page
+      .getByTestId('user-row')
+      .filter({ hasText: 'invited.person@example.com' })
+      .getByTestId('user-access-until'),
+  ).toBeVisible();
+  await page
+    .getByTestId('profile-access-until')
+    .getByRole('button', { name: /Бессрочно|No end date/ })
+    .click();
+  await expect(page.getByTestId('profile-access-until-badge')).toHaveCount(0);
   await page.getByTestId('profile-offboard').click();
   await expect(page.getByTestId('offboarding')).toBeVisible();
   await page

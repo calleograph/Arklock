@@ -182,6 +182,7 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         profileSource: target.profileSource,
         disabled: !!target.disabledAt,
         disabledReason: target.disabledAt ? target.disabledReason : null,
+        accessUntil: target.accessUntil?.toISOString() ?? null,
         disabledNote: target.disabledAt ? target.disabledNote : null,
         disabledAt: target.disabledAt?.toISOString() ?? null,
         role: target.role,

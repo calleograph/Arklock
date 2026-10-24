@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppContext } from '../context.js';
 import { apiTokens, sessions, settings, users } from '../db/schema.js';
 import { AppError, unauthorized } from '../errors.js';
+import { expiredNow } from '../account-expiry.js';
 import { isEnrolled, mfaPolicy } from './mfa.js';
 import { randomB64url, sha256Hex } from '../security.js';
 import { ldapIdentityProfile, readLdapProfiles } from './ldap-profiles.js';
@@ -113,7 +114,8 @@ async function authenticateToken(ctx: AppContext, req: FastifyRequest, token: st
     !row ||
     row.token.revokedAt ||
     row.user.disabledAt ||
-    (row.token.expiresAt && row.token.expiresAt.getTime() <= now)
+    (row.token.expiresAt && row.token.expiresAt.getTime() <= now) ||
+    (await expiredNow(ctx.db, row.user, now))
   )
     throw unauthorized();
   await assertDirectoryActive(ctx, row.user);
@@ -156,7 +158,9 @@ export async function createSession(
   userAgent: string | null,
 ) {
   const [user] = await ctx.db.select().from(users).where(eq(users.id, userId));
-  if (!user || user.disabledAt) throw unauthorized();
+  // все способы входа выдают сеанс здесь: истёкшая учётная запись не входит ни паролем, ни через каталог или SSO
+  if (!user || user.disabledAt || (await expiredNow(ctx.db, user, Date.now())))
+    throw unauthorized();
   await assertDirectoryActive(ctx, user);
   const token = `aks_${randomB64url(32)}`;
   const now = Date.now();
@@ -194,6 +198,7 @@ export function requireAuth(ctx: AppContext) {
     if (
       row.session.revokedAt ||
       row.user.disabledAt ||
+      (await expiredNow(ctx.db, row.user, now)) ||
       row.session.expiresAt.getTime() <= now ||
       row.session.lastSeenAt.getTime() + idleMs <= now ||
       (maxMs > 0 && row.session.createdAt.getTime() + maxMs <= now)

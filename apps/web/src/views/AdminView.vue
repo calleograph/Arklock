@@ -176,7 +176,8 @@ interface U {
   adminRoleId?: string | null;
   disabled: boolean;
   /** Почему отключён: вручную, каталогом, при увольнении (null — не записано) */
-  disabledReason?: 'manual' | 'directory' | 'offboarding' | null;
+  disabledReason?: 'manual' | 'directory' | 'offboarding' | 'expired' | null;
+  accessUntil?: string | null;
   disabledNote?: string | null;
   /** Секунд до конца временной блокировки входа после неудачных попыток (0 — не заблокирован) */
   lockedFor?: number;
@@ -882,6 +883,12 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     class="block text-xs text-amber-700 dark:text-amber-300"
                     data-testid="user-locked"
                     >{{ t('admin.lockedFor', { m: Math.ceil(u.lockedFor / 60) }) }}</span
+                  >
+                  <span
+                    v-if="!u.disabled && u.accessUntil"
+                    class="block text-xs text-amber-700 dark:text-amber-300"
+                    data-testid="user-access-until"
+                    >{{ t('admin.accessUntilShort', { at: when(u.accessUntil) }) }}</span
                   >
                   <span
                     v-if="u.disabled && u.disabledReason"

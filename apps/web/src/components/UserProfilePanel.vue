@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { api } from '../services/api';
@@ -30,7 +30,8 @@ interface Profile {
     phone: string | null;
     profileSource: Record<string, 'ldap'>;
     disabled: boolean;
-    disabledReason?: 'manual' | 'directory' | 'offboarding' | null;
+    disabledReason?: 'manual' | 'directory' | 'offboarding' | 'expired' | null;
+    accessUntil?: string | null;
     disabledNote?: string | null;
     disabledAt?: string | null;
     role: string;
@@ -110,6 +111,29 @@ async function saveCard(): Promise<void> {
     busy.value = false;
   }
 }
+// поле datetime-local — местное время без зоны; серверу уходит момент в UTC
+const localInput = (iso: string | null | undefined) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const untilDraft = ref('');
+watch(p, (v) => (untilDraft.value = localInput(v?.user.accessUntil)), { immediate: true });
+async function saveUntil(value: string): Promise<void> {
+  busy.value = true;
+  error.value = '';
+  try {
+    await api('PATCH', `/admin/users/${props.userId}`, {
+      accessUntil: value ? new Date(value).toISOString() : null,
+    });
+    await load();
+    emit('changed');
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
 async function endSessions(): Promise<void> {
   busy.value = true;
   try {
@@ -144,6 +168,12 @@ async function endSessions(): Promise<void> {
               >{{ t(`admin.disabledBy.${p.user.disabledReason}`)
               }}<template v-if="p.user.disabledAt"> · {{ when(p.user.disabledAt) }}</template
               ><template v-if="p.user.disabledNote">: {{ p.user.disabledNote }}</template></span
+            >
+            <span
+              v-if="!p.user.disabled && p.user.accessUntil"
+              class="badge text-amber-700"
+              data-testid="profile-access-until-badge"
+              >{{ t('admin.accessUntilShort', { at: when(p.user.accessUntil) }) }}</span
             >
             <span class="badge">{{
               p.user.role === 'admin' ? t('admin.roleAdmin') : t('admin.roleMember')
@@ -225,6 +255,40 @@ async function endSessions(): Promise<void> {
           </p>
         </div>
       </form>
+      <!-- срок действия учётной записи: временные сотрудники и подрядчики; у администраторов и у себя не задаётся -->
+      <div
+        v-if="p.user.role !== 'admin' && p.user.id !== auth.user?.id && !p.user.disabled"
+        class="flex flex-wrap items-end gap-2"
+        data-testid="profile-access-until"
+      >
+        <label class="block"
+          ><span class="field-label">{{ t('profile.accessUntil') }}</span
+          ><input
+            v-model="untilDraft"
+            type="datetime-local"
+            class="input w-auto"
+            data-testid="profile-access-until-input"
+        /></label>
+        <button
+          type="button"
+          class="btn"
+          :disabled="busy || !untilDraft"
+          data-testid="profile-access-until-save"
+          @click="saveUntil(untilDraft)"
+        >
+          {{ t('common.save') }}
+        </button>
+        <button
+          v-if="p.user.accessUntil"
+          type="button"
+          class="btn-ghost"
+          :disabled="busy"
+          @click="saveUntil('')"
+        >
+          {{ t('profile.accessUntilClear') }}
+        </button>
+        <p class="w-full text-xs text-slate-500">{{ t('profile.accessUntilHint') }}</p>
+      </div>
 
       <div class="grid gap-4 lg:grid-cols-4">
         <div>

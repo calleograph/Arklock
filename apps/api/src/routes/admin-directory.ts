@@ -144,6 +144,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       adminRoleId: u.adminRoleId,
       disabled: !!u.disabledAt,
       disabledReason: u.disabledAt ? u.disabledReason : null,
+      accessUntil: u.accessUntil?.toISOString() ?? null,
       // временная блокировка входа после неудачных попыток (пароль, второй фактор, восстановление)
       lockedFor: Math.max(
         ctx.attempts.byEmail.retryAfter(u.email),
@@ -169,9 +170,13 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         acknowledgeAccessRisk: z.boolean().optional(),
         /** Административная роль (делегирование); null — снять. */
         adminRoleId: uuid.nullable().optional(),
+        /** Срок действия учётной записи (в будущем); null — бессрочно. */
+        accessUntil: z.string().datetime().nullable().optional(),
       }),
       req.body,
     );
+    if (body.accessUntil && Date.parse(body.accessUntil) <= Date.now())
+      throw new AppError(400, 'validation_error', 'The access end must be in the future');
     const [target] = await db.select().from(users).where(eq(users.id, id));
     if (!target) throw notFound();
     // Делегированный администратор не затрагивает полных администраторов и не назначает роли
@@ -206,6 +211,21 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     }
     if (id === user.id && disabling)
       throw new AppError(409, 'self_disable', 'You cannot disable your own account');
+    // срок действия — для сотрудников: истечение у администратора могло бы оставить организацию без него
+    const until =
+      body.accessUntil !== undefined
+        ? body.accessUntil
+        : body.disabled === false &&
+            target.accessUntil &&
+            target.accessUntil.getTime() <= Date.now()
+          ? null // включение истёкшей учётной записи снимает прошедший срок
+          : (target.accessUntil?.toISOString() ?? null);
+    if (until && ((body.role ?? target.role) === 'admin' || id === user.id))
+      throw new AppError(
+        409,
+        'expiry_not_allowed',
+        'An access end date is for regular members, not administrators or yourself',
+      );
     const accessRisks = disabling ? await corporateAccessRisks(db, id) : [];
     if (accessRisks.length && !body.acknowledgeAccessRisk)
       throw new AppError(
@@ -219,6 +239,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       .set({
         ...(body.role ? { role: body.role } : {}),
         ...(body.adminRoleId !== undefined ? { adminRoleId: body.adminRoleId } : {}),
+        accessUntil: until ? new Date(until) : null,
         ...(body.disabled === true && disabling
           ? {
               disabledAt: new Date(),
@@ -243,6 +264,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       role: body.role ?? null,
       disabled: body.disabled ?? null,
       adminRole: body.adminRoleId ?? null,
+      accessUntil: body.accessUntil !== undefined ? body.accessUntil : null,
       accessRiskAcknowledged: accessRisks.length > 0 && body.acknowledgeAccessRisk === true,
     });
     return { id };

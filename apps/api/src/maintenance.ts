@@ -2,6 +2,7 @@ import { eq, lt, or, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { BlobStore } from './blobs.js';
 import type { Db } from './db/connect.js';
 import { audit } from './audit.js';
+import { expireAccounts } from './account-expiry.js';
 import { loadAccess } from './access.js';
 import {
   entries,
@@ -18,6 +19,7 @@ import { purgeExpiredTrash } from './routes/content.js';
 
 /** Плановое обслуживание. Возвращает число удалённых объектов по категориям (для журнала и тестов). */
 export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore) {
+  const expired = (await expireAccounts(db, now)).length;
   const [ret] = await db.select().from(settings).where(eq(settings.key, 'trash.retentionDays'));
   const days = typeof ret?.value === 'number' ? ret.value : 30;
   const trash = await purgeExpiredTrash(db, days, now, blobs);
@@ -50,6 +52,7 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
     files,
     journal: await pruneLedger(db, now),
     digest: await signalsDigest(db, now),
+    expired,
   };
 }
 
