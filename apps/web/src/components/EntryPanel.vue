@@ -15,6 +15,7 @@ import {
   ENTRY_KINDS,
   normalizeEntry,
   type BranchItem,
+  type CustomField,
   type EntryData,
   type EntryItem,
 } from '../services/model';
@@ -191,7 +192,7 @@ watch(
 );
 
 const canEdit = computed(() => !props.item || props.item.access !== 'reader');
-const strength = computed(() => estimateStrength(form.value.password));
+const strength = computed(() => estimateStrength(form.value.password, form.value.username));
 /** Папки деревом: вложенность показана отступом и значком ветки; порядок — по названию внутри уровня. */
 const branchOptions = computed(() => {
   const byParent = new Map<string | null, BranchItem[]>();
@@ -220,7 +221,18 @@ const branchOptions = computed(() => {
 const code = ref('');
 const remaining = ref(30);
 let timer: ReturnType<typeof setInterval> | null = null;
+// текущие коды полей TOTP карточки — обновляются вместе с основным кодом
+const fieldCodes = ref<Record<number, string>>({});
 async function refreshCode(): Promise<void> {
+  const next: Record<number, string> = {};
+  for (const [i, f] of (props.item?.data.fields ?? []).entries())
+    if (f.type === 'totp' && f.value)
+      try {
+        next[i] = await totp(parseTotpInput(f.value));
+      } catch {
+        /* неверный секрет — кода нет */
+      }
+  fieldCodes.value = next;
   const src = (editing.value ? form.value.totp : props.item?.data.totp) ?? '';
   if (!src) {
     code.value = '';
@@ -383,9 +395,34 @@ function useGenerated(value: string): void {
 
 /** Тип поля выбирается из двух вариантов; тип хранится в том же флаге `secret`, что и раньше. */
 const FIELD_TYPES = [
-  { key: 'text', secret: false, icon: 'text', label: 'vault.fieldTypeText' },
-  { key: 'password', secret: true, icon: 'lock', label: 'vault.fieldTypePassword' },
+  { key: 'text', secret: false, type: undefined, icon: 'text', label: 'vault.fieldTypeText' },
+  {
+    key: 'multiline',
+    secret: false,
+    type: 'multiline',
+    icon: 'file',
+    label: 'vault.fieldTypeMultiline',
+  },
+  {
+    key: 'password',
+    secret: true,
+    type: undefined,
+    icon: 'lock',
+    label: 'vault.fieldTypePassword',
+  },
+  { key: 'totp', secret: true, type: 'totp', icon: 'totp', label: 'vault.fieldTypeTotp' },
 ] as const;
+function setFieldType(f: CustomField, opt: (typeof FIELD_TYPES)[number]): void {
+  f.secret = opt.secret;
+  if (opt.type) f.type = opt.type;
+  else delete f.type;
+}
+function moveField(i: number, by: -1 | 1): void {
+  const list = form.value.fields;
+  const j = i + by;
+  if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j]!, list[i]!];
+}
 
 function addField(): void {
   form.value.fields.push({ name: '', value: '', secret: false });
@@ -404,14 +441,17 @@ async function save(): Promise<void> {
       return;
     }
   }
-  if (form.value.totp) {
-    try {
-      parseTotpInput(form.value.totp);
-    } catch {
-      error.value = t('vault.totpInvalid');
-      return;
-    }
-  }
+  for (const s of [
+    form.value.totp,
+    ...form.value.fields.filter((f) => f.type === 'totp').map((f) => f.value),
+  ])
+    if (s)
+      try {
+        parseTotpInput(s);
+      } catch {
+        error.value = t('vault.totpInvalid');
+        return;
+      }
   busy.value = true;
   try {
     form.value.tags = tagsText.value
@@ -881,16 +921,27 @@ const fmt = (iso: string) => when(iso);
               <div v-for="(f, i) in item.data.fields" :key="i" class="field-row">
                 <dt>{{ f.name }}</dt>
                 <dd>
+                  <span
+                    v-if="f.type === 'totp'"
+                    class="num min-w-0 flex-1 font-mono text-base tracking-widest"
+                    :data-testid="`field-totp-${i}`"
+                    >{{ fieldCodes[i] ?? '—' }}</span
+                  >
                   <SecretText
-                    v-if="f.secret"
+                    v-else-if="f.secret"
                     class="min-w-0 flex-1"
                     :value="f.value"
                     :shown="revealed.has(i)"
                     mask="••••••••"
                   />
-                  <span v-else class="min-w-0 flex-1 break-all">{{ f.value }}</span>
+                  <span
+                    v-else
+                    class="min-w-0 flex-1 break-all"
+                    :class="f.type === 'multiline' ? 'whitespace-pre-wrap break-words' : ''"
+                    >{{ f.value }}</span
+                  >
                   <IconButton
-                    v-if="f.secret"
+                    v-if="f.secret && f.type !== 'totp'"
                     :icon="revealed.has(i) ? 'eye-off' : 'eye'"
                     :label="revealed.has(i) ? t('common.hide') : t('common.show')"
                     :active="revealed.has(i)"
@@ -899,7 +950,7 @@ const fmt = (iso: string) => when(iso);
                   <IconButton
                     :icon="copied === 'f' + i ? 'check' : 'copy'"
                     :label="copied === 'f' + i ? t('common.copied') : t('common.copy')"
-                    @click="copy('f' + i, f.value)"
+                    @click="copy('f' + i, f.type === 'totp' ? (fieldCodes[i] ?? '') : f.value)"
                   />
                 </dd>
               </div>
@@ -1277,8 +1328,10 @@ const fmt = (iso: string) => when(iso);
                         : 'text-red-600'
                   "
                   data-testid="strength"
-                  >{{ t(`strength.${strength.score}`) }} · {{ strength.bits }}
-                  {{ t('vault.bits') }}</span
+                  >{{ t(`strength.${strength.score}`) }} · {{ strength.bits }} {{ t('vault.bits')
+                  }}<template v-if="strength.issues.includes('personal')">
+                    · {{ t('vault.strengthPersonal') }}</template
+                  ></span
                 >
               </div>
             </div>
@@ -1336,18 +1389,32 @@ const fmt = (iso: string) => when(iso);
               </template>
               <fieldset class="space-y-2">
                 <legend class="text-sm">{{ t('vault.fields') }}</legend>
-                <div v-for="(f, i) in form.fields" :key="i" class="flex gap-1">
+                <div
+                  v-for="(f, i) in form.fields"
+                  :key="i"
+                  class="flex flex-wrap items-start gap-1"
+                >
                   <input
                     v-model="f.name"
                     :placeholder="t('vault.fieldName')"
-                    class="input"
+                    class="input min-w-32 flex-1"
                     :data-testid="`field-name-${i}`"
                   />
+                  <textarea
+                    v-if="f.type === 'multiline'"
+                    v-model="f.value"
+                    rows="3"
+                    :placeholder="t('vault.fieldValue')"
+                    class="input min-w-40 flex-[2]"
+                    :data-testid="`field-value-${i}`"
+                  />
                   <input
+                    v-else
                     v-model="f.value"
                     :type="f.secret ? 'password' : 'text'"
-                    :placeholder="t('vault.fieldValue')"
-                    class="input"
+                    :placeholder="f.type === 'totp' ? t('vault.totpSecret') : t('vault.fieldValue')"
+                    autocomplete="off"
+                    class="input min-w-40 flex-[2]"
                     :data-testid="`field-value-${i}`"
                   />
                   <div
@@ -1362,19 +1429,54 @@ const fmt = (iso: string) => when(iso);
                       role="radio"
                       class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
                       :class="
-                        f.secret === opt.secret
+                        f.secret === opt.secret && f.type === opt.type
                           ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50'
                           : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                       "
-                      :aria-checked="f.secret === opt.secret"
+                      :aria-checked="f.secret === opt.secret && f.type === opt.type"
+                      :title="t(opt.label)"
                       :data-testid="`field-type-${opt.key}-${i}`"
-                      @click="f.secret = opt.secret"
+                      @click="setFieldType(f, opt)"
                     >
                       <Icon :name="opt.icon" class="size-3.5" />
-                      {{ t(opt.label) }}
+                      <!-- на телефоне подпись только у выбранного вида, у остальных — значок с подсказкой -->
+                      <span
+                        :class="
+                          f.secret === opt.secret && f.type === opt.type ? '' : 'max-sm:sr-only'
+                        "
+                        >{{ t(opt.label) }}</span
+                      >
                     </button>
                   </div>
-                  <button type="button" class="btn" @click="form.fields.splice(i, 1)">×</button>
+                  <span class="flex gap-1">
+                    <button
+                      type="button"
+                      class="btn"
+                      :disabled="i === 0"
+                      :aria-label="t('vault.fieldUp')"
+                      :data-testid="`field-up-${i}`"
+                      @click="moveField(i, -1)"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      class="btn"
+                      :disabled="i === form.fields.length - 1"
+                      :aria-label="t('vault.fieldDown')"
+                      @click="moveField(i, 1)"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      class="btn"
+                      :aria-label="t('common.delete')"
+                      @click="form.fields.splice(i, 1)"
+                    >
+                      ×
+                    </button>
+                  </span>
                 </div>
                 <button type="button" class="btn" data-testid="btn-add-field" @click="addField">
                   {{ t('vault.addField') }}

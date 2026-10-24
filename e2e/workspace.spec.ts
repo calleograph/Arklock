@@ -136,6 +136,13 @@ let sharedLink = '';
 test('administrator builds a structure and works with entries', async ({ browser }) => {
   adminPage = await (await browser.newContext({ acceptDownloads: true })).newPage();
   const page = adminPage;
+  // ошибки интерфейса (исключения, ошибки Vue в консоли) проваливают сценарий; ожидаемые ответы 4xx — нет
+  const problems: string[] = [];
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !m.text().startsWith('Failed to load resource'))
+      problems.push(m.text());
+  });
+  page.on('pageerror', (e) => problems.push(String(e)));
   await register(page, ADMIN, SETUP);
 
   // папки и вложенность
@@ -166,10 +173,27 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('field-type-password-1').click();
   await expect(page.getByTestId('field-value-1')).toHaveAttribute('type', 'password');
   await page.getByTestId('field-value-1').fill('4242');
+  // многострочное поле и поле TOTP; TOTP поднимается над многострочным
+  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('field-name-2').fill('Маршрут');
+  await page.getByTestId('field-type-multiline-2').click();
+  await page.getByTestId('field-value-2').fill('шлюз 203.0.113.1\nрезерв 203.0.113.2');
+  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('field-name-3').fill('Второй ключ');
+  await page.getByTestId('field-type-totp-3').click();
+  await expect(page.getByTestId('field-value-3')).toHaveAttribute('type', 'password');
+  await page.getByTestId('field-value-3').fill('not a secret!');
+  await page.getByTestId('field-up-3').click();
+  await expect(page.getByTestId('field-name-2')).toHaveValue('Второй ключ');
   await page.getByTestId('f-tags').fill('prod, bank');
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('form-error')).toBeVisible(); // неверный секрет TOTP в поле не сохраняется
+  await page.getByTestId('field-value-2').fill('GEZDGNBVGY3TQOJQ');
   await page.getByTestId('f-save').click();
   await expect(page.getByTestId('view-title')).toHaveText('Сервер банка');
   await expect(page.getByTestId('view-totp')).toHaveText(/^\d{6}$/);
+  await expect(page.getByTestId('field-totp-2')).toHaveText(/^\d{6}$/);
+  await expect(page.getByText('резерв 203.0.113.2')).toBeVisible();
 
   // запись лежит в выбранной папке «Банки»
   await expect(page.getByTestId('entry-row').first()).toContainText('Финансы / Банки');
@@ -425,6 +449,7 @@ test('administrator builds a structure and works with entries', async ({ browser
     page.getByTestId('entry-row').filter({ hasText: 'Запись удаляемой папки' }),
   ).toContainText('Удаляемая');
   await page.getByTestId('scope-all').click();
+  expect(problems).toEqual([]);
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {

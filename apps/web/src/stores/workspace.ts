@@ -1268,7 +1268,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       password: d.password,
       url: d.url,
       notes: opts.includeNotes ? d.notes : '',
-      fields: d.fields.filter((f) => f.value),
+      // второй фактор по ссылке не передаётся — как и основной секрет TOTP
+      fields: d.fields.filter((f) => f.value && f.type !== 'totp'),
     };
     const pkg = await createHandoff(id, payload, opts.passphrase || undefined);
     await api('POST', '/handoffs', {

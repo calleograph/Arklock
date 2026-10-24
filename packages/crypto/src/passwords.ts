@@ -70,7 +70,7 @@ export interface Strength {
   bits: number;
   /** 0 — очень слабый … 4 — сильный. */
   score: 0 | 1 | 2 | 3 | 4;
-  issues: ('short' | 'single-class' | 'common' | 'sequence' | 'repeat')[];
+  issues: ('short' | 'single-class' | 'common' | 'sequence' | 'repeat' | 'personal')[];
 }
 
 const COMMON = new Set(
@@ -108,8 +108,11 @@ const COMMON = new Set(
   ].map((s) => s.toLowerCase()),
 );
 
-/** Эвристическая оценка стойкости (без внешних словарей). Не заменяет проверку по базам утечек. */
-export function estimateStrength(pw: string): Strength {
+/**
+ * Эвристическая оценка стойкости (без внешних словарей). Не заменяет проверку по базам утечек.
+ * `login` — логин записи: его вхождение в пароль (или части почты до «@», от 3 символов) почти не добавляет стойкости.
+ */
+export function estimateStrength(pw: string, login = ''): Strength {
   const issues: Strength['issues'] = [];
   if (!pw) return { bits: 0, score: 0, issues: ['short'] };
   let pool = 0;
@@ -121,6 +124,15 @@ export function estimateStrength(pw: string): Strength {
   const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(pw)).length;
   let bits = pw.length * Math.log2(Math.max(pool, 2));
   const lower = pw.toLowerCase();
+  const personal = [login, login.split('@')[0] ?? '']
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length >= 3 && lower.includes(s))
+    .sort((a, b) => b.length - a.length)[0];
+  if (personal) {
+    issues.push('personal');
+    // логин подбирают первым: его символы считаются за одно слово (~4 бита), а не за случайные
+    bits = (pw.length - personal.length) * Math.log2(Math.max(pool, 2)) + 4;
+  }
   if (COMMON.has(lower)) {
     issues.push('common');
     bits = Math.min(bits, 10);

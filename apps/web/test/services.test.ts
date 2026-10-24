@@ -261,3 +261,23 @@ describe('password policy: identical characters in a row', () => {
     expect(policyFrom({ 'policy.password.maxRepeat': 99 }).maxRepeat).toBe(20);
   });
 });
+
+describe('виды дополнительных полей', () => {
+  it('сохраняет известный вид, отбрасывает чужой, поле TOTP всегда секретное', async () => {
+    const { normalizeEntry } = await import('../src/services/model');
+    const d = normalizeEntry({
+      fields: [
+        { name: 'a', value: '1\n2', secret: false, type: 'multiline' },
+        { name: 'b', value: 'JBSWY3DPEHPK3PXP', secret: false, type: 'totp' },
+        { name: 'c', value: 'x', secret: true, type: 'script' },
+        { name: 'd', value: 'y' },
+      ],
+    });
+    expect(d.fields).toEqual([
+      { name: 'a', value: '1\n2', secret: false, type: 'multiline' },
+      { name: 'b', value: 'JBSWY3DPEHPK3PXP', secret: true, type: 'totp' },
+      { name: 'c', value: 'x', secret: true },
+      { name: 'd', value: 'y', secret: false },
+    ]);
+  });
+});

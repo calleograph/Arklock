@@ -239,6 +239,11 @@ describe('password tools', () => {
     expect(estimateStrength('password').score).toBe(0);
     expect(estimateStrength('aaaa1111').issues).toContain('repeat');
     expect(estimateStrength('abcd1234!').issues).toContain('sequence');
+    // логин в пароле почти не добавляет стойкости; почта учитывается и целиком, и до «@»
+    const own = estimateStrength('Ivanov.Petr-2026', 'ivanov.petr@example.com');
+    expect(own.issues).toContain('personal');
+    expect(own.score).toBeLessThan(estimateStrength('Ivanov.Petr-2026').score);
+    expect(estimateStrength('Ivanov.Petr-2026', 'ab').issues).not.toContain('personal');
     expect(estimateStrength('Xk9#mP2$vL7@nQ4!wR8').score).toBeGreaterThanOrEqual(3);
     expect(estimateStrength('').score).toBe(0);
   });

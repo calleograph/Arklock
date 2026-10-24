@@ -35,7 +35,7 @@ export function inspect(entries: EntryItem[], o: InspectOptions): Issue[] {
     if (d.kind === 'note') continue;
     if (d.password && checkPolicy(d.password, o.policy ?? NO_POLICY).length)
       issues.push({ entryId: e.id, type: 'policy' });
-    if (d.password && estimateStrength(d.password).score < 2)
+    if (d.password && estimateStrength(d.password, d.username).score < 2)
       issues.push({ entryId: e.id, type: 'weak' });
     const same = d.password ? byPassword.get(d.password) : undefined;
     if (same && same.length > 1) issues.push({ entryId: e.id, type: 'reused', info: same.length });

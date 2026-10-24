@@ -162,7 +162,7 @@ async function copy(v: string): Promise<void> {
       </div>
       <div v-for="f in payload.fields" :key="f.name">
         <div class="text-xs text-slate-500">{{ f.name }}</div>
-        <div class="break-all">{{ f.value }}</div>
+        <div class="whitespace-pre-wrap break-all">{{ f.value }}</div>
       </div>
       <div v-if="payload.notes" class="whitespace-pre-wrap">{{ payload.notes }}</div>
       <p class="text-xs text-slate-500">

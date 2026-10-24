@@ -10,6 +10,8 @@ export interface CustomField {
   value: string;
   /** Секретное поле: скрывается по умолчанию, значение не показывается без действия пользователя. */
   secret: boolean;
+  /** Вид поля: многострочный текст или секрет TOTP (в карточке — текущий код); без вида — строка. */
+  type?: 'multiline' | 'totp';
 }
 
 export interface EntryData {
@@ -57,7 +59,9 @@ export function normalizeEntry(raw: unknown): EntryData {
       ? r.fields.map((f) => ({
           name: String(f.name ?? ''),
           value: String(f.value ?? ''),
-          secret: !!f.secret,
+          // секрет TOTP всегда секретный, независимо от сохранённого признака
+          secret: !!f.secret || f.type === 'totp',
+          ...(f.type === 'multiline' || f.type === 'totp' ? { type: f.type } : {}),
         }))
       : [],
     tags: Array.isArray(r.tags) ? r.tags.map(String) : [],

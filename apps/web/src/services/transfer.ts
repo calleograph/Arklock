@@ -229,7 +229,7 @@ export function importPassworkJson(text: string): ImportResult {
     d.password = f.password ?? '';
     d.url = f.url ?? '';
     d.notes = f.note ?? '';
-    const fields: { name: string; value: string; secret: boolean }[] = [];
+    const fields: EntryData['fields'] = [];
     for (const c of f.custom ?? []) {
       if (!c.name || !c.value) continue;
       if (c.type === 'totp' && !d.totp) {
@@ -240,6 +240,7 @@ export function importPassworkJson(text: string): ImportResult {
         name: c.name,
         value: c.value,
         secret: c.type === 'password' || c.type === 'totp',
+        ...(c.type === 'totp' ? { type: 'totp' as const } : {}),
       });
     }
     d.fields = fields;
