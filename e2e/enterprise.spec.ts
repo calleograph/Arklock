@@ -657,3 +657,73 @@ test('увольнение руководителя с 1500 записями: п
   });
   expect([400, 401, 403]).toContain(r.status());
 });
+
+test('без защищённого контекста (http по адресу локальной сети) причина видна до ввода пароля', async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext({ locale: 'ru-RU', baseURL: BASE });
+  // имитация небезопасного адреса: Web Crypto недоступен
+  await ctx.addInitScript(() =>
+    Object.defineProperty(globalThis, 'isSecureContext', { value: false }),
+  );
+  const p = await ctx.newPage();
+  await p.goto('/login');
+  await expect(p.getByTestId('insecure-context')).toContainText('HTTPS');
+  await expect(p.getByTestId('insecure-context')).toContainText('localhost');
+  await ctx.close();
+});
+
+test('безопасность: слабые пароли отдела видны руководителю, переход к списку, сводка у главного администратора', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const hc = new TestClient(httpApp(BASE), headEmail(5), PASSWORD);
+  await hc.login();
+  const vault = (await hc.vaults()).find((v) => v.name === 'Финансы')!;
+  const key = await hc.openVault(vault);
+  const mk = (title: string, password: string) =>
+    hc.createEntry(
+      {
+        kind: 'login',
+        title,
+        username: 'u',
+        password,
+        url: '',
+        notes: '',
+        totp: '',
+        tags: [],
+        fields: [],
+        links: [],
+      },
+      { vaultId: vault.id, vaultKey: key },
+    );
+  for (const [t, p] of [
+    ['Касса', '123456'],
+    ['Банк', 'password'],
+    ['Платёжный шлюз', 'qwerty'],
+  ] as const)
+    await mk(t, p);
+  await mk('Отчётность', 'Correct-Horse-Battery-9!x');
+
+  const head = await login(browser, headEmail(5));
+  await head.getByTestId('vault-select').selectOption({ label: 'Финансы' });
+  await expect(head.getByTestId('overview-weak')).toContainText('3');
+  await expect(head.getByTestId('overview-health')).toContainText('25%');
+  await head.getByTestId('overview-weak').click();
+  await expect(head.getByTestId('entry-row')).toHaveCount(3);
+  // отправка в события сейфа и сводка главного администратора
+  await head.goto('/inspector');
+  await head.getByTestId('btn-report').click();
+  await expect(head.getByTestId('inspector-reported')).toBeVisible();
+  await head.context().close();
+
+  await page.goto('/admin/organization');
+  // рейтинг: подразделение с событиями выше остальных; нажатие на название открывает подробности
+  const rank = page.getByTestId('structure-rank-row');
+  await expect(rank.first()).toBeVisible({ timeout: 30_000 });
+  await expect(rank.first()).toContainText('Бухгалтерия'); // 1501 событие высокого риска после увольнения
+  await rank.filter({ hasText: 'Финансы' }).getByRole('button', { name: 'Финансы' }).click();
+  const row = page.getByTestId('structure-vault').filter({ hasText: 'Финансы' }).first();
+  await expect(row.getByTestId('structure-security')).toContainText('3', { timeout: 30_000 });
+  await page.screenshot({ path: 'docs/screenshots/ux-organization-security.png' });
+});

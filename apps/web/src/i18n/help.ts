@@ -679,6 +679,13 @@ export const ruHelp = {
     medium: 'средний: {n}',
     riskTotals:
       'открытых событий: высокий риск {high}, средний {medium}; не проверялись: {unchecked}',
+    rank: 'Подразделения по риску',
+    rankHint:
+      'Сначала те, где больше открытых событий высокого риска; нажмите на название, чтобы открыть подробности.',
+    rankVaults: 'Сейфов',
+    rankHigh: 'Высокий',
+    rankMedium: 'Средний',
+    rankUnchecked: 'Не проверялись',
     offerTitle: 'Роль главного администратора',
     offerText:
       '{name} предлагает вам роль главного администратора. Предложение действует до {until}.',
@@ -1541,6 +1548,12 @@ export const enHelp = {
     high: 'high risk: {n}',
     medium: 'medium: {n}',
     riskTotals: 'open events: high risk {high}, medium {medium}; never checked: {unchecked}',
+    rank: 'Departments by risk',
+    rankHint: 'Most open high-risk events first; click a name to see the details.',
+    rankVaults: 'Vaults',
+    rankHigh: 'High',
+    rankMedium: 'Medium',
+    rankUnchecked: 'Not checked',
     offerTitle: 'Chief administrator role',
     offerText: '{name} offers you the chief administrator role. The offer is valid until {until}.',
     accept: 'Accept the role',

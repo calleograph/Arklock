@@ -42,6 +42,19 @@ const totals = (sp: SpaceRow) => ({
   medium: sp.vaults.reduce((a, v) => a + v.security.medium, 0),
   unchecked: sp.vaults.filter((v) => !v.security.checkedAt).length,
 });
+// рейтинг подразделений по риску: у организации с десятками отделов подробные таблицы — это сотни строк
+const ranking = computed(() =>
+  structure.value
+    .filter((s) => s.vaults.length)
+    .map((s) => ({ s, ...totals(s), entries: s.vaults.reduce((a, v) => a + v.entries, 0) }))
+    .sort(
+      (a, b) =>
+        b.high - a.high ||
+        b.medium - a.medium ||
+        b.unchecked - a.unchecked ||
+        a.s.name.localeCompare(b.s.name, undefined, { numeric: true }),
+    ),
+);
 const status = ref<Status | null>(null);
 const structure = ref<SpaceRow[]>([]);
 const people = ref<(Person & { disabled: boolean })[]>([]);
@@ -197,6 +210,49 @@ async function cancel(): Promise<void> {
           :placeholder="t('chief.find')"
           :aria-label="t('chief.find')"
         />
+      </div>
+      <div v-if="ranking.length > 3 && !query" class="mt-3" data-testid="structure-rank">
+        <h3 class="text-sm font-semibold">{{ t('chief.rank') }}</h3>
+        <p class="text-xs text-slate-500">{{ t('chief.rankHint') }}</p>
+        <div
+          class="mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 dark:border-slate-700"
+        >
+          <table class="min-w-full text-sm">
+            <thead class="sticky top-0 bg-white text-left text-xs text-slate-500 dark:bg-slate-900">
+              <tr>
+                <th class="px-2 py-1">{{ t('chief.rank') }}</th>
+                <th>{{ t('chief.rankVaults') }}</th>
+                <th>{{ t('chief.entries') }}</th>
+                <th>{{ t('chief.rankHigh') }}</th>
+                <th>{{ t('chief.rankMedium') }}</th>
+                <th>{{ t('chief.rankUnchecked') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="r in ranking"
+                :key="r.s.id"
+                class="border-t border-slate-200 dark:border-slate-800"
+                data-testid="structure-rank-row"
+              >
+                <td class="px-2 py-1">
+                  <button type="button" class="font-medium underline" @click="query = r.s.name">
+                    {{ spaceLabel(r.s, t) }}
+                  </button>
+                </td>
+                <td class="tabular-nums">{{ r.s.vaults.length }}</td>
+                <td class="tabular-nums">{{ r.entries }}</td>
+                <td class="tabular-nums" :class="r.high ? 'font-medium text-red-600' : ''">
+                  {{ r.high }}
+                </td>
+                <td class="tabular-nums" :class="r.medium ? 'text-amber-700' : ''">
+                  {{ r.medium }}
+                </td>
+                <td class="tabular-nums">{{ r.unchecked }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
       <p v-if="!shown.length" class="mt-3 text-slate-500">{{ t('chief.nothing') }}</p>
       <div v-for="s in shown" :key="s.id" class="mt-4">

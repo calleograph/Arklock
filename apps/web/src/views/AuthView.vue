@@ -461,6 +461,15 @@ async function copyRecovery(): Promise<void> {
 
       <form v-else class="card space-y-4 p-6 sm:p-7" @submit.prevent="submit">
         <h1 class="text-xl font-semibold">{{ mfaStep ? t('mfa.title') : title }}</h1>
+        <!-- до ввода пароля: на небезопасном адресе (http по IP) вход невозможен, и причину видно сразу -->
+        <p
+          v-if="!hasWebCrypto()"
+          class="notice notice-warn"
+          role="alert"
+          data-testid="insecure-context"
+        >
+          {{ t('error.insecure') }}
+        </p>
         <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
           {{ t('auth.unlockHint') }}
         </p>
