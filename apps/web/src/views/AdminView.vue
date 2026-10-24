@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
 import DepartmentsPanel from '../components/DepartmentsPanel.vue';
+import SetupChecklist from '../components/SetupChecklist.vue';
 import { generatorFrom } from '../services/policy';
 import { useWorkspaceStore } from '../stores/workspace';
 import LdapSettings from '../components/LdapSettings.vue';
@@ -706,6 +707,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         </div>
       </nav>
       <div class="min-w-0 space-y-4">
+        <SetupChecklist v-if="tab === 'users' && isFull()" />
         <p
           v-if="error"
           class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"

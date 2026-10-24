@@ -77,6 +77,18 @@ test('администратор регистрируется, открывае�
   expect(users).toHaveLength(61);
 });
 
+test('«Начало работы»: администратор видит, что настроено и что нет', async () => {
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  const list = page.getByTestId('setup-checklist');
+  await expect(list).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('setup-url')).toHaveAttribute('data-done', '0');
+  await expect(page.getByTestId('setup-dept')).toHaveAttribute('data-done', '0');
+  await expect(page.getByTestId('setup-people')).toHaveAttribute('data-done', '1');
+  await page.getByTestId('setup-dept').getByRole('link').click();
+  await expect(page).toHaveURL(/\/admin\/departments$/);
+});
+
 test('было: подразделение прежним путём — группа, пространство, сейф, права по отдельности', async () => {
   const c = new Counter(page, 'Создать подразделение (прежний путь)');
   const name = 'Старый отдел';
@@ -889,4 +901,40 @@ test('приглашение списком: 12 сотрудников в раз
   // приглашения созданы, группа привязана к приглашению
   const inv = (await api('GET', '/admin/invitations')).json as { email: string; status: string }[];
   expect(inv.filter((x) => x.email.startsWith('bulk') && x.status === 'pending')).toHaveLength(12);
+});
+
+test('поиск находит запись в другом сейфе без переключения отдела', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const hc = new TestClient(httpApp(BASE), headEmail(5), PASSWORD);
+  await hc.login();
+  const lead = (await hc.vaults()).find((v) => v.name === 'Финансы · Руководство')!;
+  const key = await hc.openVault(lead);
+  await hc.createEntry(
+    {
+      kind: 'login',
+      title: 'Совет директоров',
+      username: 'board',
+      password: 'Correct-Horse-Battery-9!x',
+      url: '',
+      notes: '',
+      totp: '',
+      tags: [],
+      fields: [],
+      links: [],
+    },
+    { vaultId: lead.id, vaultKey: key },
+  );
+  const head = await login(browser, headEmail(5));
+  await head.getByTestId('vault-select').selectOption({ label: 'Финансы' });
+  const t0 = Date.now();
+  await head.getByTestId('search').fill('Совет директоров');
+  await expect(head.getByTestId('global-search-result')).toHaveCount(1, { timeout: 30_000 });
+  console.log(`Поиск по всем сейфам: ${Date.now() - t0} мс`);
+  await expect(head.getByTestId('global-search-result')).toContainText('Руководство');
+  await head.getByTestId('global-search-result').click();
+  await expect(head.getByTestId('view-title')).toHaveText('Совет директоров');
+  await expect(head.getByTestId('vault-select').locator('option:checked')).toContainText(
+    'Руководство',
+  );
+  await head.context().close();
 });
