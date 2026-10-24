@@ -989,6 +989,8 @@ export default {
     assignMe: 'Assign to me',
     signalCause: 'after offboarding {name}',
     signalOpen: 'Open entry',
+    signalTab: { active: 'Open: {n}', closed: 'Closed: {n}' },
+    signalClosedAt: 'closed {at}',
     keyTitle: 'Vault encryption key',
     keyVersion: 'Key version: {v}',
     rotateHint:

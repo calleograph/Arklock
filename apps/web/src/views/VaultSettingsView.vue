@@ -53,8 +53,16 @@ const signals = ref<
     assignedName: string | null;
     cause: { id: string; name: string | null } | null;
     createdAt: string;
+    updatedAt: string;
   }[]
 >([]);
+// открытые и в работе — отдельно от архива решённых и отклонённых
+const signalTab = ref<'active' | 'closed'>('active');
+const isClosed = (status: string) => status === 'resolved' || status === 'dismissed';
+const shownSignals = computed(() =>
+  signals.value.filter((s) => isClosed(s.status) === (signalTab.value === 'closed')),
+);
+const closedCount = computed(() => signals.value.filter((s) => isClosed(s.status)).length);
 // риск по типу: утечка и «смените пароль после увольнения» — высокий, остальное — средний
 const risk = (type: string) => (type === 'compromised' || type === 'rotate' ? 'high' : 'medium');
 interface SignalStep {
@@ -505,13 +513,34 @@ void decryptEntry;
 
     <!-- События безопасности -->
     <div class="space-y-2">
-      <h2 class="font-medium">{{ t('settings.signals') }}</h2>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="font-medium">{{ t('settings.signals') }}</h2>
+        <div class="flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800" role="tablist">
+          <button
+            v-for="tab in ['active', 'closed'] as const"
+            :key="tab"
+            type="button"
+            role="tab"
+            class="seg"
+            :class="signalTab === tab ? 'seg-on' : ''"
+            :aria-selected="signalTab === tab"
+            :data-testid="`signals-tab-${tab}`"
+            @click="signalTab = tab"
+          >
+            {{
+              t(`settings.signalTab.${tab}`, {
+                n: tab === 'closed' ? closedCount : signals.length - closedCount,
+              })
+            }}
+          </button>
+        </div>
+      </div>
       <ul
         class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
         data-testid="signals-list"
       >
         <li
-          v-for="s in signals"
+          v-for="s in shownSignals"
           :key="s.id"
           class="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
         >
@@ -525,7 +554,12 @@ void decryptEntry;
             <span v-if="s.cause" class="mr-1 text-xs text-slate-500" data-testid="signal-cause"
               >· {{ t('settings.signalCause', { name: s.cause.name ?? '—' }) }}</span
             >
-            <span class="text-xs text-slate-500">· {{ when(s.createdAt) }}</span>
+            <span class="text-xs text-slate-500"
+              >· {{ when(s.createdAt) }}
+              <template v-if="isClosed(s.status)"
+                >· {{ t('settings.signalClosedAt', { at: when(s.updatedAt) }) }}</template
+              ></span
+            >
           </span>
           <span class="flex flex-wrap items-center gap-1">
             <select
@@ -582,7 +616,7 @@ void decryptEntry;
             </ol>
           </div>
         </li>
-        <li v-if="!signals.length" class="px-3 py-2 text-slate-500">—</li>
+        <li v-if="!shownSignals.length" class="px-3 py-2 text-slate-500">—</li>
       </ul>
     </div>
 

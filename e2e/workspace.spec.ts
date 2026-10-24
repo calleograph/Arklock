@@ -721,7 +721,13 @@ test('offboarding a member: one «change passwords» summary in the card, the ca
   await expect(row.getByTestId('signal-advice')).toContainText(
     /уволенный сотрудник|offboarded employee/,
   );
-  await row.locator('[data-testid^="signal-open-"]').click();
+  // отклонённое событие уходит в архив закрытых — со временем закрытия
+  await row.locator('select').selectOption('dismissed');
+  await expect(row).toHaveCount(0);
+  await page.getByTestId('signals-tab-closed').click();
+  const closedRow = page.getByTestId('signals-list').locator('li').filter({ hasText: LEAVER.name });
+  await expect(closedRow).toContainText(/закрыто|closed/);
+  await closedRow.locator('[data-testid^="signal-open-"]').click();
   await expect(page.getByTestId('view-title')).toHaveText('Общий сервер');
   await expect(page.getByTestId('add-entry')).toBeVisible();
 });

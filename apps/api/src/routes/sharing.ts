@@ -266,7 +266,11 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       .select()
       .from(signals)
       .where(eq(signals.vaultId, vaultId))
-      .orderBy(asc(signals.status), desc(signals.createdAt))
+      // сначала открытые и в работе (статусы по алфавиту ставили «отклонено» выше «открыто»), затем закрытые — свежие сверху
+      .orderBy(
+        sql`case when ${signals.status} in ('open', 'in_progress') then 0 else 1 end`,
+        desc(signals.updatedAt),
+      )
       .limit(1000);
     const objects = await db
       .select({ id: entries.id, branchId: entries.branchId })
@@ -296,6 +300,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       // для «смените пароль» — после чьего увольнения
       cause: s.causeUserId ? { id: s.causeUserId, name: names.get(s.causeUserId) ?? null } : null,
       createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
     }));
   });
 

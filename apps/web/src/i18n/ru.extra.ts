@@ -992,6 +992,8 @@ export default {
     assignMe: 'Назначить на меня',
     signalCause: 'после увольнения: {name}',
     signalOpen: 'К записи',
+    signalTab: { active: 'Открытые: {n}', closed: 'Закрытые: {n}' },
+    signalClosedAt: 'закрыто {at}',
     keyTitle: 'Ключ шифрования сейфа',
     keyVersion: 'Версия ключа: {v}',
     rotateHint:

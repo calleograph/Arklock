@@ -151,3 +151,14 @@ it('offboarding opens «change the password» for entries the person could see, 
     clientReported: true,
   });
 });
+
+it('active events come before closed ones (the list is limited, the archive must not push them out)', async () => {
+  await report([{ entryId: hidden, type: 'weak' }]);
+  const rows = (await list()) as (Signal & { updatedAt: string })[];
+  const closed = (s: string) => s === 'resolved' || s === 'dismissed';
+  expect(rows.some((r) => closed(r.status))).toBe(true);
+  expect(rows.some((r) => !closed(r.status))).toBe(true);
+  const firstClosed = rows.findIndex((r) => closed(r.status));
+  expect(rows.slice(firstClosed).every((r) => closed(r.status))).toBe(true);
+  expect(rows.every((r) => typeof r.updatedAt === 'string')).toBe(true);
+});
