@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
-import { Counter, DEPARTMENTS, headEmail, seedUsers, staffEmail } from './support/org.js';
+import { expect, test, type Browser, type Page } from '@playwright/test';
+import { Counter, DEPARTMENTS, headEmail, PASSWORD, seedUsers, staffEmail } from './support/org.js';
 
 /**
  * Сквозной сценарий внедрения в компании на 20 подразделений: администратор и 60 синтетических сотрудников,
@@ -147,6 +147,13 @@ test('стало: подразделение мастером — одно ок�
   // независимая проверка структуры по API
   const circles = (await api('GET', '/admin/circles')).json as { id: string; name: string }[];
   const circle = circles.find((x) => x.name === 'Бухгалтерия')!;
+  // руководитель — администратор сейфа напрямую, а не только участник группы
+  const vs = (await api('GET', '/vaults')).json as { id: string; name: string }[];
+  const dv = vs.find((x) => x.name === 'Бухгалтерия')!;
+  const mem = (await api('GET', `/vaults/${dv.id}/members`)).json as {
+    members: { email: string; directRole: string | null }[];
+  };
+  expect(mem.members.find((m) => m.email === headEmail(4))?.directRole).toBe('admin');
   expect(circle).toBeTruthy();
   const members = (await api('GET', `/admin/circles/${circle.id}/members`)).json as {
     email: string;
@@ -221,4 +228,96 @@ test('неверная строка блокирует создание и об�
   await expect(page.getByTestId('dept-create')).toBeDisabled();
   await expect(page.getByTestId('dept-state').first()).toContainText('руководитель не найден');
   await expect(page.getByTestId('dept-state').nth(1)).toContainText('повтор');
+});
+
+async function login(browser: Browser, email: string, password = PASSWORD): Promise<Page> {
+  const p = await (await browser.newContext({ locale: 'ru-RU', baseURL: BASE })).newPage();
+  await p.goto('/login');
+  await p.getByTestId('email').fill(email);
+  await p.getByTestId('password').fill(password);
+  await p.getByTestId('submit').click();
+  await expect(p.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  return p;
+}
+
+test('руководитель отдела: структура папок, запись, копирование, выдача доступа — замер действий', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // сотрудники бухгалтерии: администратор добавляет их в группу, ключи сейфа выдаёт клиент администратора
+  const circles = (await api('GET', '/admin/circles')).json as { id: string; name: string }[];
+  const acc = circles.find((x) => x.name === 'Бухгалтерия')!;
+  const users = (await api('GET', '/admin/users')).json as { id: string; email: string }[];
+  const idOf = (e: string) => users.find((u) => u.email === e)!.id;
+  await api('PATCH', `/admin/circles/${acc.id}/members`, {
+    add: [idOf(staffEmail(0)), idOf(staffEmail(1))],
+  });
+  // клиент администратора загружает сейфы и выдаёт ключи ожидающим участникам группы
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  await page.reload();
+  await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+
+  // первый вход руководителя: сразу открыт его отдел, а не пустая «Организация»
+  const head = await login(browser, headEmail(4));
+  await expect(head.getByTestId('space-select').locator('option:checked')).toHaveText(
+    'Бухгалтерия',
+  );
+  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия' });
+
+  // подпапки до пяти уровней
+  const f = new Counter(head, 'Создать подпапку внутри выбранной папки');
+  const mk = async (name: string, c: Counter) => {
+    await c.click('btn-new-folder');
+    await c.fill('name-input', name);
+    await c.click('name-ok');
+    await expect(head.getByTestId('branch-row').filter({ hasText: name })).toBeVisible();
+  };
+  await mk('Налоги', new Counter(head, 'корневая папка'));
+  let parent = 'Налоги';
+  for (const lvl of ['НДС', 'Декларации', '2026', 'Квартал 1']) {
+    f.clicks++;
+    await head
+      .getByTestId('branch-row')
+      .getByRole('button', { name: lvl === 'НДС' ? 'Налоги' : parent, exact: true })
+      .click();
+    await mk(lvl, f);
+    parent = lvl;
+  }
+  record(f);
+
+  // запись в открытой папке
+  const e = new Counter(head, 'Создать запись в открытой папке');
+  e.clicks++;
+  await head
+    .getByTestId('branch-row')
+    .getByRole('button', { name: 'Квартал 1', exact: true })
+    .click();
+  await e.click('add-entry');
+  e.screen();
+  await e.fill('f-title', 'Банк-клиент');
+  await e.fill('f-username', 'buh');
+  await e.fill('f-password', 'Correct-Horse-Battery-77!x');
+  await e.click('f-save');
+  await expect(head.getByTestId('view-title')).toHaveText('Банк-клиент');
+  await expect(head.getByTestId('entry-row').first()).toContainText('Квартал 1');
+  record(e);
+
+  const cp = new Counter(head, 'Скопировать пароль из открытой карточки');
+  await cp.click('btn-copy-password');
+  record(cp);
+
+  const g = new Counter(head, 'Предоставить доступ к записи отделу «Продажи»');
+  await g.click('tab-access');
+  g.screen();
+  await g.click('grant-open');
+  await g.fill('grant-search', 'Продажи');
+  await g.click('grant-option-Продажи');
+  await g.click('grant-submit');
+  await expect(head.getByTestId('entry-access-grant').filter({ hasText: 'Продажи' })).toHaveCount(
+    1,
+  );
+  record(g);
+  await head.context().close();
 });

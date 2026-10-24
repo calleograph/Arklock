@@ -288,8 +288,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       else {
         const home = spaces.value.find((s) => s.isDefault) ?? spaces.value[0];
         const homeHasVaults = !!home && out.some((v) => v.spaceId === home.id);
+        // в пространстве организации пока нет сейфов, а в другом пространстве они есть (например, у руководителя
+        // нового отдела) — открываем его, а не пустой экран
+        const withVaults = spaces.value.find((s) => out.some((v) => v.spaceId === s.id));
+        const target = homeHasVaults ? home : (withVaults ?? home);
         currentSpaceId.value =
-          home && (homeHasVaults || !out.some((v) => v.kind === 'locker')) ? home.id : null;
+          target && (homeHasVaults || withVaults || !out.some((v) => v.kind === 'locker'))
+            ? target.id
+            : null;
       }
     }
     if (!currentId.value || !out.some((v) => v.id === currentId.value)) {

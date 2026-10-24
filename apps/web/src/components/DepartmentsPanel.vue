@@ -209,8 +209,9 @@ async function build(it: Item): Promise<void> {
     : undefined;
   const addHead = async (vid: string) => {
     if (!headUser) return;
-    const have = (await ws.members(vid)).members.some((m) => m.userId === headUser.id);
-    if (!have) await ws.addMember(vid, headUser, 'admin');
+    // участие через группу не считается: руководителю нужна своя роль администратора сейфа
+    const mine = (await ws.members(vid)).members.find((m) => m.userId === headUser.id);
+    if (mine?.directRole !== 'admin') await ws.addMember(vid, headUser, 'admin');
   };
   await addHead(vaultId);
   if (leadVault.value && it.head) {
