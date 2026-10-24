@@ -56,3 +56,33 @@ export function policyFrom(raw: Record<string, unknown>): PasswordPolicy {
     maxRepeat: Math.min(n(raw['policy.password.maxRepeat']), 20),
   };
 }
+
+/** Генератор паролей организации: значения по умолчанию и символы, которые он не использует никогда. */
+export interface GeneratorDefaults {
+  length: number;
+  lower: boolean;
+  upper: boolean;
+  digits: boolean;
+  symbols: boolean;
+  exclude: string;
+}
+
+export function generatorFrom(raw: Record<string, unknown>): GeneratorDefaults {
+  const len = raw['generator.length'];
+  const on = (k: string) => raw[`generator.${k}`] !== false;
+  const out = {
+    length: typeof len === 'number' && len >= 8 && len <= 128 ? Math.floor(len) : 20,
+    lower: on('lower'),
+    upper: on('upper'),
+    digits: on('digits'),
+    symbols: on('symbols'),
+    exclude:
+      typeof raw['generator.exclude'] === 'string'
+        ? raw['generator.exclude'].replace(/[^\x21-\x7e]/g, '').slice(0, 64)
+        : '',
+  };
+  // без единого класса генератору не из чего строить пароль — тогда все классы
+  if (!out.lower && !out.upper && !out.digits && !out.symbols)
+    Object.assign(out, { lower: true, upper: true, digits: true, symbols: true });
+  return out;
+}

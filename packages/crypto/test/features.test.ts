@@ -239,6 +239,23 @@ describe('password tools', () => {
     expect(estimateStrength('password').score).toBe(0);
     expect(estimateStrength('aaaa1111').issues).toContain('repeat');
     expect(estimateStrength('abcd1234!').issues).toContain('sequence');
+    // исключённые символы не встречаются; класс, исключённый целиком, не участвует
+    for (let i = 0; i < 50; i++) {
+      const pw = generatePassword({ length: 64, exclude: '!@#$%^&*aeiou0123' });
+      expect(pw).not.toMatch(/[!@#$%^&*aeiou0123]/);
+      expect(pw).toHaveLength(64);
+    }
+    expect(
+      generatePassword({ digits: false, symbols: false, upper: false, exclude: 'abc' }),
+    ).toMatch(/^[d-z]+$/);
+    expect(() =>
+      generatePassword({
+        upper: false,
+        digits: false,
+        symbols: false,
+        exclude: 'abcdefghijklmnopqrstuvwxyz',
+      }),
+    ).toThrow(RangeError);
     // логин в пароле почти не добавляет стойкости; почта учитывается и целиком, и до «@»
     const own = estimateStrength('Ivanov.Petr-2026', 'ivanov.petr@example.com');
     expect(own.issues).toContain('personal');

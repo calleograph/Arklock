@@ -696,6 +696,7 @@ export default {
     digits: 'digits',
     symbols: 'symbols',
     avoidAmbiguous: 'avoid look-alikes (0/O, 1/l/I)',
+    excluded: 'Never used (organization setting):',
     capitalize: 'capitalize words',
     appendNumber: 'append a digit',
     regenerate: 'New',
@@ -1058,7 +1059,14 @@ export default {
       notifyHint: 'Emails about security events.',
       links: 'Sharing links',
       linksHint: 'Limits for links people use to hand over secrets, and a note for recipients.',
+      generator: 'Password generator',
+      generatorHint:
+        'Defaults for everyone; people can change their own generator settings. The length never drops below the password policy.',
     },
+    genClasses: 'Characters in a password',
+    genExclude: 'Never use',
+    genExcludeHint:
+      'Characters the generator never inserts for anyone — for example, ones an external system rejects. Printable characters only, no space.',
     linksMaxMinutes: 'Longest link lifetime, minutes (0 — 30 days)',
     revealSeconds: 'Hide a shown password after, seconds (0 = keep shown)',
     linksMaxViews: 'Most views per link',

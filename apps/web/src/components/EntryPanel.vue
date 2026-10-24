@@ -342,7 +342,10 @@ watch(
 function generate(kind: 'password' | 'phrase'): void {
   form.value.password =
     kind === 'password'
-      ? generatePassword({ length: Math.max(20, policy.value.minLength) })
+      ? generatePassword({
+          ...ws.generator,
+          length: Math.max(ws.generator.length, policy.value.minLength),
+        })
       : generatePassphrase({ words: Math.max(5, Math.ceil(policy.value.minLength / 8)) });
   showPw.value = true;
 }

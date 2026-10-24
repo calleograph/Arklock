@@ -56,6 +56,16 @@ const SETTINGS: Record<string, z.ZodType> = {
   'links.maxViews': z.number().int().min(1).max(100),
   /** Примечание организации, которое получатель видит на странице ссылки. */
   'links.notice': z.string().trim().max(500),
+  /** Генератор паролей: значения по умолчанию организации и символы, которые он никогда не использует. */
+  'generator.length': z.number().int().min(8).max(128),
+  'generator.lower': z.boolean(),
+  'generator.upper': z.boolean(),
+  'generator.digits': z.boolean(),
+  'generator.symbols': z.boolean(),
+  'generator.exclude': z
+    .string()
+    .max(64)
+    .regex(/^[\x21-\x7e]*$/),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
   'registration.mode': 'closed',
@@ -80,6 +90,12 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'links.maxMinutes': 0,
   'links.maxViews': 100,
   'links.notice': '',
+  'generator.length': 20,
+  'generator.lower': true,
+  'generator.upper': true,
+  'generator.digits': true,
+  'generator.symbols': true,
+  'generator.exclude': '',
 };
 
 /** Пользователи, круги, настройки и журнал — только для администратора. */

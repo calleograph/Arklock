@@ -7,6 +7,8 @@ import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
+import { generatorFrom } from '../services/policy';
+import { useWorkspaceStore } from '../stores/workspace';
 import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
@@ -455,6 +457,9 @@ const loadSettings = async () => {
 const saveSetting = (key: string, value: unknown) =>
   run(async () => {
     await api('PUT', '/admin/settings', { [key]: value });
+    // свой генератор администратор видит сразу, остальные — при следующей загрузке сейфов
+    if (key.startsWith('generator.'))
+      useWorkspaceStore().generator = generatorFrom({ ...settings.value, [key]: value });
     notice.value = t('admin.saved');
   }, loadSettings);
 const testRange = () =>
@@ -493,6 +498,11 @@ const LEDGER_KINDS = [
 ] as const;
 const targetText = (l: L) => ledgerTarget(l, t, te);
 const actionText = (a: string) => ledgerAction(a, t, te);
+// генератор организации: последний включённый класс символов выключить нельзя — генератору не из чего строить пароль
+const GEN_CLASSES = ['lower', 'upper', 'digits', 'symbols'] as const;
+const genClassesOn = computed(
+  () => GEN_CLASSES.filter((c) => settings.value[`generator.${c}`] !== false).length,
+);
 const ledger = ref<L[]>([]);
 const next = ref<number | string | null>(null);
 // сортировка — на сервере: страницы «показать ещё» продолжают тот же порядок
@@ -1327,6 +1337,60 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   saveSetting(
                     'security.passwordMaxAgeDays',
                     Number(($event.target as HTMLInputElement).value),
+                  )
+                "
+            /></label>
+          </section>
+          <section
+            class="card space-y-3 p-4 text-sm"
+            data-testid="settings-group-generator"
+            v-show="settingsTab === 'security'"
+          >
+            <div>
+              <h2 class="font-medium">{{ t('admin.settingsGroup.generator') }}</h2>
+              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.generatorHint') }}</p>
+            </div>
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+              ><span>{{ t('generator.length') }}</span
+              ><input
+                :value="settings['generator.length'] ?? 20"
+                type="number"
+                min="8"
+                max="128"
+                class="input w-24"
+                data-testid="set-gen-length"
+                @change="
+                  saveSetting('generator.length', Number(($event.target as HTMLInputElement).value))
+                "
+            /></label>
+            <fieldset class="flex flex-wrap gap-x-4 gap-y-1">
+              <legend class="mb-1">{{ t('admin.genClasses') }}</legend>
+              <label v-for="c in GEN_CLASSES" :key="c" class="flex items-center gap-2"
+                ><input
+                  type="checkbox"
+                  :checked="settings[`generator.${c}`] !== false"
+                  :disabled="settings[`generator.${c}`] !== false && genClassesOn <= 1"
+                  :data-testid="`set-gen-${c}`"
+                  @change="
+                    saveSetting(`generator.${c}`, ($event.target as HTMLInputElement).checked)
+                  "
+                />{{ t(`generator.${c}`) }}</label
+              >
+            </fieldset>
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+              ><span class="inline-flex items-center gap-1"
+                >{{ t('admin.genExclude') }}<InfoHint :text="t('admin.genExcludeHint')" /></span
+              ><input
+                :value="settings['generator.exclude'] ?? ''"
+                maxlength="64"
+                spellcheck="false"
+                autocomplete="off"
+                class="input w-48 font-mono"
+                data-testid="set-gen-exclude"
+                @change="
+                  saveSetting(
+                    'generator.exclude',
+                    ($event.target as HTMLInputElement).value.replace(/[^\x21-\x7e]/g, ''),
                   )
                 "
             /></label>

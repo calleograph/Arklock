@@ -19,6 +19,8 @@ export interface PasswordOptions {
   symbols?: boolean;
   /** Исключить похожие символы (0/O, 1/l/I). */
   avoidAmbiguous?: boolean;
+  /** Символы, которых не должно быть в пароле (например, не принимаемые внешней системой). */
+  exclude?: string;
 }
 
 const SETS = {
@@ -33,7 +35,10 @@ export function generatePassword(o: PasswordOptions = {}): string {
   const length = Math.min(128, Math.max(4, o.length ?? 20));
   const classes = (['lower', 'upper', 'digits', 'symbols'] as const)
     .filter((k) => o[k] ?? true)
-    .map((k) => (o.avoidAmbiguous ? SETS[k].replace(AMBIGUOUS, '') : SETS[k]));
+    .map((k) => (o.avoidAmbiguous ? SETS[k].replace(AMBIGUOUS, '') : SETS[k]))
+    .map((set) => [...set].filter((c) => !o.exclude?.includes(c)).join(''))
+    // класс, из которого исключены все символы, не участвует
+    .filter(Boolean);
   if (!classes.length) throw new RangeError('at least one character class is required');
   const all = classes.join('');
   const chars = classes.map((c) => c[randomInt(c.length)]!);

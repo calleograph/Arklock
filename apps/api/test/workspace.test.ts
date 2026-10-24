@@ -808,6 +808,31 @@ describe('handoff links', () => {
     ).toBe(200);
   });
 
+  it('generator defaults of the organization reach every member; exclusions are printable characters only', async () => {
+    const put = (body: object) => admin.req('PUT', '/admin/settings', body);
+    expect(
+      (
+        await put({
+          'generator.length': 32,
+          'generator.symbols': false,
+          'generator.exclude': 'O0l1',
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await bob.req('GET', '/auth/policy')).json()).toMatchObject({
+      'generator.length': 32,
+      'generator.symbols': false,
+      'generator.upper': true,
+      'generator.exclude': 'O0l1',
+    });
+    expect((await put({ 'generator.exclude': 'a b' })).statusCode).toBe(400);
+    expect((await put({ 'generator.length': 4 })).statusCode).toBe(400);
+    expect(
+      (await put({ 'generator.length': 20, 'generator.symbols': true, 'generator.exclude': '' }))
+        .statusCode,
+    ).toBe(200);
+  });
+
   it('rejects malformed requests', async () => {
     expect((await create(admin, { maxViews: 0 })).res.statusCode).toBe(400);
     expect((await create(admin, { expiresInMinutes: 60 * 24 * 31 })).res.statusCode).toBe(400);

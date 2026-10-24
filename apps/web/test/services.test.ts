@@ -281,3 +281,32 @@ describe('виды дополнительных полей', () => {
     ]);
   });
 });
+
+describe('генератор организации', () => {
+  it('берёт допустимые значения, отбрасывает непечатные символы, без классов включает все', async () => {
+    const { generatorFrom } = await import('../src/services/policy');
+    expect(generatorFrom({})).toEqual({
+      length: 20,
+      lower: true,
+      upper: true,
+      digits: true,
+      symbols: true,
+      exclude: '',
+    });
+    expect(
+      generatorFrom({
+        'generator.length': 32,
+        'generator.symbols': false,
+        'generator.exclude': 'O0 l1\n',
+      }),
+    ).toMatchObject({ length: 32, symbols: false, exclude: 'O0l1' });
+    expect(generatorFrom({ 'generator.length': 4 }).length).toBe(20);
+    const none = generatorFrom({
+      'generator.lower': false,
+      'generator.upper': false,
+      'generator.digits': false,
+      'generator.symbols': false,
+    });
+    expect([none.lower, none.upper, none.digits, none.symbols]).toEqual([true, true, true, true]);
+  });
+});

@@ -815,6 +815,63 @@ test('the generator follows the chosen options; the generated password is saved 
   await expect(page.getByTestId('view-password')).toHaveText(generated);
 });
 
+test('the organization generator: its defaults and never-used characters drive «Generate» in the entry form', async () => {
+  const page = adminPage;
+  const saved = () =>
+    page.waitForResponse(
+      (r) => r.url().endsWith('/admin/settings') && r.request().method() === 'PUT',
+    );
+  const set = async (id: string, value: string) => {
+    const done = saved();
+    await page.getByTestId(id).fill(value);
+    await page.getByTestId(id).dispatchEvent('change');
+    await done;
+  };
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-settings').click();
+  await page.getByTestId('settings-tab-security').click();
+  await set('set-gen-length', '24');
+  let done = saved();
+  await page.getByTestId('set-gen-symbols').uncheck();
+  await done;
+  await set('set-gen-exclude', 'abcdefABCDEF');
+  // последний включённый класс символов выключить нельзя
+  for (const c of ['upper', 'digits']) {
+    done = saved();
+    await page.getByTestId(`set-gen-${c}`).uncheck();
+    await done;
+  }
+  await expect(page.getByTestId('set-gen-lower')).toBeDisabled();
+
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await page.getByTestId('add-entry').click();
+  await page.getByTestId('btn-generate').click();
+  const pw = await page.getByTestId('f-password').inputValue();
+  expect(pw).toMatch(/^[g-z]{24}$/);
+  await page.getByTestId('btn-generator').click();
+  await expect(page.getByTestId('gen-excluded')).toContainText('abcdefABCDEF');
+  page.once('dialog', (d) => void d.accept());
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('f-title')).toHaveCount(0);
+
+  // настройки организации — обратно, следующие сценарии их не ждут
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-settings').click();
+  await page.getByTestId('settings-tab-security').click();
+  for (const c of ['upper', 'digits', 'symbols']) {
+    done = saved();
+    await page.getByTestId(`set-gen-${c}`).check();
+    await done;
+  }
+  await set('set-gen-exclude', '');
+  await set('set-gen-length', '20');
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+});
+
 test('an entry with an attachment moves to another vault; the file keeps its content', async () => {
   const page = adminPage;
   await page.getByTestId('menu-toggle').click();

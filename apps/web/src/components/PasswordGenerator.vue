@@ -2,6 +2,7 @@
 import { onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { generatePassphrase, generatePassword } from '@arklock/crypto';
+import { useWorkspaceStore } from '../stores/workspace';
 
 /** Генератор паролей и парольных фраз с настройками; выбранные настройки запоминаются для пользователя. */
 const props = defineProps<{ minLength: number }>();
@@ -33,11 +34,21 @@ const DEFAULTS: Options = {
   capitalize: true,
   appendNumber: false,
 };
+// значения организации — по умолчанию; свой выбор сотрудника важнее; исключённые символы организации — всегда
+const org = useWorkspaceStore().generator;
 function load(): Options {
+  const base = {
+    ...DEFAULTS,
+    length: org.length,
+    lower: org.lower,
+    upper: org.upper,
+    digits: org.digits,
+    symbols: org.symbols,
+  };
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Options>) };
+    return { ...base, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Options>) };
   } catch {
-    return { ...DEFAULTS };
+    return base;
   }
 }
 
@@ -72,6 +83,7 @@ function regenerate(): void {
             digits: o.digits,
             symbols: o.symbols,
             avoidAmbiguous: o.avoidAmbiguous,
+            exclude: org.exclude,
           })
         : generatePassphrase({
             words: o.words,
@@ -167,6 +179,9 @@ onMounted(regenerate);
           {{ t('generator.avoidAmbiguous') }}</label
         >
       </div>
+      <p v-if="org.exclude" class="text-xs text-slate-500" data-testid="gen-excluded">
+        {{ t('generator.excluded') }} <span class="font-mono">{{ org.exclude }}</span>
+      </p>
     </template>
     <template v-else>
       <label class="flex items-center gap-3">

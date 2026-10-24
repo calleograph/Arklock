@@ -312,6 +312,12 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 1024),
       'links.maxMinutes': get('links.maxMinutes', 0),
       'links.maxViews': get('links.maxViews', 100),
+      'generator.length': get('generator.length', 20),
+      'generator.lower': get('generator.lower', true),
+      'generator.upper': get('generator.upper', true),
+      'generator.digits': get('generator.digits', true),
+      'generator.symbols': get('generator.symbols', true),
+      'generator.exclude': get('generator.exclude', ''),
     };
   });
 

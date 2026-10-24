@@ -48,7 +48,7 @@ import {
   type EntryItem,
 } from '../services/model';
 import { useAuthStore } from './auth';
-import { checkPolicy, type PasswordPolicy } from '../services/policy';
+import { checkPolicy, generatorFrom, type PasswordPolicy } from '../services/policy';
 import { cleanIcon, type ObjectIcon } from '../services/objectIcons';
 import type { RecoveryRecipient, RecoverySecrets } from '../services/corporate-recovery';
 
@@ -111,6 +111,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const dismissedNotices = ref<string[]>([]);
   /** Через сколько секунд показанный пароль снова скрывается (0 — не скрывать), из настроек организации. */
   const revealSeconds = ref(0);
+  /** Генератор паролей организации: значения по умолчанию и символы, которые он не использует. */
+  const generator = ref(generatorFrom({}));
   let keyLog: KeyLogEntry[] = [];
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
@@ -199,6 +201,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     personalEntries.value = Number(policy['vaults.personalEntries'] ?? 0);
     dismissedNotices.value = (policy['notices.dismissed'] as string[] | undefined) ?? [];
     revealSeconds.value = Number(policy['security.revealSeconds'] ?? 0) || 0;
+    generator.value = generatorFrom(policy);
     let infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
       (v) => personalAllowed.value || v.kind !== 'locker',
     );
@@ -1491,6 +1494,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     setPinned,
     setBranchPinned,
     revealSeconds,
+    generator,
     revisions,
     restoreRevision,
     createBranch,
