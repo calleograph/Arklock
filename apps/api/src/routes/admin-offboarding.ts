@@ -34,6 +34,43 @@ import { spaceAccess } from '../spaces.js';
 
 const ROTATE_MAX = 2000;
 
+/**
+ * «Смените пароль» после увольнения сотрудника — одно общее событие по всем его записям: всего, открыто
+ * и сколько из них может разобрать просматривающий (как в списке событий сейфа: администратор сейфа и доступ к записи).
+ */
+async function rotationOf(db: Db, causeId: string, viewerId: string) {
+  const rows = await db
+    .select({
+      vaultId: signals.vaultId,
+      entryId: signals.entryId,
+      branchId: entries.branchId,
+      status: signals.status,
+      name: vaults.name,
+      kind: vaults.kind,
+    })
+    .from(signals)
+    .innerJoin(entries, eq(entries.id, signals.entryId))
+    .innerJoin(vaults, eq(vaults.id, signals.vaultId))
+    .where(and(eq(signals.type, 'rotate'), eq(signals.causeUserId, causeId)));
+  if (!rows.length) return null;
+  const isOpen = (s: string) => s === 'open' || s === 'in_progress';
+  const out: { id: string; name: string | null; total: number; open: number; available: number }[] =
+    [];
+  for (const vaultId of new Set(rows.map((r) => r.vaultId))) {
+    const list = rows.filter((r) => r.vaultId === vaultId);
+    const acc = await loadAccess(db, vaultId, viewerId);
+    out.push({
+      id: vaultId,
+      name: list[0]!.kind === 'shared' ? list[0]!.name : null,
+      total: list.length,
+      open: list.filter((r) => isOpen(r.status)).length,
+      available: acc.isAdmin ? list.filter((r) => acc.entry(r.entryId, r.branchId)).length : 0,
+    });
+  }
+  const sum = (k: 'total' | 'open' | 'available') => out.reduce((n, v) => n + v[k], 0);
+  return { total: sum('total'), open: sum('open'), available: sum('available'), vaults: out };
+}
+
 /** Корпоративные сейфы сотрудника: роль, число живых записей и другие действующие владельцы. */
 async function heldVaults(db: Db, userId: string) {
   const mine = await db
@@ -163,6 +200,7 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       })),
       vaults: await heldVaults(db, id),
       accessRisks: await corporateAccessRisks(db, id),
+      rotation: await rotationOf(db, id, authOf(req).user.id),
       apiTokens: tokens?.n ?? 0,
       externalLinks: links?.n ?? 0,
       sessions: sess?.n ?? 0,
@@ -317,10 +355,11 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
               entryId: e.id,
               type: 'rotate',
               reportedBy: user.id,
+              causeUserId: id,
             })
             .onConflictDoUpdate({
               target: [signals.entryId, signals.type],
-              set: { status: 'open', assignedTo: null, updatedAt: new Date() },
+              set: { status: 'open', assignedTo: null, causeUserId: id, updatedAt: new Date() },
             })
             .returning({ id: signals.id });
           rotate.push({ id: sig!.id, vault: v.id });

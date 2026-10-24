@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { encryptEntry } from '@arklock/crypto';
-import { settings } from '../src/db/schema.js';
+import { settings, signals, users } from '../src/db/schema.js';
 import { createTestApp, TestClient } from './helpers.js';
 
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
@@ -29,7 +31,15 @@ beforeAll(async () => {
 });
 afterAll(async () => fixture.app.close());
 
-type Signal = { id: string; entryId: string; type: string; status: string };
+type Signal = {
+  id: string;
+  entryId: string;
+  type: string;
+  status: string;
+  cause: { id: string; name: string | null } | null;
+};
+const rotation = async (who: TestClient) =>
+  (await who.req('GET', `/admin/users/${bob.userId}/profile`)).json().rotation;
 const list = async () => (await admin.req('GET', `/vaults/${vaultId}/signals`)).json() as Signal[];
 const history = async (id: string) =>
   (await admin.req('GET', `/vaults/${vaultId}/signals/${id}/history`)).json() as {
@@ -97,6 +107,30 @@ it('offboarding opens «change the password» for entries the person could see, 
     action: 'signal.create',
     reason: 'offboarding',
   });
+  // общее событие увольнения: всего, открыто, доступно просматривающему — по сейфам
+  expect(rotate[0]!.cause).toEqual({ id: bob.userId, name: expect.any(String) });
+  expect(await rotation(admin)).toEqual({
+    total: 1,
+    open: 1,
+    available: 1,
+    vaults: [{ id: vaultId, name: 'Signals', total: 1, open: 1, available: 1 }],
+  });
+  // администратор организации без доступа к сейфу видит масштаб, но разобрать события не может
+  const carol = new TestClient(fixture.app, 'sig-carol@example.com', 'sig-carol-password-1');
+  await carol.register();
+  await fixture.database.db.update(users).set({ role: 'admin' }).where(eq(users.id, carol.userId));
+  await carol.login();
+  expect(await rotation(carol)).toMatchObject({ total: 1, open: 1, available: 0 });
+  // миграция 0018 восстанавливает причину у событий, созданных до неё, по журналу
+  await fixture.database.db.update(signals).set({ causeUserId: null });
+  const backfill = readFileSync(
+    new URL('../drizzle/0018_signal_cause.sql', import.meta.url),
+    'utf8',
+  )
+    .split('--> statement-breakpoint')
+    .find((s) => s.includes('UPDATE "signals"'))!;
+  await fixture.database.db.execute(sql.raw(backfill));
+  expect((await list()).find((x) => x.id === rotate[0]!.id)!.cause?.id).toBe(bob.userId);
 
   const save = async (version: number, passwordChanged?: boolean) => {
     const enc = await encryptEntry({ password: `new-${version}` }, vaultKey, vaultId, open, 1);
@@ -111,6 +145,7 @@ it('offboarding opens «change the password» for entries the person could see, 
   expect((await list()).find((x) => x.id === rotate[0]!.id)!.status).toBe('open');
   expect((await save(2, true)).statusCode).toBe(200);
   expect((await list()).find((x) => x.id === rotate[0]!.id)!.status).toBe('resolved');
+  expect(await rotation(admin)).toMatchObject({ total: 1, open: 0 });
   expect((await history(rotate[0]!.id)).at(-1)).toMatchObject({
     action: 'signal.resolve',
     clientReported: true,

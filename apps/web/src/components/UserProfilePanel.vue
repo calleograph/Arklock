@@ -46,6 +46,13 @@ interface Profile {
   vaults: { id: string; name: string; role: string; entries: number }[];
   apiTokens: number;
   externalLinks: number;
+  /** «смените пароль» после увольнения: одно общее событие по всем записям сотрудника */
+  rotation: {
+    total: number;
+    open: number;
+    available: number;
+    vaults: { id: string; name: string | null; total: number; open: number; available: number }[];
+  } | null;
 }
 const p = ref<Profile | null>(null);
 const error = ref('');
@@ -272,6 +279,37 @@ async function endSessions(): Promise<void> {
             {{ t('profile.extras', { a: p.apiTokens, l: p.externalLinks }) }}
           </p>
         </div>
+      </div>
+      <div v-if="p.rotation" data-testid="profile-rotation">
+        <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.rotation') }}</h3>
+        <p>
+          {{
+            t('profile.rotationSummary', {
+              closed: p.rotation.total - p.rotation.open,
+              total: p.rotation.total,
+              available: p.rotation.available,
+            })
+          }}
+        </p>
+        <p v-if="p.rotation.available < p.rotation.total" class="text-xs text-slate-500">
+          {{ t('profile.rotationHint') }}
+        </p>
+        <ul class="mt-1 space-y-1 text-xs">
+          <li v-for="v in p.rotation.vaults" :key="v.id" class="flex justify-between gap-2">
+            <RouterLink
+              v-if="v.available"
+              :to="`/vault/${v.id}/settings`"
+              class="min-w-0 truncate underline"
+              >{{ v.name ? vaultLabel(v, t) : t('profile.rotationPersonal') }}</RouterLink
+            >
+            <span v-else class="min-w-0 truncate">{{
+              v.name ? vaultLabel(v, t) : t('profile.rotationPersonal')
+            }}</span>
+            <span class="num shrink-0 text-slate-500">{{
+              t('profile.rotationVault', { open: v.open, total: v.total })
+            }}</span>
+          </li>
+        </ul>
       </div>
       <div v-if="recent" data-testid="profile-journal">
         <div class="mb-1.5 flex items-center justify-between gap-2">

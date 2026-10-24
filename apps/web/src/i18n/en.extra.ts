@@ -962,6 +962,7 @@ export default {
     revoke: 'Revoke',
     signals: 'Security events',
     assignMe: 'Assign to me',
+    signalCause: 'after offboarding {name}',
     keyTitle: 'Vault encryption key',
     keyVersion: 'Key version: {v}',
     rotateHint:

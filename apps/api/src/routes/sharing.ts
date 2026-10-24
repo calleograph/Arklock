@@ -276,7 +276,9 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       objects.filter((entry) => access.entry(entry.id, entry.branchId)).map((entry) => entry.id),
     );
     const visible = rows.filter((row) => allowed.has(row.entryId));
-    const assignees = visible.map((r) => r.assignedTo).filter((x): x is string => !!x);
+    const assignees = visible
+      .flatMap((r) => [r.assignedTo, r.causeUserId])
+      .filter((x): x is string => !!x);
     const us = assignees.length
       ? await db
           .select({ id: users.id, name: users.displayName })
@@ -291,6 +293,8 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       status: s.status,
       assignedTo: s.assignedTo,
       assignedName: s.assignedTo ? (names.get(s.assignedTo) ?? null) : null,
+      // для «смените пароль» — после чьего увольнения
+      cause: s.causeUserId ? { id: s.causeUserId, name: names.get(s.causeUserId) ?? null } : null,
       createdAt: s.createdAt.toISOString(),
     }));
   });

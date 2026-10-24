@@ -173,11 +173,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     keyLogOk.value = ok;
   }
 
+  /** Действующая привязка ключей пользователя в журнале — последняя (новая заменяет прежнюю). */
+  function loggedKeys(userId: string): KeyLogEntry | undefined {
+    for (let i = keyLog.length - 1; i >= 0; i--) if (keyLog[i]!.userId === userId) return keyLog[i];
+    return undefined;
+  }
+
   /** Подписывающий ключ пользователя из проверенного журнала (а не из ответа сервера по хранилищу). */
   function signerKey(userId: string): string | null {
-    for (let i = keyLog.length - 1; i >= 0; i--)
-      if (keyLog[i]!.userId === userId) return keyLog[i]!.signPublic;
-    return null;
+    return loggedKeys(userId)?.signPublic ?? null;
   }
 
   // ------------------------------------------------------------------ хранилища
@@ -863,14 +867,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     vaultKey: Uint8Array,
   ) {
     const auth = useAuthStore();
-    const logged = keyLog.find((e) => e.userId === user.userId);
-    if (
-      !logged ||
-      logged.encPublic !== user.publicKey ||
-      logged.signPublic !== user.signPublicKey
-    ) {
+    const matches = (e: KeyLogEntry | undefined) =>
+      !!e && e.encPublic === user.publicKey && e.signPublic === user.signPublicKey;
+    // сотрудник мог зарегистрироваться после загрузки журнала — журнал перечитывается и проверяется заново
+    if (!matches(loggedKeys(user.userId))) await loadKeyLog();
+    if (!keyLogOk.value || !matches(loggedKeys(user.userId)))
       throw new Error('public key does not match the key log');
-    }
     const sealedKey = await sealVaultKeyFor(
       vaultKey,
       fromBase64Url(user.publicKey),

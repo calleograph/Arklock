@@ -51,6 +51,7 @@ const signals = ref<
     type: string;
     status: string;
     assignedName: string | null;
+    cause: { id: string; name: string | null } | null;
     createdAt: string;
   }[]
 >([]);
@@ -139,7 +140,8 @@ async function load(): Promise<void> {
     }
     grants.value = await api('GET', `/vaults/${id}/grants`);
     signals.value = await api('GET', `/vaults/${id}/signals`);
-    if (ws.currentId !== id) await ws.select(id);
+    // после перезагрузки на другой странице сейф уже выбран, но записи ещё не загружены — названия событий пустые
+    if (ws.currentId !== id || !ws.entries.length) await ws.select(id);
     entryTitles.value = new Map(ws.entries.map((e) => [e.id, e.data.title]));
   } catch (e) {
     error.value = errorMessage(e, t);
@@ -520,6 +522,9 @@ void decryptEntry;
               >{{ t(`signalRisk.${risk(s.type)}`) }}</span
             >{{ t(`issue.${s.type}`) }} —
             {{ entryTitles.get(s.entryId) ?? s.entryId.slice(0, 8) }}
+            <span v-if="s.cause" class="mr-1 text-xs text-slate-500" data-testid="signal-cause"
+              >· {{ t('settings.signalCause', { name: s.cause.name ?? '—' }) }}</span
+            >
             <span class="text-xs text-slate-500">· {{ when(s.createdAt) }}</span>
           </span>
           <span class="flex items-center gap-1">

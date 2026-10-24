@@ -671,6 +671,55 @@ test('a second user joins a shared vault; revoking access and rotating the key',
   void login;
 });
 
+test('offboarding a member: one «change passwords» summary in the card, the cause on each vault event', async ({
+  browser,
+}: {
+  browser: Browser;
+}) => {
+  const page = adminPage;
+  const LEAVER = {
+    email: 'ws.leaver@example.com',
+    name: 'Уходящий Сотрудник',
+    password: 'ws-leaver-master-password-3',
+  };
+  const leaverPage = await (await browser.newContext()).newPage();
+  await register(leaverPage, LEAVER);
+  await leaverPage.context().close();
+
+  // доступ к сейфу «Команда» с записью «Общий сервер»
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await page.getByTestId('vault-select').selectOption({ label: 'Команда' });
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-vault-settings').click();
+  await page.getByTestId('grant-open').click();
+  await page.getByTestId('grant-search').fill('leaver');
+  await page.getByTestId(`grant-option-${LEAVER.email}`).click();
+  await page.getByTestId('grant-level').selectOption('builtin:editor');
+  await page.getByTestId('grant-submit').click();
+  await expect(page.getByTestId('member-row').filter({ hasText: LEAVER.email })).toBeVisible();
+
+  // увольнение и одно общее событие в карточке сотрудника
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-users').click();
+  await page.getByTestId(`user-actions-${LEAVER.email}`).click();
+  await page.getByTestId(`offboard-${LEAVER.email}`).click();
+  await page.getByTestId('offboarding-confirm').click();
+  await expect(page.getByTestId('offboarding').getByRole('status')).toBeVisible();
+  await page.getByTestId(`profile-open-${LEAVER.email}`).click();
+  await expect(page.getByTestId('profile-rotation')).toContainText(
+    /Закрыто 0 из 1 · доступно вам 1|Closed 0 of 1 · available to you 1/,
+  );
+  // переход к событиям сейфа: у события указано, после чьего увольнения оно открыто
+  await page.getByTestId('profile-rotation').getByRole('link', { name: 'Команда' }).click();
+  await expect(page.getByTestId('signal-cause')).toContainText(LEAVER.name);
+  // следующие сценарии продолжают с рабочего места администратора
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible();
+});
+
 /** Второй корпоративный сейф «Цель» (создаётся в сценарии переноса): личные сейфы по умолчанию выключены. */
 const targetVault = (sel: Locator, name = 'Цель') =>
   sel

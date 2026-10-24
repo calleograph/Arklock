@@ -129,7 +129,7 @@ async function submit(): Promise<void> {
         <p>{{ t('rotate') }}</p>
         <ul class="list-disc pl-5" data-testid="offboarding-rotate">
           <li v-for="v in result.rotateVaults" :key="v.id">
-            {{ vaultLabel(v, gt) }} · {{ v.entries }} {{ t('entries') }}
+            {{ vaultLabel(v, gt) }} · {{ t('entries') }}: {{ v.entries }}
           </li>
         </ul>
       </template>

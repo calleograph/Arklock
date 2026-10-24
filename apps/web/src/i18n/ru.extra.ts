@@ -964,6 +964,7 @@ export default {
     revoke: 'Отозвать',
     signals: 'События безопасности',
     assignMe: 'Назначить на меня',
+    signalCause: 'после увольнения: {name}',
     keyTitle: 'Ключ шифрования сейфа',
     keyVersion: 'Версия ключа: {v}',
     rotateHint:
