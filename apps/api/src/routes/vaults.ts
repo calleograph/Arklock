@@ -12,7 +12,7 @@ import {
 } from '@arklock/contracts';
 import type { VaultInfo, VaultRole } from '@arklock/contracts';
 import { loadAccess, loadRoleDefs, requireVault } from '../access.js';
-import { openRotateSignals, visibleEntries } from '../rotate-signals.js';
+import { auditRotations, rotateLostAccess, subjectUsers } from '../rotate-signals.js';
 import type { Db } from '../db/connect.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
@@ -533,54 +533,47 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       vaultId: vaultId,
       target: `user:${userId}`,
     });
-    const rotate = await db.transaction(async (tx) => {
+    const { opened: rotate } = await db.transaction(async (tx) => {
       const txDb = tx as unknown as Db;
       // пароли, которые сотрудник видел и больше не увидит, стоит сменить; доступ через группу остаётся — тогда нет
-      const before = await visibleEntries(txDb, vaultId, userId);
-      await tx
-        .delete(vaultMembers)
-        .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
-      await tx
-        .delete(vaultKeys)
-        .where(and(eq(vaultKeys.vaultId, vaultId), eq(vaultKeys.userId, userId)));
-      await tx
-        .delete(grants)
-        .where(
-          and(
-            eq(grants.vaultId, vaultId),
-            eq(grants.subjectType, 'user'),
-            eq(grants.subjectId, userId),
-          ),
-        );
-      const ids = await tx
-        .select({ id: entries.id })
-        .from(entries)
-        .where(eq(entries.vaultId, vaultId));
-      if (ids.length)
-        await tx.delete(pins).where(
-          and(
-            eq(pins.userId, userId),
-            inArray(
-              pins.entryId,
-              ids.map((i) => i.id),
-            ),
-          ),
-        );
-      const after = await visibleEntries(txDb, vaultId, userId);
-      return openRotateSignals(txDb, {
-        vaultId,
-        entryIds: [...before].filter((e) => !after.has(e)),
-        cause: userId,
-        reason: 'revoked',
-        reportedBy: user.id,
-      });
+      return rotateLostAccess(
+        txDb,
+        [{ vaultId, userId }],
+        async () => {
+          await tx
+            .delete(vaultMembers)
+            .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId)));
+          await tx
+            .delete(vaultKeys)
+            .where(and(eq(vaultKeys.vaultId, vaultId), eq(vaultKeys.userId, userId)));
+          await tx
+            .delete(grants)
+            .where(
+              and(
+                eq(grants.vaultId, vaultId),
+                eq(grants.subjectType, 'user'),
+                eq(grants.subjectId, userId),
+              ),
+            );
+          const ids = await tx
+            .select({ id: entries.id })
+            .from(entries)
+            .where(eq(entries.vaultId, vaultId));
+          if (ids.length)
+            await tx.delete(pins).where(
+              and(
+                eq(pins.userId, userId),
+                inArray(
+                  pins.entryId,
+                  ids.map((i) => i.id),
+                ),
+              ),
+            );
+        },
+        user.id,
+      );
     });
-    for (const sid of rotate)
-      await audit(db, `user:${user.id}`, 'signal.create', `signal:${sid}`, {
-        vault: vaultId,
-        reason: 'revoked',
-        user: userId,
-      });
+    await auditRotations(db, `user:${user.id}`, rotate);
     await audit(db, `user:${user.id}`, 'vault.member.remove', `vault:${vaultId}`, {
       member: userId,
       rotateEntries: rotate.length,
@@ -630,20 +623,31 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const { vaultId, circleId } = parse(z.object({ vaultId: uuid, circleId: uuid }), req.params);
     const access = await requireVault(db, vaultId, user.id);
     if (!access.isAdmin) throw forbidden();
-    const res = await db
-      .delete(vaultCircles)
-      .where(and(eq(vaultCircles.vaultId, vaultId), eq(vaultCircles.circleId, circleId)))
-      .returning();
+    const members = await subjectUsers(db, 'circle', circleId);
+    const { result: res, opened } = await rotateLostAccess(
+      db,
+      members.map((userId) => ({ vaultId, userId })),
+      async () => {
+        const removed = await db
+          .delete(vaultCircles)
+          .where(and(eq(vaultCircles.vaultId, vaultId), eq(vaultCircles.circleId, circleId)))
+          .returning();
+        if (!removed.length) return removed;
+        await db
+          .delete(grants)
+          .where(
+            and(
+              eq(grants.vaultId, vaultId),
+              eq(grants.subjectType, 'circle'),
+              eq(grants.subjectId, circleId),
+            ),
+          );
+        return removed;
+      },
+      user.id,
+    );
     if (!res.length) throw notFound();
-    await db
-      .delete(grants)
-      .where(
-        and(
-          eq(grants.vaultId, vaultId),
-          eq(grants.subjectType, 'circle'),
-          eq(grants.subjectId, circleId),
-        ),
-      );
+    await auditRotations(db, `user:${user.id}`, opened);
     await audit(db, `user:${user.id}`, 'vault.circle.remove', `vault:${vaultId}`, {
       circle: circleId,
     });

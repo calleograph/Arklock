@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
 import { notifyUsers } from '../notifications.js';
 import { isEnrolled, resetMfaPolicyCache } from '../auth/mfa.js';
 import { resetSessionLimitsCache } from '../auth/session.js';
@@ -420,42 +421,51 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       ? await db.select({ id: users.id }).from(users).where(inArray(users.id, add))
       : [];
     if (found.length !== add.length) throw notFound();
-    const changed = await db.transaction(async (tx) => {
-      const added = add.length
-        ? await tx
-            .insert(circleMembers)
-            .values(add.map((userId) => ({ circleId: id, userId })))
-            .onConflictDoNothing()
-            .returning({ userId: circleMembers.userId })
-        : [];
-      const removed = remove.length
-        ? await tx
-            .delete(circleMembers)
-            .where(and(eq(circleMembers.circleId, id), inArray(circleMembers.userId, remove)))
-            .returning({ userId: circleMembers.userId })
-        : [];
-      await notifyUsers(
-        tx,
-        added.map((row) => row.userId),
-        {
-          category: 'access',
-          event: 'admin.circle.member.add',
-          resourceType: 'circle',
-          resourceId: id,
-        },
-      );
-      await notifyUsers(
-        tx,
-        removed.map((row) => row.userId),
-        {
-          category: 'access',
-          event: 'admin.circle.member.remove',
-          resourceType: 'circle',
-          resourceId: id,
-        },
-      );
-      return { added: added.length, removed: removed.length };
-    });
+    // исключённые из группы теряют её доступ к сейфам — по потерянным записям «смените пароль»
+    const vaultIds = remove.length ? await circleVaults(db, id) : [];
+    const { result: changed, opened } = await rotateLostAccess(
+      db,
+      remove.flatMap((userId) => vaultIds.map((vaultId) => ({ vaultId, userId }))),
+      () =>
+        db.transaction(async (tx) => {
+          const added = add.length
+            ? await tx
+                .insert(circleMembers)
+                .values(add.map((userId) => ({ circleId: id, userId })))
+                .onConflictDoNothing()
+                .returning({ userId: circleMembers.userId })
+            : [];
+          const removed = remove.length
+            ? await tx
+                .delete(circleMembers)
+                .where(and(eq(circleMembers.circleId, id), inArray(circleMembers.userId, remove)))
+                .returning({ userId: circleMembers.userId })
+            : [];
+          await notifyUsers(
+            tx,
+            added.map((row) => row.userId),
+            {
+              category: 'access',
+              event: 'admin.circle.member.add',
+              resourceType: 'circle',
+              resourceId: id,
+            },
+          );
+          await notifyUsers(
+            tx,
+            removed.map((row) => row.userId),
+            {
+              category: 'access',
+              event: 'admin.circle.member.remove',
+              resourceType: 'circle',
+              resourceId: id,
+            },
+          );
+          return { added: added.length, removed: removed.length };
+        }),
+      user.id,
+    );
+    await auditRotations(db, `user:${user.id}`, opened);
     await audit(db, `user:${user.id}`, 'admin.circle.members.update', `circle:${id}`, changed);
     return changed;
   });
@@ -481,11 +491,19 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     const { user } = authOf(req);
     const { id, userId } = parse(z.object({ id: uuid, userId: uuid }), req.params);
     await assertCircleWritable(user, id);
-    const res = await db
-      .delete(circleMembers)
-      .where(and(eq(circleMembers.circleId, id), eq(circleMembers.userId, userId)))
-      .returning();
+    const vaultIds = await circleVaults(db, id);
+    const { result: res, opened } = await rotateLostAccess(
+      db,
+      vaultIds.map((vaultId) => ({ vaultId, userId })),
+      () =>
+        db
+          .delete(circleMembers)
+          .where(and(eq(circleMembers.circleId, id), eq(circleMembers.userId, userId)))
+          .returning(),
+      user.id,
+    );
     if (!res.length) throw notFound();
+    await auditRotations(db, `user:${user.id}`, opened);
     await audit(db, `user:${user.id}`, 'admin.circle.member.remove', `circle:${id}`, {
       member: userId,
     });

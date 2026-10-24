@@ -13,6 +13,7 @@ import {
 } from '@arklock/contracts';
 import type { BranchRecord, EntryRecord, RevisionRecord } from '@arklock/contracts';
 import { loadAccess, requireVault, type Access, type VaultAccess } from '../access.js';
+import { auditRotations, rotateLostAccess, subjectUsers } from '../rotate-signals.js';
 import { audit } from '../audit.js';
 import { enforceDenyRules } from '../automation.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -977,14 +978,26 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       throw new AppError(400, 'validation_error', 'Expiry must be in the future');
     }
     const id = crypto.randomUUID();
-    const [row] = await db
-      .insert(grants)
-      .values({ id, vaultId, ...body, expiresAt, createdBy: user.id })
-      .onConflictDoUpdate({
-        target: [grants.targetType, grants.targetId, grants.subjectType, grants.subjectId],
-        set: { role: body.role, expiresAt },
-      })
-      .returning();
+    // понижение или запрет может отнять записи — по ним «смените пароль»
+    const affected = await subjectUsers(db, body.subjectType, body.subjectId);
+    const {
+      result: [row],
+      opened,
+    } = await rotateLostAccess(
+      db,
+      affected.map((userId) => ({ vaultId, userId })),
+      () =>
+        db
+          .insert(grants)
+          .values({ id, vaultId, ...body, expiresAt, createdBy: user.id })
+          .onConflictDoUpdate({
+            target: [grants.targetType, grants.targetId, grants.subjectType, grants.subjectId],
+            set: { role: body.role, expiresAt },
+          })
+          .returning(),
+      user.id,
+    );
+    await auditRotations(db, `user:${user.id}`, opened);
     await audit(db, `user:${user.id}`, 'grant.put', `${body.targetType}:${body.targetId}`, {
       vault: vaultId,
       subject: body.subjectId,
@@ -1015,7 +1028,14 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       vaultId,
       target: `${g.targetType}:${g.targetId}`,
     });
-    await db.delete(grants).where(eq(grants.id, grantId));
+    const affected = await subjectUsers(db, g.subjectType, g.subjectId);
+    const { opened } = await rotateLostAccess(
+      db,
+      affected.map((userId) => ({ vaultId, userId })),
+      () => db.delete(grants).where(eq(grants.id, grantId)),
+      user.id,
+    );
+    await auditRotations(db, `user:${user.id}`, opened);
     await audit(db, `user:${user.id}`, 'grant.delete', `${g.targetType}:${g.targetId}`, {
       vault: vaultId,
       subject: g.subjectId,

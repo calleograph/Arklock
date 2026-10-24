@@ -5,6 +5,7 @@ import { encryptEntry } from '@arklock/crypto';
 import {
   circleMembers,
   circles,
+  ledger,
   settings,
   signals,
   users,
@@ -108,7 +109,11 @@ it('offboarding opens «change the password» for entries the person could see, 
   const off = await admin.req('POST', `/admin/users/${bob.userId}/offboard`, {});
   expect(off.statusCode).toBe(200);
   expect(off.json().rotateEntries).toBe(1);
-  const rotate = (await list()).filter((x) => x.type === 'rotate');
+  // запрет на «hidden» в начале теста уже отнял у сотрудника эту запись — событие с причиной «отзыв доступа»;
+  // увольнение открывает событие по остальному, что он видел
+  const all = (await list()).filter((x) => x.type === 'rotate');
+  expect(all.find((x) => x.entryId === hidden)?.cause?.reason).toBe('revoked');
+  const rotate = all.filter((x) => x.cause?.reason === 'offboarding');
   expect(rotate.map((x) => x.entryId)).toEqual([open]);
   expect((await history(rotate[0]!.id))[0]).toMatchObject({
     action: 'signal.create',
@@ -121,17 +126,18 @@ it('offboarding opens «change the password» for entries the person could see, 
     reason: 'offboarding',
   });
   expect(await rotation(admin)).toEqual({
-    total: 1,
-    open: 1,
-    available: 1,
-    vaults: [{ id: vaultId, name: 'Signals', total: 1, open: 1, available: 1 }],
+    // и запрет, и увольнение: обе записи, которые сотрудник видел
+    total: 2,
+    open: 2,
+    available: 2,
+    vaults: [{ id: vaultId, name: 'Signals', total: 2, open: 2, available: 2 }],
   });
   // администратор организации без доступа к сейфу видит масштаб, но разобрать события не может
   const carol = new TestClient(fixture.app, 'sig-carol@example.com', 'sig-carol-password-1');
   await carol.register();
   await fixture.database.db.update(users).set({ role: 'admin' }).where(eq(users.id, carol.userId));
   await carol.login();
-  expect(await rotation(carol)).toMatchObject({ total: 1, open: 1, available: 0 });
+  expect(await rotation(carol)).toMatchObject({ total: 2, open: 2, available: 0 });
   // миграция 0018 восстанавливает причину у событий, созданных до неё, по журналу
   await fixture.database.db.update(signals).set({ causeUserId: null });
   const backfill = readFileSync(
@@ -156,6 +162,7 @@ it('offboarding opens «change the password» for entries the person could see, 
   expect((await list()).find((x) => x.id === rotate[0]!.id)!.status).toBe('open');
   expect((await save(2, true)).statusCode).toBe(200);
   expect((await list()).find((x) => x.id === rotate[0]!.id)!.status).toBe('resolved');
+  // проверка миграции 0018 выше вернула причину только событию увольнения (событий «отзыв доступа» до 1.45 не было)
   expect(await rotation(admin)).toMatchObject({ total: 1, open: 0 });
   expect((await history(rotate[0]!.id)).at(-1)).toMatchObject({
     action: 'signal.resolve',
@@ -220,4 +227,50 @@ it('removing a member opens «change the password» for what they lost; access k
   expect(rows).toHaveLength(2);
   expect(rows.every((r) => r.status === 'open')).toBe(true);
   expect(rows.map((r) => r.cause?.reason)).toEqual(['revoked', 'revoked']);
+});
+
+it('a deny rule, leaving a group and a group leaving the vault also open «change the password» for what is lost', async () => {
+  const db = fixture.database.db;
+  const openedFor = async (userId: string) =>
+    (await db.select().from(ledger).where(eq(ledger.action, 'signal.create'))).filter(
+      (r) =>
+        (r.detail as { user?: string; reason?: string } | null)?.user === userId &&
+        (r.detail as { reason?: string }).reason === 'revoked',
+    ).length;
+  const person = async (name: string) => {
+    const c = new TestClient(fixture.app, `sig-${name}@example.com`, `sig-${name}-password-12`);
+    await c.register();
+    await c.login();
+    return c;
+  };
+
+  // запрет на одну запись — одно событие
+  const eve = await person('eve');
+  expect((await admin.addMember(vaultId, eve, 'reader', vaultKey)).statusCode).toBe(204);
+  const deny = await admin.req('PUT', `/vaults/${vaultId}/grants`, {
+    targetType: 'entry',
+    targetId: open,
+    subjectType: 'user',
+    subjectId: eve.userId,
+    role: 'none',
+  });
+  expect(deny.statusCode).toBe(200);
+  expect(await openedFor(eve.userId)).toBe(1);
+
+  // исключение из группы, через которую был доступ, — обе записи
+  const fay = await person('fay');
+  const team = crypto.randomUUID();
+  await db.insert(circles).values({ id: team, name: 'Signals team' });
+  await db.insert(circleMembers).values({ circleId: team, userId: fay.userId });
+  await db.insert(vaultCircles).values({ vaultId, circleId: team, role: 'reader' });
+  expect(
+    (await admin.req('DELETE', `/admin/circles/${team}/members/${fay.userId}`)).statusCode,
+  ).toBe(204);
+  expect(await openedFor(fay.userId)).toBe(2);
+
+  // группа уходит из сейфа — её участники теряют записи
+  const gus = await person('gus');
+  await db.insert(circleMembers).values({ circleId: team, userId: gus.userId });
+  expect((await admin.req('DELETE', `/vaults/${vaultId}/circles/${team}`)).statusCode).toBe(200);
+  expect(await openedFor(gus.userId)).toBe(2);
 });
