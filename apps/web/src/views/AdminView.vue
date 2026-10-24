@@ -175,6 +175,8 @@ interface U {
   /** Почему отключён: вручную, каталогом, при увольнении (null — не записано) */
   disabledReason?: 'manual' | 'directory' | 'offboarding' | null;
   disabledNote?: string | null;
+  /** Секунд до конца временной блокировки входа после неудачных попыток (0 — не заблокирован) */
+  lockedFor?: number;
   createdAt: string;
   lastSeenAt: string | null;
   authSource?: string;
@@ -369,6 +371,16 @@ const userActions = (u: U): ActionItem[] => [
     testid: `end-sessions-${u.email}`,
   },
   { id: 'mfa', label: t('adminx.resetMfa'), icon: 'key', testid: `reset-mfa-${u.email}` },
+  ...(u.lockedFor
+    ? [
+        {
+          id: 'unlock',
+          label: t('admin.unlock'),
+          icon: 'lock' as const,
+          testid: `unlock-${u.email}`,
+        },
+      ]
+    : []),
   ...(u.id !== auth.user?.id && !u.chief
     ? [
         {
@@ -396,6 +408,7 @@ function onUserAction(u: U, id: string): void {
   if (id === 'sessions') void endSessions(u);
   else if (id === 'mfa') void resetMfa(u);
   else if (id === 'toggle') setDisabled(u, !u.disabled);
+  else if (id === 'unlock') void run(() => api('POST', `/admin/users/${u.id}/unlock`), loadUsers);
   else if (id === 'offboard') offboarding.value = u;
 }
 const userMenu = ref<{ x: number; y: number; u: U } | null>(null);
@@ -803,6 +816,12 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
                     u.disabled ? t('admin.disabled') : t('admin.active')
                   }}</span>
+                  <span
+                    v-if="!u.disabled && u.lockedFor"
+                    class="block text-xs text-amber-700 dark:text-amber-300"
+                    data-testid="user-locked"
+                    >{{ t('admin.lockedFor', { m: Math.ceil(u.lockedFor / 60) }) }}</span
+                  >
                   <span
                     v-if="u.disabled && u.disabledReason"
                     class="block text-xs text-slate-500"

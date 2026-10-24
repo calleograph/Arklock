@@ -1076,6 +1076,8 @@ export default {
     active: 'active',
     endSessions: 'End sessions',
     userActions: 'User actions',
+    unlock: 'Lift the temporary sign-in lockout',
+    lockedFor: 'sign-in locked after failed attempts, {m} min left',
     disableNote: 'Disable “{name}”? A note (optional) for administrators:',
     bulkDisableNote: 'Disable the selected accounts ({n})? A note (optional):',
     bulkDone: 'Accounts changed: {n}',

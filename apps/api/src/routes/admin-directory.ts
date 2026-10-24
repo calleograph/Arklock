@@ -122,6 +122,12 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       adminRoleId: u.adminRoleId,
       disabled: !!u.disabledAt,
       disabledReason: u.disabledAt ? u.disabledReason : null,
+      // временная блокировка входа после неудачных попыток (пароль, второй фактор, восстановление)
+      lockedFor: Math.max(
+        ctx.attempts.byEmail.retryAfter(u.email),
+        ctx.attempts.byEmail.retryAfter(`mfa:${u.id}`),
+        ctx.attempts.byEmail.retryAfter(`recovery:${u.email}`),
+      ),
       disabledNote: u.disabledAt ? u.disabledNote : null,
       authSource: u.authSource,
       createdAt: u.createdAt.toISOString(),
@@ -218,6 +224,18 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       accessRiskAcknowledged: accessRisks.length > 0 && body.acknowledgeAccessRisk === true,
     });
     return { id };
+  });
+
+  /** Снять временную блокировку входа после неудачных попыток (сама учётная запись не меняется). */
+  app.post('/admin/users/:id/unlock', async (req, reply) => {
+    const { user } = authOf(req);
+    const { id } = parse(idParam, req.params);
+    const [target] = await db.select().from(users).where(eq(users.id, id));
+    if (!target) throw notFound();
+    for (const key of [target.email, `mfa:${id}`, `recovery:${target.email}`])
+      ctx.attempts.byEmail.reset(key);
+    await audit(db, `user:${user.id}`, 'admin.user.unlock', `user:${id}`);
+    return reply.status(204).send();
   });
 
   app.post('/admin/users/:id/revoke-sessions', async (req, reply) => {

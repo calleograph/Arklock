@@ -409,6 +409,22 @@ test('administrator builds a structure and works with entries', async ({ browser
   await page.getByTestId('scope-favorites').click();
   await expect(page.getByTestId('favorite-folders')).toHaveCount(0);
   await page.getByTestId('scope-all').click();
+
+  // папка удалена вместе с записью: в корзине у записи виден прежний путь
+  await newFolder(page, 'Удаляемая');
+  await page.getByTestId('folder-menu-Удаляемая').click();
+  await page.getByTestId('folder-add-entry').click();
+  await page.getByTestId('f-title').fill('Запись удаляемой папки');
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Запись удаляемой папки');
+  await page.getByTestId('folder-menu-Удаляемая').click();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('folder-delete').click();
+  await page.getByTestId('scope-trash').click();
+  await expect(
+    page.getByTestId('entry-row').filter({ hasText: 'Запись удаляемой папки' }),
+  ).toContainText('Удаляемая');
+  await page.getByTestId('scope-all').click();
 });
 
 test('a one-time link opens once, anonymously', async ({ browser }) => {

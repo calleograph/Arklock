@@ -209,6 +209,10 @@ const canCreateVault = computed(
 );
 
 const branchById = computed(() => new Map(ws.branches.map((b) => [b.id, b])));
+// для пути — и удалённые папки: у записи в корзине виден прежний путь, даже если папка удалена вместе с ней
+const pathIndex = computed(
+  () => new Map([...ws.trash.branches, ...ws.branches].map((b) => [b.id, b])),
+);
 const roots = computed(() =>
   ws.branches
     .filter((b) => !b.parentId || !branchById.value.has(b.parentId))
@@ -225,10 +229,10 @@ function pathOf(id: string | null): string {
   const out: string[] = [];
   let cur = id;
   const seen = new Set<string>();
-  while (cur && branchById.value.has(cur) && !seen.has(cur)) {
+  while (cur && pathIndex.value.has(cur) && !seen.has(cur)) {
     seen.add(cur);
-    out.unshift(branchById.value.get(cur)!.name);
-    cur = branchById.value.get(cur)!.parentId;
+    out.unshift(pathIndex.value.get(cur)!.name);
+    cur = pathIndex.value.get(cur)!.parentId;
   }
   return out.join(' / ');
 }
