@@ -4,16 +4,9 @@ import type { Db } from './db/connect.js';
 import { handoffs, sessions, settings } from './db/schema.js';
 import { sweepBlobs } from './routes/attachments.js';
 import { purgeExpiredTrash } from './routes/content.js';
-import { syncScheduledLdap } from './auth/ldap-sync.js';
 
 /** Плановое обслуживание. Возвращает число удалённых объектов по категориям (для журнала и тестов). */
-export async function runMaintenance(
-  db: Db,
-  now = new Date(),
-  blobs?: BlobStore,
-  appSecret?: string,
-) {
-  if (appSecret) await syncScheduledLdap(db, appSecret);
+export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore) {
   const [ret] = await db.select().from(settings).where(eq(settings.key, 'trash.retentionDays'));
   const days = typeof ret?.value === 'number' ? ret.value : 30;
   const trash = await purgeExpiredTrash(db, days, now, blobs);

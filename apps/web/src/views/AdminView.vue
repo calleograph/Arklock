@@ -6,6 +6,7 @@ import { api, ApiError } from '../services/api';
 import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
+import SortTh from '../components/SortTh.vue';
 import LdapSettings from '../components/LdapSettings.vue';
 import SsoSettings from '../components/SsoSettings.vue';
 import SyslogSettings from '../components/SyslogSettings.vue';
@@ -184,15 +185,34 @@ interface U {
 const users = ref<U[]>([]);
 const userSearch = ref('');
 const userStatus = ref('');
-const visibleUsers = computed(() =>
-  users.value.filter(
-    (u) =>
-      `${u.name} ${u.email} ${u.authSource ?? 'local'}`
-        .toLowerCase()
-        .includes(userSearch.value.toLowerCase()) &&
-      (!userStatus.value || u.disabled === (userStatus.value === 'disabled')),
-  ),
-);
+// список загружается целиком, поэтому сортируется в браузере; по умолчанию — по имени, как отдаёт сервер
+const userSort = ref<{ by: 'name' | 'seen'; dir: 'asc' | 'desc' }>({
+  by: 'name',
+  dir: 'asc',
+});
+function sortUsers(by: 'name' | 'seen'): void {
+  const s = userSort.value;
+  userSort.value =
+    s.by === by
+      ? { by, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+      : { by, dir: by === 'seen' ? 'desc' : 'asc' };
+}
+const visibleUsers = computed(() => {
+  const { by, dir } = userSort.value;
+  const key = (u: U) => (by === 'name' ? u.name : (u.lastSeenAt ?? ''));
+  return users.value
+    .filter(
+      (u) =>
+        `${u.name} ${u.email} ${u.authSource ?? 'local'}`
+          .toLowerCase()
+          .includes(userSearch.value.toLowerCase()) &&
+        (!userStatus.value || u.disabled === (userStatus.value === 'disabled')),
+    )
+    .sort(
+      (a, b) =>
+        key(a).localeCompare(key(b), undefined, { sensitivity: 'base' }) * (dir === 'asc' ? 1 : -1),
+    );
+});
 const loadUsers = async () => {
   users.value = await api('GET', '/admin/users');
 };
@@ -485,12 +505,7 @@ function sortLedger(by: 'at' | 'action'): void {
       : { by, dir: by === 'at' ? 'desc' : 'asc' };
   void loadLedger();
 }
-const ariaSort = (by: 'at' | 'action') =>
-  ledgerSort.value.by !== by
-    ? 'none'
-    : ledgerSort.value.dir === 'desc'
-      ? 'descending'
-      : 'ascending';
+
 const filter = ref({ action: '', q: '', from: '', to: '' });
 // журнал одного сотрудника открывается из его карточки: /admin/ledger?user=…&name=…
 const ledgerUser = computed(() =>
@@ -760,10 +775,21 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     @change="pickAll"
                   />
                 </th>
-                <th class="px-3 py-2">{{ t('common.name') }}</th>
+                <SortTh
+                  class="px-3 py-2"
+                  :label="t('common.name')"
+                  :dir="userSort.by === 'name' ? userSort.dir : null"
+                  testid="users-sort-name"
+                  @sort="sortUsers('name')"
+                />
                 <th>{{ t('admin.role') }}</th>
                 <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
-                <th>{{ t('admin.lastSeen') }}</th>
+                <SortTh
+                  :label="t('admin.lastSeen')"
+                  :dir="userSort.by === 'seen' ? userSort.dir : null"
+                  testid="users-sort-seen"
+                  @sort="sortUsers('seen')"
+                />
                 <th>{{ t('admin.status') }}</th>
                 <th />
               </tr>
@@ -1084,7 +1110,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <h2 class="font-medium">{{ t('admin.settingsGroup.access') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
             </div>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.registration') }}<InfoHint :text="t('hint.registration.text')" /></span
               ><select
@@ -1099,7 +1125,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 <option value="open">{{ t('admin.open') }}</option>
               </select></label
             >
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.vaultCreators')
                 }}<InfoHint :text="t('hint.vaultCreators.text')" /></span
@@ -1123,7 +1149,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <h2 class="font-medium">{{ t('admin.settingsGroup.sessions') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
             </div>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('adminx.mfaRequired')
                 }}<InfoHint
@@ -1142,7 +1168,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 <option value="all">{{ t('adminx.mfaAll') }}</option>
               </select></label
             >
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('pin.reloadPolicy')
                 }}<InfoHint
@@ -1157,7 +1183,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   saveSetting('security.reloadUnlock', ($event.target as HTMLInputElement).checked)
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('pin.policy')
                 }}<InfoHint
@@ -1172,7 +1198,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   saveSetting('security.pinUnlock', ($event.target as HTMLInputElement).checked)
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.sessionIdle')
                 }}<InfoHint
@@ -1193,7 +1219,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.sessionMax') }}<InfoHint :text="t('hint.sessionMax.text')" /></span
               ><input
@@ -1218,7 +1244,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <h2 class="font-medium">{{ t('admin.settingsGroup.passwords') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
             </div>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('policy.minLength')
                 }}<InfoHint
@@ -1238,7 +1264,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('policy.classesLabel') }}<InfoHint :text="t('hint.classes.text')" /></span
               ><input
@@ -1255,7 +1281,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span>{{ t('policy.maxRepeatLabel') }}</span
               ><input
                 :value="settings['policy.password.maxRepeat'] ?? 0"
@@ -1271,7 +1297,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span>{{ t('admin.revealSeconds') }}</span
               ><input
                 :value="settings['security.revealSeconds'] ?? 0"
@@ -1287,7 +1313,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.passwordMaxAge')
                 }}<InfoHint :text="t('hint.passwordMaxAge.text')" /></span
@@ -1314,7 +1340,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <h2 class="font-medium">{{ t('admin.settingsGroup.links') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.linksHint') }}</p>
             </div>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span>{{ t('admin.linksMaxMinutes') }}</span
               ><input
                 :value="settings['links.maxMinutes'] ?? 0"
@@ -1327,7 +1353,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   saveSetting('links.maxMinutes', Number(($event.target as HTMLInputElement).value))
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span>{{ t('admin.linksMaxViews') }}</span
               ><input
                 :value="settings['links.maxViews'] ?? 100"
@@ -1361,7 +1387,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <h2 class="font-medium">{{ t('admin.settingsGroup.storage') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
             </div>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('admin.trashDays') }}<InfoHint :text="t('hint.trashDays.text')" /></span
               ><input
@@ -1378,7 +1404,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('adminx.attachMax') }}<InfoHint :text="t('hint.attachMax.text')" /></span
               ><input
@@ -1395,7 +1421,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   )
                 "
             /></label>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('adminx.vaultQuota') }}<InfoHint :text="t('hint.vaultQuota.text')" /></span
               ><input
@@ -1422,7 +1448,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <h2 class="font-medium">{{ t('admin.settingsGroup.notify') }}</h2>
               <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>
             </div>
-            <label class="flex items-center justify-between gap-3"
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
               ><span class="inline-flex items-center gap-1"
                 >{{ t('invite.notify') }}<InfoHint :text="t('hint.notify.text')" /></span
               ><input
@@ -1511,41 +1537,20 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             <table class="min-w-full text-xs" data-testid="ledger-table">
               <thead class="text-left text-slate-500">
                 <tr>
-                  <th class="px-3 py-2" :aria-sort="ariaSort('at')">
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200"
-                      data-testid="ledger-sort-at"
-                      @click="sortLedger('at')"
-                    >
-                      {{ t('admin.time')
-                      }}<span
-                        aria-hidden="true"
-                        :class="ledgerSort.by === 'at' ? '' : 'opacity-40'"
-                        >{{
-                          ledgerSort.by === 'at' ? (ledgerSort.dir === 'desc' ? '↓' : '↑') : '↕'
-                        }}</span
-                      >
-                    </button>
-                  </th>
+                  <SortTh
+                    class="px-3 py-2"
+                    :label="t('admin.time')"
+                    :dir="ledgerSort.by === 'at' ? ledgerSort.dir : null"
+                    testid="ledger-sort-at"
+                    @sort="sortLedger('at')"
+                  />
                   <th>{{ t('admin.actor') }}</th>
-                  <th :aria-sort="ariaSort('action')">
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200"
-                      data-testid="ledger-sort-action"
-                      @click="sortLedger('action')"
-                    >
-                      {{ t('admin.action')
-                      }}<span
-                        aria-hidden="true"
-                        :class="ledgerSort.by === 'action' ? '' : 'opacity-40'"
-                        >{{
-                          ledgerSort.by === 'action' ? (ledgerSort.dir === 'desc' ? '↓' : '↑') : '↕'
-                        }}</span
-                      >
-                    </button>
-                  </th>
+                  <SortTh
+                    :label="t('admin.action')"
+                    :dir="ledgerSort.by === 'action' ? ledgerSort.dir : null"
+                    testid="ledger-sort-action"
+                    @sort="sortLedger('action')"
+                  />
                   <th>{{ t('admin.target') }}</th>
                 </tr>
               </thead>

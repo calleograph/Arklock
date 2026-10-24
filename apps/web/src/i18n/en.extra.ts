@@ -774,6 +774,30 @@ export default {
     rotate: 'Password change required',
   },
   signalRisk: { high: 'High risk', medium: 'Medium risk' },
+  signalAdvice: {
+    whyLabel: 'Why it is a risk:',
+    doLabel: 'What to do:',
+    weak: {
+      why: 'a weak password is brute-forced quickly.',
+      do: 'replace it with a generated one — at least 16 characters, no words or dates.',
+    },
+    reused: {
+      why: 'if the password leaks from one system, it will be tried on the others.',
+      do: 'give this entry a password of its own.',
+    },
+    compromised: {
+      why: 'the password is in breach databases and is already used in guessing attacks.',
+      do: 'change it now and check the sign-in log of the external system.',
+    },
+    expired: {
+      why: 'the entry has expired: the password may be stale and access should have been closed.',
+      do: 'change the password or extend the entry.',
+    },
+    rotate: {
+      why: 'an offboarded employee could see or keep this password.',
+      do: 'change it in the external system and save the new one here — the event closes by itself.',
+    },
+  },
   signalHistory: {
     show: 'History',
     hide: 'Hide history',
@@ -963,6 +987,7 @@ export default {
     signals: 'Security events',
     assignMe: 'Assign to me',
     signalCause: 'after offboarding {name}',
+    signalOpen: 'Open entry',
     keyTitle: 'Vault encryption key',
     keyVersion: 'Key version: {v}',
     rotateHint:

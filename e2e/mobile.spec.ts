@@ -123,6 +123,19 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('context-menu')).toHaveCount(0);
 
+  // запись со слабым паролем: инспектор ниже откроет по ней событие для проверки настроек сейфа
+  await page.getByTestId('add-entry').click();
+  await page.getByTestId('f-title').fill('Слабая запись');
+  await page.getByTestId('f-password').fill('qwerty');
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Слабая запись');
+
+  // дальше — на русском: подписи длиннее английских, и вылезающие поля видны только на нём
+  await page.getByTestId('menu-toggle').click();
+  await page.getByRole('button', { name: 'ru', exact: true }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
+  await page.keyboard.press('Escape');
+
   for (const [path, name] of [
     ['/settings', 'настройки'],
     ['/security', 'безопасность'],
@@ -147,6 +160,25 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
     await page.waitForTimeout(600);
     await noHorizontalScroll(page, name);
   }
+
+  // инспектор: слабый пароль отправляется в события сейфа
+  await page.evaluate(() => {
+    history.pushState({}, '', '/inspector');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.getByTestId('btn-report').click();
+  await expect(page.getByTestId('inspector-reported')).toBeVisible();
+  await noHorizontalScroll(page, 'инспектор');
+
+  // настройки сейфа: участники и строка события (статус, ответственный, история, «К записи») в ширину телефона
+  await page.evaluate(() => {
+    history.pushState({}, '', '/');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-vault-settings').click();
+  await expect(page.locator('[data-testid^="signal-open-"]').first()).toBeVisible();
+  await noHorizontalScroll(page, 'настройки сейфа');
 
   // подсказка «i»: нажатие раскрывает текст, Escape и нажатие вне подсказки закрывают
   await page.evaluate(() => {

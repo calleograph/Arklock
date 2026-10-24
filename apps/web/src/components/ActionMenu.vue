@@ -19,7 +19,7 @@ import Icon from './Icon.vue';
  * стрелки переводят фокус между пунктами. data-testid пункта — `testid` из описания пункта.
  */
 defineOptions({ inheritAttrs: false });
-withDefaults(
+const props = withDefaults(
   defineProps<{
     items: ActionItem[];
     /** Текст на кнопке; без него кнопка показывает «⋯» и `title` как подпись для экранных дикторов. */
@@ -32,6 +32,8 @@ withDefaults(
 const emit = defineEmits<{ select: [id: string] }>();
 
 const open = ref(false);
+// сторона, к которой прижато меню: заданная, а если меню не помещается в окне — противоположная
+const side = ref<'left' | 'right'>(props.align);
 const root = ref<HTMLElement | null>(null);
 const trigger = ref<HTMLButtonElement | null>(null);
 const id = `menu-${Math.random().toString(36).slice(2, 9)}`;
@@ -40,7 +42,13 @@ const itemsEl = () => [...(root.value?.querySelectorAll<HTMLElement>('[role="men
 async function toggle(): Promise<void> {
   open.value = !open.value;
   if (open.value) {
+    side.value = props.align;
     await nextTick();
+    // на телефоне кнопка у края экрана: меню, выходящее за окно, разворачивается в другую сторону (до отрисовки кадра)
+    // ширина раскладки, а не innerWidth: мобильный браузер уменьшает масштаб под вылезающее меню, и innerWidth растёт
+    const menu = document.getElementById(id)?.getBoundingClientRect();
+    if (menu && (menu.right > document.documentElement.clientWidth || menu.left < 0))
+      side.value = side.value === 'left' ? 'right' : 'left';
     itemsEl()[0]?.focus();
   }
 }
@@ -110,7 +118,7 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
       role="menu"
       :aria-label="title"
       class="menu-pop absolute top-full z-40 mt-1 min-w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      :class="align === 'right' ? 'right-0' : 'left-0'"
+      :class="side === 'right' ? 'right-0' : 'left-0'"
     >
       <button
         v-for="item in items"

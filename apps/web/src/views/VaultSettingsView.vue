@@ -527,7 +527,7 @@ void decryptEntry;
             >
             <span class="text-xs text-slate-500">· {{ when(s.createdAt) }}</span>
           </span>
-          <span class="flex items-center gap-1">
+          <span class="flex flex-wrap items-center gap-1">
             <select
               :value="s.status"
               class="input w-auto"
@@ -557,8 +557,20 @@ void decryptEntry;
             >
               {{ histories[s.id] ? t('signalHistory.hide') : t('signalHistory.show') }}
             </button>
+            <RouterLink
+              :to="{ path: '/', query: { vault: id, entry: s.entryId } }"
+              class="btn-ghost text-xs"
+              :data-testid="`signal-open-${s.id}`"
+              >{{ t('settings.signalOpen') }}</RouterLink
+            >
           </span>
           <div v-if="histories[s.id]" class="w-full text-xs text-slate-600 dark:text-slate-300">
+            <p class="mb-1 max-w-prose" data-testid="signal-advice">
+              <span class="font-medium">{{ t('signalAdvice.whyLabel') }}</span>
+              {{ t(`signalAdvice.${s.type}.why`) }}
+              <span class="font-medium">{{ t('signalAdvice.doLabel') }}</span>
+              {{ t(`signalAdvice.${s.type}.do`) }}
+            </p>
             <p v-if="timings(histories[s.id]!)" class="font-medium">
               {{ timings(histories[s.id]!) }}
             </p>

@@ -646,6 +646,20 @@ test('custom roles: an administrative role opens only its own sections for a del
 
   // карточка сотрудника: группы, сеансы и сейфы в одном месте; увольнение запускается из неё
   await tab(page, 'users');
+  // сортировка пользователей: по имени в обратном порядке, по активности — недавние сверху
+  const userRows = page.getByTestId('user-row');
+  const firstUser = await userRows.first().innerText();
+  await page.getByTestId('users-sort-name').click();
+  await expect
+    .poll(() => page.getByTestId('users-sort-name').locator('xpath=..').getAttribute('aria-sort'))
+    .toBe('descending');
+  await expect(userRows.first()).not.toHaveText(firstUser);
+  await page.getByTestId('users-sort-seen').click();
+  await expect
+    .poll(() => page.getByTestId('users-sort-seen').locator('xpath=..').getAttribute('aria-sort'))
+    .toBe('descending');
+  await page.getByTestId('users-sort-name').click();
+
   await page.getByTestId('profile-open-invited.person@example.com').click();
   await expect(page.getByTestId('profile-groups')).toContainText('Аудиторы журнала');
   await page.getByTestId('profile-offboard').click();

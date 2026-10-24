@@ -18,7 +18,7 @@ const { t } = useI18n({
           'Удалить подключение к каталогу? Это возможно, только если от него не зависят зарегистрированные пользователи.',
         inUse:
           'В этом каталоге есть зарегистрированные пользователи. Отключите подключение вместо удаления.',
-        scheduled: 'Синхронизация при обслуживании сервера (каждые 6 часов)',
+        scheduled: 'Плановая синхронизация (каждые 30 минут)',
         lastSync: 'Последняя синхронизация',
         browse: 'Просмотреть каталог',
         users: 'Пользователи',
@@ -48,7 +48,7 @@ const { t } = useI18n({
           'Delete this directory connection? This is possible only if no registered users depend on it.',
         inUse:
           'Enrolled users depend on this directory. Disable the connection instead of deleting it.',
-        scheduled: 'Sync during server maintenance (every 6 hours)',
+        scheduled: 'Scheduled sync (every 30 minutes)',
         lastSync: 'Last sync',
         browse: 'Browse directory',
         users: 'Users',

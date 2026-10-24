@@ -714,9 +714,15 @@ test('offboarding a member: one «change passwords» summary in the card, the ca
   // переход к событиям сейфа: у события указано, после чьего увольнения оно открыто
   await page.getByTestId('profile-rotation').getByRole('link', { name: 'Команда' }).click();
   await expect(page.getByTestId('signal-cause')).toContainText(LEAVER.name);
-  // следующие сценарии продолжают с рабочего места администратора
-  await page.getByTestId('menu-toggle').click();
-  await page.getByTestId('menu-vault').click();
+  // в истории события — почему это риск и что сделать; «К записи» открывает её карточку
+  // (следующие сценарии продолжают с рабочего места администратора)
+  const row = page.getByTestId('signals-list').locator('li').filter({ hasText: LEAVER.name });
+  await row.getByRole('button', { name: /История|History/ }).click();
+  await expect(row.getByTestId('signal-advice')).toContainText(
+    /уволенный сотрудник|offboarded employee/,
+  );
+  await row.locator('[data-testid^="signal-open-"]').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Общий сервер');
   await expect(page.getByTestId('add-entry')).toBeVisible();
 });
 

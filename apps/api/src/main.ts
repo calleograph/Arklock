@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { connect } from './db/connect.js';
 import { BlobStore } from './blobs.js';
 import { runMaintenance } from './maintenance.js';
+import { syncScheduledLdap } from './auth/ldap-sync.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -24,15 +25,23 @@ async function main(): Promise<void> {
   // Плановое обслуживание: очистка корзины по сроку хранения, старых сеансов и журналов.
   const timer = setInterval(
     () =>
-      void runMaintenance(
-        database.db,
-        new Date(),
-        new BlobStore(config.BLOB_DIR),
-        config.APP_SECRET,
-      ).catch((e: unknown) => app.log.error({ err: String(e) }, 'maintenance failed')),
+      void runMaintenance(database.db, new Date(), new BlobStore(config.BLOB_DIR)).catch(
+        (e: unknown) => app.log.error({ err: String(e) }, 'maintenance failed'),
+      ),
     6 * 3_600_000,
   );
   timer.unref();
+  // Сверка с каталогами — чаще обслуживания: отключённый в каталоге теряет сеансы не позже чем через 30 минут.
+  // shortcut: таймер в каждом процессе; при нескольких экземплярах сверка повторяется (она идемпотентна) — тогда нужна общая блокировка
+  let syncing = false;
+  const directoryTimer = setInterval(() => {
+    if (syncing) return; // большой каталог: следующий запуск не накладывается на незавершённый
+    syncing = true;
+    syncScheduledLdap(database.db, config.APP_SECRET)
+      .catch((e: unknown) => app.log.error({ err: String(e) }, 'directory sync failed'))
+      .finally(() => (syncing = false));
+  }, 30 * 60_000);
+  directoryTimer.unref();
   await app.listen({ host: config.HOST, port: config.PORT });
 }
 

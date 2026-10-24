@@ -96,7 +96,7 @@ onMounted(async () => {
     <p class="text-xs text-slate-500">{{ t('hint') }}</p>
     <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
     <fieldset :disabled="busy" class="space-y-3">
-      <label class="flex items-center justify-between gap-3">
+      <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         {{ t('all') }}
         <input
           type="checkbox"

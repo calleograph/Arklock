@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 /**
@@ -12,13 +12,19 @@ const root = ref<HTMLElement | null>(null);
 const pinned = ref(false);
 const peek = ref(false);
 const shown = computed(() => pinned.value || peek.value);
-// всплывающий текст не должен выходить за край экрана: у правого края раскрываем влево
-const alignRight = ref(false);
-watch(shown, (v) => {
-  if (v && root.value)
-    alignRight.value = root.value.getBoundingClientRect().left + 270 > window.innerWidth;
-});
 const id = `hint-${Math.random().toString(36).slice(2, 9)}`;
+// всплывающий текст не выходит за край экрана: после отрисовки сдвигается внутрь (до показа кадра).
+// Ширина раскладки, а не innerWidth: мобильный браузер уменьшает масштаб под вылезающий текст, и innerWidth растёт
+const shift = ref(0);
+watch(shown, async (v) => {
+  if (!v) return;
+  shift.value = 0;
+  await nextTick();
+  const tip = document.getElementById(id)?.getBoundingClientRect();
+  if (!tip) return;
+  const vw = document.documentElement.clientWidth;
+  shift.value = Math.min(Math.max(tip.left, 8), vw - tip.width - 8) - tip.left;
+});
 
 function onDocumentClick(e: MouseEvent): void {
   if (pinned.value && root.value && !root.value.contains(e.target as Node)) pinned.value = false;
@@ -66,8 +72,8 @@ onBeforeUnmount(() => {
       v-if="shown"
       :id="id"
       role="tooltip"
-      class="menu-pop absolute top-full z-50 mt-1 w-64 max-w-[80vw] rounded-xl border border-slate-200 bg-white p-3 text-xs font-normal leading-relaxed text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-      :class="alignRight ? 'right-0' : 'left-0'"
+      class="menu-pop absolute left-0 top-full z-50 mt-1 w-64 max-w-[80vw] rounded-xl border border-slate-200 bg-white p-3 text-xs font-normal leading-relaxed text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      :style="shift ? { left: `${shift}px` } : undefined"
     >
       {{ text }}
       <span v-if="details && pinned" class="mt-1.5 block text-slate-500">{{ details }}</span>
