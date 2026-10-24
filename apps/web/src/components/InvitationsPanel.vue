@@ -4,6 +4,7 @@ import { email } from '@arklock/contracts';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
 import { errorMessage, when } from '../services/helpers';
+import BulkInvitations from './BulkInvitations.vue';
 
 const { t } = useI18n();
 
@@ -94,6 +95,8 @@ const fmt = (s: string) => when(s);
     >
       {{ error }}
     </p>
+
+    <BulkInvitations :circles="circles" @created="load" />
 
     <form class="card max-w-xl space-y-3 p-4 text-sm" @submit.prevent="create">
       <h2 class="text-base font-semibold">{{ t('invite.newUser') }}</h2>

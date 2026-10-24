@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import { TestClient } from '../apps/api/test/helpers.js';
 import {
@@ -807,4 +807,86 @@ test('доступ между отделами: временный доступ 
   ).toHaveCount(0);
   record(r);
   await head.context().close();
+});
+
+test('формы записей разных типов помещаются на экране ноутбука', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const head = await login(browser, headEmail(5));
+  await head.setViewportSize({ width: 1366, height: 768 });
+  await head.getByTestId('vault-select').selectOption({ label: 'Финансы' });
+  const rows: string[] = [];
+  head.on('dialog', (d) => void d.accept().catch(() => undefined));
+  for (const kind of ['login', 'server', 'apikey', 'note', 'custom']) {
+    await head.getByTestId('add-entry').click();
+    const k = head.getByTestId(`f-kind-${kind}`);
+    await k.click();
+    await expect(k).toHaveAttribute('aria-checked', 'true');
+    const m = await head.evaluate(() => {
+      const form = document.querySelector('[data-testid="entry-form"]') as HTMLElement | null;
+      const save = document.querySelector('[data-testid="f-save"]')?.getBoundingClientRect();
+      const visible = [
+        ...(form?.querySelectorAll(
+          'input:not([type=checkbox]):not([type=radio]), textarea, select',
+        ) ?? []),
+      ].filter((e) => (e as HTMLElement).offsetParent !== null).length;
+      return {
+        saveVisible: !!save && save.bottom <= innerHeight && save.top >= 0,
+        fields: visible,
+        scroll: (form?.scrollHeight ?? 0) - (form?.clientHeight ?? 0),
+      };
+    });
+    rows.push(
+      `${kind}: полей на экране ${m.fields}, «Сохранить» ${m.saveVisible ? 'виден' : 'ниже экрана'}, прокрутка формы ${Math.max(0, m.scroll)} px`,
+    );
+    await head.screenshot({ path: `docs/screenshots/ux-form-${kind}.png` });
+    expect(m.saveVisible, kind).toBe(true);
+    await head.keyboard.press('Escape');
+    await expect(head.getByTestId('f-title')).toHaveCount(0);
+  }
+  console.log(rows.join('\n'));
+  await head.context().close();
+});
+
+test('приглашение списком: 12 сотрудников в разные отделы за одно действие — замер', async () => {
+  test.setTimeout(300_000);
+  const c = new Counter(page, 'Пригласить 12 сотрудников списком');
+  await c.click('menu-toggle');
+  await c.click('menu-full');
+  await c.click('admin-tab-invitations');
+  c.screen();
+  await c.click('bulk-invite');
+  const lines = Array.from({ length: 12 }, (_, i) => {
+    const dept = DEPARTMENTS[i + 1]!;
+    return `Сотрудник ${String(i + 1).padStart(2, '0')}; bulk${String(i + 1).padStart(2, '0')}@corp.example; ${dept}`;
+  });
+  await c.fill('bulk-invite-text', lines.join('\n'));
+  await expect(page.getByTestId('bulk-invite-row')).toHaveCount(12);
+  await c.click('bulk-invite-go');
+  await expect(page.getByTestId('bulk-invite-state').filter({ hasText: 'создано' })).toHaveCount(
+    12,
+    {
+      timeout: 60_000,
+    },
+  );
+  record(c);
+  const csv = page.waitForEvent('download');
+  await page.getByTestId('bulk-invite-csv').click();
+  const text = readFileSync(await (await csv).path(), 'utf8');
+  expect(text.split('\n')).toHaveLength(13);
+  expect(text).toMatch(/bulk01@corp.example/);
+
+  // ошибки до отправки: неверная почта, неизвестная группа, повтор
+  await page
+    .getByTestId('bulk-invite-text')
+    .fill(
+      'Иван; not-an-email; ИТ\nПётр; bulk99@corp.example; Нет такой\nПётр; bulk99@corp.example',
+    );
+  await expect(page.getByTestId('bulk-invite-go')).toBeDisabled();
+  await expect(page.getByTestId('bulk-invite-state').nth(0)).toContainText('неверная почта');
+  await expect(page.getByTestId('bulk-invite-state').nth(1)).toContainText('группа не найдена');
+  await expect(page.getByTestId('bulk-invite-state').nth(2)).toContainText('повтор');
+
+  // приглашения созданы, группа привязана к приглашению
+  const inv = (await api('GET', '/admin/invitations')).json as { email: string; status: string }[];
+  expect(inv.filter((x) => x.email.startsWith('bulk') && x.status === 'pending')).toHaveLength(12);
 });
