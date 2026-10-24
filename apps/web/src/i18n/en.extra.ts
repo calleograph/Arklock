@@ -997,6 +997,8 @@ export default {
     signalCause: 'after offboarding {name}',
     signalCauseRevoked: 'after access was revoked from {name}',
     signalOpen: 'Open entry',
+    signalType: 'Event type',
+    signalTypeAll: 'All types',
     signalTab: { active: 'Open: {n}', closed: 'Closed: {n}' },
     signalClosedAt: 'closed {at}',
     keyTitle: 'Vault encryption key',

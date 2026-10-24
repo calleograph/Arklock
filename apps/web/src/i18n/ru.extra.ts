@@ -1000,6 +1000,8 @@ export default {
     signalCause: 'после увольнения: {name}',
     signalCauseRevoked: 'после отзыва доступа: {name}',
     signalOpen: 'К записи',
+    signalType: 'Вид события',
+    signalTypeAll: 'Все виды',
     signalTab: { active: 'Открытые: {n}', closed: 'Закрытые: {n}' },
     signalClosedAt: 'закрыто {at}',
     keyTitle: 'Ключ шифрования сейфа',

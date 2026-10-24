@@ -59,8 +59,15 @@ const signals = ref<
 // открытые и в работе — отдельно от архива решённых и отклонённых
 const signalTab = ref<'active' | 'closed'>('active');
 const isClosed = (status: string) => status === 'resolved' || status === 'dismissed';
+// вид события: после увольнения их бывают сотни — нужен отбор
+const signalType = ref('');
+const signalTypes = computed(() => [...new Set(signals.value.map((s) => s.type))]);
 const shownSignals = computed(() =>
-  signals.value.filter((s) => isClosed(s.status) === (signalTab.value === 'closed')),
+  signals.value.filter(
+    (s) =>
+      isClosed(s.status) === (signalTab.value === 'closed') &&
+      (!signalType.value || s.type === signalType.value),
+  ),
 );
 const closedCount = computed(() => signals.value.filter((s) => isClosed(s.status)).length);
 // риск по типу: утечка и «смените пароль после увольнения» — высокий, остальное — средний
@@ -515,25 +522,37 @@ void decryptEntry;
     <div class="space-y-2">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="font-medium">{{ t('settings.signals') }}</h2>
-        <div class="flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800" role="tablist">
-          <button
-            v-for="tab in ['active', 'closed'] as const"
-            :key="tab"
-            type="button"
-            role="tab"
-            class="seg"
-            :class="signalTab === tab ? 'seg-on' : ''"
-            :aria-selected="signalTab === tab"
-            :data-testid="`signals-tab-${tab}`"
-            @click="signalTab = tab"
+        <span class="flex flex-wrap items-center gap-2">
+          <select
+            v-if="signalTypes.length > 1"
+            v-model="signalType"
+            class="input w-auto py-1 text-xs"
+            :aria-label="t('settings.signalType')"
+            data-testid="signals-type"
           >
-            {{
-              t(`settings.signalTab.${tab}`, {
-                n: tab === 'closed' ? closedCount : signals.length - closedCount,
-              })
-            }}
-          </button>
-        </div>
+            <option value="">{{ t('settings.signalTypeAll') }}</option>
+            <option v-for="ty in signalTypes" :key="ty" :value="ty">{{ t(`issue.${ty}`) }}</option>
+          </select>
+          <div class="flex rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800" role="tablist">
+            <button
+              v-for="tab in ['active', 'closed'] as const"
+              :key="tab"
+              type="button"
+              role="tab"
+              class="seg"
+              :class="signalTab === tab ? 'seg-on' : ''"
+              :aria-selected="signalTab === tab"
+              :data-testid="`signals-tab-${tab}`"
+              @click="signalTab = tab"
+            >
+              {{
+                t(`settings.signalTab.${tab}`, {
+                  n: tab === 'closed' ? closedCount : signals.length - closedCount,
+                })
+              }}
+            </button>
+          </div>
+        </span>
       </div>
       <ul
         class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
