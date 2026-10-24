@@ -100,11 +100,8 @@ test('было: подразделение прежним путём — гру�
   await c.fill('circle-name', name);
   await c.click('circle-create');
   await c.click(`circle-${name}`);
-  const v = await page
-    .getByTestId('circle-add-user')
-    .locator('option', { hasText: headEmail(0) })
-    .getAttribute('value');
-  await c.pick('circle-add-user', v!);
+  await c.fill('circle-add-user-input', headEmail(0));
+  await c.click(`circle-add-user-result-${headEmail(0)}`);
   await c.click('circle-add');
   // 2. пространство и группа в нём
   await c.click('menu-toggle');
@@ -156,11 +153,9 @@ test('стало: подразделение мастером — одно ок�
   await c.click('admin-tab-departments');
   c.screen();
   await c.fill('dept-name', 'Бухгалтерия');
-  const v = await page
-    .getByTestId('dept-head')
-    .locator('option', { hasText: headEmail(4) })
-    .getAttribute('value');
-  await c.pick('dept-head', v!);
+  // руководитель находится поиском на сервере, а не выбирается из списка в тысячи человек
+  await c.fill('dept-head-input', headEmail(4));
+  await c.click(`dept-head-result-${headEmail(4)}`);
   await c.click('dept-create');
   await expect(page.getByTestId('dept-state')).toHaveText('Готово', { timeout: 120_000 });
   record(c);
@@ -248,9 +243,20 @@ test('мастер: участники и начальные папки в се�
   test.setTimeout(300_000);
   await page.getByTestId('dept-mode-one').click();
   await page.getByTestId('dept-name').fill('Отдел с папками');
-  await page.getByTestId('dept-head').selectOption('');
-  await page.getByTestId('dept-member-filter').fill('staff03');
-  await page.getByTestId(`dept-member-${staffEmail(2)}`).check();
+  // руководитель прошлого прохода остаётся в форме: снимаем его
+  while (
+    await page
+      .getByTestId('dept-head')
+      .getByRole('button', { name: /Убрать/ })
+      .count()
+  )
+    await page
+      .getByTestId('dept-head')
+      .getByRole('button', { name: /Убрать/ })
+      .first()
+      .click();
+  await page.getByTestId('dept-member-input').fill(staffEmail(2));
+  await page.getByTestId(`dept-member-result-${staffEmail(2)}`).click();
   await page.getByTestId('dept-folders').fill('Серверы, Сеть');
   await page.getByTestId('dept-create').click();
   await expect(page.getByTestId('dept-state')).toHaveText('Готово', { timeout: 120_000 });
@@ -590,7 +596,10 @@ test('нагрузка: 1500 записей в сейфе отдела — за�
     t0 = Date.now();
     await page.goto('/admin/users');
     await expect(page.getByTestId('user-row').first()).toBeVisible();
-    await expect(page.getByTestId('user-row')).toHaveCount(62, { timeout: 30_000 });
+    // список страницами по 50: остальные подгружаются по «Дальше», а не одним ответом
+    await expect(page.getByTestId('user-row')).toHaveCount(50, { timeout: 30_000 });
+    await expect(page.getByTestId('users-range')).toContainText('1–50');
+    await expect(page.getByTestId('users-range')).toContainText('62');
     times.users.push(Date.now() - t0);
     t0 = Date.now();
     await page.goto('/admin/circles');
@@ -664,7 +673,9 @@ test('увольнение руководителя с 1500 записями: п
   test.setTimeout(300_000);
   const c = new Counter(page, 'Уволить руководителя отдела');
   await page.goto('/admin/users');
-  await expect(page.getByTestId('user-row').first()).toBeVisible({ timeout: 60_000 });
+  // сотрудника находят поиском: на странице только первые 50
+  await page.getByTestId('admin-user-search').fill(headEmail(4));
+  await expect(page.getByTestId('user-row')).toHaveCount(1, { timeout: 30_000 });
   await c.click(`profile-open-${headEmail(4)}`);
   c.screen();
   await c.click('profile-offboard');
@@ -897,6 +908,32 @@ test('приглашение списком: 12 сотрудников в раз
   await expect(page.getByTestId('bulk-invite-state').nth(0)).toContainText('неверная почта');
   await expect(page.getByTestId('bulk-invite-state').nth(1)).toContainText('группа не найдена');
   await expect(page.getByTestId('bulk-invite-state').nth(2)).toContainText('повтор');
+
+  // CSV: пример скачивается, файл с заголовками разбирается по столбцам, группы берутся из department и groups
+  const sample = page.waitForEvent('download');
+  await page.getByTestId('bulk-invite-sample').click();
+  const sampleText = readFileSync(await (await sample).path(), 'utf8');
+  expect(sampleText).toContain('username,first_name,last_name,email,department,groups');
+  await page.getByTestId('bulk-invite-file').setInputFiles({
+    name: 'users.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(
+      `username,first_name,last_name,email,department,groups\nivanov,Иван,Иванов,csv01@corp.example,${DEPARTMENTS[0]},${DEPARTMENTS[1]}\npetrova,Анна,Петрова,csv02@corp.example,${DEPARTMENTS[2]},\n`,
+    ),
+  });
+  await expect(page.getByTestId('bulk-invite-row')).toHaveCount(2);
+  await expect(page.getByTestId('bulk-invite-row').nth(0)).toContainText('Иван Иванов');
+  await expect(page.getByTestId('bulk-invite-row').nth(0)).toContainText(
+    `${DEPARTMENTS[0]} | ${DEPARTMENTS[1]}`,
+  );
+  await expect(page.getByTestId('bulk-invite-go')).toBeEnabled();
+  // файл без столбца почты отклоняется
+  await page.getByTestId('bulk-invite-file').setInputFiles({
+    name: 'bad.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('name,phone\nИван,123\n'),
+  });
+  await expect(page.getByTestId('bulk-invite-error')).toContainText('email');
 
   // приглашения созданы, группа привязана к приглашению
   const inv = (await api('GET', '/admin/invitations')).json as { email: string; status: string }[];

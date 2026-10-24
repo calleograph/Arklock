@@ -60,7 +60,7 @@ onMounted(async () => {
     ok(api<{ configured: boolean }>('GET', '/admin/smtp')),
     ok(api<{ backups: { items: unknown[] } | null }>('GET', '/admin/backups')),
     ok(api<{ isDefault: boolean }[]>('GET', '/spaces')),
-    ok(api<unknown[]>('GET', '/admin/users')),
+    ok(api<{ total: number }>('GET', '/admin/people?limit=1')),
     ok(api<unknown[]>('GET', '/admin/invitations')),
     ok(api<Record<string, unknown>>('GET', '/admin/settings')),
   ]);
@@ -69,7 +69,7 @@ onMounted(async () => {
     mail: !!smtp?.configured,
     backup: (backups?.backups?.items.length ?? 0) > 0,
     dept: (spaces ?? []).some((s) => !s.isDefault),
-    people: (users?.length ?? 0) > 1 || (invitations?.length ?? 0) > 0,
+    people: (users?.total ?? 0) > 1 || (invitations?.length ?? 0) > 0,
     mfa:
       settings?.['security.mfaRequired'] !== undefined &&
       settings['security.mfaRequired'] !== 'off',

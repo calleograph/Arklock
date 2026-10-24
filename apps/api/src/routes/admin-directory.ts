@@ -1,4 +1,17 @@
-import { and, asc, count, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { circleWrite, uuid } from '@arklock/contracts';
@@ -129,14 +142,106 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
 
   // ------------------------------------------------------------------ пользователи
 
-  app.get('/admin/users', async () => {
-    const rows = await db.select().from(users).orderBy(asc(users.displayName));
+  const likeOf = (q: string) => `%${q.replace(/[\\%_]/g, '\\$&')}%`;
+  const pageQuery = z.object({
+    q: z.string().trim().max(100).default(''),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+    offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+    status: z.enum(['active', 'disabled']).optional(),
+    role: z.string().max(60).optional(),
+    sort: z.enum(['name', 'seen']).default('name'),
+    dir: z.enum(['asc', 'desc']).default('asc'),
+  });
+  const matchUser = (q: string): SQL | undefined => {
+    if (!q) return undefined;
+    const p = likeOf(q);
+    return or(
+      ilike(users.displayName, p),
+      ilike(users.email, p),
+      ilike(users.title, p),
+      ilike(users.department, p),
+    );
+  };
+
+  /**
+   * Поиск сотрудников для выбора руководителя, участников и т. п.: серверный, страницами.
+   * Полный список не отдаётся: в организации на десятки тысяч человек его не нужно ни грузить, ни листать.
+   */
+  app.get('/admin/people', async (req) => {
+    const o = parse(pageQuery, req.query);
+    const where = and(
+      matchUser(o.q),
+      o.status
+        ? o.status === 'disabled'
+          ? sql`${users.disabledAt} is not null`
+          : isNull(users.disabledAt)
+        : undefined,
+    );
+    const [rows, [total]] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          name: users.displayName,
+          email: users.email,
+          title: users.title,
+          department: users.department,
+          authSource: users.authSource,
+          disabled: sql<boolean>`${users.disabledAt} is not null`,
+        })
+        .from(users)
+        .where(where)
+        .orderBy(asc(users.displayName), asc(users.email))
+        .limit(o.limit ?? 20)
+        .offset(o.offset),
+      db.select({ n: count() }).from(users).where(where),
+    ]);
+    return { items: rows, total: total?.n ?? 0 };
+  });
+
+  app.get('/admin/users', async (req) => {
+    const o = parse(pageQuery, req.query);
+    const paged = o.limit !== undefined;
+    const seenAt = sql`(select max(${sessions.lastSeenAt}) from ${sessions} where ${sessions.userId} = ${users.id})`;
+    const where = paged
+      ? and(
+          matchUser(o.q),
+          o.status
+            ? o.status === 'disabled'
+              ? sql`${users.disabledAt} is not null`
+              : isNull(users.disabledAt)
+            : undefined,
+          o.role?.startsWith('role:')
+            ? eq(users.adminRoleId, o.role.slice(5))
+            : o.role === 'admin' || o.role === 'member'
+              ? eq(users.role, o.role)
+              : undefined,
+        )
+      : undefined;
+    const dirOf = o.dir === 'desc' ? desc : asc;
+    const base = db
+      .select()
+      .from(users)
+      .where(where)
+      .orderBy(
+        ...(o.sort === 'seen'
+          ? [dirOf(seenAt), asc(users.displayName)]
+          : [dirOf(users.displayName), asc(users.email)]),
+      );
+    const rows = paged ? await base.limit(o.limit!).offset(o.offset) : await base;
     const lastSeen = await db
       .select({ userId: sessions.userId, at: sql<Date>`max(${sessions.lastSeenAt})` })
       .from(sessions)
+      .where(
+        paged
+          ? inArray(
+              sessions.userId,
+              rows.map((r) => r.id),
+            )
+          : undefined,
+      )
       .groupBy(sessions.userId);
     const seen = new Map(lastSeen.map((s) => [s.userId, s.at]));
-    return rows.map((u) => ({
+    const list = rows.map((u) => ({
       id: u.id,
       name: u.displayName,
       email: u.email,
@@ -156,7 +261,12 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       authSource: u.authSource,
       createdAt: u.createdAt.toISOString(),
       lastSeenAt: seen.get(u.id) ? new Date(seen.get(u.id)!).toISOString() : null,
+      title: u.title,
+      department: u.department,
     }));
+    if (!paged) return list;
+    const [total] = await db.select({ n: count() }).from(users).where(where);
+    return { items: list, total: total?.n ?? 0 };
   });
 
   app.patch('/admin/users/:id', async (req) => {
@@ -296,20 +406,27 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
 
   // ------------------------------------------------------------------ круги
 
-  app.get('/admin/circles', async () => {
-    const rows = await db.select().from(circles).orderBy(asc(circles.name));
+  app.get('/admin/circles', async (req) => {
+    const o = parse(pageQuery, req.query);
+    const paged = o.limit !== undefined;
+    const where = o.q ? ilike(circles.name, likeOf(o.q)) : undefined;
+    const base = db.select().from(circles).where(where).orderBy(asc(circles.name));
+    const rows = paged ? await base.limit(o.limit!).offset(o.offset) : await base;
     const counts = await db
       .select({ id: circleMembers.circleId, n: count() })
       .from(circleMembers)
       .groupBy(circleMembers.circleId);
     const m = new Map(counts.map((c) => [c.id, c.n]));
-    return rows.map((c) => ({
+    const list = rows.map((c) => ({
       id: c.id,
       name: c.name,
       description: c.description,
       adminRoleId: c.adminRoleId,
       members: m.get(c.id) ?? 0,
     }));
+    if (!paged) return list;
+    const [total] = await db.select({ n: count() }).from(circles).where(where);
+    return { items: list, total: total?.n ?? 0 };
   });
 
   app.post('/admin/circles', async (req, reply) => {

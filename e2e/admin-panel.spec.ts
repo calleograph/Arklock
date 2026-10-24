@@ -266,7 +266,7 @@ test('administration sections show real data and perform real operations', async
 
   // срок хранения журнала: сохраняется и переживает перезагрузку; по умолчанию — бессрочно
   await tab(page, 'settings');
-  await page.getByTestId('settings-tab-storage').click();
+  await page.getByTestId('admin-tab-settings-storage').click();
   await expect(page.getByTestId('set-ledger-days')).toHaveValue('0');
   let saved = page.waitForResponse(
     (r) => r.url().endsWith('/admin/settings') && r.request().method() === 'PUT',
@@ -274,7 +274,7 @@ test('administration sections show real data and perform real operations', async
   await page.getByTestId('set-ledger-days').selectOption('365');
   expect((await saved).status()).toBe(200);
   await page.reload();
-  await page.getByTestId('settings-tab-storage').click({ timeout: 60_000 });
+  await page.getByTestId('admin-tab-settings-storage').click({ timeout: 60_000 });
   await expect(page.getByTestId('set-ledger-days')).toHaveValue('365');
   saved = page.waitForResponse(
     (r) => r.url().endsWith('/admin/settings') && r.request().method() === 'PUT',
@@ -638,10 +638,8 @@ test('custom roles: an administrative role opens only its own sections for a del
     .getByTestId('circle-admin-role-Аудиторы журнала')
     .selectOption({ label: 'Аудитор журнала' });
   await page.getByTestId('circle-Аудиторы журнала').click();
-  const person = page
-    .getByTestId('circle-add-user')
-    .locator('option', { hasText: 'invited.person' });
-  await page.getByTestId('circle-add-user').selectOption((await person.getAttribute('value'))!);
+  await page.getByTestId('circle-add-user-input').fill('invited.person');
+  await page.getByTestId('circle-add-user-result-invited.person@example.com').click();
   await page.getByTestId('circle-add').click();
   // снятие прямой роли завершило сеанс: входим заново
   await guest.goto('/login');
@@ -943,11 +941,8 @@ test('the chief administrator sees the organization, edits a card and hands the 
   // передача роли: предложение подтверждается мастер-паролем главного администратора
   await tab(page, 'organization');
   await page.getByTestId('chief-transfer').click();
-  const pick = page.getByTestId('chief-successor');
-  const successorId = await pick
-    .locator('option', { hasText: SUCCESSOR.email })
-    .getAttribute('value');
-  await pick.selectOption(successorId!);
+  await page.getByTestId('chief-successor-input').fill(SUCCESSOR.email);
+  await page.getByTestId(`chief-successor-result-${SUCCESSOR.email}`).click();
   await page.getByTestId('chief-password').fill(ADMIN.password);
   await page.getByTestId('chief-offer-send').click();
   await expect(page.getByTestId('chief-offer')).toContainText('Ольга Преемник');

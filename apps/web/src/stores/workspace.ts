@@ -389,6 +389,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     };
   }
 
+  /** Содержимое сейфа без смены открытого: для выгрузки и проверки дубликатов. Сервер отдаёт только то, что пользователю разрешено читать. */
+  async function readVault(vaultId: string) {
+    if (!vaults.value.find((x) => x.id === vaultId)?.unlocked) throw new Error('vault is locked');
+    return fetchTree(vaultId, false);
+  }
+
   async function loadTree(): Promise<void> {
     const v = current.value;
     if (!v || !v.unlocked) {
@@ -1516,6 +1522,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     restoreRevision,
     createBranch,
     createBranchWithId,
+    readVault,
     audit,
     renameBranch,
     breaches,

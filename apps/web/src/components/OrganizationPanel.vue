@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
 import { confirmStepUp } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
+import PersonPicker, { type Person as Found } from './PersonPicker.vue';
 
 /**
  * Главный администратор и обзор организации. Роль только передаётся: преемник подтверждает приём своим
@@ -57,17 +58,14 @@ const ranking = computed(() =>
 );
 const status = ref<Status | null>(null);
 const structure = ref<SpaceRow[]>([]);
-const people = ref<(Person & { disabled: boolean })[]>([]);
-const successor = ref('');
+const successorPick = ref<Found[]>([]);
+const successor = computed(() => successorPick.value[0]?.id ?? '');
 const password = ref('');
 const query = ref('');
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
 
-const candidates = computed(() =>
-  people.value.filter((p) => !p.disabled && p.id !== status.value?.chief?.id),
-);
 const shown = computed(() => {
   const q = query.value.trim().toLowerCase();
   if (!q) return structure.value;
@@ -86,12 +84,7 @@ async function load(): Promise<void> {
   try {
     status.value = await api<Status>('GET', '/admin/chief');
     if (status.value.you) {
-      const [s, u] = await Promise.all([
-        api<SpaceRow[]>('GET', '/admin/structure'),
-        api<(Person & { disabled: boolean })[]>('GET', '/admin/users'),
-      ]);
-      structure.value = s;
-      people.value = u;
+      structure.value = await api<SpaceRow[]>('GET', '/admin/structure');
     }
   } catch (e) {
     error.value = errorMessage(e, t);
@@ -165,13 +158,12 @@ async function cancel(): Promise<void> {
           <form class="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="offer">
             <label
               ><span class="field-label">{{ t('chief.successor') }}</span>
-              <select v-model="successor" class="input" required data-testid="chief-successor">
-                <option value="" disabled>{{ t('chief.choose') }}</option>
-                <option v-for="p in candidates" :key="p.id" :value="p.id">
-                  {{ p.name }} · {{ p.email }}
-                </option>
-              </select></label
-            >
+              <PersonPicker
+                v-model="successorPick"
+                :exclude="status?.chief ? [status.chief.id] : []"
+                :placeholder="t('chief.choose')"
+                testid="chief-successor"
+            /></label>
             <label
               ><span class="field-label">{{ t('chief.password') }}</span>
               <input

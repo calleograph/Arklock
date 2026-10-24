@@ -35,6 +35,17 @@ export type IconName =
   | 'text'
   | 'totp'
   | 'dice'
+  | 'transfer'
+  | 'globe'
+  | 'mail'
+  | 'server'
+  | 'pulse'
+  | 'building'
+  | 'plug'
+  | 'cpu'
+  | 'idcard'
+  | 'certificate'
+  | 'user-plus'
   | 'more';
 
 defineProps<{ name: IconName }>();
@@ -81,6 +92,18 @@ const paths: Record<IconName, string> = {
   text: 'M5 6h14M5 11h14M5 16h9',
   totp: 'M12 6v6l4 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   dice: 'M4 4h16v16H4zM8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01',
+  mail: 'M3 6h18v12H3zM3 7l9 7 9-7',
+  server: 'M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01',
+  pulse: 'M3 12h4l2-6 4 12 2-6h6',
+  building: 'M5 21V4h9v17M14 9h5v12M8 8h3M8 12h3M8 16h3M3 21h18',
+  plug: 'M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4',
+  cpu: 'M7 7h10v10H7zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4',
+  idcard:
+    'M3 5h18v14H3zM8 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 16c.5-1.5 1.7-2 3-2s2.5.5 3 2M14 9h4M14 13h4',
+  certificate: 'M5 4h14v11H5zM8 8h8M8 11h5M9 15l-1 5 4-2 4 2-1-5',
+  'user-plus': 'M10 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 20c1-3.5 3.7-5 7-5M18 8v6M15 11h6',
+  globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+  transfer: 'M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
 };
 </script>

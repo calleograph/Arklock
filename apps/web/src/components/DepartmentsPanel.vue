@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import { useWorkspaceStore } from '../stores/workspace';
+import PersonPicker, { type Person } from './PersonPicker.vue';
 
 /**
  * Мастер «Подразделения»: по списку создаёт для каждого отдела группу, закрытое пространство, сейф отдела и (по желанию)
@@ -19,10 +20,12 @@ const { t, locale } = useI18n({
       one: 'Одно подразделение',
       many: 'Список',
       name: 'Название',
+      description: 'Описание',
       head: 'Руководитель',
-      noHead: 'Не назначать',
+      headFind: 'Найти руководителя: имя, почта, должность',
       members: 'Участники',
-      membersFilter: 'Поиск сотрудников',
+      membersFind: 'Найти участников: имя, почта, подразделение',
+      checking: 'проверяю…',
       list: 'По строке на подразделение: «Название; почта руководителя»',
       leadVault: 'Отдельный сейф для руководства (его не видят остальные сотрудники отдела)',
       folders: 'Начальные папки в сейфе отдела, через запятую',
@@ -54,10 +57,12 @@ const { t, locale } = useI18n({
       one: 'One department',
       many: 'List',
       name: 'Name',
+      description: 'Description',
       head: 'Head',
-      noHead: 'Do not assign',
+      headFind: 'Find the head: name, email, title',
       members: 'Members',
-      membersFilter: 'Find people',
+      membersFind: 'Find members: name, email, department',
+      checking: 'checking…',
       list: 'One department per line: “Name; head email”',
       leadVault: 'Separate vault for leadership (other department staff cannot see it)',
       folders: 'Initial folders in the department vault, comma-separated',
@@ -87,20 +92,14 @@ const { t, locale } = useI18n({
 void locale;
 const ws = useWorkspaceStore();
 
-interface U {
-  id: string;
-  name: string;
-  email: string;
-  disabled: boolean;
-}
-const users = ref<U[]>([]);
-const circles = ref<{ id: string; name: string }[]>([]);
+const circleIds = ref<Record<string, string | null>>({});
+const headCache = ref<Record<string, Person | null>>({});
 const mode = ref<'one' | 'many'>('one');
 const name = ref('');
-const headId = ref('');
+const description = ref('');
+const head = ref<Person[]>([]);
 const listText = ref('');
-const memberIds = ref<string[]>([]);
-const memberFilter = ref('');
+const members = ref<Person[]>([]);
 const leadVault = ref(true);
 const folders = ref('');
 const busy = ref(false);
@@ -110,28 +109,33 @@ const results = ref<Record<string, string>>({});
 onMounted(async () => {
   try {
     if (!ws.vaults.length) await ws.loadVaults();
-    [users.value, circles.value] = await Promise.all([
-      api<U[]>('GET', '/admin/users'),
-      api<{ id: string; name: string }[]>('GET', '/admin/circles'),
-    ]);
   } catch (e) {
     error.value = errorMessage(e, t);
   }
 });
 
-const active = computed(() => users.value.filter((u) => !u.disabled));
-const byEmail = (e: string) => active.value.find((u) => u.email.toLowerCase() === e.toLowerCase());
-const shownPeople = computed(() => {
-  const q = memberFilter.value.trim().toLowerCase();
-  return active.value
-    .filter((u) => !q || `${u.name} ${u.email}`.toLowerCase().includes(q))
-    .slice(0, 50);
-});
+/** Группа по точному названию: ищется на сервере, список групп целиком не грузится. */
+async function findCircle(n: string): Promise<string | null> {
+  const r = await api<{ items: { id: string; name: string }[] }>(
+    'GET',
+    `/admin/circles?limit=20&q=${encodeURIComponent(n)}`,
+  );
+  return r.items.find((c) => c.name === n)?.id ?? null;
+}
+async function findPerson(email: string): Promise<Person | null> {
+  const r = await api<{ items: Person[] }>(
+    'GET',
+    `/admin/people?status=active&limit=5&q=${encodeURIComponent(email)}`,
+  );
+  return r.items.find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? null;
+}
+let timer: ReturnType<typeof setTimeout> | undefined;
+onBeforeUnmount(() => clearTimeout(timer));
 
 interface Item {
   name: string;
-  head: U | null;
-  headMissing: string;
+  head: Person | null;
+  headEmail: string;
   members: string[];
 }
 const items = computed<Item[]>(() => {
@@ -140,9 +144,9 @@ const items = computed<Item[]>(() => {
       ? [
           {
             name: name.value.trim(),
-            head: active.value.find((u) => u.id === headId.value) ?? null,
-            headMissing: '',
-            members: memberIds.value,
+            head: head.value[0] ?? null,
+            headEmail: '',
+            members: members.value.map((m) => m.id),
           },
         ]
       : [];
@@ -152,10 +156,27 @@ const items = computed<Item[]>(() => {
     .filter(Boolean)
     .map((l) => {
       const [n = '', h = ''] = l.split(/[;\t]/).map((x) => x.trim());
-      const head = h ? (byEmail(h) ?? null) : null;
-      return { name: n, head, headMissing: h && !head ? h : '', members: [] };
+      return { name: n, head: headCache.value[h.toLowerCase()] ?? null, headEmail: h, members: [] };
     });
 });
+// поиск на сервере для новых названий и адресов из списка; пока ответа нет, создание заблокировано
+watch(
+  () => [items.value.map((i) => i.name), items.value.map((i) => i.headEmail)] as const,
+  ([names, emails]) => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        for (const n of new Set(names.slice(0, 300)))
+          if (n && !(n in circleIds.value)) circleIds.value[n] = await findCircle(n);
+        for (const e of new Set(emails.slice(0, 300).map((x) => x.toLowerCase())))
+          if (e && !(e in headCache.value)) headCache.value[e] = await findPerson(e);
+      } catch (e) {
+        error.value = errorMessage(e, t);
+      }
+    }, 300);
+  },
+  { immediate: true },
+);
 
 const spaceOf = (n: string) => ws.spaces.find((s) => s.name === n);
 const vaultOf = (n: string) => ws.vaults.find((v) => v.name === n && v.spaceId === spaceOf(n)?.id);
@@ -166,11 +187,14 @@ const plan = computed(() =>
     if (!it.name) problems.push(t('problemEmpty'));
     if (it.name.length > 100) problems.push(t('problemLong'));
     if (items.value.findIndex((x) => x.name === it.name) !== i) problems.push(t('problemDup'));
-    if (it.headMissing) problems.push(`${t('problemHead')}: ${it.headMissing}`);
+    if (it.headEmail && headCache.value[it.headEmail.toLowerCase()] === undefined)
+      problems.push(t('checking'));
+    else if (it.headEmail && !it.head) problems.push(`${t('problemHead')}: ${it.headEmail}`);
+    if (it.name && circleIds.value[it.name] === undefined) problems.push(t('checking'));
     return {
       ...it,
       problems,
-      circle: circles.value.some((c) => c.name === it.name),
+      circle: !!circleIds.value[it.name],
       space: !!spaceOf(it.name),
       vault: !!vaultOf(it.name),
     };
@@ -180,16 +204,29 @@ const ready = computed(() => plan.value.length > 0 && plan.value.every((p) => !p
 const mark = (exists: boolean) => (exists ? t('reuse') : t('isNew'));
 
 async function build(it: Item): Promise<void> {
-  let circleId = circles.value.find((c) => c.name === it.name)?.id;
+  let circleId = circleIds.value[it.name] ?? undefined;
   if (!circleId) {
-    circleId = (await api<{ id: string }>('POST', '/admin/circles', { name: it.name })).id;
-    circles.value.push({ id: circleId, name: it.name });
+    circleId = (
+      await api<{ id: string }>('POST', '/admin/circles', {
+        name: it.name,
+        ...(mode.value === 'one' && description.value.trim()
+          ? { description: description.value.trim() }
+          : {}),
+      })
+    ).id;
+    circleIds.value[it.name] = circleId;
   }
   const add = [...new Set([...(it.head ? [it.head.id] : []), ...it.members])];
   if (add.length) await api('PATCH', `/admin/circles/${circleId}/members`, { add });
   let space = spaceOf(it.name);
   if (!space) {
-    await api('POST', '/spaces', { name: it.name, publicToOrg: false });
+    await api('POST', '/spaces', {
+      name: it.name,
+      publicToOrg: false,
+      ...(mode.value === 'one' && description.value.trim()
+        ? { description: description.value.trim() }
+        : {}),
+    });
     await ws.loadVaults();
     space = spaceOf(it.name);
   }
@@ -271,44 +308,27 @@ async function create(): Promise<void> {
       </button>
     </div>
 
-    <div v-if="mode === 'one'" class="grid gap-3 sm:grid-cols-2">
+    <div v-if="mode === 'one'" class="grid gap-x-3 gap-y-2 sm:grid-cols-2">
       <label class="block"
         ><span class="field-label">{{ t('name') }}</span
         ><input v-model="name" maxlength="100" class="input" data-testid="dept-name"
       /></label>
       <label class="block"
-        ><span class="field-label">{{ t('head') }}</span
-        ><select v-model="headId" class="input" data-testid="dept-head">
-          <option value="">{{ t('noHead') }}</option>
-          <option v-for="u in active" :key="u.id" :value="u.id">
-            {{ u.name }} · {{ u.email }}
-          </option>
-        </select></label
-      >
-      <div class="sm:col-span-2">
+        ><span class="field-label">{{ t('description') }}</span
+        ><input v-model="description" maxlength="500" class="input" data-testid="dept-description"
+      /></label>
+      <div>
+        <span class="field-label">{{ t('head') }}</span>
+        <PersonPicker v-model="head" :placeholder="t('headFind')" testid="dept-head" />
+      </div>
+      <div>
         <span class="field-label">{{ t('members') }}</span>
-        <input
-          v-model="memberFilter"
-          type="search"
-          class="input mb-1"
-          :placeholder="t('membersFilter')"
-          data-testid="dept-member-filter"
+        <PersonPicker
+          v-model="members"
+          multiple
+          :placeholder="t('membersFind')"
+          testid="dept-member"
         />
-        <ul
-          class="max-h-36 overflow-y-auto rounded-md border border-slate-200 p-1 dark:border-slate-700"
-        >
-          <li v-for="u in shownPeople" :key="u.id">
-            <label class="flex items-center gap-2 px-1 py-0.5"
-              ><input
-                v-model="memberIds"
-                type="checkbox"
-                :value="u.id"
-                :data-testid="`dept-member-${u.email}`"
-              />
-              {{ u.name }} <span class="text-xs text-slate-500">{{ u.email }}</span></label
-            >
-          </li>
-        </ul>
       </div>
     </div>
     <label v-else class="block"

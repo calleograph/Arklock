@@ -7,7 +7,6 @@ import Icon from '../components/Icon.vue';
 import IconButton from '../components/IconButton.vue';
 import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
 import EntryPanel from '../components/EntryPanel.vue';
-import TransferDialog from '../components/TransferDialog.vue';
 import VaultOverview from '../components/VaultOverview.vue';
 import FolderPanel from '../components/FolderPanel.vue';
 import SpacesPanel from '../components/SpacesPanel.vue';
@@ -135,7 +134,6 @@ async function saveFolderIcon(): Promise<void> {
   iconSaving.value = false;
   if (!error.value) iconBranch.value = null;
 }
-const showTransfer = ref(false);
 const creatorsPolicy = ref(false);
 
 onMounted(async () => {
@@ -506,14 +504,15 @@ const vaultActions = computed<ActionItem[]>(() => [
     ? [{ id: 'new', label: t('vault.newVault'), icon: 'plus' as const, testid: 'btn-new-vault' }]
     : []),
   { id: 'spaces', label: t('spaces.manage'), icon: 'folder', testid: 'spaces-open' },
-  { id: 'transfer', label: t('transfer.title'), icon: 'sync', testid: 'btn-transfer' },
+  { id: 'transfer', label: t('transfer.title'), icon: 'transfer', testid: 'btn-transfer' },
   { id: 'inspector', label: t('inspector.title'), icon: 'shield', testid: 'btn-inspector' },
 ]);
 function onVaultAction(id: string): void {
   if (id === 'settings') void router.push(`/vault/${vault.value!.id}/settings`);
   else if (id === 'new') void newVault();
   else if (id === 'spaces') showSpaces.value = !showSpaces.value;
-  else if (id === 'transfer') showTransfer.value = true;
+  else if (id === 'transfer')
+    void router.push({ path: '/transfer', query: { vault: vault.value?.id } });
   else if (id === 'inspector') void router.push('/inspector');
 }
 const moveTargets = computed(() =>
@@ -1397,14 +1396,5 @@ void router;
         </div>
       </form>
     </div>
-
-    <TransferDialog
-      v-if="showTransfer && vault?.unlocked"
-      :branches="ws.branches"
-      :entries="ws.entries"
-      :can-write="canWrite"
-      @close="showTransfer = false"
-      @done="ws.loadTree()"
-    />
   </section>
 </template>

@@ -31,7 +31,10 @@ describe('единый словарь терминов', () => {
 
   it('«хранилище» в русском тексте означает только хранилище файлов или копий, а сейф называется сейфом', () => {
     const ok = (k: string) =>
-      k.startsWith('files.') || k.startsWith('offsite.') || k === 'admin.tab.storage';
+      k.startsWith('files.') ||
+      k.startsWith('offsite.') ||
+      k === 'admin.tab.storage' ||
+      k === 'admin.group.storage';
     const hits = Object.entries(ru).filter(([k, v]) => /хранилищ/i.test(v) && !ok(k));
     expect(hits).toEqual([]);
   });

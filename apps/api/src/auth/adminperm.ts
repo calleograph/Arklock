@@ -45,6 +45,8 @@ export async function adminGate(ctx: AppContext, req: FastifyRequest): Promise<v
   const path = req.url.split('?')[0] ?? '';
   // повторное подтверждение пароля нужно любому делегированному администратору для опасных действий своего раздела
   if (path === '/api/v1/admin/reauth' && perms.size > 0) return;
+  if (path === '/api/v1/admin/people' && (perms.has('admin.users') || perms.has('admin.circles')))
+    return;
   const need = adminPermFor(path);
   if (!need || !perms.has(need)) throw forbidden();
 }

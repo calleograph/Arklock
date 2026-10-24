@@ -27,6 +27,12 @@ export const router = createRouter({
       meta: { requiresUnlock: true },
     },
     {
+      path: '/transfer',
+      name: 'transfer',
+      component: () => import('./views/TransferView.vue'),
+      meta: { requiresUnlock: true },
+    },
+    {
       path: '/inspector',
       name: 'inspector',
       component: InspectorView,

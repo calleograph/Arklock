@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
@@ -48,30 +48,31 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
 ];
 const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
-  organization: 'shield',
+  organization: 'building',
   departments: 'folder',
   users: 'user',
   circles: 'users',
   roles: 'shield',
-  invitations: 'user',
-  resources: 'chart',
-  containers: 'database',
+  invitations: 'user-plus',
+  resources: 'cpu',
+  containers: 'server',
   backups: 'database',
   logs: 'log',
   storage: 'file',
-  diagnostics: 'help',
-  certificates: 'lock',
-  ldap: 'users',
+  diagnostics: 'pulse',
+  certificates: 'certificate',
+  ldap: 'idcard',
   sso: 'key',
-  saml: 'key',
-  smtp: 'text',
-  syslog: 'log',
-  webhooks: 'external',
+  saml: 'lock',
+  smtp: 'mail',
+  syslog: 'text',
+  webhooks: 'plug',
   updates: 'sync',
   settings: 'settings',
   ledger: 'log',
   automation: 'bell',
 };
+import PersonPicker, { type Person } from '../components/PersonPicker.vue';
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
 
@@ -154,7 +155,7 @@ const isFull = () => adminPerms.value?.full ?? auth.user?.role === 'admin';
  * а переход пишется в историю браузера (а не заменяет её).
  */
 const tab = computed<Tab>({
-  get: () => ((route.params.tab as Tab) || 'users') as Tab,
+  get: () => ((route.params.tab as Tab) || 'overview') as Tab,
   set: (v) => void router.push(`/admin/${v}`),
 });
 const error = ref('');
@@ -195,12 +196,7 @@ const userSearch = ref('');
 const userStatus = ref('');
 // роль: администратор, сотрудник или административная роль (делегирование)
 const userRole = ref('');
-const roleMatches = (u: U) =>
-  !userRole.value ||
-  (userRole.value.startsWith('role:')
-    ? u.adminRoleId === userRole.value.slice(5)
-    : u.role === userRole.value);
-// список загружается целиком, поэтому сортируется в браузере; по умолчанию — по имени, как отдаёт сервер
+// сортировка на сервере; по умолчанию — по имени
 const userSort = ref<{ by: 'name' | 'seen'; dir: 'asc' | 'desc' }>({
   by: 'name',
   dir: 'asc',
@@ -212,26 +208,40 @@ function sortUsers(by: 'name' | 'seen'): void {
       ? { by, dir: s.dir === 'asc' ? 'desc' : 'asc' }
       : { by, dir: by === 'seen' ? 'desc' : 'asc' };
 }
-const visibleUsers = computed(() => {
-  const { by, dir } = userSort.value;
-  const key = (u: U) => (by === 'name' ? u.name : (u.lastSeenAt ?? ''));
-  return users.value
-    .filter(
-      (u) =>
-        `${u.name} ${u.email} ${u.authSource ?? 'local'}`
-          .toLowerCase()
-          .includes(userSearch.value.toLowerCase()) &&
-        (!userStatus.value || u.disabled === (userStatus.value === 'disabled')) &&
-        roleMatches(u),
-    )
-    .sort(
-      (a, b) =>
-        key(a).localeCompare(key(b), undefined, { sensitivity: 'base' }) * (dir === 'asc' ? 1 : -1),
-    );
-});
+// список страницами с сервера: в организации на десятки тысяч сотрудников целиком он не загружается
+const USER_PAGE = 50;
+const userPage = ref(0);
+const userTotal = ref(0);
+const visibleUsers = computed(() => users.value);
+let userTimer: ReturnType<typeof setTimeout> | undefined;
 const loadUsers = async () => {
-  users.value = await api('GET', '/admin/users');
+  const { by, dir } = userSort.value;
+  const q = new URLSearchParams({
+    limit: String(USER_PAGE),
+    offset: String(userPage.value * USER_PAGE),
+    q: userSearch.value.trim(),
+    sort: by,
+    dir,
+  });
+  if (userStatus.value) q.set('status', userStatus.value);
+  if (userRole.value) q.set('role', userRole.value);
+  const r = await api<{ items: U[]; total: number }>('GET', `/admin/users?${q}`);
+  users.value = r.items;
+  userTotal.value = r.total;
 };
+// смена отбора возвращает на первую страницу; ввод в поиск ждёт паузы, чтобы не нагружать сервер
+watch([userSearch, userStatus, userRole, userSort], () => {
+  userPage.value = 0;
+  picked.value = new Set();
+  clearTimeout(userTimer);
+  userTimer = setTimeout(() => void run(loadUsers), 250);
+});
+function userPageBy(n: number): void {
+  userPage.value += n;
+  picked.value = new Set();
+  void run(loadUsers);
+}
+onBeforeUnmount(() => clearTimeout(userTimer));
 const adminRoles = ref<{ id: string; name: string }[]>([]);
 async function loadAdminRoles(): Promise<void> {
   if (!isFull()) return;
@@ -332,7 +342,7 @@ const visibleCircles = computed(() =>
   ),
 );
 const editingCircle = ref<C | null>(null);
-const selectedGroupUsers = ref<string[]>([]);
+const groupPick = ref<Person[]>([]);
 const selectedMembers = ref<string[]>([]);
 const assignedVaults = ref<
   {
@@ -346,7 +356,6 @@ const assignedVaults = ref<
 const newCircle = ref({ name: '', description: '' });
 const openCircle = ref<string | null>(null);
 const circleMembers = ref<{ id: string; name: string; email: string }[]>([]);
-const addUserId = ref('');
 const loadCircles = async () => {
   circles.value = await api('GET', '/admin/circles');
 };
@@ -361,7 +370,7 @@ const deleteCircle = (c: C) =>
 async function showCircle(c: C): Promise<void> {
   openCircle.value = openCircle.value === c.id ? null : c.id;
   selectedMembers.value = [];
-  selectedGroupUsers.value = [];
+  groupPick.value = [];
   if (openCircle.value)
     [circleMembers.value, assignedVaults.value] = await Promise.all([
       api<typeof circleMembers.value>('GET', `/admin/circles/${c.id}/members`),
@@ -380,17 +389,11 @@ const updateCircle = () =>
 const updateGroupMembers = (action: 'add' | 'remove') =>
   run(async () => {
     await api('PATCH', `/admin/circles/${openCircle.value}/members`, {
-      [action]: action === 'add' ? selectedGroupUsers.value : selectedMembers.value,
+      [action]: action === 'add' ? groupPick.value.map((p) => p.id) : selectedMembers.value,
     });
     circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
-    selectedGroupUsers.value = [];
+    groupPick.value = [];
     selectedMembers.value = [];
-  }, loadCircles);
-const addToCircle = () =>
-  run(async () => {
-    await api('PUT', `/admin/circles/${openCircle.value}/members/${addUserId.value}`);
-    circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
-    addUserId.value = '';
   }, loadCircles);
 const removeFromCircle = (uid: string) =>
   run(async () => {
@@ -589,36 +592,106 @@ async function loadTab(): Promise<void> {
       await loadAdminRoles();
     } else if (tab.value === 'circles') {
       await loadCircles();
-      if (!users.value.length) await loadUsers();
     } else if (tab.value === 'settings') await loadSettings();
     else if (tab.value === 'ledger') await loadLedger();
   } catch (e) {
     error.value = errorMessage(e, t);
   }
 }
-/** Разделы панели по смыслу: люди, система, интеграции, безопасность. */
-const GROUPS: { id: string; tabs: Tab[] }[] = [
+/**
+ * Меню в два уровня: крупные разделы по задаче администратора и пункты внутри. Пункт настроек может вести
+ * в конкретный раздел страницы настроек (section), поэтому адрес сети, почта и политики безопасности найдутся
+ * там, где их ищут, а не среди пользователей.
+ */
+interface NavItem {
+  id: string;
+  tab: Tab;
+  section?: SettingsTab;
+  icon: IconName;
+  label: string;
+}
+const nav = (tab: Tab, section?: SettingsTab, icon?: IconName): NavItem => ({
+  id: section && section !== 'main' ? `settings-${section}` : tab,
+  tab,
+  section,
+  icon: icon ?? TAB_ICON[tab] ?? 'settings',
+  label: section ? `admin.settingsTab.${section}` : `admin.tab.${tab}`,
+});
+const GROUPS: { id: string; items: NavItem[] }[] = [
+  { id: 'overview', items: [nav('overview'), nav('organization')] },
   {
     id: 'people',
-    tabs: ['users', 'circles', 'departments', 'roles', 'invitations', 'organization'],
+    items: [nav('users'), nav('invitations'), nav('departments'), nav('circles')],
+  },
+  {
+    id: 'security',
+    items: [nav('settings', 'security', 'shield'), nav('roles'), nav('automation'), nav('ledger')],
   },
   {
     id: 'system',
-    tabs: [
-      'overview',
-      'resources',
-      'containers',
-      'backups',
-      'logs',
-      'storage',
-      'diagnostics',
-      'certificates',
-      'updates',
+    items: [
+      nav('resources'),
+      nav('containers'),
+      nav('diagnostics'),
+      nav('certificates'),
+      nav('logs'),
+      nav('updates'),
     ],
   },
-  { id: 'integrations', tabs: ['ldap', 'sso', 'saml', 'smtp', 'syslog', 'webhooks'] },
-  { id: 'security', tabs: ['settings', 'ledger', 'automation'] },
+  {
+    id: 'storage',
+    items: [nav('backups'), nav('storage'), nav('settings', 'storage', 'file')],
+  },
+  {
+    id: 'integrations',
+    items: [nav('ldap'), nav('sso'), nav('saml'), nav('smtp'), nav('syslog'), nav('webhooks')],
+  },
+  {
+    id: 'server',
+    items: [
+      nav('settings', 'main', 'settings'),
+      nav('settings', 'network', 'globe'),
+      nav('settings', 'notify', 'bell'),
+    ],
+  },
 ];
+const isActive = (i: NavItem) =>
+  tab.value === i.tab && (i.tab !== 'settings' || (i.section ?? 'main') === settingsTab.value);
+const visibleItems = (g: { items: NavItem[] }) => g.items.filter((i) => canTab(i.tab));
+// группы раскрыты; свёрнутые администратором запоминаются
+const NAV_KEY = 'arklock.admin.nav';
+const readNav = (): { open: Record<string, boolean>; rail: boolean } => {
+  try {
+    return JSON.parse(localStorage.getItem(NAV_KEY) ?? '') as {
+      open: Record<string, boolean>;
+      rail: boolean;
+    };
+  } catch {
+    return { open: {}, rail: false };
+  }
+};
+const navState = ref(readNav());
+const saveNav = () => {
+  try {
+    localStorage.setItem(NAV_KEY, JSON.stringify(navState.value));
+  } catch {
+    /* без хранилища меню просто не запоминает выбор */
+  }
+};
+const groupOpen = (g: { id: string; items: NavItem[] }) => navState.value.open[g.id] ?? true;
+function toggleGroup(g: { id: string; items: NavItem[] }): void {
+  navState.value = { ...navState.value, open: { ...navState.value.open, [g.id]: !groupOpen(g) } };
+  saveNav();
+}
+function toggleRail(): void {
+  navState.value = { ...navState.value, rail: !navState.value.rail };
+  saveNav();
+}
+function go(i: NavItem): void {
+  void router.push(
+    i.section ? { path: `/admin/${i.tab}`, query: { section: i.section } } : `/admin/${i.tab}`,
+  );
+}
 const ALL_TABS: Tab[] = [
   'users',
   'circles',
@@ -651,7 +724,7 @@ onMounted(async () => {
 const showActiveTab = () =>
   void nextTick(() =>
     document
-      .querySelector(`[data-testid="admin-tab-${tab.value}"]`)
+      .querySelector('[data-nav-active="true"]')
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
   );
 watch(tab, () => {
@@ -659,10 +732,9 @@ watch(tab, () => {
   showActiveTab();
 });
 watch(
-  () => route.query.section,
-  (sec) => {
-    const found = SETTINGS_TABS.find((x) => x.id === sec);
-    if (found) settingsTab.value = found.id;
+  () => [route.params.tab, route.query.section] as const,
+  ([, sec]) => {
+    settingsTab.value = SETTINGS_TABS.find((x) => x.id === sec)?.id ?? 'main';
   },
 );
 const fmt = (iso: string | null) => (iso ? when(iso) : '—');
@@ -671,43 +743,89 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 <template>
   <section class="space-y-4">
     <h1>{{ t('admin.title') }}</h1>
-    <div class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[12.5rem_minmax(0,1fr)]">
+    <div
+      class="grid grid-cols-[minmax(0,1fr)] gap-4"
+      :class="
+        navState.rail ? 'md:grid-cols-[3rem_minmax(0,1fr)]' : 'md:grid-cols-[13.5rem_minmax(0,1fr)]'
+      "
+    >
       <!-- меню не выше видимой части экрана: иначе прокрутка к активному разделу сдвигает всю страницу -->
       <nav
         class="md:sticky md:top-16 md:max-h-[calc(100dvh-8.25rem)] md:self-start md:overflow-y-auto md:pr-1"
         :aria-label="t('admin.title')"
+        data-testid="admin-nav"
       >
+        <button
+          type="button"
+          class="nav-link mb-1 hidden w-full text-slate-500 md:inline-flex"
+          :aria-expanded="!navState.rail"
+          :title="navState.rail ? t('admin.navExpand') : t('admin.navCollapse')"
+          :aria-label="navState.rail ? t('admin.navExpand') : t('admin.navCollapse')"
+          data-testid="admin-nav-rail"
+          @click="toggleRail"
+        >
+          <Icon name="all" class="size-4 opacity-80" />
+          <span v-if="!navState.rail">{{ t('admin.navCollapse') }}</span>
+        </button>
         <div
-          class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-3 md:overflow-visible md:px-0 md:pb-0"
+          class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
         >
           <div
-            v-for="g in GROUPS"
+            v-for="g in GROUPS.filter((x) => visibleItems(x).length)"
             :key="g.id"
             class="flex shrink-0 items-center gap-1 md:block md:space-y-0.5"
+            :data-testid="`admin-group-${g.id}`"
           >
-            <div
-              class="hidden px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 md:block"
+            <button
+              type="button"
+              class="hidden w-full items-center justify-between rounded-md px-2.5 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800 md:flex dark:hover:text-slate-200"
+              :class="
+                navState.rail ? 'md:border-t md:border-slate-200 md:dark:border-slate-800' : ''
+              "
+              :aria-expanded="groupOpen(g)"
+              :data-testid="`admin-group-toggle-${g.id}`"
+              @click="toggleGroup(g)"
             >
-              {{ t(`admin.group.${g.id}`) }}
-            </div>
-            <template v-for="x in g.tabs.filter(canTab)" :key="x">
+              <span :class="navState.rail ? 'sr-only' : ''">{{ t(`admin.group.${g.id}`) }}</span>
+              <span v-if="!navState.rail" aria-hidden="true">{{ groupOpen(g) ? '▾' : '▸' }}</span>
+            </button>
+            <template v-for="x in visibleItems(g)" :key="x.id">
               <button
                 type="button"
                 class="nav-link w-full whitespace-nowrap md:whitespace-normal md:text-left"
-                :class="tab === x ? 'nav-link-active' : ''"
-                :aria-current="tab === x ? 'page' : undefined"
-                :data-testid="`admin-tab-${x}`"
-                @click="tab = x"
+                :class="[isActive(x) ? 'nav-link-active' : '', groupOpen(g) ? '' : 'md:hidden']"
+                :aria-current="isActive(x) ? 'page' : undefined"
+                :data-nav-active="isActive(x)"
+                :title="t(x.label)"
+                :data-testid="`admin-tab-${x.id}`"
+                @click="go(x)"
               >
-                <Icon :name="TAB_ICON[x] ?? 'settings'" class="size-4 opacity-80" />
-                {{ t(`admin.tab.${x}`) }}
+                <Icon :name="x.icon" class="size-4 shrink-0 opacity-80" />
+                <span :class="navState.rail ? 'md:sr-only' : ''">{{ t(x.label) }}</span>
               </button>
             </template>
+          </div>
+          <div class="flex shrink-0 items-center gap-1 md:block md:space-y-0.5">
+            <div
+              class="hidden px-2.5 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 md:block"
+              :class="navState.rail ? 'md:sr-only' : ''"
+            >
+              {{ t('admin.group.data') }}
+            </div>
+            <RouterLink
+              to="/transfer?tab=export"
+              class="nav-link w-full whitespace-nowrap md:whitespace-normal md:text-left"
+              :title="t('transfer.title')"
+              data-testid="admin-tab-transfer"
+            >
+              <Icon name="transfer" class="size-4 shrink-0 opacity-80" />
+              <span :class="navState.rail ? 'md:sr-only' : ''">{{ t('transfer.title') }}</span>
+            </RouterLink>
           </div>
         </div>
       </nav>
       <div class="min-w-0 space-y-4">
-        <SetupChecklist v-if="tab === 'users' && isFull()" />
+        <SetupChecklist v-if="tab === 'overview' && isFull()" />
         <p
           v-if="error"
           class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
@@ -780,7 +898,6 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             v-if="offboarding"
             :key="offboarding.id"
             :user="{ id: offboarding.id, name: offboarding.name }"
-            :candidates="users.filter((x) => !x.disabled && x.id !== offboarding?.id)"
             :is-full="isFull()"
             @close="offboarding = null"
             @done="loadUsers"
@@ -942,6 +1059,38 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               </tr>
             </tbody>
           </table>
+          <div
+            class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-800"
+            data-testid="users-pager"
+          >
+            <span data-testid="users-range">{{
+              t('admin.pageRange', {
+                from: userTotal ? userPage * USER_PAGE + 1 : 0,
+                to: Math.min(userTotal, (userPage + 1) * USER_PAGE),
+                total: userTotal,
+              })
+            }}</span>
+            <span class="flex gap-1">
+              <button
+                type="button"
+                class="btn"
+                :disabled="userPage === 0"
+                data-testid="users-prev"
+                @click="userPageBy(-1)"
+              >
+                {{ t('admin.pagePrev') }}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :disabled="(userPage + 1) * USER_PAGE >= userTotal"
+                data-testid="users-next"
+                @click="userPageBy(1)"
+              >
+                {{ t('admin.pageNext') }}
+              </button>
+            </span>
+          </div>
         </div>
 
         <div v-else-if="tab === 'circles'" class="space-y-3">
@@ -1074,47 +1223,25 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 >
                   {{ t('corporate.removeSelected') }} ({{ selectedMembers.length }})
                 </button>
-                <div class="flex gap-2">
-                  <select v-model="addUserId" class="input" data-testid="circle-add-user">
-                    <option value="" disabled>…</option>
-                    <option v-for="u in users" :key="u.id" :value="u.id">
-                      {{ u.name }} ({{ u.email }})
-                    </option></select
-                  ><button
-                    type="button"
-                    class="btn"
-                    :disabled="!addUserId"
-                    data-testid="circle-add"
-                    @click="addToCircle"
-                  >
-                    {{ t('settings.add') }}
-                  </button>
-                </div>
-                <details class="rounded-md border border-slate-200 p-2 dark:border-slate-800">
-                  <summary class="cursor-pointer text-sm">{{ t('corporate.addSeveral') }}</summary>
-                  <div class="my-2 max-h-48 space-y-1 overflow-y-auto">
-                    <label
-                      v-for="u in users.filter(
-                        (candidate) =>
-                          !circleMembers.some((m) => m.id === candidate.id) && !candidate.disabled,
-                      )"
-                      :key="u.id"
-                      class="flex items-center gap-2 text-xs"
-                      ><input v-model="selectedGroupUsers" :value="u.id" type="checkbox" />{{
-                        u.name
-                      }}
-                      ({{ u.email }})</label
-                    >
-                  </div>
+                <div class="space-y-1">
+                  <PersonPicker
+                    v-model="groupPick"
+                    multiple
+                    :exclude="circleMembers.map((m) => m.id)"
+                    :placeholder="t('corporate.addSeveral')"
+                    testid="circle-add-user"
+                  />
                   <button
                     type="button"
                     class="btn"
-                    :disabled="!selectedGroupUsers.length"
+                    :disabled="!groupPick.length"
+                    data-testid="circle-add"
                     @click="updateGroupMembers('add')"
                   >
-                    {{ t('settings.add') }} ({{ selectedGroupUsers.length }})
+                    {{ t('settings.add')
+                    }}<span v-if="groupPick.length"> ({{ groupPick.length }})</span>
                   </button>
-                </details>
+                </div>
                 <div class="space-y-1 text-xs">
                   <h3 class="font-medium">{{ t('corporate.groupVaults') }}</h3>
                   <p v-if="!assignedVaults.length" class="text-slate-500">
@@ -1132,29 +1259,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         </div>
 
         <div v-else-if="tab === 'settings'" class="space-y-6">
-          <div
-            class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800"
-            role="tablist"
-            data-testid="settings-tabs"
-          >
-            <button
-              v-for="x in SETTINGS_TABS"
-              :key="x.id"
-              type="button"
-              role="tab"
-              class="-mb-px border-b-2 px-3 py-2 text-sm transition-colors"
-              :class="
-                settingsTab === x.id
-                  ? 'border-brand-500 font-semibold text-brand-600 dark:text-brand-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              "
-              :aria-selected="settingsTab === x.id"
-              :data-testid="`settings-tab-${x.id}`"
-              @click="settingsTab = x.id"
-            >
-              {{ t(x.label) }}
-            </button>
-          </div>
+          <h2 class="text-base font-semibold" data-testid="settings-title">
+            {{ t(`admin.settingsTab.${settingsTab}`) }}
+          </h2>
           <AdminCorporateRecovery v-if="isFull() && settingsTab === 'security'" />
           <NetworkSettings v-if="settingsTab === 'network'" />
           <section

@@ -4,10 +4,10 @@ import { useI18n } from 'vue-i18n';
 import { i18n } from '../i18n';
 import { api } from '../services/api';
 import { errorMessage, vaultLabel } from '../services/helpers';
+import PersonPicker, { type Person } from './PersonPicker.vue';
 
 const props = defineProps<{
   user: { id: string; name: string };
-  candidates: { id: string; name: string; email: string }[];
   isFull: boolean;
 }>();
 const emit = defineEmits<{ close: []; done: [] }>();
@@ -72,6 +72,11 @@ interface Preview {
 }
 const preview = ref<Preview | null>(null);
 const heirs = ref<Record<string, string>>({});
+const heirPeople = ref<Record<string, Person[]>>({});
+function setHeir(vaultId: string, p: Person[]): void {
+  heirPeople.value[vaultId] = p;
+  heirs.value[vaultId] = p[0]?.id ?? '';
+}
 const ack = ref(false);
 const busy = ref(false);
 const error = ref('');
@@ -152,17 +157,14 @@ async function submit(): Promise<void> {
           </p>
           <label v-if="v.lastOwner" class="block">
             <span class="text-amber-700 dark:text-amber-300">{{ t('lastOwner') }}</span>
-            <select
-              v-model="heirs[v.id]"
-              class="input mt-1"
-              :aria-label="`${t('pick')}: ${v.name}`"
-              :data-testid="`offboarding-heir-${v.name}`"
-            >
-              <option value="" disabled>{{ t('pick') }}…</option>
-              <option v-for="c in candidates" :key="c.id" :value="c.id">
-                {{ c.name }} ({{ c.email }})
-              </option>
-            </select>
+            <PersonPicker
+              class="mt-1"
+              :model-value="heirPeople[v.id] ?? []"
+              :exclude="[user.id]"
+              :placeholder="`${t('pick')}: ${v.name}`"
+              :testid="`offboarding-heir-${v.name}`"
+              @update:model-value="setHeir(v.id, $event)"
+            />
           </label>
         </li>
       </ul>

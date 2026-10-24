@@ -499,36 +499,64 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
 
 test('import (CSV), encrypted export and the security inspector', async () => {
   const page = adminPage;
-  await page.getByTestId('vault-actions').click();
-  await page.getByTestId('btn-transfer').click();
+  // раздел «Импорт и экспорт» открывается из главного меню, а не из диалога сейфа
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-transfer').click();
+  await expect(page.getByTestId('transfer-page')).toBeVisible();
   const csv =
     'title,username,password,url,folder\n"Wi-Fi 1",guest,password,,Офис\n"Wi-Fi 2",guest,password,,Офис\n"Wi-Fi 1",guest,password,,Офис\n"VPN",me,Zq8!vN3#xLp0wRt5,https://vpn.example.com,Офис\n';
   await page
     .getByTestId('import-file')
     .setInputFiles({ name: 'passwords.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(page.getByTestId('import-preview')).toContainText('4');
+  // заголовки определены сами
+  await expect(page.getByTestId('import-header')).toBeChecked();
   await page.getByTestId('import-run').click();
   await expect(page.getByTestId('import-report')).toContainText(/Создано: 3|Created: 3/, {
     timeout: 60_000,
   });
   await page.getByTestId('tab-export').click();
-  await page.getByTestId('export-pass').fill('export-passphrase-long-1');
-  await page.getByTestId('export-pass2').fill('export-passphrase-long-1');
+  // пароль архива создан сам: 30 знаков, все виды символов, его можно скопировать и пересоздать
+  const pass1 = await page.getByTestId('export-pass').inputValue();
+  expect(pass1).toHaveLength(30);
+  expect(pass1).toMatch(/[A-Z]/);
+  expect(pass1).toMatch(/[a-z]/);
+  expect(pass1).toMatch(/[0-9]/);
+  expect(pass1).toMatch(/[!@#$%^&*\-_=+?]/);
+  await page.getByTestId('export-regenerate').click();
+  const pass = await page.getByTestId('export-pass').inputValue();
+  expect(pass).not.toBe(pass1);
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByTestId('export-run').click(),
   ]);
-  const text = readFileSync((await download.path())!, 'utf8');
+  const archive = await download.path();
+  const text = readFileSync(archive!, 'utf8');
   expect(JSON.parse(text).format).toBe('arklock-encrypted');
   expect(text).not.toContain('Tr0ub4dor');
   expect(text).not.toContain('vpn.example.com');
+  expect(text).not.toContain(pass);
+  await expect(page.getByTestId('export-report')).toContainText(/записей|entries/);
   // открытый экспорт требует явного подтверждения
   await page.getByTestId('export-format').selectOption('csv');
   await expect(page.getByTestId('export-run')).toBeDisabled();
   await page.getByTestId('export-confirm').check();
   await expect(page.getByTestId('export-run')).toBeEnabled();
-  await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: '✕' }).click();
+
+  // полученный архив: с неверным паролем не открывается, с верным — читается
+  await page.getByTestId('tab-import').click();
+  await page.getByTestId('import-file').setInputFiles(archive!);
+  await page.getByTestId('import-pass').fill(pass1);
+  await page.getByTestId('import-decrypt').click();
+  await expect(page.getByTestId('transfer-error')).toBeVisible();
+  await expect(page.getByTestId('import-preview')).toHaveCount(0);
+  await page.getByTestId('import-pass').fill(pass);
+  await page.getByTestId('import-decrypt').click();
+  await expect(page.getByTestId('import-preview')).toContainText(
+    /Найдено записей: \d+|Entries found: \d+/,
+  );
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
 
   // инспектор: слабый пароль «password» найден локально, без отправки паролей
   const bodies: string[] = [];
@@ -549,6 +577,130 @@ test('import (CSV), encrypted export and the security inspector', async () => {
   await expect(firstSignal).toContainText(/риск|risk/);
   await firstSignal.locator('[data-testid^="signal-history-"]').click();
   await expect(firstSignal.getByTestId('signal-history')).toContainText(/Создано|Created/);
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+});
+
+test('transfer keeps nested folders, TOTP, extra fields and attachments across vaults', async () => {
+  const page = adminPage;
+  const deep = ['Уровень 1', 'Уровень 2', 'Уровень 3', 'Уровень 4', 'Уровень 5'];
+  const branches = deep.map((name, i) => ({
+    id: `b${i}`,
+    parentId: i ? `b${i - 1}` : null,
+    name,
+    icon: i === 4 ? { kind: 'catalog', id: 'server', color: 'blue' } : undefined,
+  }));
+  const entry = (title: string, over: object, branchId: string | null) => ({
+    kind: 'login',
+    title,
+    username: 'u',
+    password: 'Zq8!vN3#xLp0wRt5',
+    url: 'https://srv.example.com',
+    notes: '',
+    totp: '',
+    fields: [],
+    tags: ['синтетика'],
+    branchId,
+    ...over,
+  });
+  const doc = {
+    format: 'arklock-export',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    vaults: [
+      {
+        name: 'Серверы',
+        branches,
+        entries: [
+          entry(
+            'Глубокий сервер',
+            {
+              totp: 'JBSWY3DPEHPK3PXP',
+              fields: [{ name: 'Порт SSH', value: '2222', secret: false }],
+              attachments: [
+                {
+                  name: 'note.txt',
+                  type: 'text/plain',
+                  data: Buffer.from('hello-attachment').toString('base64'),
+                },
+              ],
+            },
+            'b4',
+          ),
+        ],
+      },
+      { name: 'Склад', branches: [], entries: [entry('Сканер', {}, null)] },
+    ],
+  };
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-transfer').click();
+  await page.getByTestId('import-file').setInputFiles({
+    name: 'synthetic.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(doc)),
+  });
+  await expect(page.getByTestId('import-preview')).toContainText(/вложений: 1|attachments: 1/);
+  await page.getByTestId('import-run').click();
+  await expect(page.getByTestId('import-report')).toContainText(/Создано: 2|Created: 2/, {
+    timeout: 90_000,
+  });
+  // обратная выгрузка всех доступных сейфов открытым JSON: структура и вложение на месте
+  await page.getByTestId('tab-export').click();
+  await page.getByTestId('export-mode-all').check();
+  await page.getByTestId('export-format').selectOption('json');
+  await page.getByTestId('export-confirm').check();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('export-run').click(),
+  ]);
+  const out = JSON.parse(readFileSync((await download.path())!, 'utf8')) as {
+    version: number;
+    vaults: {
+      branches: { id: string; parentId: string | null; name: string }[];
+      entries: {
+        title: string;
+        branchId: string | null;
+        totp: string;
+        fields: { name: string }[];
+        attachments?: { name: string; data: string }[];
+      }[];
+    }[];
+  };
+  expect(out.version).toBe(2);
+  const all = out.vaults.flatMap((v) => v.entries.map((e) => ({ v, e })));
+  const found = all.find((x) => x.e.title === 'Глубокий сервер')!;
+  expect(found.e.totp).toBe('JBSWY3DPEHPK3PXP');
+  expect(found.e.fields[0]!.name).toBe('Порт SSH');
+  expect(Buffer.from(found.e.attachments![0]!.data, 'base64').toString()).toBe('hello-attachment');
+  // пять уровней папок сохранены; над ними — папка с названием исходного сейфа
+  const names: string[] = [];
+  for (let cur = found.e.branchId; cur;) {
+    const b = found.v.branches.find((x) => x.id === cur)!;
+    names.unshift(b.name);
+    cur = b.parentId;
+  }
+  expect(names).toEqual(['Серверы', ...deep]);
+  expect(all.some((x) => x.e.title === 'Сканер')).toBe(true);
+
+  // экран ноутбука: обе вкладки помещаются без горизонтальной прокрутки, главная кнопка видна без прокрутки страницы
+  await page.getByTestId('export-format').selectOption('encrypted');
+  for (const [w, h] of [
+    [1280, 800],
+    [1366, 768],
+  ] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    for (const tabName of ['import', 'export'] as const) {
+      await page.getByTestId(`tab-${tabName}`).click();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
+    const box = (await page.getByTestId('export-run').boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(h);
+    if (w === 1366) await page.screenshot({ path: 'docs/screenshots/transfer-export.png' });
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-vault').click();
 });
@@ -851,7 +1003,7 @@ test('the organization generator: its defaults and never-used characters drive �
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await page.getByTestId('admin-tab-settings').click();
-  await page.getByTestId('settings-tab-security').click();
+  await page.getByTestId('admin-tab-settings-security').click();
   await set('set-gen-length', '24');
   let done = saved();
   await page.getByTestId('set-gen-symbols').uncheck();
@@ -881,7 +1033,7 @@ test('the organization generator: its defaults and never-used characters drive �
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await page.getByTestId('admin-tab-settings').click();
-  await page.getByTestId('settings-tab-security').click();
+  await page.getByTestId('admin-tab-settings-security').click();
   for (const c of ['upper', 'digits', 'symbols']) {
     done = saved();
     await page.getByTestId(`set-gen-${c}`).check();

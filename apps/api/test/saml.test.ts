@@ -283,7 +283,10 @@ describe('SAML administration', () => {
     expect(JSON.parse(got)).toMatchObject({ hasSpKey: true });
     const [row] = await database.db.select().from(settings).where(eq(settings.key, 'sso.saml'));
     expect(JSON.stringify(row)).not.toContain('PRIVATE KEY');
-    expect(JSON.stringify(row)).not.toMatch(/MIIE|MIIF/); // ключ — только в запечатанном виде
+    // ключ — только в запечатанном виде: незапечатанный PKCS#8 начинался бы с MIIE/MIIF в начале значения или строки
+    // (внутри случайного шифртекста такие четыре знака встречаются сами: проверка не должна на них срабатывать)
+    expect(JSON.stringify(row)).not.toMatch(/("|\\n)MII[EF]/);
+    expect((row!.value as { spKeyCipher: string }).spKeyCipher).toMatch(/^s1\./);
     const md = (await app.inject({ url: `${API}/auth/saml/metadata` })).body;
     expect(md).toContain('use="encryption"');
   });

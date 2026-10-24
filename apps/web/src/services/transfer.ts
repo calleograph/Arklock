@@ -14,8 +14,16 @@ import { deriveKeys } from './kdf';
 
 /** Импорт и экспорт. Обработка целиком на клиенте: открытые данные не покидают браузер. */
 
+/** Вложение в выгрузке Arklock: содержимое в Base64 (в зашифрованном архиве лежит внутри шифртекста). */
+export interface ExportAttachment {
+  name: string;
+  type: string;
+  data: string;
+}
+
 export interface ImportItem {
   data: EntryData;
+  attachments?: ExportAttachment[];
   /** Путь папок (от корня). */
   path: string[];
 }
@@ -99,6 +107,20 @@ export function guessCsvMapping(headers: string[]): CsvField[] {
       (Object.entries(HEADER_HINTS).find(([, re]) => re.test(h.trim()))?.[0] as
         CsvField | undefined) ?? 'ignore',
   );
+}
+
+/** Первая строка похожа на заголовки: в ней узнаются названия столбцов и нет адресов, почты и ссылок. */
+export function looksLikeHeader(rows: string[][]): boolean {
+  const first = rows[0];
+  if (!first || rows.length < 2) return false;
+  if (first.some((c) => /@|https?:\/\//i.test(c))) return false;
+  return guessCsvMapping(first).some((f) => f !== 'ignore');
+}
+
+/** Без заголовков столбцы считаются в обычном порядке: название, логин, пароль, адрес, заметки. */
+export function positionalMapping(columns: number): CsvField[] {
+  const order: CsvField[] = ['title', 'username', 'password', 'url', 'notes', 'totp', 'folder'];
+  return Array.from({ length: columns }, (_, i) => order[i] ?? 'ignore');
 }
 
 export function importCsv(rows: string[][], mapping: CsvField[], hasHeader = true): ImportResult {
@@ -299,8 +321,84 @@ export interface ArklockExport {
   entries: (EntryData & { branchId: string | null })[];
 }
 
+export interface ArklockExportV2 {
+  format: 'arklock-export';
+  version: 2;
+  exportedAt: string;
+  vaults: {
+    name: string | null;
+    branches: ArklockExport['branches'];
+    entries: (EntryData & { branchId: string | null; attachments?: ExportAttachment[] })[];
+  }[];
+}
+
+/** Выгрузка одного или нескольких сейфов в один JSON; вложения, если выбраны, лежат внутри записей. */
+export function exportJsonV2(
+  parts: {
+    name: string | null;
+    branches: BranchItem[];
+    entries: (EntryItem & { attachments?: ExportAttachment[] })[];
+  }[],
+): string {
+  const doc: ArklockExportV2 = {
+    format: 'arklock-export',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    vaults: parts.map((p) => ({
+      name: p.name,
+      branches: p.branches.map((b) => ({
+        id: b.id,
+        parentId: b.parentId,
+        name: b.name,
+        icon: b.icon,
+      })),
+      entries: p.entries.map((e) => ({
+        ...e.data,
+        branchId: e.branchId,
+        ...(e.attachments?.length ? { attachments: e.attachments } : {}),
+      })),
+    })),
+  };
+  return JSON.stringify(doc, null, 2);
+}
+
+function importArklockV2(doc: ArklockExportV2): ImportResult {
+  const items: ImportItem[] = [];
+  const folderIcons: Record<string, ObjectIcon> = {};
+  // сейфов несколько — содержимое каждого кладётся в папку с его названием, чтобы не смешивать
+  const multi = doc.vaults.length > 1;
+  for (const v of doc.vaults) {
+    const prefix = multi ? [v.name || 'Сейф'] : [];
+    const byId = new Map(v.branches.map((b) => [b.id, b]));
+    const pathOf = (id: string | null): string[] => {
+      const out: string[] = [];
+      let cur = id;
+      const seen = new Set<string>();
+      while (cur && byId.has(cur) && !seen.has(cur)) {
+        seen.add(cur);
+        out.unshift(byId.get(cur)!.name);
+        cur = byId.get(cur)!.parentId;
+      }
+      return [...prefix, ...out];
+    };
+    for (const b of v.branches) {
+      const icon = cleanIcon(b.icon);
+      if (icon) folderIcons[pathOf(b.id).join('\u0000')] = icon;
+    }
+    for (const { branchId, attachments, ...data } of v.entries)
+      items.push({
+        data: { ...blankEntry(data.kind), ...data },
+        path: pathOf(branchId),
+        ...(attachments?.length ? { attachments } : {}),
+      });
+  }
+  return { items, errors: [], folderIcons };
+}
+
 export function importArklockJson(text: string): ImportResult {
-  const doc = JSON.parse(text) as ArklockExport;
+  const doc = JSON.parse(text) as ArklockExport | ArklockExportV2;
+  if (doc.format === 'arklock-export' && doc.version === 2 && Array.isArray(doc.vaults))
+    return importArklockV2(doc);
   if (doc.format !== 'arklock-export' || doc.version !== 1)
     throw new Error('Неизвестный формат файла');
   const byId = new Map(doc.branches.map((b) => [b.id, b]));
@@ -376,9 +474,44 @@ const cell = (v: string): string => {
   return `"${safe.replace(/"/g, '""')}"`;
 };
 
+/** CSV из нескольких сейфов: при нескольких в начало папки добавляется название сейфа. */
+export function exportCsvParts(
+  parts: { name: string | null; branches: BranchItem[]; entries: EntryItem[] }[],
+): string {
+  const multi = parts.length > 1;
+  const rows = parts.flatMap((p) => {
+    const byId = new Map(p.branches.map((b) => [b.id, b]));
+    const pathOf = (id: string | null): string => {
+      const out: string[] = [];
+      let cur = id;
+      const seen = new Set<string>();
+      while (cur && byId.has(cur) && !seen.has(cur)) {
+        seen.add(cur);
+        out.unshift(byId.get(cur)!.name);
+        cur = byId.get(cur)!.parentId;
+      }
+      return [...(multi ? [p.name || 'Сейф'] : []), ...out].join('/');
+    };
+    return p.entries.map((e) => ({ e, folder: pathOf(e.branchId) }));
+  });
+  return csvOf(
+    rows.map((r) => r.e),
+    () => '',
+    rows,
+  );
+}
+
 export function exportCsv(entries: EntryItem[], pathOf: (b: string | null) => string): string {
+  return csvOf(entries, pathOf);
+}
+
+function csvOf(
+  entries: EntryItem[],
+  pathOf: (b: string | null) => string,
+  rows?: { e: EntryItem; folder: string }[],
+): string {
   const header = ['title', 'username', 'password', 'url', 'notes', 'totp', 'folder', 'tags'];
-  const lines = entries.map((e) =>
+  const lines = entries.map((e, i) =>
     [
       e.data.title,
       e.data.username,
@@ -386,7 +519,7 @@ export function exportCsv(entries: EntryItem[], pathOf: (b: string | null) => st
       e.data.url,
       e.data.notes,
       e.data.totp,
-      pathOf(e.branchId),
+      rows ? rows[i]!.folder : pathOf(e.branchId),
       e.data.tags.join(';'),
     ]
       .map(cell)
@@ -439,4 +572,34 @@ export async function decryptExport(text: string, passphrase: string): Promise<s
     keys.wrapKey.fill(0);
     keys.authKey.fill(0);
   }
+}
+
+/**
+ * Случайный пароль архива: криптографический генератор без смещения, по символу каждого вида
+ * (прописные и строчные латинские, цифры, спецсимволы), без похожих знаков и без кавычек, пробелов и обратной косой.
+ */
+export function generateArchivePassword(length = 30): string {
+  const sets = [
+    'ABCDEFGHJKLMNPQRSTUVWXYZ',
+    'abcdefghijkmnpqrstuvwxyz',
+    '23456789',
+    '!@#$%^&*-_=+?',
+  ];
+  const all = sets.join('');
+  const below = (n: number): number => {
+    // отбрасывание значений сверху, чтобы остаток от деления не давал перекоса
+    const limit = Math.floor(0x1_0000_0000 / n) * n;
+    const buf = new Uint32Array(1);
+    for (;;) {
+      crypto.getRandomValues(buf);
+      if (buf[0]! < limit) return buf[0]! % n;
+    }
+  };
+  const out = sets.map((set) => set[below(set.length)]!);
+  while (out.length < length) out.push(all[below(all.length)]!);
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = below(i + 1);
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out.join('');
 }

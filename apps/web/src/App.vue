@@ -250,6 +250,12 @@ const initial = () =>
                       v-for="(item, i) in [
                         { to: '/', icon: 'inbox', label: t('nav.vault'), id: 'menu-vault' },
                         {
+                          to: '/transfer',
+                          icon: 'transfer',
+                          label: t('transfer.title'),
+                          id: 'menu-transfer',
+                        },
+                        {
                           to: '/security',
                           icon: 'shield',
                           label: t('nav.security'),

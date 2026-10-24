@@ -372,3 +372,109 @@ describe('порядок названий', () => {
     expect(sorted).toEqual(['раздел 1', 'Раздел 2', 'Раздел 10', 'Раздел 12']);
   });
 });
+
+describe('import and export: archive password, headers, several vaults', () => {
+  it('generates a 30-character password with every character class and no awkward symbols', async () => {
+    const { generateArchivePassword } = await import('../src/services/transfer');
+    const seen = new Set<string>();
+    for (let i = 0; i < 300; i++) {
+      const p = generateArchivePassword();
+      expect(p).toHaveLength(30);
+      expect(p).toMatch(/[A-Z]/);
+      expect(p).toMatch(/[a-z]/);
+      expect(p).toMatch(/[0-9]/);
+      expect(p).toMatch(/[!@#$%^&*\-_=+?]/);
+      expect(p).not.toMatch(/[\s"'`\\<>]/);
+      seen.add(p);
+    }
+    expect(seen.size).toBe(300);
+  });
+
+  it('detects a header row and falls back to positional columns without one', async () => {
+    const { looksLikeHeader, positionalMapping, parseCsv, guessCsvMapping } =
+      await import('../src/services/transfer');
+    const withHeader = parseCsv('title,login,password\nMail,anna,pw1\n');
+    expect(looksLikeHeader(withHeader)).toBe(true);
+    expect(guessCsvMapping(withHeader[0]!)).toEqual(['title', 'username', 'password']);
+    const bare = parseCsv('Mail,anna@example.com,pw1\nVPN,bob,pw2\n');
+    expect(looksLikeHeader(bare)).toBe(false);
+    expect(positionalMapping(3)).toEqual(['title', 'username', 'password']);
+    // одна строка — это запись, а не заголовки
+    expect(looksLikeHeader(parseCsv('title,login,password'))).toBe(false);
+    const r = importCsv(bare, positionalMapping(3), false);
+    expect(r.items.map((i) => i.data.title)).toEqual(['Mail', 'VPN']);
+  });
+
+  it('round-trips several vaults with folders, TOTP, custom fields and attachments through an encrypted archive', async () => {
+    const { exportJsonV2 } = await import('../src/services/transfer');
+    const folder = {
+      id: 'f1',
+      parentId: null,
+      name: 'Серверы',
+      version: 1,
+      access: 'manager' as const,
+      deletedAt: null,
+      pinned: false,
+    };
+    const sub = { ...folder, id: 'f2', parentId: 'f1', name: 'Прод' };
+    const a = {
+      ...item('db', {
+        username: 'root',
+        password: 'pw-A',
+        totp: 'JBSWY3DPEHPK3PXP',
+        fields: [{ name: 'Порт', value: '5432', secret: false }],
+      }),
+      branchId: 'f2',
+      attachments: [{ name: 'key.pem', type: 'text/plain', data: btoa('secret-bytes') }],
+    };
+    const json = exportJsonV2([
+      { name: 'Админы', branches: [folder, sub], entries: [a] },
+      { name: 'Бухгалтерия', branches: [], entries: [item('bank', { password: 'pw-B' })] },
+    ]);
+    const enc = await exportEncrypted(json, 'Zq8!vN3#xLp0wRt5-aaaaaaaaaaaaaa');
+    expect(enc).not.toContain('pw-A');
+    expect(enc).not.toContain('secret-bytes');
+    expect(detectFormat('x.json', enc)).toBe('encrypted');
+    await expect(decryptExport(enc, 'Zq8!vN3#xLp0wRt5-bbbbbbbbbbbbbb')).rejects.toBeDefined();
+    const back = importArklockJson(await decryptExport(enc, 'Zq8!vN3#xLp0wRt5-aaaaaaaaaaaaaa'));
+    expect(back.items).toHaveLength(2);
+    const db = back.items.find((i) => i.data.title === 'db')!;
+    // при нескольких сейфах содержимое каждого лежит в папке с его названием
+    expect(db.path).toEqual(['Админы', 'Серверы', 'Прод']);
+    expect(db.data).toMatchObject({
+      totp: 'JBSWY3DPEHPK3PXP',
+      fields: [{ name: 'Порт', value: '5432' }],
+    });
+    expect(atob(db.attachments![0]!.data)).toBe('secret-bytes');
+    expect(back.items.find((i) => i.data.title === 'bank')!.path).toEqual(['Бухгалтерия']);
+  });
+
+  it('a single-vault archive keeps its own folder layout; the old format still imports', async () => {
+    const { exportJsonV2 } = await import('../src/services/transfer');
+    const one = importArklockJson(
+      exportJsonV2([{ name: 'Единственный', branches: [], entries: [item('x')] }]),
+    );
+    expect(one.items[0]!.path).toEqual([]);
+    const old = importArklockJson(exportJson([item('old')], []));
+    expect(old.items.map((i) => i.data.title)).toEqual(['old']);
+  });
+
+  it('flattens several vaults into CSV with the vault name in front of the folder', async () => {
+    const { exportCsvParts } = await import('../src/services/transfer');
+    const folder = {
+      id: 'f1',
+      parentId: null,
+      name: 'Сеть',
+      version: 1,
+      access: 'manager' as const,
+      deletedAt: null,
+      pinned: false,
+    };
+    const csv = exportCsvParts([
+      { name: 'ИТ', branches: [folder], entries: [{ ...item('router'), branchId: 'f1' }] },
+      { name: 'Склад', branches: [], entries: [item('scanner')] },
+    ]);
+    expect(csv).toContain('"ИТ/Сеть"');
+    expect(csv).toContain('"Склад"');
+  });
+});
