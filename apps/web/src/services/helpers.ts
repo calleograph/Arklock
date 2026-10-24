@@ -156,3 +156,8 @@ export const when = (iso: string | number | Date): string =>
   new Date(iso).toLocaleString(i18n.global.locale.value);
 export const day = (iso: string | number | Date): string =>
   new Date(iso).toLocaleDateString(i18n.global.locale.value);
+
+/** Сравнение названий для списков: числа внутри названия — как числа («Раздел 2» раньше «Раздел 10»), регистр не важен. */
+export function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}

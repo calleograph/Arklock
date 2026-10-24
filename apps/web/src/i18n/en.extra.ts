@@ -14,6 +14,7 @@ export default {
     new: 'New',
     event: 'New event',
     ruleFired: 'Rule “{rule}” fired: {action}',
+    signalsOpened: 'Change-the-password events opened in “{vault}”: {count}',
     signalsDigest:
       'Password health report: open security events in “{vault}”: {open}, high risk: {high}',
     ruleDenied: 'Rule “{rule}” denied an action: {action}',

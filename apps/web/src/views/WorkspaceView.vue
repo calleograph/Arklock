@@ -23,6 +23,7 @@ import { useVaultIssues } from '../services/vaultIssues';
 import ContextMenu from '../components/ContextMenu.vue';
 import { copyWithAutoClear, reportEntryEvent } from '../services/clipboard';
 import type { IssueType } from '../services/inspector';
+import { naturalCompare } from '../services/helpers';
 
 const { t } = useI18n({
   useScope: 'local',
@@ -216,7 +217,7 @@ const pathIndex = computed(
 const roots = computed(() =>
   ws.branches
     .filter((b) => !b.parentId || !branchById.value.has(b.parentId))
-    .sort((a, b) => a.name.localeCompare(b.name)),
+    .sort((a, b) => naturalCompare(a.name, b.name)),
 );
 const counts = computed(() => {
   const m = new Map<string | null, number>();
@@ -283,7 +284,7 @@ const list = computed<EntryItem[]>(() => {
   );
   return out.sort((a, b) =>
     sort.value === 'title'
-      ? a.data.title.localeCompare(b.data.title)
+      ? naturalCompare(a.data.title, b.data.title)
       : b.updatedAt.localeCompare(a.updatedAt),
   );
 });

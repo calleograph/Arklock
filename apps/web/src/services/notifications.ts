@@ -9,7 +9,7 @@ export interface NotificationRow {
   resourceType: string;
   resourceId: string | null;
   /** Несекретные подробности: правило автоматизации, число событий в отчёте о здоровье паролей. */
-  detail?: { rule?: string; action?: string; open?: string; high?: string } | null;
+  detail?: { rule?: string; action?: string; open?: string; high?: string; count?: string } | null;
   createdAt: string;
   readAt: string | null;
   archivedAt: string | null;
@@ -49,6 +49,11 @@ export function notificationMessage(
     return t('notifications.ruleFired', {
       rule: row.detail.rule,
       action: row.detail.action ? ledgerAction(row.detail.action, t, te) : '',
+    });
+  if (row.event === 'signals.opened' && row.detail?.count)
+    return t('notifications.signalsOpened', {
+      vault: vaultName(row.vaultId),
+      count: row.detail.count,
     });
   if (row.event === 'signals.digest' && row.detail?.open)
     return t('notifications.signalsDigest', {

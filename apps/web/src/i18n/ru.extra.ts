@@ -14,6 +14,7 @@ export default {
     new: 'Новое',
     event: 'Новое событие',
     ruleFired: 'Сработало правило «{rule}»: {action}',
+    signalsOpened: 'В сейфе «{vault}» открыто событий «смените пароль»: {count}',
     signalsDigest:
       'Отчёт о здоровье паролей: в сейфе «{vault}» открыто событий безопасности: {open}, высокого риска: {high}',
     ruleDenied: 'Правило «{rule}» запретило действие: {action}',

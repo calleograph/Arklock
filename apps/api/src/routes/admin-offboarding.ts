@@ -28,7 +28,7 @@ import {
   vaults,
 } from '../db/schema.js';
 import { chiefRequired } from './chief.js';
-import { openRotateSignals, visibleEntries } from '../rotate-signals.js';
+import { auditRotations, openRotateSignals, visibleEntries } from '../rotate-signals.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { notifyUsers } from '../notifications.js';
 import { hasPasskey, hasTotp } from '../auth/mfa.js';
@@ -490,12 +490,16 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       resourceType: 'user',
       resourceId: id,
     });
-    for (const r of result.rotate)
-      await audit(db, `user:${user.id}`, 'signal.create', `signal:${r.id}`, {
-        vault: r.vault,
-        reason: 'offboarding',
-        user: id,
-      });
+    await auditRotations(
+      db,
+      `user:${user.id}`,
+      result.rotate.map((r) => ({
+        id: r.id,
+        vaultId: r.vault,
+        userId: id,
+        reason: 'offboarding' as const,
+      })),
+    );
     await audit(db, `user:${user.id}`, 'admin.user.offboard', `user:${id}`, {
       vaults: result.after.length,
       transfers: body.transfers.length,

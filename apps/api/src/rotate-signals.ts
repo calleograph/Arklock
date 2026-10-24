@@ -1,11 +1,13 @@
 import { and, eq, gt, inArray, isNull, lt, lte } from 'drizzle-orm';
 import { loadAccess } from './access.js';
 import { audit } from './audit.js';
+import { notifyUsers } from './notifications.js';
 import type { Db } from './db/connect.js';
 import {
   circleMembers,
   entries,
   grants,
+  ledger,
   settings,
   signals,
   vaultCircles,
@@ -45,18 +47,22 @@ export async function openRotateSignals(
   },
 ): Promise<string[]> {
   const out: string[] = [];
-  for (const entryId of [...o.entryIds].slice(0, ROTATE_MAX)) {
-    const [sig] = await db
+  const ids = [...new Set(o.entryIds)].slice(0, ROTATE_MAX);
+  // пачками: у сейфа на тысячи записей поштучная запись занимала десятки секунд
+  for (let i = 0; i < ids.length; i += 500) {
+    const rows = await db
       .insert(signals)
-      .values({
-        id: crypto.randomUUID(),
-        vaultId: o.vaultId,
-        entryId,
-        type: 'rotate',
-        reportedBy: o.reportedBy,
-        causeUserId: o.cause,
-        causeReason: o.reason,
-      })
+      .values(
+        ids.slice(i, i + 500).map((entryId) => ({
+          id: crypto.randomUUID(),
+          vaultId: o.vaultId,
+          entryId,
+          type: 'rotate' as const,
+          reportedBy: o.reportedBy,
+          causeUserId: o.cause,
+          causeReason: o.reason,
+        })),
+      )
       .onConflictDoUpdate({
         target: [signals.entryId, signals.type],
         set: {
@@ -68,7 +74,7 @@ export async function openRotateSignals(
         },
       })
       .returning({ id: signals.id });
-    out.push(sig!.id);
+    out.push(...rows.map((r) => r.id));
   }
   return out;
 }
@@ -77,6 +83,7 @@ export interface OpenedRotation {
   id: string;
   vaultId: string;
   userId: string;
+  reason?: 'offboarding' | 'revoked';
 }
 
 /**
@@ -112,18 +119,60 @@ export async function rotateLostAccess<T>(
   return { result, opened };
 }
 
-/** Запись в журнал о каждом открытом событии (оттуда — история события и уведомления). */
+/**
+ * Журнал об открытых событиях: по строке на событие (из них строится история события) — одной пачкой,
+ * и одно общее событие и одно уведомление администраторам сейфа на сейф и сотрудника — а не по записи:
+ * при увольнении их сотни, и каждая запись по отдельности засыпала бы журнал внешних систем и уведомления.
+ */
 export async function auditRotations(
   db: Db,
   actor: string,
   opened: OpenedRotation[],
 ): Promise<void> {
-  for (const o of opened)
-    await audit(db, actor, 'signal.create', `signal:${o.id}`, {
-      vault: o.vaultId,
-      reason: 'revoked',
-      user: o.userId,
+  if (!opened.length) return;
+  for (let i = 0; i < opened.length; i += 500)
+    await db.insert(ledger).values(
+      opened.slice(i, i + 500).map((o) => ({
+        actor,
+        action: 'signal.create',
+        target: `signal:${o.id}`,
+        detail: { vault: o.vaultId, reason: o.reason ?? 'revoked', user: o.userId },
+      })),
+    );
+  const groups = new Map<string, OpenedRotation[]>();
+  for (const o of opened) {
+    const k = `${o.vaultId}|${o.userId}|${o.reason ?? 'revoked'}`;
+    groups.set(k, [...(groups.get(k) ?? []), o]);
+  }
+  for (const list of groups.values()) {
+    const first = list[0]!;
+    await audit(db, actor, 'signal.create', `vault:${first.vaultId}`, {
+      count: list.length,
+      reason: first.reason ?? 'revoked',
+      person: first.userId,
     });
+    const custodians = await db
+      .select({ id: vaultMembers.userId })
+      .from(vaultMembers)
+      .where(
+        and(
+          eq(vaultMembers.vaultId, first.vaultId),
+          inArray(vaultMembers.role, ['owner', 'admin']),
+        ),
+      );
+    await notifyUsers(
+      db,
+      custodians.map((c) => c.id),
+      {
+        category: 'security',
+        event: 'signals.opened',
+        vaultId: first.vaultId,
+        resourceType: 'signals',
+        resourceId: null,
+        detail: { count: String(list.length) },
+      },
+    );
+  }
 }
 
 /** Кого касается правило: сам сотрудник или участники группы. */

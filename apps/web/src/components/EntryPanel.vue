@@ -35,6 +35,7 @@ import { openSink } from '../services/download';
 import { copyWithAutoClear, reportEntryEvent } from '../services/clipboard';
 import { NO_POLICY, checkPolicy, type PasswordPolicy, policyMessage } from '../services/policy';
 import type { VaultView } from '../stores/workspace';
+import { naturalCompare } from '../services/helpers';
 
 const props = defineProps<{
   /** Выбранная запись; null — создание новой. */
@@ -204,7 +205,7 @@ const branchOptions = computed(() => {
   const out: { id: string; label: string }[] = [];
   const seen = new Set<string>();
   const walk = (parent: string | null, depth: number): void => {
-    for (const b of (byParent.get(parent) ?? []).sort((x, y) => x.name.localeCompare(y.name))) {
+    for (const b of (byParent.get(parent) ?? []).sort((x, y) => naturalCompare(x.name, y.name))) {
       if (seen.has(b.id)) continue;
       seen.add(b.id);
       out.push({ id: b.id, label: ' '.repeat(depth) + (depth ? '└ ' : '') + b.name });

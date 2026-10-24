@@ -1,6 +1,15 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { Counter, DEPARTMENTS, headEmail, PASSWORD, seedUsers, staffEmail } from './support/org.js';
+import { TestClient } from '../apps/api/test/helpers.js';
+import {
+  Counter,
+  DEPARTMENTS,
+  headEmail,
+  httpApp,
+  PASSWORD,
+  seedUsers,
+  staffEmail,
+} from './support/org.js';
 
 /**
  * Сквозной сценарий внедрения в компании на 20 подразделений: администратор и 60 синтетических сотрудников,
@@ -438,4 +447,213 @@ test('перевод сотрудника из бухгалтерии в зак�
     cause: { id: string } | null;
   }[];
   expect(sig.filter((x) => x.type === 'rotate' && x.cause?.id === id).length).toBeGreaterThan(0);
+});
+
+test('нагрузка: 1500 записей в сейфе отдела — замеры интерфейса (3 повтора)', async ({
+  browser,
+}) => {
+  test.setTimeout(590_000);
+  const hc = new TestClient(httpApp(BASE), headEmail(4), PASSWORD);
+  await hc.login();
+  const vault = (await hc.vaults()).find((v) => v.name === 'Бухгалтерия')!;
+  const key = await hc.openVault(vault);
+  const folders: string[] = [];
+  for (let i = 0; i < 12; i++)
+    folders.push((await hc.createBranch(vault.id, key, `Раздел ${i + 1}`, null)).id);
+  const N = 1500;
+  for (let i = 0; i < N; i += 25)
+    await Promise.all(
+      Array.from({ length: 25 }, (_, j) =>
+        hc.createEntry(
+          {
+            kind: 'login',
+            title: `Запись ${String(i + j).padStart(4, '0')}`,
+            username: `user${i + j}`,
+            password: `Pw-${i + j}-Correct-Horse-9!`,
+            url: `https://svc${(i + j) % 50}.corp.example`,
+            notes: '',
+            totp: '',
+            tags: [],
+            fields: [],
+            links: [],
+          },
+          { vaultId: vault.id, vaultKey: key, branchId: folders[(i + j) % 12] },
+        ),
+      ),
+    );
+
+  let t0 = 0;
+  const times = {
+    open: [] as number[],
+    search: [] as number[],
+    folder: [] as number[],
+    users: [] as number[],
+    groups: [] as number[],
+  };
+  for (let rep = 0; rep < 3; rep++) {
+    const p = await (await browser.newContext({ locale: 'ru-RU', baseURL: BASE })).newPage();
+    await p.goto('/login');
+    await p.getByTestId('email').fill(headEmail(4));
+    await p.getByTestId('password').fill(PASSWORD);
+    t0 = Date.now();
+    await p.getByTestId('submit').click();
+    await expect(p.getByTestId('entry-row').first()).toBeVisible({ timeout: 90_000 });
+    times.open.push(Date.now() - t0);
+    t0 = Date.now();
+    await p.getByTestId('search').fill('Запись 0777');
+    await expect(p.getByTestId('entry-row')).toHaveCount(1);
+    times.search.push(Date.now() - t0);
+    await p.getByTestId('search').fill('');
+    // E2E_PROFILE=1: профиль процессора на переходе в папку (где тратится время)
+    const cdp =
+      process.env.E2E_PROFILE === '1' && rep === 0 ? await p.context().newCDPSession(p) : null;
+    if (cdp) {
+      await cdp.send('Profiler.enable');
+      await cdp.send('Profiler.start');
+    }
+    t0 = Date.now();
+    await p
+      .getByTestId('branch-row')
+      .getByRole('button', { name: 'Раздел 7', exact: true })
+      .click();
+    await expect(p.getByTestId('entry-row')).toHaveCount(125);
+    times.folder.push(Date.now() - t0);
+    if (cdp) {
+      const { profile } = (await cdp.send('Profiler.stop')) as {
+        profile: {
+          nodes: {
+            id: number;
+            callFrame: { functionName: string; url: string; lineNumber: number };
+          }[];
+          samples: number[];
+          timeDeltas: number[];
+        };
+      };
+      const self = new Map<number, number>();
+      profile.samples.forEach((id, i) =>
+        self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[i] ?? 0)),
+      );
+      const top = [...self.entries()]
+        .map(([id, us]) => ({ us, n: profile.nodes.find((x) => x.id === id)!.callFrame }))
+        .sort((a, b) => b.us - a.us)
+        .slice(0, 8)
+        .map(
+          (x) =>
+            `${Math.round(x.us / 1000)} мс ${x.n.functionName || '(anon)'} ${x.n.url.split('/').pop()}:${x.n.lineNumber}`,
+        );
+      console.log('ПРОФИЛЬ\n' + top.join('\n'));
+    }
+    await p.context().close();
+  }
+  for (let rep = 0; rep < 3; rep++) {
+    t0 = Date.now();
+    await page.goto('/admin/users');
+    await expect(page.getByTestId('user-row').first()).toBeVisible();
+    await expect(page.getByTestId('user-row')).toHaveCount(62, { timeout: 30_000 });
+    times.users.push(Date.now() - t0);
+    t0 = Date.now();
+    await page.goto('/admin/circles');
+    await expect(page.getByTestId('circle-Склад')).toBeVisible({ timeout: 30_000 });
+    times.groups.push(Date.now() - t0);
+  }
+  const med = (a: number[]) => [...a].sort((x, y) => x - y)[1]!;
+  appendFileSync(
+    OUT,
+    JSON.stringify({
+      label: 'performance',
+      entries: N,
+      ...Object.fromEntries(
+        Object.entries(times).map(([k, v]) => [k, { runs: v, median: med(v) }]),
+      ),
+    }) + '\n',
+  );
+  console.log(
+    'нагрузка',
+    JSON.stringify(Object.fromEntries(Object.entries(times).map(([k, v]) => [k, v]))),
+  );
+});
+
+test('ноутбук 1366×768 при масштабе 100, 125 и 150 %: всё главное на экране без прокрутки вбок', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const sizes = [
+    { zoom: 100, width: 1366, height: 768 },
+    { zoom: 125, width: 1093, height: 614 },
+    { zoom: 150, width: 911, height: 512 },
+  ];
+  const head = await login(browser, headEmail(4));
+  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия' });
+  await expect(head.getByTestId('entry-row').first()).toBeVisible({ timeout: 60_000 });
+  await head.getByTestId('entry-row').first().click();
+  // папки идут в естественном порядке: «Раздел 2» раньше «Раздел 10»
+  const names = (await head.getByTestId('branch-row').allInnerTexts())
+    .map((x) => /Раздел (\d+)/.exec(x)?.[1])
+    .filter(Boolean)
+    .map(Number);
+  expect(names).toEqual([...names].sort((a, b) => a - b));
+  expect(names.length).toBe(12);
+  for (const z of sizes) {
+    await head.setViewportSize({ width: z.width, height: z.height });
+    await head.waitForTimeout(400);
+    const m = await head.evaluate(() => {
+      const box = (id: string) =>
+        document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect();
+      const add = box('add-entry');
+      const list = box('entry-row');
+      const view = box('view-title');
+      return {
+        overflowX: document.documentElement.scrollWidth - innerWidth,
+        addVisible: !!add && add.top >= 0 && add.bottom <= innerHeight && add.right <= innerWidth,
+        listVisible: !!list && list.top >= 0 && list.bottom <= innerHeight,
+        cardVisible:
+          !!view && view.top >= 0 && view.bottom <= innerHeight && view.right <= innerWidth,
+      };
+    });
+    console.log(`масштаб ${z.zoom}%`, JSON.stringify(m));
+    await head.screenshot({ path: `docs/screenshots/ux-workspace-${z.zoom}.png` });
+    expect(m.overflowX, `${z.zoom}%`).toBeLessThanOrEqual(0);
+    expect(m.addVisible, `кнопка «Добавить запись» при ${z.zoom}%`).toBe(true);
+    expect(m.listVisible, `список при ${z.zoom}%`).toBe(true);
+  }
+  await head.context().close();
+});
+
+test('увольнение руководителя с 1500 записями: последствия, блокировка, «смените пароль» — замер', async () => {
+  test.setTimeout(300_000);
+  const c = new Counter(page, 'Уволить руководителя отдела');
+  await page.goto('/admin/users');
+  await expect(page.getByTestId('user-row').first()).toBeVisible({ timeout: 60_000 });
+  await c.click(`profile-open-${headEmail(4)}`);
+  c.screen();
+  await c.click('profile-offboard');
+  await expect(page.getByTestId('offboarding')).toBeVisible();
+  await c.click('offboarding-confirm');
+  await expect(page.getByTestId('offboarding').getByRole('status')).toBeVisible({
+    timeout: 120_000,
+  });
+  record(c);
+  const users = (await api('GET', '/admin/users')).json as {
+    id: string;
+    email: string;
+    disabled: boolean;
+  }[];
+  const head = users.find((u) => u.email === headEmail(4))!;
+  expect(head.disabled).toBe(true);
+  const card = (await api('GET', `/admin/users/${head.id}/profile`)).json as {
+    rotation: { total: number; open: number; available: number } | null;
+  };
+  expect(card.rotation?.total).toBeGreaterThan(1500);
+  expect(card.rotation?.available).toBe(card.rotation?.total);
+  // уведомления — по сейфу, а не по каждой из полутора тысяч записей
+  const inbox = (await api('GET', '/notifications?view=inbox')).json as {
+    items: { event: string }[];
+  };
+  expect(inbox.items.filter((n) => n.event === 'signals.opened').length).toBeGreaterThan(0);
+  expect(inbox.items.filter((n) => n.event === 'signal.create').length).toBe(0);
+  // вход уволенного невозможен
+  const r = await page.request.post('/api/v1/auth/login', {
+    data: { email: headEmail(4), authKey: 'x'.repeat(43) },
+  });
+  expect([400, 401, 403]).toContain(r.status());
 });

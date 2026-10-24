@@ -364,3 +364,11 @@ describe('здоровье паролей', () => {
     expect(passwordHealth([], [])).toEqual({ ok: 0, total: 0, percent: 100 });
   });
 });
+
+describe('порядок названий', () => {
+  it('числа в названиях сравниваются как числа', async () => {
+    const { naturalCompare } = await import('../src/services/helpers');
+    const sorted = ['Раздел 10', 'Раздел 2', 'раздел 1', 'Раздел 12'].sort(naturalCompare);
+    expect(sorted).toEqual(['раздел 1', 'Раздел 2', 'Раздел 10', 'Раздел 12']);
+  });
+});

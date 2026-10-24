@@ -51,6 +51,7 @@ import { useAuthStore } from './auth';
 import { checkPolicy, generatorFrom, type PasswordPolicy } from '../services/policy';
 import { cleanIcon, type ObjectIcon } from '../services/objectIcons';
 import type { RecoveryRecipient, RecoverySecrets } from '../services/corporate-recovery';
+import { naturalCompare } from '../services/helpers';
 
 /** Ключи хранилищ — вне реактивного состояния; стираются при блокировке. */
 const vaultKeys = new Map<string, Uint8Array>();
@@ -457,7 +458,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         unavailable++;
       }
     }
-    return { matches: matches.sort((a, b) => a.title.localeCompare(b.title)), unavailable };
+    return { matches: matches.sort((a, b) => naturalCompare(a.title, b.title)), unavailable };
   }
 
   // ------------------------------------------------------------------ записи

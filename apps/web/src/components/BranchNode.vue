@@ -4,6 +4,7 @@ import ObjectIcon from './ObjectIcon.vue';
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { BranchItem } from '../services/model';
+import { naturalCompare } from '../services/helpers';
 
 const props = defineProps<{
   node: BranchItem;
@@ -24,7 +25,7 @@ const emit = defineEmits<{
 const children = computed(() =>
   props.all
     .filter((b) => b.parentId === props.node.id)
-    .sort((a, b) => a.name.localeCompare(b.name)),
+    .sort((a, b) => naturalCompare(a.name, b.name)),
 );
 const open = computed(() => !props.collapsed.has(props.node.id));
 </script>
