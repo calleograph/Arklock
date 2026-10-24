@@ -310,3 +310,37 @@ describe('генератор организации', () => {
     expect([none.lower, none.upper, none.digits, none.symbols]).toEqual([true, true, true, true]);
   });
 });
+
+describe('текст уведомлений', () => {
+  it('отчёт о здоровье паролей называет сейф и числа; неизвестное событие — общим текстом', async () => {
+    const { notificationMessage } = await import('../src/services/notifications');
+    const t = (k: string, v?: Record<string, unknown>) => `${k}${v ? JSON.stringify(v) : ''}`;
+    const te = (k: string) => k === 'notifications.events.admin_user_offboarded';
+    const row = {
+      id: 1,
+      category: 'security' as const,
+      event: 'signals.digest',
+      vaultId: 'v1',
+      resourceType: 'signals',
+      resourceId: null,
+      detail: { open: '3', high: '1' },
+      createdAt: '',
+      readAt: null,
+      archivedAt: null,
+    };
+    expect(notificationMessage(row, t, te, (id) => (id === 'v1' ? 'Бухгалтерия' : '—'))).toBe(
+      'notifications.signalsDigest{"vault":"Бухгалтерия","open":"3","high":"1"}',
+    );
+    expect(
+      notificationMessage(
+        { ...row, event: 'admin.user.offboarded', detail: null },
+        t,
+        te,
+        () => '',
+      ),
+    ).toBe('notifications.events.admin_user_offboarded');
+    expect(notificationMessage({ ...row, event: 'x.y', detail: null }, t, te, () => '')).toBe(
+      'notifications.event',
+    );
+  });
+});

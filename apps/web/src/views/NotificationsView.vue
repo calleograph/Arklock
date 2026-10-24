@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ledgerAction } from '../services/ledger';
 import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { errorMessage, when } from '../services/helpers';
+import { errorMessage, vaultLabel, when } from '../services/helpers';
 import {
+  notificationMessage,
   unreadNotifications,
   setNotificationCount,
   type NotificationList,
@@ -23,20 +23,11 @@ const next = ref<number | null>(null);
 const busy = ref(false);
 const loaded = ref(false);
 const error = ref('');
-function message(row: NotificationRow): string {
-  if (row.event === 'automation.denied' && row.detail?.rule)
-    return t('notifications.ruleDenied', {
-      rule: row.detail.rule,
-      action: t(`automation.trigger.${(row.detail.action ?? '').replace('.', '_')}`),
-    });
-  if (row.event === 'automation.rule' && row.detail?.rule)
-    return t('notifications.ruleFired', {
-      rule: row.detail.rule,
-      action: row.detail.action ? ledgerAction(row.detail.action, t, te) : '',
-    });
-  const key = `notifications.events.${row.event.replaceAll('.', '_').replaceAll('-', '_')}`;
-  return te(key) ? t(key) : t('notifications.event');
-}
+const message = (row: NotificationRow) =>
+  notificationMessage(row, t, te, (id) => {
+    const found = ws.vaults.find((x) => x.id === id);
+    return found ? vaultLabel(found, t) : '—';
+  });
 async function load(more = false): Promise<void> {
   busy.value = true;
   error.value = '';

@@ -14,6 +14,8 @@ export default {
     new: 'New',
     event: 'New event',
     ruleFired: 'Rule “{rule}” fired: {action}',
+    signalsDigest:
+      'Password health report: open security events in “{vault}”: {open}, high risk: {high}',
     ruleDenied: 'Rule “{rule}” denied an action: {action}',
     open: 'Open related object',
     more: 'Show more',

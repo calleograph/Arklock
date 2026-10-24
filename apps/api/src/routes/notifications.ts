@@ -175,6 +175,11 @@ export const registerNotificationRoutes: FastifyPluginAsync<{ ctx: AppContext }>
     if (!row.vaultId) throw unavailable();
     const access = await requireVault(db, row.vaultId, user.id).catch(() => null);
     if (!access) throw unavailable();
+    // отчёт о событиях безопасности ведёт к их списку в настройках сейфа — он только для администратора сейфа
+    if (row.resourceType === 'signals') {
+      if (!access.isAdmin) throw unavailable();
+      return { path: `/vault/${row.vaultId}/settings`, vaultId: row.vaultId };
+    }
     if (row.resourceType === 'entry' && row.resourceId) {
       const [entry] = await db
         .select({ branchId: entries.branchId })

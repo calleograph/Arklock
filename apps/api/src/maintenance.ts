@@ -1,8 +1,18 @@
-import { eq, lt, or, and, isNotNull, sql } from 'drizzle-orm';
+import { eq, lt, or, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { BlobStore } from './blobs.js';
 import type { Db } from './db/connect.js';
 import { audit } from './audit.js';
-import { handoffs, ledger, sessions, settings } from './db/schema.js';
+import { loadAccess } from './access.js';
+import {
+  entries,
+  handoffs,
+  ledger,
+  sessions,
+  settings,
+  signals,
+  vaultMembers,
+} from './db/schema.js';
+import { notifyUsers } from './notifications.js';
 import { sweepBlobs } from './routes/attachments.js';
 import { purgeExpiredTrash } from './routes/content.js';
 
@@ -39,6 +49,7 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
     handoffs: hand.length,
     files,
     journal: await pruneLedger(db, now),
+    digest: await signalsDigest(db, now),
   };
 }
 
@@ -72,4 +83,61 @@ async function pruneLedger(db: Db, now: Date): Promise<number> {
       days,
     });
   return count;
+}
+
+const DIGEST_EVERY_MS = 7 * 86_400_000;
+
+/**
+ * Еженедельный отчёт о здоровье паролей: администраторам сейфа — число открытых событий безопасности
+ * и сколько из них высокого риска. Считаются только записи, которые получатель видит (как в списке событий);
+ * паролей сервер не знает — отчёт строится из событий, о которых сообщили браузеры и увольнения.
+ * Возвращает число отправленных уведомлений.
+ */
+async function signalsDigest(db: Db, now: Date): Promise<number> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'signals.digestAt'));
+  const last = typeof row?.value === 'string' ? Date.parse(row.value) : 0;
+  if (now.getTime() - last < DIGEST_EVERY_MS) return 0;
+  await db
+    .insert(settings)
+    .values({ key: 'signals.digestAt', value: now.toISOString() })
+    .onConflictDoUpdate({ target: settings.key, set: { value: now.toISOString() } });
+  const open = await db
+    .select({
+      vaultId: signals.vaultId,
+      entryId: signals.entryId,
+      branchId: entries.branchId,
+      type: signals.type,
+    })
+    .from(signals)
+    .innerJoin(entries, eq(entries.id, signals.entryId))
+    .where(inArray(signals.status, ['open', 'in_progress']));
+  let sent = 0;
+  for (const vaultId of new Set(open.map((r) => r.vaultId))) {
+    const rows = open.filter((r) => r.vaultId === vaultId);
+    const admins = await db
+      .select({ userId: vaultMembers.userId })
+      .from(vaultMembers)
+      .where(
+        and(
+          eq(vaultMembers.vaultId, vaultId),
+          or(eq(vaultMembers.role, 'owner'), eq(vaultMembers.role, 'admin')),
+        ),
+      );
+    for (const { userId } of admins) {
+      const acc = await loadAccess(db, vaultId, userId);
+      const seen = rows.filter((r) => acc.entry(r.entryId, r.branchId));
+      if (!acc.isAdmin || !seen.length) continue;
+      const high = seen.filter((r) => r.type === 'compromised' || r.type === 'rotate').length;
+      const ok = await notifyUsers(db, [userId], {
+        category: 'security',
+        event: 'signals.digest',
+        vaultId,
+        resourceType: 'signals',
+        resourceId: null,
+        detail: { open: String(seen.length), high: String(high) },
+      });
+      if (ok) sent++;
+    }
+  }
+  return sent;
 }

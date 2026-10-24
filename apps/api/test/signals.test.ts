@@ -162,3 +162,26 @@ it('active events come before closed ones (the list is limited, the archive must
   expect(rows.slice(firstClosed).every((r) => closed(r.status))).toBe(true);
   expect(rows.every((r) => typeof r.updatedAt === 'string')).toBe(true);
 });
+
+it('a weekly password-health report tells vault administrators how many events are open, once a week', async () => {
+  const { runMaintenance } = await import('../src/maintenance.js');
+  const openNow = (await list()).filter((s) => s.status === 'open' || s.status === 'in_progress');
+  expect(openNow.length).toBeGreaterThan(0);
+  expect((await runMaintenance(fixture.database.db)).digest).toBeGreaterThanOrEqual(1);
+  const inbox = (await admin.req('GET', '/notifications?view=inbox')).json().items as {
+    id: string;
+    event: string;
+    vaultId: string;
+    detail: Record<string, string>;
+  }[];
+  const report = inbox.find((n) => n.event === 'signals.digest' && n.vaultId === vaultId)!;
+  expect(report.detail.open).toBe(String(openNow.length));
+  expect((await admin.req('GET', `/notifications/${report.id}/destination`)).json()).toEqual({
+    path: `/vault/${vaultId}/settings`,
+    vaultId,
+  });
+  // не чаще раза в неделю
+  expect((await runMaintenance(fixture.database.db)).digest).toBe(0);
+  const later = new Date(Date.now() + 8 * 86_400_000);
+  expect((await runMaintenance(fixture.database.db, later)).digest).toBeGreaterThanOrEqual(1);
+});
