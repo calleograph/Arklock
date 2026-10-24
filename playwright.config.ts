@@ -11,6 +11,7 @@ const PORT_MOBILE = 18186;
 const PORT_WEBAUTHN = 18187;
 const PORT_FIREFOX = 18188;
 const PORT_SESSION = 18189;
+const PORT_ENTERPRISE = 18190;
 /** Расширению нужен видимый браузер (в CI — xvfb), поэтому проект включается только по запросу. */
 const WITH_EXTENSION = process.env.E2E_EXTENSION === '1';
 /** Расширение в Firefox проверяется через geckodriver (Selenium) и требует установленного Firefox. */
@@ -79,6 +80,12 @@ export default defineConfig({
         ]
       : []),
     {
+      name: 'enterprise',
+      testMatch: 'enterprise.spec.ts',
+      timeout: 600_000,
+      use: { baseURL: `http://127.0.0.1:${PORT_ENTERPRISE}` },
+    },
+    {
       name: 'mobile',
       testMatch: 'mobile.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_MOBILE}` },
@@ -110,6 +117,16 @@ export default defineConfig({
         PORT: String(PORT_WEBAUTHN),
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-7',
         APP_PUBLIC_URL: `http://localhost:${PORT_WEBAUTHN}`,
+      },
+    },
+    {
+      command: 'node apps/api/dist/main.js',
+      url: `http://127.0.0.1:${PORT_ENTERPRISE}/api/v1/ready`,
+      timeout: 60_000,
+      env: {
+        ...common,
+        PORT: String(PORT_ENTERPRISE),
+        BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-8',
       },
     },
     {

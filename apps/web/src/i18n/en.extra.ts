@@ -1106,6 +1106,7 @@ export default {
       syslog: 'Log export (syslog)',
       webhooks: 'Webhooks',
       updates: 'Updates',
+      departments: 'Departments',
       organization: 'Organization',
       invitations: 'New users',
       roles: 'Roles',

@@ -1111,6 +1111,7 @@ export default {
       syslog: 'Журнал в syslog',
       webhooks: 'Вебхуки',
       updates: 'Обновления',
+      departments: 'Подразделения',
       organization: 'Организация',
       invitations: 'Новые пользователи',
       roles: 'Роли',

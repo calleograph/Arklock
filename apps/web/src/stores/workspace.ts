@@ -843,7 +843,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   // ------------------------------------------------------------------ общие хранилища и участники
 
-  async function createVault(name: string): Promise<string> {
+  async function createVault(
+    name: string,
+    opts: { spaceId?: string; select?: boolean } = {},
+  ): Promise<string> {
     const auth = useAuthStore();
     const { publicKey, signPrivateKey } = auth.keys();
     const id = crypto.randomUUID();
@@ -851,14 +854,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const sealedKey = await sealVaultKeyFor(key, publicKey, id, auth.user!.id, 1);
     await api('POST', '/vaults', {
       id,
-      spaceId: currentSpaceId.value ?? undefined,
+      spaceId: opts.spaceId ?? currentSpaceId.value ?? undefined,
       name,
       sealedKey,
       signature: await signKeyGrant(signPrivateKey, id, auth.user!.id, 1, sealedKey),
     });
     key.fill(0);
     await loadVaults();
-    await select(id);
+    if (opts.select !== false) await select(id);
     return id;
   }
 

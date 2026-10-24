@@ -7,6 +7,7 @@ import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
+import DepartmentsPanel from '../components/DepartmentsPanel.vue';
 import { generatorFrom } from '../services/policy';
 import { useWorkspaceStore } from '../stores/workspace';
 import LdapSettings from '../components/LdapSettings.vue';
@@ -47,6 +48,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
 const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
   organization: 'shield',
+  departments: 'folder',
   users: 'user',
   circles: 'users',
   roles: 'shield',
@@ -101,6 +103,7 @@ type Tab =
   | 'saml'
   | 'updates'
   | 'organization'
+  | 'departments'
   | 'automation'
   | SysTab;
 const SYS_TABS: SysTab[] = [
@@ -118,6 +121,7 @@ const SYS_TABS: SysTab[] = [
 const TAB_PERM: Record<Tab, string> = {
   users: 'admin.users',
   organization: 'admin.users',
+  departments: 'admin.circles',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -593,7 +597,10 @@ async function loadTab(): Promise<void> {
 }
 /** Разделы панели по смыслу: люди, система, интеграции, безопасность. */
 const GROUPS: { id: string; tabs: Tab[] }[] = [
-  { id: 'people', tabs: ['users', 'circles', 'roles', 'invitations', 'organization'] },
+  {
+    id: 'people',
+    tabs: ['users', 'circles', 'departments', 'roles', 'invitations', 'organization'],
+  },
   {
     id: 'system',
     tabs: [
@@ -626,6 +633,7 @@ const ALL_TABS: Tab[] = [
   'roles',
   'updates',
   'organization',
+  'departments',
   'automation',
 ];
 onMounted(async () => {
@@ -720,6 +728,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <SyslogSettings v-else-if="tab === 'syslog'" />
         <UpdatesView v-else-if="tab === 'updates'" />
         <OrganizationPanel v-else-if="tab === 'organization'" />
+        <DepartmentsPanel v-else-if="tab === 'departments'" />
         <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />
         <SamlSettings v-else-if="tab === 'saml'" />
