@@ -571,13 +571,31 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
         q: z.string().max(100).optional(),
-        before: z.coerce.number().int().optional(),
+        // курсор страницы: id последней строки, при сортировке по действию — «действие|id»
+        before: z
+          .string()
+          .regex(/^(?:[a-z0-9._-]{1,100}\|)?\d{1,18}$/)
+          .optional(),
+        sort: z.enum(['at', 'action']).default('at'),
+        dir: z.enum(['desc', 'asc']).default('desc'),
         limit: z.coerce.number().int().min(1).max(500).default(100),
         format: z.enum(['json', 'csv']).default('json'),
       }),
       req.query,
     );
     const like = q.q ? '%' + q.q.replace(/[%_\\]/g, '\\$&') + '%' : '';
+    const desc = q.dir === 'desc';
+    const cut = q.before?.split('|');
+    // сравнение строк (действие, id) — продолжение страницы без пропусков и повторов при одинаковых действиях
+    const cursor = !cut
+      ? undefined
+      : cut.length === 2
+        ? desc
+          ? sql`(${ledger.action}, ${ledger.id}) < (${cut[0]}, ${Number(cut[1])})`
+          : sql`(${ledger.action}, ${ledger.id}) > (${cut[0]}, ${Number(cut[1])})`
+        : desc
+          ? sql`${ledger.id} < ${Number(cut[0])}`
+          : sql`${ledger.id} > ${Number(cut[0])}`;
     const conds = [
       q.action
         ? sql`${ledger.action} like ${q.action.replace(/[%_\\]/g, '\\$&') + '%'}`
@@ -588,7 +606,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         : undefined,
       q.from ? sql`${ledger.at} >= ${q.from}` : undefined,
       q.to ? sql`${ledger.at} <= ${q.to}` : undefined,
-      q.before ? sql`${ledger.id} < ${q.before}` : undefined,
+      cursor,
       // поиск и по сотруднику: имя или почта автора и затронутой учётной записи
       q.q
         ? sql`(${ledger.action} ilike ${like} or ${ledger.target} ilike ${like} or ${ledger.detail}->>'ip' ilike ${like} or ${ledger.actor} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}) or ${ledger.target} in (select 'user:' || ${users.id}::text from ${users} where ${users.displayName} ilike ${like} or ${users.email} ilike ${like}))`
@@ -598,7 +616,10 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       .select()
       .from(ledger)
       .where(conds.length ? and(...conds) : undefined)
-      .orderBy(sql`${ledger.id} desc`)
+      .orderBy(
+        ...(q.sort === 'action' ? [desc ? sql`${ledger.action} desc` : ledger.action] : []),
+        desc ? sql`${ledger.id} desc` : ledger.id,
+      )
       .limit(q.limit);
     const ids = [
       ...new Set(
@@ -694,6 +715,10 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       ].join('\n');
       return { csv };
     }
-    return { items, next: items.length === q.limit ? items[items.length - 1]!.id : null };
+    const last = items.length === q.limit ? items[items.length - 1]! : null;
+    return {
+      items,
+      next: !last ? null : q.sort === 'action' ? `${last.action}|${last.id}` : last.id,
+    };
   });
 };

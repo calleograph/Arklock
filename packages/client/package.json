@@ -1,6 +1,6 @@
 {
   "name": "@arklock/client",
-  "version": "1.43.0",
+  "version": "1.44.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -16,8 +16,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@arklock/contracts": "1.43.0",
-    "@arklock/crypto": "1.43.0"
+    "@arklock/contracts": "1.44.0",
+    "@arklock/crypto": "1.44.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0"

@@ -474,7 +474,23 @@ const LEDGER_KINDS = [
 const targetText = (l: L) => ledgerTarget(l, t, te);
 const actionText = (a: string) => ledgerAction(a, t, te);
 const ledger = ref<L[]>([]);
-const next = ref<number | null>(null);
+const next = ref<number | string | null>(null);
+// сортировка — на сервере: страницы «показать ещё» продолжают тот же порядок
+const ledgerSort = ref<{ by: 'at' | 'action'; dir: 'desc' | 'asc' }>({ by: 'at', dir: 'desc' });
+function sortLedger(by: 'at' | 'action'): void {
+  const s = ledgerSort.value;
+  ledgerSort.value =
+    s.by === by
+      ? { by, dir: s.dir === 'desc' ? 'asc' : 'desc' }
+      : { by, dir: by === 'at' ? 'desc' : 'asc' };
+  void loadLedger();
+}
+const ariaSort = (by: 'at' | 'action') =>
+  ledgerSort.value.by !== by
+    ? 'none'
+    : ledgerSort.value.dir === 'desc'
+      ? 'descending'
+      : 'ascending';
 const filter = ref({ action: '', q: '', from: '', to: '' });
 // журнал одного сотрудника открывается из его карточки: /admin/ledger?user=…&name=…
 const ledgerUser = computed(() =>
@@ -495,12 +511,14 @@ function ledgerParams(extra: Record<string, string>): URLSearchParams {
   if (filter.value.from) p.set('from', new Date(filter.value.from).toISOString());
   if (filter.value.to) p.set('to', new Date(filter.value.to + 'T23:59:59').toISOString());
   if (ledgerUser.value) p.set('user', ledgerUser.value.id);
+  if (ledgerSort.value.by !== 'at') p.set('sort', ledgerSort.value.by);
+  if (ledgerSort.value.dir !== 'desc') p.set('dir', ledgerSort.value.dir);
   return p;
 }
 async function loadLedger(more = false): Promise<void> {
   const p = ledgerParams({ limit: '50' });
   if (more && next.value) p.set('before', String(next.value));
-  const r = await api<{ items: L[]; next: number | null }>('GET', `/admin/ledger?${p}`);
+  const r = await api<{ items: L[]; next: number | string | null }>('GET', `/admin/ledger?${p}`);
   ledger.value = more ? [...ledger.value, ...r.items] : r.items;
   next.value = r.next;
 }
@@ -1493,9 +1511,41 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             <table class="min-w-full text-xs" data-testid="ledger-table">
               <thead class="text-left text-slate-500">
                 <tr>
-                  <th class="px-3 py-2">{{ t('admin.time') }}</th>
+                  <th class="px-3 py-2" :aria-sort="ariaSort('at')">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200"
+                      data-testid="ledger-sort-at"
+                      @click="sortLedger('at')"
+                    >
+                      {{ t('admin.time')
+                      }}<span
+                        aria-hidden="true"
+                        :class="ledgerSort.by === 'at' ? '' : 'opacity-40'"
+                        >{{
+                          ledgerSort.by === 'at' ? (ledgerSort.dir === 'desc' ? '↓' : '↑') : '↕'
+                        }}</span
+                      >
+                    </button>
+                  </th>
                   <th>{{ t('admin.actor') }}</th>
-                  <th>{{ t('admin.action') }}</th>
+                  <th :aria-sort="ariaSort('action')">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200"
+                      data-testid="ledger-sort-action"
+                      @click="sortLedger('action')"
+                    >
+                      {{ t('admin.action')
+                      }}<span
+                        aria-hidden="true"
+                        :class="ledgerSort.by === 'action' ? '' : 'opacity-40'"
+                        >{{
+                          ledgerSort.by === 'action' ? (ledgerSort.dir === 'desc' ? '↓' : '↑') : '↕'
+                        }}</span
+                      >
+                    </button>
+                  </th>
                   <th>{{ t('admin.target') }}</th>
                 </tr>
               </thead>
@@ -1508,7 +1558,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 >
                   <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
                   <td class="max-w-56 truncate" :title="l.actor">{{ l.actorName ?? l.actor }}</td>
-                  <td>
+                  <td class="whitespace-nowrap pr-3">
                     <span :title="l.action">{{ actionText(l.action) }}</span>
                     <span v-if="l.detail?.clientReported" class="badge ml-1">{{
                       t('entryPanel.clientReported')

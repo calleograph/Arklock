@@ -981,6 +981,33 @@ describe('administration', () => {
     const page1 = (await admin.req('GET', '/admin/ledger?limit=5')).json();
     const page2 = (await admin.req('GET', `/admin/ledger?limit=5&before=${page1.next}`)).json();
     expect(page2.items[0].id).toBeLessThan(page1.items[4].id);
+    // сортировка по действию и по времени в обе стороны: страницы продолжают друг друга без пропусков
+    const walk = async (query: string) => {
+      const seen: { id: number; action: string }[] = [];
+      let before = '';
+      for (let i = 0; i < 100; i++) {
+        const r = (await admin.req('GET', `/admin/ledger?limit=7&${query}${before}`)).json();
+        seen.push(...r.items);
+        if (!r.next) break;
+        before = `&before=${encodeURIComponent(String(r.next))}`;
+      }
+      return seen;
+    };
+    const total = (await admin.req('GET', '/admin/ledger?limit=500')).json().items.length;
+    const byAction = await walk('sort=action&dir=asc');
+    expect(byAction).toHaveLength(total);
+    expect(new Set(byAction.map((i) => i.id)).size).toBe(total);
+    const key = (i: { id: number; action: string }) => [i.action, i.id] as const;
+    for (let i = 1; i < byAction.length; i++) {
+      const [a, b] = [key(byAction[i - 1]!), key(byAction[i]!)];
+      expect(a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])).toBe(true);
+    }
+    const byActionDesc = await walk('sort=action&dir=desc');
+    expect(byActionDesc.map((i) => i.id)).toEqual(byAction.map((i) => i.id).reverse());
+    const oldest = await walk('dir=asc');
+    expect(oldest.map((i) => i.id)).toEqual([...oldest.map((i) => i.id)].sort((a, b) => a - b));
+    expect(oldest).toHaveLength(total);
+    expect((await admin.req('GET', '/admin/ledger?before=1;drop')).statusCode).toBe(400);
     const csv = (await admin.req('GET', '/admin/ledger?format=csv&limit=10')).json().csv as string;
     expect(csv.split('\n')[0]).toBe('id,at,actor,actor_name,action,target,target_name,detail');
     // поиск по сотруднику: имя или почта автора

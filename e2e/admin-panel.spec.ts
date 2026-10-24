@@ -247,6 +247,23 @@ test('administration sections show real data and perform real operations', async
   await page.getByTestId('ledger-user-clear').click();
   await expect(page.getByTestId('ledger-user')).toHaveCount(0);
 
+  // сортировка журнала на сервере: по времени в обе стороны и по действию
+  const sortState = (by: string) =>
+    page.getByTestId(`ledger-sort-${by}`).locator('xpath=..').getAttribute('aria-sort');
+  await expect(page.getByTestId('ledger-row').first()).toBeVisible();
+  const newest = await page.getByTestId('ledger-row').first().innerText();
+  await page.getByTestId('ledger-sort-at').click();
+  await expect.poll(() => sortState('at')).toBe('ascending');
+  await expect(page.getByTestId('ledger-row').first()).not.toHaveText(newest);
+  const oldest = await page.getByTestId('ledger-row').first().innerText();
+  await page.getByTestId('ledger-sort-action').click();
+  await expect.poll(() => sortState('action')).toBe('ascending');
+  expect(await sortState('at')).toBe('none');
+  // снова по времени — новые сверху (сравнивать с прежним «новым» нельзя: журнал пополняется по ходу сценария)
+  await page.getByTestId('ledger-sort-at').click();
+  await expect.poll(() => sortState('at')).toBe('descending');
+  await expect(page.getByTestId('ledger-row').first()).not.toHaveText(oldest);
+
   // правила автоматизации: создать, увидеть в списке, выключить, удалить
   await tab(page, 'automation');
   await page.getByTestId('rule-add').click();
