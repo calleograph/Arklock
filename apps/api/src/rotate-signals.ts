@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lt, lte } from 'drizzle-orm';
 import { loadAccess } from './access.js';
 import { audit } from './audit.js';
 import type { Db } from './db/connect.js';
@@ -196,9 +196,20 @@ export async function rotateExpiredAccess(db: Db, now = new Date()): Promise<num
   for (const l of lapses) {
     const before = await visibleEntries(db, l.vaultId, l.userId, new Date(l.at.getTime() - 1));
     const after = await visibleEntries(db, l.vaultId, l.userId, now);
+    const gone = [...before].filter((e) => !after.has(e));
+    // записи, созданные после истечения, сотрудник по этому доступу не видел
+    // shortcut: у участия в группе нет времени вступления — вступивший после истечения тоже попадёт; при жалобах — хранить время вступления
+    const seen = gone.length
+      ? (
+          await db
+            .select({ id: entries.id })
+            .from(entries)
+            .where(and(inArray(entries.id, gone), lt(entries.createdAt, l.at)))
+        ).map((r) => r.id)
+      : [];
     const ids = await openRotateSignals(db, {
       vaultId: l.vaultId,
-      entryIds: [...before].filter((e) => !after.has(e)),
+      entryIds: seen,
       cause: l.userId,
       reason: 'revoked',
       // у события нет автора-человека: «сообщил» сам сотрудник, потерявший доступ (столбец обязателен)

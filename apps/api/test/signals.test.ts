@@ -301,6 +301,9 @@ it('expired access and a directory that drops a group member open «change the p
     .update(vaultMembers)
     .set({ expiresAt: soon })
     .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, hal.userId)));
+  // запись, созданная после истечения, не считается увиденной
+  await new Promise((r) => setTimeout(r, 1100));
+  await admin.createEntry({ password: 'late' }, { vaultId, vaultKey });
   const later = new Date(Date.now() + 60_000);
   expect((await runMaintenance(db, later)).lapsed).toBe(2);
   expect(await openedFor(hal.userId)).toBe(2);
@@ -317,5 +320,6 @@ it('expired access and a directory that drops a group member open «change the p
   await syncCirclesFor(db, ivy.userId, cfg as never, ['cn=crew,dc=example,dc=com']);
   expect(await openedFor(ivy.userId)).toBe(0);
   await syncCirclesFor(db, ivy.userId, cfg as never, []);
-  expect(await openedFor(ivy.userId)).toBe(2);
+  // в сейфе уже три записи (третья создана выше) — все они через группу были видны
+  expect(await openedFor(ivy.userId)).toBe(3);
 });
