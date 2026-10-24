@@ -27,6 +27,13 @@ const empty = () => ({
   circleIds: [] as string[],
 });
 const form = ref(empty());
+const circleFilter = ref('');
+const shownCircles = computed(() => {
+  const q = circleFilter.value.trim().toLowerCase();
+  return circles.value.filter(
+    (c) => form.value.circleIds.includes(c.id) || !q || c.name.toLowerCase().includes(q),
+  );
+});
 const canEmail = computed(() => email.safeParse(form.value.email).success);
 watch(canEmail, (allowed) => {
   if (!allowed) form.value.sendEmail = false;
@@ -136,9 +143,25 @@ const fmt = (s: string) => when(s);
       </div>
       <fieldset v-if="circles.length" class="space-y-1">
         <legend class="text-xs text-slate-500">{{ t('invite.circles') }}</legend>
-        <label v-for="c in circles" :key="c.id" class="mr-3 inline-flex items-center gap-1">
-          <input v-model="form.circleIds" type="checkbox" :value="c.id" /> {{ c.name }}
-        </label>
+        <!-- при десятках групп (по числу подразделений) нужен отбор, а выбранные остаются на виду -->
+        <input
+          v-if="circles.length > 6"
+          v-model="circleFilter"
+          type="search"
+          class="input max-w-xs"
+          :placeholder="t('invite.circleFilter')"
+          data-testid="invite-circle-filter"
+        />
+        <div class="flex max-h-28 flex-wrap gap-x-3 gap-y-1 overflow-y-auto">
+          <label
+            v-for="c in shownCircles"
+            :key="c.id"
+            class="inline-flex items-center gap-1"
+            :data-testid="`invite-circle-${c.name}`"
+          >
+            <input v-model="form.circleIds" type="checkbox" :value="c.id" /> {{ c.name }}
+          </label>
+        </div>
       </fieldset>
       <button type="submit" class="btn-primary" :disabled="busy" data-testid="invite-create">
         {{ t('invite.createAction') }}

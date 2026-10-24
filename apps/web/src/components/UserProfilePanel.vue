@@ -7,6 +7,7 @@ import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers'
 import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
+import UserTransfer from './UserTransfer.vue';
 
 /** Карточка сотрудника: статус, группы, сеансы и сейфы в одном месте — без перехода по разделам. */
 const props = defineProps<{
@@ -344,6 +345,12 @@ async function endSessions(): Promise<void> {
           </p>
         </div>
       </div>
+      <UserTransfer
+        v-if="p.groups.length && !p.user.disabled"
+        :user-id="props.userId"
+        :groups="p.groups"
+        @changed="(load(), emit('changed'))"
+      />
       <!-- откуда доступ к сейфам: прямо, через группы, отдельные правила; сколько записей видно -->
       <div data-testid="profile-access">
         <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.access') }}</h3>

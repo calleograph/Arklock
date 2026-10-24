@@ -715,6 +715,7 @@ export default {
     copyFailed: 'Copy failed: allow clipboard access.',
   },
   invite: {
+    circleFilter: 'Find a group',
     tab: 'New users',
     hint: 'The administrator creates an account and gives the person a one-time activation code. The person sets their own master password at first sign-in: the administrator never learns it and cannot access encrypted data.',
     newUser: 'New user',

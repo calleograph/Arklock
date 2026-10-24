@@ -236,7 +236,7 @@ async function login(browser: Browser, email: string, password = PASSWORD): Prom
   await p.getByTestId('email').fill(email);
   await p.getByTestId('password').fill(password);
   await p.getByTestId('submit').click();
-  await expect(p.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await expect(p.getByTestId('space-select')).toBeVisible({ timeout: 90_000 });
   return p;
 }
 
@@ -320,4 +320,122 @@ test('руководитель отдела: структура папок, за
   );
   record(g);
   await head.context().close();
+});
+
+test('новый сотрудник отдела: приглашение, активация, первый вход, ожидание ключа — замер', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const email = 'new.accountant@corp.example';
+  const a = new Counter(page, 'Добавить сотрудника в отдел (приглашение)');
+  await a.click('menu-toggle');
+  await a.click('menu-full');
+  await a.click('admin-tab-invitations');
+  a.screen();
+  await a.fill('invite-name', 'Новый Бухгалтер');
+  await a.fill('invite-email', email);
+  await a.fill('invite-circle-filter', 'Бухг');
+  await a.click('invite-circle-Бухгалтерия');
+  await a.click('invite-create');
+  const code = (await page.getByTestId('invite-code').textContent())!.trim();
+  record(a);
+
+  const guest = await (await browser.newContext({ locale: 'ru-RU', baseURL: BASE })).newPage();
+  const n = new Counter(guest, 'Первый вход нового сотрудника (активация)');
+  await guest.goto('/login');
+  await n.click('to-activate');
+  n.screen();
+  await n.fill('email', email);
+  await n.fill('activation-code', code);
+  await n.click('submit');
+  await expect(guest.getByTestId('name')).toHaveValue('Новый Бухгалтер', { timeout: 30_000 });
+  await n.fill('password', PASSWORD);
+  await n.fill('repeat', PASSWORD);
+  await n.click('submit');
+  await guest.getByTestId('recovery-saved').check({ timeout: 90_000 });
+  n.clicks++;
+  await n.click('recovery-continue');
+  record(n);
+  await expect(guest.getByTestId('space-select')).toBeVisible({ timeout: 90_000 });
+  await guest.screenshot({ path: 'test-results/new-employee-first-screen.png' });
+  // сразу открыт отдел
+  await expect(guest.getByTestId('space-select').locator('option:checked')).toHaveText(
+    'Бухгалтерия',
+  );
+  await guest.context().close();
+});
+
+test('сотрудник видит только свой отдел; сейф руководства закрыт', async ({ browser }) => {
+  test.setTimeout(300_000);
+  // руководитель открыл Arklock — клиент выдал ключи сейфа участникам группы; ждём, пока они появятся
+  const staff = await login(browser, staffEmail(0));
+  await expect(staff.getByTestId('space-select').locator('option:checked')).toHaveText(
+    'Бухгалтерия',
+  );
+  const spaces = await staff.getByTestId('space-select').locator('option').allTextContents();
+  expect(spaces).not.toContain('Продажи');
+  const vaultsShown = await staff.getByTestId('vault-select').locator('option').allTextContents();
+  expect(vaultsShown.map((v) => v.replace(/[^\p{L}\p{N}· ]/gu, '').trim())).toEqual([
+    'Бухгалтерия',
+  ]);
+  // глобальный поиск без выбора отдела находит запись, созданную руководителем
+  await expect(async () => {
+    await staff.reload();
+    await expect(staff.getByTestId('entry-row').first()).toBeVisible({ timeout: 15_000 });
+  }).toPass({ timeout: 90_000 });
+  await staff.getByTestId('search').fill('Банк');
+  await expect(staff.getByTestId('entry-row')).toHaveCount(1);
+  // прямой запрос к сейфу руководства: сервер отказывает
+  const token = await staff.evaluate(() => sessionStorage.getItem('arklock.token'));
+  const lead = ((await api('GET', '/vaults')).json as { id: string; name: string }[]).find(
+    (v) => v.name === 'Бухгалтерия · Руководство',
+  )!;
+  const r = await staff.request.fetch(`/api/v1/vaults/${lead.id}/tree`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect([403, 404]).toContain(r.status());
+  await staff.context().close();
+});
+
+test('перевод сотрудника из бухгалтерии в закупки — замер и последствия', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const t = new Counter(page, 'Перевести сотрудника в другое подразделение');
+  await t.click('menu-toggle');
+  await t.click('menu-full');
+  await t.click('admin-tab-users');
+  t.screen();
+  await t.click(`profile-open-${staffEmail(1)}`);
+  await t.click('transfer-open');
+  const to = await page
+    .getByTestId('transfer-to')
+    .locator('option', { hasText: /^Закупки$/ })
+    .getAttribute('value');
+  await t.pick('transfer-to', to!);
+  await expect(page.getByTestId('transfer-preview')).toContainText('Бухгалтерия');
+  await t.click('transfer-go');
+  await expect(page.getByTestId('transfer-done')).toBeVisible();
+  record(t);
+
+  const users = (await api('GET', '/admin/users')).json as { id: string; email: string }[];
+  const id = users.find((u) => u.email === staffEmail(1))!.id;
+  const groups = (
+    (await api('GET', `/admin/users/${id}/profile`)).json as { groups: { name: string }[] }
+  ).groups;
+  expect(groups.map((g) => g.name)).toEqual(['Закупки']);
+  const card = (await api('GET', `/admin/users/${id}/profile`)).json as {
+    access: { name: string }[];
+  };
+  expect(card.access.map((a) => a.name)).toEqual(['Закупки']);
+  // старый доступ закрыт на сервере, по потерянным записям — «смените пароль»
+  const s2 = await login(browser, staffEmail(1));
+  await expect(s2.getByTestId('space-select').locator('option:checked')).toHaveText('Закупки');
+  await s2.context().close();
+  const old = ((await api('GET', '/vaults')).json as { id: string; name: string }[]).find(
+    (v) => v.name === 'Бухгалтерия',
+  )!;
+  const sig = (await api('GET', `/vaults/${old.id}/signals`)).json as {
+    type: string;
+    cause: { id: string } | null;
+  }[];
+  expect(sig.filter((x) => x.type === 'rotate' && x.cause?.id === id).length).toBeGreaterThan(0);
 });
