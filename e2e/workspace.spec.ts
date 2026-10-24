@@ -713,6 +713,13 @@ test('offboarding a member: one «change passwords» summary in the card, the ca
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await page.getByTestId('admin-tab-users').click();
+  // карточка: откуда доступ к сейфу и сколько записей видно
+  await page.getByTestId(`profile-open-${LEAVER.email}`).click();
+  await expect(page.getByTestId('profile-access')).toContainText('Команда');
+  await expect(page.getByTestId('profile-access')).toContainText(
+    /напрямую: Редактор|directly: Editor/,
+  );
+  await expect(page.getByTestId('profile-access-sees')).toContainText(/\d+/);
   await page.getByTestId(`user-actions-${LEAVER.email}`).click();
   await page.getByTestId(`offboard-${LEAVER.email}`).click();
   await page.getByTestId('offboarding-confirm').click();

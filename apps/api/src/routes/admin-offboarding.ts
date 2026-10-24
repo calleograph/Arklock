@@ -22,6 +22,7 @@ import {
   spaceMembers,
   spaces,
   users,
+  vaultCircles,
   vaultKeys,
   vaultMembers,
   vaults,
@@ -68,6 +69,75 @@ async function rotationOf(db: Db, causeId: string, viewerId: string) {
   }
   const sum = (k: 'total' | 'open' | 'available') => out.reduce((n, v) => n + v[k], 0);
   return { total: sum('total'), open: sum('open'), available: sum('available'), vaults: out };
+}
+
+/**
+ * Откуда у сотрудника доступ к корпоративным сейфам: прямое участие, группы, отдельные правила
+ * и сколько записей он в итоге видит. Только метаданные — названия папок и записей зашифрованы.
+ */
+async function accessMap(db: Db, userId: string) {
+  const mine = await db
+    .select({ id: circles.id, name: circles.name })
+    .from(circleMembers)
+    .innerJoin(circles, eq(circles.id, circleMembers.circleId))
+    .where(eq(circleMembers.userId, userId));
+  const circleIds = mine.map((c) => c.id);
+  const [direct, viaGroups, rules] = await Promise.all([
+    db
+      .select({ vaultId: vaultMembers.vaultId, role: vaultMembers.role })
+      .from(vaultMembers)
+      .where(eq(vaultMembers.userId, userId)),
+    circleIds.length
+      ? db
+          .select({
+            vaultId: vaultCircles.vaultId,
+            circleId: vaultCircles.circleId,
+            role: vaultCircles.role,
+          })
+          .from(vaultCircles)
+          .where(inArray(vaultCircles.circleId, circleIds))
+      : [],
+    db
+      .select({ vaultId: grants.vaultId, role: grants.role })
+      .from(grants)
+      .where(
+        or(
+          and(eq(grants.subjectType, 'user'), eq(grants.subjectId, userId)),
+          circleIds.length
+            ? and(eq(grants.subjectType, 'circle'), inArray(grants.subjectId, circleIds))
+            : sql`false`,
+        ),
+      ),
+  ]);
+  const ids = [...new Set([...direct, ...viaGroups, ...rules].map((r) => r.vaultId))];
+  if (!ids.length) return [];
+  const shared = await db
+    .select({ id: vaults.id, name: vaults.name })
+    .from(vaults)
+    .where(and(inArray(vaults.id, ids), eq(vaults.kind, 'shared')));
+  const out = [];
+  for (const v of shared) {
+    const [{ n } = { n: 0 }] = await db
+      .select({ n: count() })
+      .from(entries)
+      .where(and(eq(entries.vaultId, v.id), isNull(entries.deletedAt)));
+    const own = rules.filter((r) => r.vaultId === v.id);
+    out.push({
+      id: v.id,
+      name: v.name ?? '',
+      direct: direct.find((d) => d.vaultId === v.id)?.role ?? null,
+      groups: viaGroups
+        .filter((g) => g.vaultId === v.id)
+        .map((g) => ({ name: mine.find((c) => c.id === g.circleId)?.name ?? '', role: g.role })),
+      rules: {
+        allow: own.filter((r) => r.role !== 'none').length,
+        deny: own.filter((r) => r.role === 'none').length,
+      },
+      sees: (await visibleEntries(db, v.id, userId)).size,
+      total: n,
+    });
+  }
+  return out;
 }
 
 /** Корпоративные сейфы сотрудника: роль, число живых записей и другие действующие владельцы. */
@@ -201,6 +271,7 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       vaults: await heldVaults(db, id),
       accessRisks: await corporateAccessRisks(db, id),
       rotation: await rotationOf(db, id, authOf(req).user.id),
+      access: await accessMap(db, id),
       apiTokens: tokens?.n ?? 0,
       externalLinks: links?.n ?? 0,
       sessions: sess?.n ?? 0,

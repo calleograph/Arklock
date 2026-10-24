@@ -47,6 +47,16 @@ interface Profile {
   vaults: { id: string; name: string; role: string; entries: number }[];
   apiTokens: number;
   externalLinks: number;
+  /** откуда у сотрудника доступ к корпоративным сейфам и сколько записей он видит */
+  access: {
+    id: string;
+    name: string;
+    direct: string | null;
+    groups: { name: string; role: string }[];
+    rules: { allow: number; deny: number };
+    sees: number;
+    total: number;
+  }[];
   /** «смените пароль» после увольнения: одно общее событие по всем записям сотрудника */
   rotation: {
     total: number;
@@ -290,7 +300,7 @@ async function endSessions(): Promise<void> {
         <p class="w-full text-xs text-slate-500">{{ t('profile.accessUntilHint') }}</p>
       </div>
 
-      <div class="grid gap-4 lg:grid-cols-4">
+      <div class="grid gap-4 lg:grid-cols-3">
         <div>
           <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.spaces') }}</h3>
           <ul v-if="p.spaces.length" class="flex flex-wrap gap-1" data-testid="profile-spaces">
@@ -309,16 +319,6 @@ async function endSessions(): Promise<void> {
             </li>
           </ul>
           <p v-else class="text-slate-500">{{ t('profile.noGroups') }}</p>
-        </div>
-        <div>
-          <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.vaults') }}</h3>
-          <ul v-if="p.vaults.length" class="space-y-1" data-testid="profile-vaults">
-            <li v-for="v in p.vaults" :key="v.id" class="flex justify-between gap-2">
-              <span class="min-w-0 truncate">{{ vaultLabel(v, t) }}</span>
-              <span class="shrink-0 text-slate-500">{{ t(`role.${v.role}`) }}</span>
-            </li>
-          </ul>
-          <p v-else class="text-slate-500">{{ t('profile.noVaults') }}</p>
         </div>
         <div>
           <h3 class="mb-1.5 text-xs font-medium text-slate-500">
@@ -343,6 +343,39 @@ async function endSessions(): Promise<void> {
             {{ t('profile.extras', { a: p.apiTokens, l: p.externalLinks }) }}
           </p>
         </div>
+      </div>
+      <!-- откуда доступ к сейфам: прямо, через группы, отдельные правила; сколько записей видно -->
+      <div data-testid="profile-access">
+        <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.access') }}</h3>
+        <ul v-if="p.access.length" class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
+          <li
+            v-for="v in p.access"
+            :key="v.id"
+            class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-1.5"
+          >
+            <span class="min-w-0 font-medium">{{ vaultLabel(v, t) }}</span>
+            <span class="min-w-0 flex-1 text-xs text-slate-500"
+              ><template v-if="v.direct">{{
+                t('profile.accessDirect', { role: t(`role.${v.direct}`) })
+              }}</template
+              ><template v-for="(g, gi) in v.groups" :key="g.name"
+                ><template v-if="v.direct || gi"> · </template
+                >{{
+                  t('profile.accessGroup', { name: g.name, role: t(`role.${g.role}`) })
+                }}</template
+              ><template v-if="v.rules.allow || v.rules.deny">
+                ·
+                {{
+                  t('profile.accessRules', { allow: v.rules.allow, deny: v.rules.deny })
+                }}</template
+              ></span
+            >
+            <span class="num shrink-0 text-xs" data-testid="profile-access-sees">{{
+              t('profile.accessSees', { sees: v.sees, total: v.total })
+            }}</span>
+          </li>
+        </ul>
+        <p v-else class="text-slate-500">{{ t('profile.noAccess') }}</p>
       </div>
       <div v-if="p.rotation" data-testid="profile-rotation">
         <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.rotation') }}</h3>
