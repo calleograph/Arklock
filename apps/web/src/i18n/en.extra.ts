@@ -1139,6 +1139,7 @@ export default {
       expired: 'access period ended',
     },
     accessUntilShort: 'access until {at}',
+    allRoles: 'All roles',
     enable: 'Enable',
     disable: 'Disable',
     offboard: 'Offboard',

@@ -188,6 +188,13 @@ interface U {
 const users = ref<U[]>([]);
 const userSearch = ref('');
 const userStatus = ref('');
+// роль: администратор, сотрудник или административная роль (делегирование)
+const userRole = ref('');
+const roleMatches = (u: U) =>
+  !userRole.value ||
+  (userRole.value.startsWith('role:')
+    ? u.adminRoleId === userRole.value.slice(5)
+    : u.role === userRole.value);
 // список загружается целиком, поэтому сортируется в браузере; по умолчанию — по имени, как отдаёт сервер
 const userSort = ref<{ by: 'name' | 'seen'; dir: 'asc' | 'desc' }>({
   by: 'name',
@@ -209,7 +216,8 @@ const visibleUsers = computed(() => {
         `${u.name} ${u.email} ${u.authSource ?? 'local'}`
           .toLowerCase()
           .includes(userSearch.value.toLowerCase()) &&
-        (!userStatus.value || u.disabled === (userStatus.value === 'disabled')),
+        (!userStatus.value || u.disabled === (userStatus.value === 'disabled')) &&
+        roleMatches(u),
     )
     .sort(
       (a, b) =>
@@ -732,6 +740,19 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <option value="">{{ t('corporate.allStatuses') }}</option>
               <option value="active">{{ t('admin.active') }}</option>
               <option value="disabled">{{ t('admin.disabled') }}</option>
+            </select>
+            <select
+              v-model="userRole"
+              class="input w-auto max-w-full"
+              :aria-label="t('admin.role')"
+              data-testid="users-role-filter"
+            >
+              <option value="">{{ t('admin.allRoles') }}</option>
+              <option value="admin">{{ t('admin.roleAdmin') }}</option>
+              <option value="member">{{ t('admin.roleMember') }}</option>
+              <option v-for="r in adminRoles" :key="r.id" :value="`role:${r.id}`">
+                {{ r.name }}
+              </option>
             </select>
           </div>
           <UserProfilePanel

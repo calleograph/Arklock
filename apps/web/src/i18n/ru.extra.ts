@@ -1144,6 +1144,7 @@ export default {
       expired: 'истёк срок действия',
     },
     accessUntilShort: 'доступ до {at}',
+    allRoles: 'Все роли',
     enable: 'Включить',
     disable: 'Отключить',
     offboard: 'Уволить',

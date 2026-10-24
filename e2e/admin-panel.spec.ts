@@ -677,6 +677,11 @@ test('custom roles: an administrative role opens only its own sections for a del
     .poll(() => page.getByTestId('users-sort-seen').locator('xpath=..').getAttribute('aria-sort'))
     .toBe('descending');
   await page.getByTestId('users-sort-name').click();
+  // фильтр по роли: «Пользователь» скрывает администратора
+  await page.getByTestId('users-role-filter').selectOption('member');
+  await expect(userRows.filter({ hasText: 'invited.person@example.com' })).toHaveCount(1);
+  await expect(userRows.filter({ hasText: ADMIN.email })).toHaveCount(0);
+  await page.getByTestId('users-role-filter').selectOption('');
 
   await page.getByTestId('profile-open-invited.person@example.com').click();
   await expect(page.getByTestId('profile-groups')).toContainText('Аудиторы журнала');
