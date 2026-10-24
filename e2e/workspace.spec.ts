@@ -878,6 +878,45 @@ test('the organization generator: its defaults and never-used characters drive �
   await page.getByTestId('menu-vault').click();
 });
 
+test('the space chosen in settings opens after the next sign-in, on another device too', async ({
+  browser,
+}) => {
+  const page = adminPage;
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('spaces-open').click();
+  await page.getByTestId('space-new').click();
+  await page.getByTestId('space-name').fill('Отдел продаж');
+  await page.getByTestId('space-save').click();
+  await expect(
+    page.getByTestId('space-select').locator('option', { hasText: 'Отдел продаж' }),
+  ).toHaveCount(1);
+
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-settings').click();
+  await expect(page.getByTestId('home-space')).toHaveValue('');
+  await page.getByTestId('home-space').selectOption({ label: 'Отдел продаж' });
+  await expect(page.getByRole('status').filter({ hasText: /Сохранено|Saved/ })).toBeVisible();
+
+  // вход в другом браузере открывает выбранное пространство
+  const other = await (await browser.newContext()).newPage();
+  await other.goto('/login');
+  await other.getByTestId('email').fill(ADMIN.email);
+  await other.getByTestId('password').fill(ADMIN.password);
+  await other.getByTestId('submit').click();
+  await expect(other.getByTestId('space-select')).toBeVisible({ timeout: 90_000 });
+  await expect(other.getByTestId('space-select').locator('option:checked')).toHaveText(
+    'Отдел продаж',
+  );
+  await other.context().close();
+
+  // обратно: организация по умолчанию — следующие сценарии её ждут
+  await page.getByTestId('home-space').selectOption('');
+  await expect(page.getByTestId('home-space')).toHaveValue('');
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible();
+});
+
 test('an entry with an attachment moves to another vault; the file keeps its content', async () => {
   const page = adminPage;
   await page.getByTestId('menu-toggle').click();

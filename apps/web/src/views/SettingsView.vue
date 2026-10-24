@@ -7,7 +7,7 @@ import PinSettings from '../components/PinSettings.vue';
 import PersonalVaultErase from '../components/PersonalVaultErase.vue';
 import { useWorkspaceStore } from '../stores/workspace';
 import { DEFAULT_THEME, isTheme, PREVIEW, THEMES, type ThemeId } from '../services/theme';
-import { errorMessage } from '../services/helpers';
+import { errorMessage, spaceLabel } from '../services/helpers';
 import {
   AUTO_LOCK_OPTIONS,
   autoLockMinutes,
@@ -38,6 +38,21 @@ async function choose(id: ThemeId): Promise<void> {
   try {
     await auth.setTheme(id);
     notice.value = t('prefs.themeSaved');
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  }
+}
+
+// пространство при входе: пусто — организация по умолчанию (прежнее поведение)
+const homeSpace = ref(auth.user?.homeSpace ?? '');
+const homeNotice = ref('');
+async function chooseHome(value: string): Promise<void> {
+  error.value = '';
+  homeNotice.value = '';
+  try {
+    await auth.setHomeSpace(value || null);
+    homeSpace.value = value;
+    homeNotice.value = t('prefs.homeSaved');
   } catch (e) {
     error.value = errorMessage(e, t);
   }
@@ -151,6 +166,29 @@ function setLocale(value: 'ru' | 'en'): void {
         >
           {{ l === 'ru' ? 'Русский' : 'English' }}
         </button>
+      </div>
+    </div>
+
+    <div>
+      <h2>{{ t('prefs.homeTitle') }}</h2>
+      <p class="mt-1 text-sm text-slate-500">{{ t('prefs.homeHint') }}</p>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <select
+          :value="homeSpace"
+          class="input w-auto max-w-full"
+          data-testid="home-space"
+          @change="chooseHome(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">{{ t('prefs.homeDefault') }}</option>
+          <option v-for="s in ws.spaces" :key="s.id" :value="s.id">{{ spaceLabel(s, t) }}</option>
+          <option v-if="ws.personalAllowed" value="personal">{{ t('prefs.homePersonal') }}</option>
+        </select>
+        <span
+          v-if="homeNotice"
+          class="text-sm text-emerald-700 dark:text-emerald-400"
+          role="status"
+          >{{ homeNotice }}</span
+        >
       </div>
     </div>
 

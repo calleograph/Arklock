@@ -178,6 +178,25 @@ describe('corporate spaces', () => {
     expect((await admin.req('GET', `/spaces/${id}`)).json().canManage).toBe(true);
     expect((await admin.req('GET', `/vaults/${targetId}/tree`)).statusCode).toBe(404);
   });
+
+  it('remembers the space to open after sign-in, only among spaces the person belongs to', async () => {
+    const id = (await admin.req('POST', '/spaces', { name: 'Home choice' })).json().id;
+    expect((await admin.req('PUT', '/auth/preferences', { homeSpace: id })).statusCode).toBe(204);
+    expect((await admin.req('GET', '/auth/me')).json().user.homeSpace).toBe(id);
+    const pref = (body: object) => bob.req('PUT', '/auth/preferences', body);
+    expect((await pref({ homeSpace: id })).statusCode).toBe(403);
+    expect((await pref({ homeSpace: 'personal' })).statusCode).toBe(204);
+    expect((await bob.req('GET', '/auth/me')).json().user.homeSpace).toBe('personal');
+    expect((await pref({ homeSpace: null })).statusCode).toBe(204);
+    expect((await pref({ homeSpace: 'elsewhere' })).statusCode).toBe(400);
+    expect((await pref({})).statusCode).toBe(400);
+    // тема по-прежнему сохраняется отдельно
+    expect((await pref({ theme: 'dark' })).statusCode).toBe(204);
+    expect((await bob.req('GET', '/auth/me')).json().user).toMatchObject({
+      theme: 'dark',
+      homeSpace: null,
+    });
+  });
 });
 
 it('backfills legacy shared vaults into the public default space without changing membership or key bytes', async () => {

@@ -279,11 +279,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (currentSpaceId.value && !spaces.value.some((s) => s.id === currentSpaceId.value))
       currentSpaceId.value = null;
     if (!currentSpaceId.value && !currentId.value) {
-      // Организация по умолчанию; если в ней для пользователя нет сейфов, а личный сейф есть — открываем личное пространство
-      const home = spaces.value.find((s) => s.isDefault) ?? spaces.value[0];
-      const homeHasVaults = !!home && out.some((v) => v.spaceId === home.id);
-      currentSpaceId.value =
-        home && (homeHasVaults || !out.some((v) => v.kind === 'locker')) ? home.id : null;
+      // выбранное сотрудником пространство (если оно ему ещё доступно), иначе — организация по умолчанию;
+      // если в ней для пользователя нет сейфов, а личный сейф есть — открываем личное пространство
+      const pref = auth.user?.homeSpace;
+      const chosen = spaces.value.find((s) => s.id === pref);
+      if (pref === 'personal' && out.some((v) => v.kind === 'locker')) currentSpaceId.value = null;
+      else if (chosen) currentSpaceId.value = chosen.id;
+      else {
+        const home = spaces.value.find((s) => s.isDefault) ?? spaces.value[0];
+        const homeHasVaults = !!home && out.some((v) => v.spaceId === home.id);
+        currentSpaceId.value =
+          home && (homeHasVaults || !out.some((v) => v.kind === 'locker')) ? home.id : null;
+      }
     }
     if (!currentId.value || !out.some((v) => v.id === currentId.value)) {
       currentId.value = spaceVaults.value[0]?.id ?? null;

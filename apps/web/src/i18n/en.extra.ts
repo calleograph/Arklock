@@ -246,6 +246,11 @@ export default {
   prefs: {
     title: 'My settings',
     autoLock: 'Lock after inactivity',
+    homeTitle: 'Space after sign-in',
+    homeHint: 'Which space opens after you sign in — on all your devices.',
+    homeDefault: 'Organization default space',
+    homePersonal: 'Personal space',
+    homeSaved: 'Saved',
     autoLockHint:
       'Keys stay in this tab only. If you do not use Arklock for longer than the chosen time, it asks for your master password. Scrolling, reading and typing count as use. Reloading the page and locking manually always require the password.',
     autoLockOptions: {

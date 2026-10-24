@@ -73,6 +73,8 @@ export const users = pgTable(
     profileSource: jsonb('profile_source').$type<Record<string, 'ldap'>>().notNull().default({}),
     /** Цветовая тема интерфейса (личная настройка; к шифруемым данным не относится). */
     theme: text('theme'),
+    // пространство, которое открывается при входе: uuid пространства или 'personal'; пусто — по умолчанию организации
+    homeSpace: text('home_space'),
     /** Закрытые сотрудником информационные уведомления (идентификаторы), чтобы они не появлялись снова. */
     dismissedNotices: jsonb('dismissed_notices').notNull().default([]),
     /** Откуда учётная запись: local — мастер-пароль на сервере Arklock, ldap/oidc/saml — вход через корпоративный каталог или провайдера идентификации. */

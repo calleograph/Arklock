@@ -42,12 +42,12 @@ import {
 } from '../db/schema.js';
 import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
-import { AppError, notFound, parse } from '../errors.js';
+import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsOfVault } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
 import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
-import { DEFAULT_SPACE_ID } from '../spaces.js';
+import { DEFAULT_SPACE_ID, spaceAccess } from '../spaces.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
 
@@ -162,6 +162,7 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     delegated: u.role !== 'admin' && (await adminPermsOf(ctx, u)).size > 0,
     chief: u.chief,
     theme: u.theme,
+    homeSpace: u.homeSpace,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
     wrappedPrivateKey: u.wrappedPrivateKey,
@@ -508,16 +509,29 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     return { full: user.role === 'admin', permissions: [...perms].sort() };
   });
 
-  /** Личные настройки интерфейса (сейчас — цветовая тема). Хранятся в профиле, а не в зашифрованных данных. */
+  /** Личные настройки интерфейса: цветовая тема и пространство при входе. Хранятся в профиле, а не в зашифрованных данных. */
   app.put('/auth/preferences', { preHandler: auth }, async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(
-      z.object({
-        theme: z.enum(['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']),
-      }),
+      z
+        .object({
+          theme: z.enum(['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']).optional(),
+          homeSpace: z.union([uuid, z.literal('personal'), z.null()]).optional(),
+        })
+        .refine((b) => b.theme !== undefined || b.homeSpace !== undefined),
       req.body,
     );
-    await db.update(users).set({ theme: body.theme }).where(eq(users.id, user.id));
+    // открывать можно только пространство, в котором сотрудник состоит
+    if (body.homeSpace && body.homeSpace !== 'personal') {
+      if (!(await spaceAccess(db, body.homeSpace, user.id)).member) throw forbidden();
+    }
+    await db
+      .update(users)
+      .set({
+        ...(body.theme ? { theme: body.theme } : {}),
+        ...(body.homeSpace !== undefined ? { homeSpace: body.homeSpace } : {}),
+      })
+      .where(eq(users.id, user.id));
     return reply.status(204).send();
   });
 
