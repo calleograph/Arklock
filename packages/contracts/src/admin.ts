@@ -64,5 +64,14 @@ export const updatesOverview = z.object({
     }),
   ),
   pending: z.boolean(),
+  /** Автоматические проверки и плановая установка (политика администратора). */
+  auto: z
+    .object({
+      check: z.boolean(),
+      install: z.boolean(),
+      at: z.string(),
+      lastDay: z.string().nullable(),
+    })
+    .optional(),
 });
 export type UpdatesOverview = z.infer<typeof updatesOverview>;

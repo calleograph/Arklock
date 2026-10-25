@@ -511,6 +511,15 @@ export default {
     },
   },
   ldap: {
+    caUpload: 'Upload CA certificate',
+    caClear: 'Remove',
+    caHint:
+      'The certificate authority that signed your directory server certificate. It lets the LDAPS connection be verified instead of turned off. You can upload a .pem, .crt or .cer file, including a chain of several certificates.',
+    caInvalid: 'The text contains no readable PEM certificate.',
+    caIssuer: 'Issuer',
+    caValid: 'Valid',
+    caExpired: 'expired',
+    caDays: '{n} days left',
     useDirectory: 'Sign in with your corporate account',
     usePassword: 'Sign in with the vault unlock password',
     username: 'Username or e-mail',
@@ -521,7 +530,7 @@ export default {
     localExists: 'A local account with this address already exists',
     enrollHint:
       'This is your first sign-in. Choose a vault unlock password: it encrypts your data on this device and is not the directory password. It cannot be recovered.',
-    section: 'Directory (LDAP / Active Directory)',
+    section: 'Active Directory / LDAPS',
     enabled: 'Enable directory sign-in',
     url: 'Address (ldaps://host:636 or ldap://host:389)',
     startTls: 'Use StartTLS',
@@ -1036,6 +1045,23 @@ export default {
     can2: 'read a personal corporate vault only if they belong to a guardian group and hold the key;',
     can3: 'cannot read a private personal vault and cannot quietly delete other people’s private secrets.',
   },
+  autoUpdate: {
+    title: 'Automatic updates',
+    check: 'Check for updates automatically',
+    checkHint:
+      'Every 30 minutes Arklock asks the release source whether there is a new stable version. It does not install it.',
+    last: 'Last check: {at}',
+    next: 'next around {at}',
+    install: 'Install updates automatically',
+    installHint: 'Once a day at the chosen time, if a new stable version exists.',
+    installDetails:
+      'Pre-release versions are never installed. Before installing, the helper verifies signatures and free space and makes a safety backup; afterwards it checks the instance and rolls back on failure. Turn it on if a short night-time outage is acceptable.',
+    at: 'Install time (server time zone)',
+    password: 'Your vault unlock password',
+    policy:
+      'The install runs once a day; if it fails there is no retry that day, and the result is visible in the log below.',
+    saved: 'Saved.',
+  },
   transfer: {
     title: 'Import and export',
     import: 'Import',
@@ -1258,7 +1284,7 @@ export default {
       diagnostics: 'Diagnostics',
       certificates: 'Certificates',
       smtp: 'Mail',
-      ldap: 'Directory (LDAP)',
+      ldap: 'Active Directory / LDAPS',
       sso: 'Single sign-on',
       saml: 'SAML 2.0',
       syslog: 'Log export (syslog)',

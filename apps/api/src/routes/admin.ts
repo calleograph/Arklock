@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { reauthRequest, updateAction } from '@arklock/contracts';
 import type { UpdatesOverview } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { AUTO_AT_KEY, AUTO_CHECK_KEY, AUTO_INSTALL_KEY, autoPolicy } from '../auto-update.js';
+import { settings } from '../db/schema.js';
 import { adminGate } from '../auth/adminperm.js';
 import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -53,7 +56,43 @@ export const registerAdminRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     });
   }
 
-  app.get('/admin/updates', async () => overview());
+  app.get('/admin/updates', async () => ({ ...(await overview()), auto: await autoPolicy(db) }));
+
+  /**
+   * Автоматические проверки и установка. Проверка по умолчанию включена; установка включается только явно и с повторным
+   * подтверждением пароля: она запускается без человека, поэтому согласие должно быть осознанным.
+   */
+  app.put('/admin/updates/auto', async (req) => {
+    const { user } = authOf(req);
+    const body = parse(
+      z.object({
+        check: z.boolean(),
+        install: z.boolean(),
+        at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      }),
+      req.body,
+    );
+    const before = await autoPolicy(db);
+    if (body.install && (!before.install || before.at !== body.at)) requireReauth(ctx, req);
+    for (const [key, value] of [
+      [AUTO_CHECK_KEY, body.check],
+      [AUTO_INSTALL_KEY, body.install],
+      [AUTO_AT_KEY, body.at],
+    ] as const)
+      await db
+        .insert(settings)
+        .values({ key, value, updatedBy: user.id })
+        .onConflictDoUpdate({
+          target: settings.key,
+          set: { value, updatedAt: new Date(), updatedBy: user.id },
+        });
+    await audit(db, `user:${user.id}`, 'admin.updates.auto.config', null, {
+      check: body.check,
+      install: body.install,
+      at: body.at,
+    });
+    return autoPolicy(db);
+  });
   app.get('/admin/updates/inventory', async () => inventory(ctx));
 
   app.post('/admin/updates', async (req: FastifyRequest, reply: FastifyReply) => {

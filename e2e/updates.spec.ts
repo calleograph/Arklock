@@ -65,6 +65,21 @@ test('administrator checks for updates and applies one from the browser', async 
   );
   await expect(page.getByTestId('btn-update')).toHaveCount(0);
 
+  // автоматические обновления: проверка включена по умолчанию, установка — только после ввода пароля
+  await expect(page.getByTestId('auto-check')).toBeChecked();
+  await expect(page.getByTestId('auto-install')).not.toBeChecked();
+  await page.getByTestId('auto-install').check();
+  await page.getByTestId('auto-at').fill('03:30');
+  await page.getByTestId('auto-password').fill('wrong-password-for-auto-update');
+  await page.getByTestId('auto-save').click();
+  await expect(page.getByTestId('auto-update').getByRole('alert')).toBeVisible();
+  await page.getByTestId('auto-password').fill(MASTER);
+  await page.getByTestId('auto-save').click();
+  await expect(page.getByTestId('auto-update').getByRole('status')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('auto-install')).toBeChecked();
+  await expect(page.getByTestId('auto-at')).toHaveValue('03:30');
+
   // Проверка наличия обновления не требует подтверждения пароля.
   await page.getByTestId('btn-check').click();
   await expect(page.getByTestId('remote-status')).toHaveText('v9.9.9', { timeout: 15_000 });

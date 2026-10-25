@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -241,6 +242,35 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       await audit(tx, `user:${user.id}`, 'admin.ldap.delete', `ldap:${id}`);
     });
     return reply.status(204).send();
+  });
+
+  /**
+   * Сведения о загруженном сертификате центра сертификации: издатель, срок, отпечаток. Только разбор текста PEM,
+   * ничего не сохраняется и в сеть не отправляется.
+   */
+  app.post('/admin/ldap/ca-info', { preHandler: adminOnly }, async (req) => {
+    const body = parse(z.object({ pem: z.string().max(200_000) }), req.body);
+    const blocks =
+      body.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
+    const certs = blocks.slice(0, 20).map((pem) => {
+      try {
+        const c = new X509Certificate(pem);
+        const to = Date.parse(c.validTo);
+        return {
+          ok: true as const,
+          subject: c.subject.replace(/\n/g, ', '),
+          issuer: c.issuer.replace(/\n/g, ', '),
+          validFrom: new Date(c.validFrom).toISOString(),
+          validTo: new Date(to).toISOString(),
+          daysLeft: Math.floor((to - Date.now()) / 86_400_000),
+          fingerprint256: c.fingerprint256,
+          isCa: c.ca,
+        };
+      } catch {
+        return { ok: false as const };
+      }
+    });
+    return { certs, empty: body.pem.trim() !== '' && certs.length === 0 };
   });
 
   app.post('/admin/ldap/test', { preHandler: adminOnly }, async (req) => {

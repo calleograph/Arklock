@@ -35,6 +35,8 @@ const common = {
   WEB_DIST: 'apps/web/dist',
   LOG_LEVEL: 'warn',
   TRUSTED_PROXY_HOPS: '0',
+  // плановые проверки и установка в тестах браузера не нужны: они конкурировали бы с запросами из сценариев
+  AUTO_UPDATE: 'off',
 };
 
 /**

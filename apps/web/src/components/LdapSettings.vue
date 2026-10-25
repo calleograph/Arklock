@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import SwitchField from './SwitchField.vue';
 import InfoHint from './InfoHint.vue';
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
 import { errorMessage, when } from '../services/helpers';
@@ -186,6 +186,49 @@ async function load(): Promise<void> {
   loaded.value = true;
 }
 onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
+
+// сведения о загруженном сертификате центра сертификации: издатель, срок, отпечаток
+interface CaInfo {
+  subject: string;
+  issuer: string;
+  validFrom: string;
+  validTo: string;
+  daysLeft: number;
+  fingerprint256: string;
+}
+const caInfo = ref<CaInfo[]>([]);
+const caEmpty = ref(false);
+let caTimer: ReturnType<typeof setTimeout> | undefined;
+watch(
+  () => form.value.caPem,
+  (pem) => {
+    clearTimeout(caTimer);
+    caTimer = setTimeout(async () => {
+      if (!pem.trim()) {
+        caInfo.value = [];
+        caEmpty.value = false;
+        return;
+      }
+      try {
+        const r = await api<{ certs: ({ ok: true } & CaInfo)[]; empty: boolean }>(
+          'POST',
+          '/admin/ldap/ca-info',
+          { pem },
+        );
+        caInfo.value = r.certs.filter((c) => c.ok);
+        caEmpty.value = r.empty || r.certs.some((c) => !c.ok);
+      } catch {
+        caInfo.value = [];
+      }
+    }, 300);
+  },
+);
+onBeforeUnmount(() => clearTimeout(caTimer));
+async function onCaFile(ev: Event): Promise<void> {
+  const f = (ev.target as HTMLInputElement).files?.[0];
+  (ev.target as HTMLInputElement).value = '';
+  if (f && f.size <= 200_000) form.value.caPem = await f.text();
+}
 
 function fail(e: unknown): void {
   error.value =
@@ -375,10 +418,52 @@ const browse = () =>
         /></label>
         <SwitchField v-model="form.insecureTls" :label="t('ldap.insecureTls')" />
       </div>
-      <label class="block"
-        >{{ t('ldap.ca')
-        }}<textarea v-model="form.caPem" rows="3" class="input font-mono text-xs" />
-      </label>
+      <div class="space-y-1" data-testid="ldap-ca">
+        <span class="field-label inline-flex items-center gap-1"
+          >{{ t('ldap.ca') }}<InfoHint :text="t('ldap.caHint')"
+        /></span>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="btn cursor-pointer"
+            >{{ t('ldap.caUpload') }}
+            <input
+              type="file"
+              accept=".pem,.crt,.cer,.txt"
+              class="sr-only"
+              data-testid="ldap-ca-file"
+              @change="onCaFile"
+          /></label>
+          <button v-if="form.caPem" type="button" class="btn-ghost" @click="form.caPem = ''">
+            {{ t('ldap.caClear') }}
+          </button>
+        </div>
+        <textarea v-model="form.caPem" rows="3" class="input font-mono text-xs" />
+        <p v-if="caEmpty" class="text-red-600" role="alert">{{ t('ldap.caInvalid') }}</p>
+        <ul v-if="caInfo.length" class="space-y-1 text-xs" data-testid="ldap-ca-info">
+          <li
+            v-for="c in caInfo"
+            :key="c.fingerprint256"
+            class="rounded border border-slate-200 p-2 dark:border-slate-700"
+          >
+            <div class="font-medium">{{ c.subject }}</div>
+            <div class="text-slate-500">{{ t('ldap.caIssuer') }}: {{ c.issuer }}</div>
+            <div
+              :class="
+                c.daysLeft < 0
+                  ? 'text-red-700'
+                  : c.daysLeft < 30
+                    ? 'text-amber-700'
+                    : 'text-slate-500'
+              "
+            >
+              {{ t('ldap.caValid') }}: {{ c.validFrom.slice(0, 10) }} —
+              {{ c.validTo.slice(0, 10) }} ({{
+                c.daysLeft < 0 ? t('ldap.caExpired') : t('ldap.caDays', { n: c.daysLeft })
+              }})
+            </div>
+            <div class="break-all font-mono text-slate-500">SHA-256: {{ c.fingerprint256 }}</div>
+          </li>
+        </ul>
+      </div>
       <label class="block"
         ><span class="inline-flex items-center gap-1"
           >{{ t('ldap.bindDn') }}<InfoHint :text="t('hint.ldapBindDn.text')" /></span

@@ -7,6 +7,7 @@ import { api, ApiError } from '../services/api';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
 import InstallInventory from '../components/InstallInventory.vue';
+import AutoUpdateSettings from '../components/AutoUpdateSettings.vue';
 
 const { t, te } = useI18n();
 const label = (group: string, v: string) =>
@@ -264,6 +265,12 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           </dd>
         </div>
       </dl>
+
+      <AutoUpdateSettings
+        :auto="data.auto"
+        :checked-at="data.remote?.checkedAt ?? null"
+        @saved="load"
+      />
 
       <div
         v-if="showProgress"

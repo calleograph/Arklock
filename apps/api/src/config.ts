@@ -38,6 +38,8 @@ const schema = z.object({
   APP_GIT_COMMIT: z.string().default('unknown'),
   APP_BUILT_AT: z.string().default('unknown'),
   UPDATE_CHANNEL: z.enum(['stable', 'edge']).default('stable'),
+  /** off — планировщик автоматических проверок и обновления не запускается (стенды и тесты браузера); политика администратора действует при on. */
+  AUTO_UPDATE: z.enum(['on', 'off']).default('on'),
 });
 
 export type Config = z.infer<typeof schema> & {
