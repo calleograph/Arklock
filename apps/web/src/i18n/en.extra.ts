@@ -1102,6 +1102,34 @@ export default {
       'The install runs once a day; if it fails there is no retry that day, and the result is visible in the log below.',
     saved: 'Saved.',
   },
+  profileCard: {
+    tabs: { profile: 'My profile', security: 'Sign-in and security', advanced: 'Advanced' },
+    f: {
+      name: 'Name',
+      title: 'Job title',
+      department: 'Department',
+      phone: 'Phone',
+      email: 'Email',
+      source: 'Account source',
+      role: 'Role',
+      since: 'In Arklock since',
+    },
+    source: {
+      local: 'Local',
+      ldap: 'Directory (Active Directory)',
+      oidc: 'Single sign-on (SSO)',
+      saml: 'Single sign-on (SAML)',
+    },
+    role: { chief: 'Chief administrator', admin: 'Administrator', member: 'Employee' },
+    directory: 'from the directory',
+    note: 'Read only: directory fields are changed in the directory, the rest by an administrator. Appearance, language and notifications are in “My settings”.',
+    settings: 'My settings',
+    advancedIntro: 'Features for technical specialists. An ordinary employee does not need them.',
+    tokenNote:
+      'API tokens connect programs and scripts that work with Arklock on your behalf. A token acts as you: keep it like a password and limit its lifetime.',
+    cliNote: 'The command line is meant for technical specialists: it uses an API token.',
+    policyNote: 'If your organization forbids personal tokens, these features are unavailable.',
+  },
   transfer: {
     title: 'Import and export',
     import: 'Import',
@@ -1157,7 +1185,7 @@ export default {
     archiveFormat:
       'The key is derived from the password with Argon2id; the data is encrypted with AES-256-GCM with an integrity check. The format is described in the security documentation.',
     passwordNote:
-      'The password is shown only here and is stored nowhere: not on the server, not in the log. You will need it again to import the archive.',
+      'The password is visible only on this screen and is stored nowhere: not on the server, not in the log. You will need it again to import the archive.',
     copied: 'Copied',
     regenerate: 'Generate new',
     exportHint:
@@ -1275,11 +1303,11 @@ export default {
   },
   admin: {
     settingsTab: {
-      main: 'General',
-      security: 'Security',
+      main: 'General settings',
+      security: 'Security policies',
       storage: 'Vaults and files',
       notify: 'Notifications',
-      network: 'Network and access',
+      network: 'Public address and network',
     },
     settingsGroup: {
       access: 'Registration and access',

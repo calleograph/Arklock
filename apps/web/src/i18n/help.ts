@@ -4,7 +4,7 @@ export const ruHelp = {
     about: 'Пояснение',
     moreHint: 'Нажмите, чтобы узнать больше',
     title: 'Помощь',
-    intro: 'Короткие ответы на частые вопросы. Подробности — в документации.',
+    intro: 'Руководства по задачам, быстрые ответы и словарь. Подробности — в документации.',
     sections: {
       start: 'Начало работы',
       admin: 'Для администратора',
@@ -982,7 +982,7 @@ export const enHelp = {
     about: 'What is this?',
     moreHint: 'Click for more',
     title: 'Help',
-    intro: 'Short answers to common questions. See the documentation for details.',
+    intro: 'Task guides, quick answers and a glossary. See the documentation for details.',
     sections: {
       start: 'Getting started',
       admin: 'For administrators',

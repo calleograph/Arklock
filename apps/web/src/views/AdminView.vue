@@ -790,7 +790,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           >
             <button
               type="button"
-              class="hidden w-full items-center justify-between rounded-md px-2.5 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800 md:flex dark:hover:text-slate-200"
+              class="hidden w-full items-start justify-between gap-1 rounded-md px-2.5 pb-0.5 pt-1 text-left text-[11px] font-semibold uppercase leading-tight tracking-wider text-slate-500 hover:text-slate-800 md:flex dark:hover:text-slate-200"
               :class="
                 navState.rail ? 'md:border-t md:border-slate-200 md:dark:border-slate-800' : ''
               "

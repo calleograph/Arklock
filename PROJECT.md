@@ -38,6 +38,11 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 - Журнал: событие `entry.client.open`, поиск в журнале объекта, имена и поиск по сотруднику в `/admin/ledger`, подписи всех действий (`ledgerAction` в `i18n/help.ts`).
 - Состав установки (`inventory.ts`, `/admin/updates/inventory`, раздел «Компоненты установки»), SBOM к выпуску; пробное восстановление копии (`backup.sh --restore-test`, кнопка «Проверить»); диагностика кодами состояний (`DIAGNOSTIC_STATES` в contracts), тексты RU/EN в словаре.
 - CLI, токены API, расширение Chromium/Firefox, PWA и адаптивный интерфейс.
+- Администрирование (`AdminView.vue`): меню в два уровня (`GROUPS`, пункты настроек ведут в разделы страницы по `?section=`), поиск людей и групп на сервере (`GET /admin/people`, `limit/offset/q` у `/admin/users` и `/admin/circles`, `PersonPicker`, `GroupPicker`), мастера (`WizardsPanel`), инвентаризация сейфов (`GET /admin/vaults`, `VaultsInventory`), ресурсы с историей (`metrics.ts`, `metric_samples`), службы, диагностика, сертификаты по назначению, журналы служб с фильтрами.
+- Перенос данных: страница `/transfer` (`TransferView.vue`, `services/transfer.ts`), формат `arklock-export` версии 2 и зашифрованный архив (Argon2id + AES-256-GCM, пароль из 30 знаков создаётся в браузере), описание — `docs/security/export-format.md`.
+- Персональные сейфы двух видов: личный приватный и персональный корпоративный (`vaults.managed_for`, `vault_circles.managed`, `managed-vaults.ts`, политика `vaults.managedPersonal/Guardians/Role`).
+- Автоматические обновления (`auto-update.ts`, `AUTO_UPDATE`): проверка каждые 30 минут, плановая установка стабильной версии с согласием администратора.
+- Ссылка на запись `/e/<код>` (`entries.short_id`, `GET /entries/by-short/:code`), страница «Мой аккаунт» с вкладками профиля, входа и безопасности и дополнительных возможностей (`GET /auth/profile`).
 
 ## Размещение и эксплуатация
 

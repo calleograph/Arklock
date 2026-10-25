@@ -1139,3 +1139,104 @@ test('«Мастера настройки»: точка входа к сложн
   await expect(page).toHaveURL(/\/admin\/departments$/);
   await expect(page.getByTestId('departments')).toBeVisible();
 });
+
+test('визуальный аудит: экраны администрирования, переноса и справки на шести размерах без прокрутки вбок', async () => {
+  test.setTimeout(600_000);
+  const pages = [
+    '/admin/overview',
+    '/admin/users',
+    '/admin/departments',
+    '/admin/wizards',
+    '/admin/vaults',
+    '/admin/organization',
+    '/admin/settings?section=security',
+    '/admin/resources',
+    '/admin/containers',
+    '/admin/certificates',
+    '/admin/updates',
+    '/admin/logs',
+    '/transfer?tab=export',
+    '/transfer?tab=import',
+    '/help',
+    '/',
+  ];
+  const sizes: [number, number][] = [
+    [1280, 800],
+    [1366, 768],
+    [1440, 900],
+    [1512, 982],
+    [1920, 1080],
+    [390, 844],
+  ];
+  const wide: string[] = [];
+  for (const [w, h] of sizes) {
+    await page.setViewportSize({ width: w, height: h });
+    for (const url of pages) {
+      await page.goto(url);
+      await page.waitForLoadState('networkidle');
+      const over = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      if (over > 0) wide.push(`${w}×${h} ${url}: +${over}px`);
+      if (
+        w === 1366 &&
+        [
+          '/admin/overview',
+          '/admin/wizards',
+          '/admin/resources',
+          '/transfer?tab=export',
+          '/help',
+          '/admin/vaults',
+        ].includes(url)
+      )
+        await page.screenshot({
+          path: `docs/screenshots/ux-${url.replace(/[/?=]+/g, '-').replace(/^-|-$/g, '')}.png`,
+        });
+    }
+  }
+  expect(wide, wide.join('\n')).toEqual([]);
+
+  // шесть тем: страницы остаются читаемыми и не ломают раскладку
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const broken: string[] = [];
+  for (const theme of ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']) {
+    for (const url of ['/admin/overview', '/transfer?tab=export', '/help']) {
+      await page.goto(url);
+      await page.evaluate((id) => {
+        document.documentElement.dataset.theme = id;
+        document.documentElement.classList.toggle('dark', ['dark', 'forest'].includes(id));
+      }, theme);
+      const over = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      const color = await page.evaluate(() => {
+        const cs = getComputedStyle(document.body);
+        return [cs.color, cs.backgroundColor];
+      });
+      // текст и фон не совпадают (иначе страница пустая на вид)
+      if (over > 0 || color[0] === color[1]) broken.push(`${theme} ${url}`);
+    }
+  }
+  expect(broken, broken.join('\n')).toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 720 });
+});
+
+test('мой аккаунт: профиль только для чтения, вход и безопасность, дополнительные возможности отдельно', async ({
+  browser,
+}) => {
+  const staff = await login(browser, staffEmail(4));
+  await staff.getByTestId('menu-toggle').click();
+  await staff.getByTestId('menu-profile').click();
+  await expect(staff.getByTestId('profile-card')).toBeVisible();
+  await expect(staff.getByTestId('profile-email')).toHaveText(staffEmail(4));
+  await expect(staff.getByTestId('profile-source')).toHaveText('Локальная');
+  // вход и безопасность — прежняя страница: сеансы, второй фактор, смена пароля
+  await staff.getByTestId('account-tab-security').click();
+  await expect(staff.getByTestId('sessions')).toBeVisible();
+  await expect(staff.getByTestId('tokens-section')).toHaveCount(0);
+  // токены API и командная строка — отдельно, с объяснением
+  await staff.getByTestId('account-tab-advanced').click();
+  await expect(staff.getByTestId('account-advanced')).toContainText('Токены API');
+  await expect(staff.getByTestId('tokens-section')).toBeVisible();
+  await staff.context().close();
+});

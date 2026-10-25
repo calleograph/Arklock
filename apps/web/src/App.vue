@@ -256,6 +256,12 @@ const initial = () =>
                           id: 'menu-transfer',
                         },
                         {
+                          to: '/security?tab=profile',
+                          icon: 'user',
+                          label: t('profileCard.tabs.profile'),
+                          id: 'menu-profile',
+                        },
+                        {
                           to: '/security',
                           icon: 'shield',
                           label: t('nav.security'),

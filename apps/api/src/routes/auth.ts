@@ -551,6 +551,22 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     };
   });
 
+  /** Сведения о себе для страницы «Мой профиль»: карточка сотрудника только для чтения (поля из каталога меняет каталог). */
+  app.get('/auth/profile', { preHandler: auth }, async (req) => {
+    const { user } = authOf(req);
+    return {
+      name: user.displayName,
+      email: user.email,
+      role: user.chief ? 'chief' : user.role,
+      source: user.authSource,
+      title: user.title,
+      department: user.department,
+      phone: user.phone,
+      fromDirectory: Object.keys((user.profileSource as Record<string, string>) ?? {}),
+      createdAt: user.createdAt.toISOString(),
+    };
+  });
+
   app.get('/auth/sessions', { preHandler: auth }, async (req): Promise<SessionInfo[]> => {
     const { user, session } = authOf(req);
     const rows = await db

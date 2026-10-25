@@ -522,3 +522,17 @@ describe('password change and account recovery', () => {
 function fromSalt(s: string): Uint8Array {
   return Uint8Array.from(Buffer.from(s, 'base64url'));
 }
+
+it('shows the employee their own profile card, read only', async () => {
+  const c = new TestClient(app, 'profile-self@example.com', 'profile-self-pass-1234');
+  await c.register();
+  await c.login();
+  const p = (await c.req('GET', '/auth/profile')).json();
+  expect(p).toMatchObject({
+    email: 'profile-self@example.com',
+    source: 'local',
+    title: null,
+    fromDirectory: [],
+  });
+  expect((await app.inject({ method: 'GET', url: '/api/v1/auth/profile' })).statusCode).toBe(401);
+});
