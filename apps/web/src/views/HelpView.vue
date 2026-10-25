@@ -20,6 +20,7 @@ const USER_TOPICS = [
   'lost',
   'history',
   'files',
+  'shortcuts',
   'extension',
   'transfer',
 ] as const;

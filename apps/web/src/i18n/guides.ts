@@ -108,6 +108,15 @@ export const ruGuides = {
         s4: 'На телефоне откройте адрес Arklock в браузере и выберите «Установить на главный экран».',
         note: 'Подробнее: документация «Расширение браузера и телефон».',
       },
+      shortcuts: {
+        title: 'Быстрая работа: кнопки в строке, клавиши и отмена удаления',
+        lead: 'Частые действия выполняются без лишних переходов.',
+        s1: 'В списке при наведении у записи появляются кнопки «Копировать логин» и «Копировать пароль»: запись открывать не нужно. На сенсорных экранах они видны всегда; долгое нажатие открывает меню записи.',
+        s2: 'Клавиши списка (когда курсор не в поле ввода): «/» — перейти в поиск, «n» — новая запись, «e» — изменить открытую запись, «c» — копировать её пароль, «u» — копировать логин.',
+        s3: 'Удалили запись по ошибке — в течение нескольких секунд нажмите «Вернуть» в появившейся панели; позже запись можно достать из корзины.',
+        s4: 'Перенести запись в другую папку можно перетаскиванием на папку, а несколько записей — отметкой и кнопкой «Переместить».',
+        note: 'Пароль, скопированный в буфер обмена, стирается из него через 30 секунд.',
+      },
       transfer: {
         title: 'Импорт и экспорт паролей',
         lead: 'Перенос из других программ и выгрузка резервной копии своих паролей.',
@@ -306,6 +315,15 @@ export const enGuides = {
         s3: 'After locking, the extension forgets the keys by itself. Unlock it with your password.',
         s4: 'On a phone open the Arklock address in the browser and choose “Add to home screen”.',
         note: 'More in the documentation “Browser extension and phone”.',
+      },
+      shortcuts: {
+        title: 'Working fast: row buttons, keys and undo delete',
+        lead: 'Frequent actions need no extra navigation.',
+        s1: 'In the list, hovering an entry shows “Copy username” and “Copy password” buttons: there is no need to open the entry. On touch screens they are always visible; a long press opens the entry menu.',
+        s2: 'List keys (when the cursor is not in an input): “/” — go to search, “n” — new entry, “e” — edit the open entry, “c” — copy its password, “u” — copy its username.',
+        s3: 'Deleted an entry by mistake — press “Undo” in the panel that appears within a few seconds; later you can restore it from the trash.',
+        s4: 'Move an entry to another folder by dragging it onto the folder, and several entries by ticking them and pressing “Move”.',
+        note: 'A password copied to the clipboard is erased from it after 30 seconds.',
       },
       transfer: {
         title: 'Importing and exporting passwords',

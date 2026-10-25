@@ -1,6 +1,6 @@
 {
   "name": "@arklock/web",
-  "version": "1.73.0",
+  "version": "1.74.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,8 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@arklock/contracts": "1.73.0",
-    "@arklock/crypto": "1.73.0",
+    "@arklock/contracts": "1.74.0",
+    "@arklock/crypto": "1.74.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/onest": "^5.3.1",
     "pinia": "^3.0.0",

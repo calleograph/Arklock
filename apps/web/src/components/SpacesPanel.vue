@@ -6,13 +6,14 @@ import { api, ApiError } from '../services/api';
 import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 
-const emit = defineEmits<{ changed: [] }>();
+const emit = defineEmits<{ changed: []; close: [] }>();
 const { t } = useI18n({
   useScope: 'local',
   messages: {
     ru: {
       spaces: {
         title: 'Корпоративные пространства',
+        close: 'Закрыть',
         create: 'Создать пространство',
         name: 'Название',
         description: 'Описание',
@@ -43,6 +44,7 @@ const { t } = useI18n({
     en: {
       spaces: {
         title: 'Corporate spaces',
+        close: 'Close',
         create: 'Create space',
         name: 'Name',
         description: 'Description',
@@ -182,7 +184,19 @@ onMounted(() => run(load));
 
 <template>
   <section class="card space-y-4 p-4" data-testid="spaces-panel">
-    <h2 class="font-semibold">{{ t('spaces.title') }}</h2>
+    <div class="flex items-start justify-between gap-2">
+      <h2 class="font-semibold">{{ t('spaces.title') }}</h2>
+      <button
+        type="button"
+        class="btn-ghost -mr-1 -mt-1 px-2"
+        :aria-label="t('spaces.close')"
+        :title="t('spaces.close')"
+        data-testid="spaces-close"
+        @click="emit('close')"
+      >
+        ✕
+      </button>
+    </div>
     <p class="text-sm text-slate-500">{{ t('spaces.hint') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <div class="flex flex-wrap gap-2">

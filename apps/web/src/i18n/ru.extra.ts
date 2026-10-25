@@ -123,6 +123,12 @@ export default {
     enable: 'Включить восстановление',
     disable: 'Отключить восстановление',
   },
+  ws: {
+    copyLogin: 'Копировать логин',
+    trashed: 'Запись в корзине',
+    undo: 'Вернуть',
+    copyPassword: 'Копировать пароль',
+  },
   entryPanel: {
     copyLink: 'Копировать ссылку для коллег',
     linkCopied: 'Ссылка скопирована',

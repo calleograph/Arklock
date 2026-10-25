@@ -122,6 +122,12 @@ export default {
     enable: 'Enable recovery',
     disable: 'Disable recovery',
   },
+  ws: {
+    copyLogin: 'Copy username',
+    trashed: 'Entry moved to the trash',
+    undo: 'Undo',
+    copyPassword: 'Copy password',
+  },
   entryPanel: {
     copyLink: 'Copy link for colleagues',
     linkCopied: 'Link copied',

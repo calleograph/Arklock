@@ -51,14 +51,18 @@ onBeforeUnmount(() => {
     @mouseenter="peek = true"
     @mouseleave="peek = false"
   >
-    <button
-      type="button"
+    <!-- не <button>: кнопка внутри подписи поля перехватывает её, и у поля пропадает название (подпись относится к первому управляемому элементу) -->
+    <span
+      role="button"
+      tabindex="0"
       class="inline-flex size-6 items-center justify-center rounded-full text-slate-500 hover:text-brand-600 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-brand-500"
       data-testid="info-hint"
       :aria-label="t('help.about')"
       :aria-expanded="pinned"
       :aria-describedby="shown ? id : undefined"
       @click.stop.prevent="pinned = !pinned"
+      @keydown.enter.stop.prevent="pinned = !pinned"
+      @keydown.space.stop.prevent="pinned = !pinned"
       @focus="peek = true"
       @blur="peek = false"
     >
@@ -67,7 +71,7 @@ onBeforeUnmount(() => {
         aria-hidden="true"
         >i</span
       >
-    </button>
+    </span>
     <span
       v-if="shown"
       :id="id"

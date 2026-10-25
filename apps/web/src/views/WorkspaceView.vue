@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, toRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ManagedVaultDialog from '../components/ManagedVaultDialog.vue';
@@ -341,6 +341,35 @@ function newEntry(from: EntryItem | null = null): void {
   creating.value = true;
   showDetails();
 }
+/**
+ * Горячие клавиши списка (не срабатывают при вводе текста и с Ctrl/Alt/Meta): «/» — поиск, «n» — новая запись,
+ * «e» — изменить открытую, «c» — копировать пароль, «u» — копировать логин.
+ */
+function onHotkey(ev: KeyboardEvent): void {
+  if (ev.ctrlKey || ev.altKey || ev.metaKey || ev.isComposing) return;
+  const el = ev.target as HTMLElement | null;
+  if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+  if (document.querySelector('[role="dialog"]')) return;
+  const e = opened.value;
+  if (ev.key === '/') {
+    ev.preventDefault();
+    document.querySelector<HTMLInputElement>('[data-testid="search"]')?.focus();
+  } else if (ev.key === 'n' && canWrite.value && scope.value !== 'trash') {
+    ev.preventDefault();
+    newEntry();
+  } else if (ev.key === 'e' && e && e.access !== 'reader' && scope.value !== 'trash') {
+    ev.preventDefault();
+    open(e, true);
+  } else if (ev.key === 'c' && e?.data.password) {
+    ev.preventDefault();
+    void run(() => copyFromMenu(e, e.data.password, 'password'));
+  } else if (ev.key === 'u' && e?.data.username) {
+    ev.preventDefault();
+    void run(() => copyFromMenu(e, e.data.username, 'username'));
+  }
+}
+onMounted(() => window.addEventListener('keydown', onHotkey));
+onBeforeUnmount(() => window.removeEventListener('keydown', onHotkey));
 function showDetails(): void {
   mobileView.value = 'details';
   if (window.matchMedia('(max-width: 1023px)').matches)
@@ -473,6 +502,21 @@ async function copyFromMenu(
   // отметка в журнале; её сбой не мешает пользоваться скопированным
   void reportEntryEvent(e, 'copy', field).catch(() => undefined);
 }
+// удаление обратимо одним нажатием: «Вернуть» в течение нескольких секунд, дальше — через корзину
+const undo = ref<EntryItem | null>(null);
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
+async function trashWithUndo(e: EntryItem): Promise<void> {
+  await ws.trashEntry(e);
+  undo.value = e;
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => (undo.value = null), 8000);
+}
+async function undoTrash(): Promise<void> {
+  const e = undo.value;
+  undo.value = null;
+  if (e) await ws.restoreEntry(e);
+}
+onBeforeUnmount(() => clearTimeout(undoTimer));
 function onCtx(id: string): void {
   const e = ctxMenu.value?.entry;
   if (!e) return;
@@ -487,13 +531,13 @@ function onCtx(id: string): void {
   else if (id === 'purge') confirmBox(t('vault.confirmPurge')) && void run(() => ws.purgeEntry(e));
   else if (id === 'archive')
     void run(() => ws.saveEntry({ ...e.data, archived: !e.data.archived }, e));
-  else if (id === 'trash') void run(() => ws.trashEntry(e));
+  else if (id === 'trash') void run(() => trashWithUndo(e));
 }
 
 function onEntryAction(id: string): void {
   if (id === 'move') moving.value = true;
   else if (id === 'clone') newEntry(opened.value);
-  else if (id === 'trash') void run(() => ws.trashEntry(opened.value!));
+  else if (id === 'trash') void run(() => trashWithUndo(opened.value!));
 }
 const vaultActions = computed<ActionItem[]>(() => [
   ...(isVaultAdmin.value && vault.value?.kind === 'shared'
@@ -685,7 +729,7 @@ void router;
         />
       </div>
     </div>
-    <SpacesPanel v-if="showSpaces" @changed="refreshSpaces" />
+    <SpacesPanel v-if="showSpaces" @changed="refreshSpaces" @close="showSpaces = false" />
 
     <p
       v-if="!ws.keyLogOk"
@@ -1026,6 +1070,7 @@ void router;
             <input
               type="checkbox"
               :checked="allSelected"
+              :aria-label="t('vault.selectAll')"
               data-testid="select-all"
               @change="toggleAll"
             />
@@ -1130,7 +1175,31 @@ void router;
                   }}
                 </div>
               </div>
-              <span class="badge shrink-0 max-sm:hidden">{{ t(`kind.${e.data.kind}`) }}</span>
+              <!-- быстрое копирование без открытия записи; на устройствах без наведения кнопки видны всегда -->
+              <span
+                v-if="e.data.username || e.data.password"
+                class="flex shrink-0 gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 max-sm:hidden [@media(hover:none)]:opacity-100"
+                @click.stop
+              >
+                <IconButton
+                  v-if="e.data.username"
+                  icon="user"
+                  :label="t('ws.copyLogin')"
+                  data-testid="row-copy-login"
+                  @click.stop="run(() => copyFromMenu(e, e.data.username, 'username'))"
+                />
+                <IconButton
+                  v-if="e.data.password"
+                  icon="copy"
+                  :label="t('ws.copyPassword')"
+                  data-testid="row-copy-password"
+                  @click.stop="run(() => copyFromMenu(e, e.data.password, 'password'))"
+                />
+              </span>
+              <!-- тип показывается, когда он отличается от обычного «логин и пароль»: иначе это шум в каждой строке -->
+              <span v-if="e.data.kind !== 'login'" class="badge shrink-0 max-sm:hidden">{{
+                t(`kind.${e.data.kind}`)
+              }}</span>
             </li>
           </ul>
         </div>
@@ -1234,6 +1303,22 @@ void router;
       @select="onCtx"
       @close="ctxMenu = null"
     />
+    <div
+      v-if="undo"
+      class="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-[10px] bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      role="status"
+      data-testid="undo-toast"
+    >
+      {{ t('ws.trashed') }}
+      <button
+        type="button"
+        class="font-semibold underline"
+        data-testid="undo-trash"
+        @click="run(undoTrash)"
+      >
+        {{ t('ws.undo') }}
+      </button>
+    </div>
     <p
       v-if="flash"
       class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-[10px] bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"

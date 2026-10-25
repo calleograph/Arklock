@@ -1012,6 +1012,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <select
                     :value="u.role"
                     class="input w-auto"
+                    :aria-label="`${t('admin.role')}: ${u.name}`"
                     :disabled="u.id === auth.user?.id || u.chief || !auth.user?.chief"
                     :title="auth.user?.chief ? undefined : t('chief.onlyChief')"
                     @change="patchUser(u, { role: ($event.target as HTMLSelectElement).value })"
@@ -1024,6 +1025,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <select
                     :value="u.adminRoleId ?? ''"
                     class="input w-auto"
+                    :aria-label="`${t('admin.adminRole')}: ${u.name}`"
                     :disabled="u.role === 'admin'"
                     :data-testid="`admin-role-${u.email}`"
                     @change="
@@ -1723,6 +1725,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-model="rangeUrl"
               rows="2"
               class="input font-mono"
+              :aria-label="t('admin.rangeTitle')"
               data-testid="range-url"
             ></textarea>
             <div class="flex gap-2">
