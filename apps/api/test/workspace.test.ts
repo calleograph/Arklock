@@ -1034,7 +1034,9 @@ describe('administration', () => {
     expect(oldest).toHaveLength(total);
     expect((await admin.req('GET', '/admin/ledger?before=1;drop')).statusCode).toBe(400);
     const csv = (await admin.req('GET', '/admin/ledger?format=csv&limit=10')).json().csv as string;
-    expect(csv.split('\n')[0]).toBe('id,at,actor,actor_name,action,target,target_name,detail');
+    expect(csv.split('\n')[0]).toBe(
+      'id,at,actor,actor_name,action,target,target_name,detail,level',
+    );
     // поиск по сотруднику: имя или почта автора
     const byPerson = (await admin.req('GET', '/admin/ledger?q=bob%40example&limit=500')).json();
     expect(byPerson.items.length).toBeGreaterThan(0);

@@ -40,6 +40,13 @@ const { t } = useI18n({
         'Подпись: заголовок X-Arklock-Signature = sha256=HMAC-SHA256(секрет, «метка.тело»), метка — в X-Arklock-Timestamp. Получатель должен проверять подпись и отбрасывать старые метки.',
       saveFirst: 'Сначала сохраните изменения, затем проверяйте доставку.',
       limit: 'До десяти вебхуков.',
+      logTitle: 'Журнал доставки',
+      logEmpty: 'Доставок пока не было.',
+      logOk: 'доставлено',
+      logFail: 'не доставлено',
+      logTries: 'попыток: {n}',
+      logHint:
+        'Последние 50 доставок: время, событие и ответ получателя. Содержимое сообщений не сохраняется.',
     },
     en: {
       hint: 'A webhook sends an external system a signed message about an activity-log event: who did what to which object. Passwords, entries and keys are never included.',
@@ -71,6 +78,13 @@ const { t } = useI18n({
         'Signature: header X-Arklock-Signature = sha256=HMAC-SHA256(secret, "timestamp.body"), the timestamp is in X-Arklock-Timestamp. The receiver must verify the signature and drop old timestamps.',
       saveFirst: 'Save your changes first, then test the delivery.',
       limit: 'Up to ten webhooks.',
+      logTitle: 'Delivery log',
+      logEmpty: 'Nothing has been delivered yet.',
+      logOk: 'delivered',
+      logFail: 'failed',
+      logTries: 'attempts: {n}',
+      logHint:
+        'The last 50 deliveries: time, event and the receiver’s answer. Message contents are not stored.',
     },
   },
 });
@@ -91,6 +105,25 @@ const error = ref('');
 const notice = ref('');
 const results = ref<Record<number, string>>({});
 const busy = ref(false);
+interface Delivery {
+  at: string;
+  event: string;
+  ok: boolean;
+  code: number | null;
+  attempts: number;
+  error: string | null;
+}
+const logs = ref<Record<string, Delivery[]>>({});
+async function openLog(h: Hook, e: Event): Promise<void> {
+  if (!h.id || !(e.target as HTMLDetailsElement).open) return;
+  try {
+    logs.value[h.id] = (
+      await api<{ deliveries: Delivery[] }>('GET', `/admin/webhooks/${h.id}/deliveries`)
+    ).deliveries;
+  } catch (err) {
+    error.value = errorMessage(err, gt);
+  }
+}
 
 async function load(): Promise<void> {
   const r = await api<{
@@ -247,6 +280,27 @@ X-Arklock-Signature: sha256=3f5c…
           <span v-if="h.status.lastError" class="text-red-600">· {{ h.status.lastError }}</span>
         </p>
         <p v-if="results[i]" class="text-xs" role="status">{{ results[i] }}</p>
+        <details v-if="h.id" data-testid="webhook-log" @toggle="openLog(h, $event)">
+          <summary class="cursor-pointer text-xs font-medium">{{ t('logTitle') }}</summary>
+          <p class="mt-1 text-xs text-slate-500">{{ t('logHint') }}</p>
+          <p v-if="logs[h.id] && !logs[h.id]!.length" class="mt-1 text-xs">{{ t('logEmpty') }}</p>
+          <ul v-else class="mt-1 divide-y divide-slate-200 text-xs dark:divide-slate-800">
+            <li
+              v-for="(d, k) in logs[h.id] ?? []"
+              :key="k"
+              class="flex flex-wrap gap-x-3 py-1"
+              data-testid="webhook-log-row"
+            >
+              <time class="tabular-nums text-slate-500">{{ new Date(d.at).toLocaleString() }}</time>
+              <span class="font-mono">{{ d.event }}</span>
+              <span :class="d.ok ? 'text-emerald-700' : 'text-red-600'">
+                {{ d.ok ? t('logOk') : t('logFail') }}{{ d.code ? ` · ${d.code}` : '' }}
+              </span>
+              <span class="text-slate-500">{{ t('logTries', { n: d.attempts }) }}</span>
+              <span v-if="d.error" class="break-all text-red-600">{{ d.error }}</span>
+            </li>
+          </ul>
+        </details>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button

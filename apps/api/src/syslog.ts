@@ -1,3 +1,4 @@
+import { CRITICAL_RE } from './event-level.js';
 import dgram from 'node:dgram';
 import net from 'node:net';
 import os from 'node:os';
@@ -45,7 +46,7 @@ const sdEscape = (v: string): string =>
  */
 export function formatSyslog(ev: AuditEvent, host = os.hostname()): string {
   const pri = 16 * 8 + severity(ev.action); // local0
-  const result = /failed|denied|reject|blocked/.test(ev.action) ? 'failure' : 'success';
+  const result = CRITICAL_RE.test(ev.action) ? 'failure' : 'success';
   const sd = [`actor="${sdEscape(ev.actor)}"`, `result="${result}"`];
   if (ev.target) sd.push(`target="${sdEscape(ev.target)}"`);
   for (const [k, v] of Object.entries(ev.detail ?? {})) {

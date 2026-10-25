@@ -36,6 +36,22 @@ export const metricSamples = pgTable('metric_samples', {
   dbBytes: bigint('db_bytes', { mode: 'number' }).notNull(),
 });
 
+/** Журнал доставки вебхуков: последние попытки по каждому вебхуку; тел сообщений и секретов здесь нет. */
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    hookId: text('hook_id').notNull(),
+    at: ts('at').notNull().defaultNow(),
+    event: text('event').notNull(),
+    ok: boolean('ok').notNull(),
+    code: integer('code'),
+    attempts: integer('attempts').notNull(),
+    error: text('error'),
+  },
+  (t) => [index('webhook_deliveries_hook_idx').on(t.hookId, t.at)],
+);
+
 /** Ledger — журнал действий. Только добавление; секреты и ключи в него не попадают. */
 export const ledger = pgTable(
   'ledger',

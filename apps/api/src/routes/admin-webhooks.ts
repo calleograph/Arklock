@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { desc, eq, inArray, not } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
@@ -7,7 +7,7 @@ import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { settings } from '../db/schema.js';
+import { settings, webhookDeliveries } from '../db/schema.js';
 import { AppError, notFound, parse } from '../errors.js';
 import { assertSafeUrl, UnsafeUrlError } from '../net/safeFetch.js';
 import { sealSetting } from '../secretbox.js';
@@ -96,6 +96,17 @@ export const registerAdminWebhookRoutes: FastifyPluginAsync<{ ctx: AppContext }>
         set: { value: { hooks } as never, updatedAt: new Date(), updatedBy: user.id },
       });
     ctx.webhooks.reset();
+    // журнал удалённых вебхуков не хранится
+    await db.delete(webhookDeliveries).where(
+      hooks.length
+        ? not(
+            inArray(
+              webhookDeliveries.hookId,
+              hooks.map((h) => h.id),
+            ),
+          )
+        : undefined,
+    );
     await audit(db, `user:${user.id}`, 'admin.webhooks.save', null, {
       hooks: hooks.length,
       secretsIssued: Object.keys(issued).length,
@@ -115,9 +126,45 @@ export const registerAdminWebhookRoutes: FastifyPluginAsync<{ ctx: AppContext }>
         target: null,
         detail: null,
       });
-      return { ok: status >= 200 && status < 300, status };
+      const ok = status >= 200 && status < 300;
+      await ctx.webhooks.record(hook.id, 'webhook.test', {
+        ok,
+        code: status,
+        attempts: 1,
+        error: `HTTP ${status}`,
+      });
+      return { ok, status };
     } catch (e) {
-      return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : 'failed' };
+      const reason = e instanceof Error ? e.message.slice(0, 200) : 'failed';
+      await ctx.webhooks.record(hook.id, 'webhook.test', {
+        ok: false,
+        code: null,
+        attempts: 1,
+        error: reason,
+      });
+      return { ok: false, reason };
     }
+  });
+
+  /** Последние доставки вебхука: время, событие, итог, код ответа, число попыток. Тел сообщений нет. */
+  app.get('/admin/webhooks/:id/deliveries', async (req) => {
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    if (!(await load()).some((h) => h.id === id)) throw notFound();
+    const rows = await db
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.hookId, id))
+      .orderBy(desc(webhookDeliveries.id))
+      .limit(50);
+    return {
+      deliveries: rows.map((r) => ({
+        at: r.at.toISOString(),
+        event: r.event,
+        ok: r.ok,
+        code: r.code,
+        attempts: r.attempts,
+        error: r.error,
+      })),
+    };
   });
 };

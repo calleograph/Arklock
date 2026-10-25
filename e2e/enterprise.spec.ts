@@ -1135,6 +1135,9 @@ test('«Мастера настройки»: точка входа к сложн
   await expect(page.getByTestId('wizards')).toBeVisible();
   for (const id of ['setup', 'dept', 'people', 'ldap', 'backup', 'recovery'])
     await expect(page.getByTestId(`wizard-${id}`)).toBeVisible();
+  // три сценария показывают фактическое состояние шагов, а не только ссылку на раздел
+  await expect(page.getByTestId('wizard-progress')).toHaveCount(3);
+  await expect(page.getByTestId('wizards')).toContainText(/Готово \d+ из 4/);
   await page.getByTestId('wizard-dept').click();
   await expect(page).toHaveURL(/\/admin\/departments$/);
   await expect(page.getByTestId('departments')).toBeVisible();

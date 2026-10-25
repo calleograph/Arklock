@@ -1,3 +1,4 @@
+import { CRITICAL_RE, WARNING_RE, eventLevel } from '../event-level.js';
 import {
   and,
   asc,
@@ -809,6 +810,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
         q: z.string().max(100).optional(),
+        level: z.enum(['critical', 'warning', 'info']).optional(),
         // курсор страницы: id последней строки, при сортировке по действию — «действие|id»
         before: z
           .string()
@@ -844,6 +846,13 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         : undefined,
       q.from ? sql`${ledger.at} >= ${q.from}` : undefined,
       q.to ? sql`${ledger.at} <= ${q.to}` : undefined,
+      q.level === 'critical' ? sql`${ledger.action} ~ ${CRITICAL_RE.source}` : undefined,
+      q.level === 'warning'
+        ? sql`${ledger.action} !~ ${CRITICAL_RE.source} and ${ledger.action} ~ ${WARNING_RE.source}`
+        : undefined,
+      q.level === 'info'
+        ? sql`${ledger.action} !~ ${CRITICAL_RE.source} and ${ledger.action} !~ ${WARNING_RE.source}`
+        : undefined,
       cursor,
       // поиск и по сотруднику: имя или почта автора и затронутой учётной записи
       q.q
@@ -925,6 +934,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       actor: r.actor,
       actorName: nameOf(r.actor),
       action: r.action,
+      level: eventLevel(r.action),
       target: r.target,
       targetName: nameOf(r.target),
       detail: r.detail,
@@ -935,7 +945,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           .replace(/"/g, '""')
           .replace(/^([=+\-@])/, "'$1")}"`;
       const csv = [
-        'id,at,actor,actor_name,action,target,target_name,detail',
+        'id,at,actor,actor_name,action,target,target_name,detail,level',
         ...items.map((i) =>
           [
             i.id,
@@ -946,6 +956,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
             i.target,
             i.targetName,
             JSON.stringify(i.detail ?? ''),
+            i.level,
           ]
             .map(esc)
             .join(','),

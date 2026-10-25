@@ -1,13 +1,15 @@
 import { createHmac, randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq, lt, sql } from 'drizzle-orm';
 import type { AuditSinkEvent } from './audit.js';
 import type { Db } from './db/connect.js';
-import { settings } from './db/schema.js';
+import { settings, webhookDeliveries } from './db/schema.js';
 import { safeGet } from './net/safeFetch.js';
 import { openSetting } from './secretbox.js';
 
 export const WEBHOOKS_KEY = 'webhooks.config';
 const MAX_IN_FLIGHT = 100;
+/** Сколько последних доставок хранится по каждому вебхуку. */
+export const DELIVERY_LOG_KEEP = 100;
 export const webhookSecretPurpose = (id: string) => `webhook-secret:${id}`;
 
 export interface WebhookConfig {
@@ -87,12 +89,45 @@ export class WebhookSink {
     return res.status;
   }
 
+  /** Запись о доставке; сбой записи не должен мешать работе. */
+  async record(
+    hookId: string,
+    event: string,
+    r: { ok: boolean; code: number | null; attempts: number; error: string },
+  ): Promise<void> {
+    try {
+      await this.db.insert(webhookDeliveries).values({
+        hookId,
+        event: event.slice(0, 100),
+        ok: r.ok,
+        code: r.code,
+        attempts: r.attempts,
+        error: r.ok ? null : r.error.slice(0, 200),
+      });
+      // храним только последние записи по вебхуку
+      await this.db
+        .delete(webhookDeliveries)
+        .where(
+          and(
+            eq(webhookDeliveries.hookId, hookId),
+            lt(
+              webhookDeliveries.id,
+              sql`(select min(id) from (select id from ${webhookDeliveries} where hook_id = ${hookId} order by id desc limit ${DELIVERY_LOG_KEEP}) k)`,
+            ),
+          ),
+        );
+    } catch {
+      /* журнал вспомогательный */
+    }
+  }
+
   private async deliverWithRetry(hook: WebhookConfig, ev: AuditSinkEvent): Promise<void> {
     const st = this.statusOf(hook.id);
     this.status.set(hook.id, st);
+    let code: number | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const code = await this.deliver(hook, ev.action, {
+        code = await this.deliver(hook, ev.action, {
           actor: ev.actor,
           target: ev.target,
           // IP-адрес остаётся в журнале и не уходит во внешнюю систему
@@ -102,16 +137,24 @@ export class WebhookSink {
         if (code >= 200 && code < 300) {
           st.sent++;
           st.lastAt = new Date().toISOString();
+          await this.record(hook.id, ev.action, {
+            ok: true,
+            code,
+            attempts: attempt + 1,
+            error: '',
+          });
           return;
         }
         st.lastError = `HTTP ${code}`;
       } catch (e) {
+        code = null;
         st.lastError = (e instanceof Error ? e.message : 'delivery failed').slice(0, 200);
       }
       if (attempt < 2) await new Promise((r) => setTimeout(r, attempt === 0 ? 1000 : 5000));
     }
     st.failed++;
     st.lastAt = new Date().toISOString();
+    await this.record(hook.id, ev.action, { ok: false, code, attempts: 3, error: st.lastError });
   }
 
   /** Вызывается из журнала для каждого события; ожидание доставки не блокирует запрос пользователя. */

@@ -5,6 +5,7 @@ export interface LedgerItem {
   actor: string;
   actorName: string | null;
   action: string;
+  level: 'critical' | 'warning' | 'info';
   target: string | null;
   targetName: string | null;
   detail: Record<string, unknown> | null;

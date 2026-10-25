@@ -88,3 +88,37 @@ it('a test delivery reports the receiver status; the secret changes only on requ
     404,
   );
 });
+
+it('keeps a delivery log per webhook: test deliveries and failures are recorded, removal clears it', async () => {
+  const url = `http://127.0.0.1:${port}/log`;
+  const saved = await admin.req('PUT', '/admin/webhooks', { hooks: [{ name: 'Журнал', url }] });
+  const id = (await admin.req('GET', '/admin/webhooks')).json().hooks[0].id as string;
+  expect(Object.keys(saved.json().issuedSecrets)).toContain(id);
+  expect((await admin.req('POST', `/admin/webhooks/${id}/test`)).json().ok).toBe(true);
+  const log = (await admin.req('GET', `/admin/webhooks/${id}/deliveries`)).json().deliveries;
+  expect(log[0]).toMatchObject({ event: 'webhook.test', ok: true, code: 204, attempts: 1 });
+  expect(JSON.stringify(log)).not.toContain(url);
+  expect((await member.req('GET', `/admin/webhooks/${id}/deliveries`)).statusCode).toBe(401);
+  await admin.req('PUT', '/admin/webhooks', { hooks: [] });
+  expect((await admin.req('GET', `/admin/webhooks/${id}/deliveries`)).statusCode).toBe(404);
+});
+
+it('the activity log filters by importance and labels every event', async () => {
+  const { audit } = await import('../src/audit.js');
+  await audit(fixture.database.db, 'anonymous', 'auth.login.failed', null, { ip: '203.0.113.7' });
+  await audit(fixture.database.db, 'anonymous', 'admin.user.delete', null, {});
+  const get = async (level?: string) =>
+    (await admin.req('GET', `/admin/ledger?limit=500${level ? `&level=${level}` : ''}`)).json()
+      .items as { action: string; level: string }[];
+  const all = await get();
+  expect(all.every((i) => ['critical', 'warning', 'info'].includes(i.level))).toBe(true);
+  const critical = await get('critical');
+  expect(critical.map((i) => i.action)).toContain('auth.login.failed');
+  expect(critical.every((i) => i.level === 'critical')).toBe(true);
+  const warning = await get('warning');
+  expect(warning.map((i) => i.action)).toContain('admin.user.delete');
+  expect(warning.some((i) => i.action === 'auth.login.failed')).toBe(false);
+  const info = await get('info');
+  expect(info.every((i) => i.level === 'info')).toBe(true);
+  expect(info.length + warning.length + critical.length).toBe(all.length);
+});

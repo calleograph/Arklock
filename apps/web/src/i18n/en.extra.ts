@@ -1448,6 +1448,13 @@ export default {
     rangeOk: 'Connection works, response format is valid ({n} lines)',
     rangeFail: 'Failed: {r}',
     actionPrefix: 'Event kind',
+    ledgerLevel: {
+      label: 'Importance',
+      all: 'Any importance',
+      critical: 'Failures and blocks',
+      warning: 'Significant changes',
+      info: 'Routine events',
+    },
     ledgerSearch: 'Person, action, object or IP',
     ledgerOnlyUser: 'Only this person: {name}',
     ledgerAllUsers: 'Show everyone',

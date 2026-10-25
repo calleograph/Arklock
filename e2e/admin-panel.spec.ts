@@ -247,6 +247,18 @@ test('administration sections show real data and perform real operations', async
   expect(csv.length).toBeGreaterThan(0);
   for (const line of csv) expect(line.toLowerCase()).toContain('smtp');
 
+  // фильтр важности: «обычные события» не содержат отказов и блокировок, а значок показывает уровень
+  await page.getByTestId('ledger-search').fill('');
+  await page.getByTestId('ledger-level').selectOption('info');
+  await page.getByTestId('ledger-apply').click();
+  await expect(page.getByTestId('ledger-row').first()).toBeVisible();
+  await expect(
+    page
+      .getByTestId('ledger-row')
+      .locator('[aria-label="Отказы и блокировки"], [aria-label="Failures and blocks"]'),
+  ).toHaveCount(0);
+  await page.getByTestId('ledger-level').selectOption('');
+
   // журнал сотрудника: последние действия в карточке, оттуда — весь журнал с отбором по нему
   await tab(page, 'users');
   await page.getByTestId(`profile-open-${ADMIN.email}`).click();
@@ -751,6 +763,11 @@ test('custom roles: an administrative role opens only its own sections for a del
   await page.getByTestId('webhook-url').fill('https://siem.example.com/arklock');
   await page.getByTestId('webhook-save').click();
   await expect(page.getByTestId('webhook-secrets')).toContainText('SIEM');
+  // журнал доставки раскрывается у сохранённого вебхука
+  await page.getByTestId('webhook-log').locator('summary').click();
+  await expect(page.getByTestId('webhook-log')).toContainText(
+    /Доставок пока не было|Nothing has been delivered|delivered|доставлено/,
+  );
 });
 
 // ---------------------------------------------------------------- SAML

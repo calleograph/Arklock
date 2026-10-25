@@ -1456,6 +1456,13 @@ export default {
     rangeOk: 'Соединение работает, формат ответа верный ({n} строк)',
     rangeFail: 'Не удалось: {r}',
     actionPrefix: 'Вид событий',
+    ledgerLevel: {
+      label: 'Важность',
+      all: 'Любая важность',
+      critical: 'Отказы и блокировки',
+      warning: 'Значимые изменения',
+      info: 'Обычные события',
+    },
     ledgerSearch: 'Сотрудник, действие, объект или IP',
     ledgerOnlyUser: 'Только сотрудник: {name}',
     ledgerAllUsers: 'Показать всех',

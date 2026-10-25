@@ -549,7 +549,8 @@ function sortLedger(by: 'at' | 'action'): void {
   void loadLedger();
 }
 
-const filter = ref({ action: '', q: '', from: '', to: '' });
+const LEDGER_LEVELS = ['critical', 'warning', 'info'] as const;
+const filter = ref({ action: '', q: '', from: '', to: '', level: '' });
 // журнал одного сотрудника открывается из его карточки: /admin/ledger?user=…&name=…
 const ledgerUser = computed(() =>
   typeof route.query.user === 'string'
@@ -558,7 +559,7 @@ const ledgerUser = computed(() =>
 );
 // переход из карточки сотрудника начинает с чистого отбора: прежний поиск сузил бы его журнал
 watch(ledgerUser, (u) => {
-  if (u) filter.value = { action: '', q: '', from: '', to: '' };
+  if (u) filter.value = { action: '', q: '', from: '', to: '', level: '' };
   if (tab.value === 'ledger') void loadLedger();
 });
 // одни и те же условия для списка и выгрузки: CSV должен содержать то, что видно на экране
@@ -566,6 +567,7 @@ function ledgerParams(extra: Record<string, string>): URLSearchParams {
   const p = new URLSearchParams(extra);
   if (filter.value.action) p.set('action', filter.value.action);
   if (filter.value.q) p.set('q', filter.value.q);
+  if (filter.value.level) p.set('level', filter.value.level);
   if (filter.value.from) p.set('from', new Date(filter.value.from).toISOString());
   if (filter.value.to) p.set('to', new Date(filter.value.to + 'T23:59:59').toISOString());
   if (ledgerUser.value) p.set('user', ledgerUser.value.id);
@@ -1758,6 +1760,17 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 {{ t(`admin.ledgerKind.${k.replaceAll('.', '') || 'all'}`) }}
               </option>
             </select>
+            <select
+              v-model="filter.level"
+              class="input w-auto"
+              :aria-label="t('admin.ledgerLevel.label')"
+              data-testid="ledger-level"
+            >
+              <option value="">{{ t('admin.ledgerLevel.all') }}</option>
+              <option v-for="k in LEDGER_LEVELS" :key="k" :value="k">
+                {{ t(`admin.ledgerLevel.${k}`) }}
+              </option>
+            </select>
             <input
               v-model="filter.q"
               type="search"
@@ -1820,8 +1833,26 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   data-testid="ledger-row"
                 >
                   <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
-                  <td class="max-w-56 truncate" :title="l.actor">{{ l.actorName ?? l.actor }}</td>
+                  <td class="max-w-56 truncate" :title="l.actor">
+                    {{ l.actorName ?? l.actor }}
+                    <span v-if="l.detail?.ip" class="font-mono text-slate-500">
+                      · {{ l.detail.ip }}</span
+                    >
+                  </td>
                   <td class="whitespace-nowrap pr-3">
+                    <span
+                      class="mr-1 inline-block size-2 rounded-full"
+                      :class="
+                        l.level === 'critical'
+                          ? 'bg-red-600'
+                          : l.level === 'warning'
+                            ? 'bg-amber-500'
+                            : 'bg-slate-400'
+                      "
+                      :title="t(`admin.ledgerLevel.${l.level}`)"
+                      role="img"
+                      :aria-label="t(`admin.ledgerLevel.${l.level}`)"
+                    ></span>
                     <span :title="l.action">{{ actionText(l.action) }}</span>
                     <span v-if="l.detail?.clientReported" class="badge ml-1">{{
                       t('entryPanel.clientReported')

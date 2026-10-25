@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { api } from '../services/api';
 import Icon, { type IconName } from './Icon.vue';
 
 /**
@@ -13,6 +15,21 @@ const { t } = useI18n({
       title: 'Мастера настройки',
       hint: 'Пошаговые сценарии для сложных операций. Каждую настройку можно изменить и в её обычном разделе.',
       open: 'Открыть',
+      done: 'выполнено',
+      todo: 'не выполнено',
+      stepsDone: 'Готово {n} из {m}',
+      step: {
+        ldapConn: 'Адрес каталога и служебная учётная запись',
+        ldapTls: 'Защищённое соединение (LDAPS или StartTLS) с проверкой сертификата',
+        ldapGroups: 'Сопоставление групп каталога группам Arklock',
+        ldapSync: 'Первая сверка с каталогом',
+        backupFirst: 'Первая резервная копия',
+        backupSchedule: 'Расписание копий',
+        backupOffsite: 'Отправка копий на S3 или SMB',
+        backupRestore: 'Проверка восстановления во временную базу (в списке копий)',
+        recRecipient: 'Назначен получатель офлайн-пакета',
+        recVaults: 'Корпоративные сейфы подключены ({n} из {m})',
+      },
       setup: 'Первоначальная настройка',
       setupText:
         'Публичный HTTPS-адрес, почта, резервная копия, подразделения, сотрудники, двухфакторная защита. Пройденные шаги отмечаются сами по фактической настройке.',
@@ -36,6 +53,21 @@ const { t } = useI18n({
       title: 'Setup wizards',
       hint: 'Step-by-step flows for complex operations. Every setting can also be changed in its regular section.',
       open: 'Open',
+      done: 'done',
+      todo: 'not done',
+      stepsDone: 'Done {n} of {m}',
+      step: {
+        ldapConn: 'Directory address and service account',
+        ldapTls: 'Secure connection (LDAPS or StartTLS) with certificate checking',
+        ldapGroups: 'Directory groups mapped to Arklock groups',
+        ldapSync: 'First directory sync',
+        backupFirst: 'First backup',
+        backupSchedule: 'Backup schedule',
+        backupOffsite: 'Sending backups to S3 or SMB',
+        backupRestore: 'Restore test into a temporary database (in the backup list)',
+        recRecipient: 'An offline-package recipient is set',
+        recVaults: 'Corporate vaults connected ({n} of {m})',
+      },
       setup: 'First-time setup',
       setupText:
         'Public HTTPS address, mail, a backup, departments, employees, two-factor protection. Finished steps are ticked by themselves from the actual configuration.',
@@ -57,6 +89,81 @@ const { t } = useI18n({
     },
   },
 });
+interface Step {
+  id: string;
+  done: boolean | null;
+  to: string;
+  params?: Record<string, number>;
+}
+const steps = ref<Record<string, Step[]>>({});
+const ok = async <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null);
+onMounted(async () => {
+  const [ldap, backups, offsite, recovery] = await Promise.all([
+    ok(
+      api<{
+        profiles: {
+          url: string;
+          bindDn: string;
+          hasBindPassword: boolean;
+          startTls: boolean;
+          insecureTls: boolean;
+          groups: unknown[];
+          lastSync: unknown;
+        }[];
+      }>('GET', '/admin/ldap/profiles'),
+    ),
+    ok(
+      api<{ backups: { items: unknown[] } | null; schedule?: { enabled: boolean } | null }>(
+        'GET',
+        '/admin/backups',
+      ),
+    ),
+    ok(api<{ offsite: { configured: boolean } | null }>('GET', '/admin/backups/offsite')),
+    ok(
+      api<{ recipient: unknown; vaults: { enrolled: boolean }[] }>(
+        'GET',
+        '/admin/corporate-recovery',
+      ),
+    ),
+  ]);
+  const p = ldap?.profiles?.[0];
+  const secure = !!p && (/^ldaps:/i.test(p.url) || p.startTls) && !p.insecureTls;
+  steps.value = {
+    ldap: [
+      { id: 'ldapConn', done: !!p?.url && !!p.bindDn && p.hasBindPassword, to: '/admin/ldap' },
+      { id: 'ldapTls', done: secure, to: '/admin/ldap' },
+      { id: 'ldapGroups', done: !!p && p.groups.length > 0, to: '/admin/ldap' },
+      { id: 'ldapSync', done: !!p?.lastSync, to: '/admin/ldap' },
+    ],
+    backup: [
+      { id: 'backupFirst', done: (backups?.backups?.items.length ?? 0) > 0, to: '/admin/backups' },
+      { id: 'backupSchedule', done: !!backups?.schedule?.enabled, to: '/admin/backups' },
+      { id: 'backupOffsite', done: !!offsite?.offsite?.configured, to: '/admin/backups' },
+      { id: 'backupRestore', done: null, to: '/admin/backups' },
+    ],
+    recovery: [
+      {
+        id: 'recRecipient',
+        done: !!recovery?.recipient,
+        to: '/admin/settings?section=security',
+      },
+      {
+        id: 'recVaults',
+        done: !!recovery && recovery.vaults.length > 0 && recovery.vaults.every((v) => v.enrolled),
+        to: '/admin/settings?section=security',
+        params: {
+          n: recovery?.vaults.filter((v) => v.enrolled).length ?? 0,
+          m: recovery?.vaults.length ?? 0,
+        },
+      },
+    ],
+  };
+});
+const progress = (id: string) => {
+  const list = (steps.value[id] ?? []).filter((x) => x.done !== null);
+  return { n: list.filter((x) => x.done).length, m: list.length };
+};
+
 const CARDS: { id: string; to: string; icon: IconName }[] = [
   { id: 'setup', to: '/admin/overview', icon: 'check' },
   { id: 'dept', to: '/admin/departments', icon: 'building' },
@@ -79,6 +186,29 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
           <Icon :name="c.icon" class="size-4 opacity-80" />{{ t(c.id) }}
         </h3>
         <p class="flex-1 text-xs text-slate-600 dark:text-slate-300">{{ t(`${c.id}Text`) }}</p>
+        <template v-if="steps[c.id]">
+          <p class="text-xs font-medium" data-testid="wizard-progress">
+            {{ t('stepsDone', progress(c.id)) }}
+          </p>
+          <ol class="space-y-1 text-xs">
+            <li v-for="st in steps[c.id]" :key="st.id" class="flex items-start gap-2">
+              <span
+                class="mt-0.5 inline-block size-3.5 shrink-0 rounded-full border text-center text-[10px] leading-3"
+                :class="
+                  st.done
+                    ? 'border-emerald-600 bg-emerald-600 text-white'
+                    : 'border-slate-400 text-transparent'
+                "
+                role="img"
+                :aria-label="st.done ? t('done') : st.done === null ? '' : t('todo')"
+                >✓</span
+              >
+              <RouterLink :to="st.to" class="hover:underline">{{
+                t(`step.${st.id}`, st.params ?? {})
+              }}</RouterLink>
+            </li>
+          </ol>
+        </template>
         <RouterLink :to="c.to" class="btn self-start" :data-testid="`wizard-${c.id}`">{{
           t('open')
         }}</RouterLink>
