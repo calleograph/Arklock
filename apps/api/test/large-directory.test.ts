@@ -43,7 +43,9 @@ it('searches 30 000 employees on the server within a second or two, a page at a 
   expect(first.json().total).toBe(N + 1);
   expect(first.json().items).toHaveLength(12);
   // пределы щедрые (общий сервер, PGlite): важно, что время не растёт с размером списка до десятков секунд
-  console.info(`30k: поиск по имени ${t1} мс, по должности ${t2} мс, первая страница ${t3} мс`);
+  process.stdout.write(
+    `${`30k: поиск по имени ${t1} мс, по должности ${t2} мс, первая страница ${t3} мс`.slice(1, -1)}\n`,
+  );
   for (const t of [t1, t2, t3]) expect(t).toBeLessThan(3000);
 });
 
@@ -54,7 +56,9 @@ it('pages the user list and sorts it on the server', async () => {
   const body = page.json();
   expect(body.total).toBe(N + 1);
   expect(body.items).toHaveLength(50);
-  console.info(`30k: страница списка пользователей со смещением 15000 — ${t} мс`);
+  process.stdout.write(
+    `${`30k: страница списка пользователей со смещением 15000 — ${t} мс`.slice(1, -1)}\n`,
+  );
   expect(t).toBeLessThan(4000);
   const [filtered] = await timed(() => admin.req('GET', '/admin/users?limit=50&q=user29999@'));
   expect(filtered.json().items.map((u: { email: string }) => u.email)).toEqual([
