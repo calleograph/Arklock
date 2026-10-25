@@ -193,7 +193,7 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
           <ol class="space-y-1 text-xs">
             <li v-for="st in steps[c.id]" :key="st.id" class="flex items-start gap-2">
               <span
-                class="mt-0.5 inline-block size-3.5 shrink-0 rounded-full border text-center text-[10px] leading-3"
+                class="mt-0.5 inline-block size-3.5 shrink-0 rounded-full border text-center text-xs leading-3"
                 :class="
                   st.done
                     ? 'border-emerald-600 bg-emerald-600 text-white'

@@ -34,7 +34,7 @@ onBeforeUnmount(() => {
     <Icon name="bell" class="size-4" />
     <span
       v-if="unreadNotifications"
-      class="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] font-semibold leading-4 text-white"
+      class="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-600 px-1 text-center text-xs font-semibold leading-4 text-white"
       data-testid="notification-unread"
       >{{ unreadNotifications > 99 ? '99+' : unreadNotifications }}</span
     >

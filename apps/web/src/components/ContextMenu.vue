@@ -46,7 +46,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     ref="root"
-    class="fixed z-50 min-w-48 overflow-hidden rounded-[10px] border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
+    class="fixed z-50 min-w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
     :style="{ left: `${pos.left}px`, top: `${pos.top}px` }"
     role="menu"
     :aria-label="label"

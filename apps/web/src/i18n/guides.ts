@@ -120,7 +120,7 @@ export const ruGuides = {
       transfer: {
         title: 'Импорт и экспорт паролей',
         lead: 'Перенос из других программ и выгрузка резервной копии своих паролей.',
-        s1: 'Меню → «Импорт и экспорт». В импорте выберите сейф, файл (CSV, Bitwarden, Passwork, KeePass XML, JSON Arklock или зашифрованный архив) и проверьте предпросмотр.',
+        s1: 'Администрирование → «Сейфы и пространства» → «Импорт и экспорт» (только главный администратор). В импорте выберите сейф, файл (CSV, Bitwarden, Passwork, KeePass XML, JSON Arklock или зашифрованный архив) и проверьте предпросмотр.',
         s2: 'В экспорте выберите область (сейф, пространство или всё доступное) и формат. Зашифрованный архив защищается паролем из 30 случайных знаков, который Arklock создаёт сам: сохраните его отдельно.',
         note: 'JSON и CSV не зашифрованы: пароли в них лежат открытым текстом.',
       },
@@ -328,7 +328,7 @@ export const enGuides = {
       transfer: {
         title: 'Importing and exporting passwords',
         lead: 'Move passwords in from other programs and export a copy of your own.',
-        s1: 'Menu → “Import and export”. For import choose the vault and the file (CSV, Bitwarden, Passwork, KeePass XML, Arklock JSON or an encrypted archive) and check the preview.',
+        s1: 'Administration → “Vaults and spaces” → “Import and export” (chief administrators only). For import choose the vault and the file (CSV, Bitwarden, Passwork, KeePass XML, Arklock JSON or an encrypted archive) and check the preview.',
         s2: 'For export choose the scope (a vault, a space or everything available) and the format. The encrypted archive is protected by a 30-character random password that Arklock creates itself: store it separately.',
         note: 'JSON and CSV are not encrypted: passwords in them are plain text.',
       },

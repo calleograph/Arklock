@@ -564,7 +564,6 @@ const vaultActions = computed<ActionItem[]>(() => [
       ]
     : []),
   { id: 'spaces', label: t('spaces.manage'), icon: 'folder', testid: 'spaces-open' },
-  { id: 'transfer', label: t('transfer.title'), icon: 'transfer', testid: 'btn-transfer' },
   { id: 'inspector', label: t('inspector.title'), icon: 'shield', testid: 'btn-inspector' },
 ]);
 function onVaultAction(id: string): void {
@@ -572,8 +571,6 @@ function onVaultAction(id: string): void {
   else if (id === 'new') void newVault();
   else if (id === 'managed') showManaged.value = true;
   else if (id === 'spaces') showSpaces.value = !showSpaces.value;
-  else if (id === 'transfer')
-    void router.push({ path: '/transfer', query: { vault: vault.value?.id } });
   else if (id === 'inspector') void router.push('/inspector');
 }
 const moveTargets = computed(() =>
@@ -791,7 +788,7 @@ void router;
       class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[14rem_minmax(0,1fr)_25rem]"
     >
       <nav
-        class="flex rounded-[10px] bg-slate-100 p-0.5 text-sm lg:hidden dark:bg-slate-800"
+        class="flex rounded-lg bg-slate-100 p-0.5 text-sm lg:hidden dark:bg-slate-800"
         :aria-label="t('corporate.mobileNavigation')"
       >
         <button
@@ -1305,7 +1302,7 @@ void router;
     />
     <div
       v-if="undo"
-      class="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-[10px] bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      class="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
       role="status"
       data-testid="undo-toast"
     >
@@ -1321,7 +1318,7 @@ void router;
     </div>
     <p
       v-if="flash"
-      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-[10px] bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
       role="status"
       data-testid="flash"
     >

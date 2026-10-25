@@ -1158,8 +1158,8 @@ test('визуальный аудит: экраны администрирова
     '/admin/certificates',
     '/admin/updates',
     '/admin/logs',
-    '/transfer?tab=export',
-    '/transfer?tab=import',
+    '/admin/transfer?tab=export',
+    '/admin/transfer?tab=import',
     '/help',
     '/',
   ];
@@ -1187,7 +1187,7 @@ test('визуальный аудит: экраны администрирова
           '/admin/overview',
           '/admin/wizards',
           '/admin/resources',
-          '/transfer?tab=export',
+          '/admin/transfer?tab=export',
           '/help',
           '/admin/vaults',
         ].includes(url)
@@ -1203,7 +1203,7 @@ test('визуальный аудит: экраны администрирова
   await page.setViewportSize({ width: 1366, height: 768 });
   const broken: string[] = [];
   for (const theme of ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']) {
-    for (const url of ['/admin/overview', '/transfer?tab=export', '/help']) {
+    for (const url of ['/admin/overview', '/admin/transfer?tab=export', '/help']) {
       await page.goto(url);
       await page.evaluate((id) => {
         document.documentElement.dataset.theme = id;

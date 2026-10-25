@@ -85,7 +85,7 @@ const useCurrent = () => (draft.value = here);
     <template v-if="v">
       <div
         id="public-url"
-        class="space-y-2 rounded-[10px] border border-slate-200 p-3 dark:border-slate-800"
+        class="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
       >
         <div class="flex flex-wrap items-center justify-between gap-2">
           <span class="inline-flex items-center gap-1 font-medium"
@@ -185,7 +185,7 @@ const useCurrent = () => (draft.value = here);
       </div>
 
       <dl
-        class="divide-y divide-slate-200 rounded-[10px] border border-slate-200 dark:divide-slate-800 dark:border-slate-800"
+        class="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800"
       >
         <div class="grid gap-1 px-3 py-2 sm:grid-cols-[14rem_1fr]">
           <dt class="font-medium">{{ t('network.listen') }}</dt>

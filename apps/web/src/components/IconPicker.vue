@@ -76,7 +76,7 @@ async function upload(e: Event): Promise<void> {
         :key="name"
         type="button"
         role="option"
-        class="flex size-9 items-center justify-center rounded-[8px] hover:bg-slate-100 dark:hover:bg-slate-800"
+        class="flex size-9 items-center justify-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
         :class="modelValue?.name === name ? 'ring-2 ring-brand-500' : ''"
         :aria-selected="modelValue?.name === name"
         :aria-label="nameLabel(name)"

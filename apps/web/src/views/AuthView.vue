@@ -687,7 +687,7 @@ async function copyRecovery(): Promise<void> {
 
         <button
           type="submit"
-          class="btn-primary min-h-10 w-full text-[0.9375rem]"
+          class="btn-primary min-h-10 w-full"
           :disabled="busy"
           data-testid="submit"
         >

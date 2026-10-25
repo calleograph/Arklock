@@ -732,7 +732,7 @@ const DIAG_LINK: Record<string, string> = {
                     : c.image
                 }}
 
-                <div class="font-mono text-[11px]">{{ c.image }}</div>
+                <div class="font-mono text-xs">{{ c.image }}</div>
               </td>
               <td
                 :class="

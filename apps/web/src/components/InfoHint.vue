@@ -16,14 +16,19 @@ const id = `hint-${Math.random().toString(36).slice(2, 9)}`;
 // всплывающий текст не выходит за край экрана: после отрисовки сдвигается внутрь (до показа кадра).
 // Ширина раскладки, а не innerWidth: мобильный браузер уменьшает масштаб под вылезающий текст, и innerWidth растёт
 const shift = ref(0);
+// у нижнего края окна подсказка раскрывается вверх, а не уходит за экран
+const above = ref(false);
 watch(shown, async (v) => {
   if (!v) return;
   shift.value = 0;
+  above.value = false;
   await nextTick();
   const tip = document.getElementById(id)?.getBoundingClientRect();
   if (!tip) return;
   const vw = document.documentElement.clientWidth;
   shift.value = Math.min(Math.max(tip.left, 8), vw - tip.width - 8) - tip.left;
+  const triggerTop = root.value?.getBoundingClientRect().top ?? 0;
+  if (tip.bottom > window.innerHeight - 8 && triggerTop - tip.height - 8 > 8) above.value = true;
 });
 
 function onDocumentClick(e: MouseEvent): void {
@@ -67,7 +72,7 @@ onBeforeUnmount(() => {
       @blur="peek = false"
     >
       <span
-        class="inline-flex size-4 items-center justify-center rounded-full border border-current text-[10px] font-semibold leading-none"
+        class="inline-flex size-4 items-center justify-center rounded-full border border-current text-xs font-semibold leading-none"
         aria-hidden="true"
         >i</span
       >
@@ -76,7 +81,8 @@ onBeforeUnmount(() => {
       v-if="shown"
       :id="id"
       role="tooltip"
-      class="menu-pop absolute left-0 top-full z-50 mt-1 w-64 max-w-[80vw] rounded-xl border border-slate-200 bg-white p-3 text-xs font-normal leading-relaxed text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      class="menu-pop absolute left-0 z-50 w-64 max-w-[80vw] rounded-xl border border-slate-200 bg-white p-3 text-xs font-normal leading-relaxed text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      :class="above ? 'bottom-full mb-1' : 'top-full mt-1'"
       :style="shift ? { left: `${shift}px` } : undefined"
     >
       {{ text }}

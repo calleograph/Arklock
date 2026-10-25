@@ -51,6 +51,7 @@ const TAB_ICON: Record<string, IconName> = {
   organization: 'building',
   vaults: 'database',
   wizards: 'check',
+  transfer: 'transfer',
   departments: 'folder',
   users: 'user',
   circles: 'users',
@@ -74,6 +75,7 @@ const TAB_ICON: Record<string, IconName> = {
   ledger: 'log',
   automation: 'bell',
 };
+import TransferView from './TransferView.vue';
 import WizardsPanel from '../components/WizardsPanel.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
 import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
@@ -114,6 +116,7 @@ type Tab =
   | 'automation'
   | 'vaults'
   | 'wizards'
+  | 'transfer'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -133,6 +136,7 @@ const TAB_PERM: Record<Tab, string> = {
   departments: 'admin.circles',
   vaults: 'admin.users',
   wizards: 'admin.users',
+  transfer: 'chief',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -156,8 +160,13 @@ const TAB_PERM: Record<Tab, string> = {
   automation: 'admin.settings',
 };
 const adminPerms = ref<{ full: boolean; permissions: string[] } | null>(null);
+/** Импорт и экспорт — только главный администратор: делегированные роли и обычные администраторы раздела не видят. */
 const canTab = (x: Tab) =>
-  !adminPerms.value || adminPerms.value.full || adminPerms.value.permissions.includes(TAB_PERM[x]);
+  x === 'transfer'
+    ? !!auth.user?.chief
+    : !adminPerms.value ||
+      adminPerms.value.full ||
+      adminPerms.value.permissions.includes(TAB_PERM[x]);
 const isFull = () => adminPerms.value?.full ?? auth.user?.role === 'admin';
 /**
  * Раздел берётся из адреса: F5 оставляет в нём, «Назад» и «Вперёд» переключают разделы,
@@ -634,7 +643,7 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
     id: 'people',
     items: [nav('wizards'), nav('users'), nav('invitations'), nav('departments'), nav('circles')],
   },
-  { id: 'vaultsGroup', items: [nav('vaults')] },
+  { id: 'vaultsGroup', items: [nav('vaults'), nav('transfer')] },
   {
     id: 'security',
     items: [nav('settings', 'security', 'shield'), nav('roles'), nav('automation'), nav('ledger')],
@@ -670,16 +679,14 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
 const isActive = (i: NavItem) =>
   tab.value === i.tab && (i.tab !== 'settings' || (i.section ?? 'main') === settingsTab.value);
 const visibleItems = (g: { items: NavItem[] }) => g.items.filter((i) => canTab(i.tab));
-// группы раскрыты; свёрнутые администратором запоминаются
+// группы раскрыты; выбор администратора (в том числе «Свернуть всё») запоминается между переходами и после F5
 const NAV_KEY = 'arklock.admin.nav';
-const readNav = (): { open: Record<string, boolean>; rail: boolean } => {
+const readNav = (): { open: Record<string, boolean> } => {
   try {
-    return JSON.parse(localStorage.getItem(NAV_KEY) ?? '') as {
-      open: Record<string, boolean>;
-      rail: boolean;
-    };
+    const v = JSON.parse(localStorage.getItem(NAV_KEY) ?? '') as { open?: Record<string, boolean> };
+    return { open: v.open ?? {} };
   } catch {
-    return { open: {}, rail: false };
+    return { open: {} };
   }
 };
 const navState = ref(readNav());
@@ -690,14 +697,26 @@ const saveNav = () => {
     /* без хранилища меню просто не запоминает выбор */
   }
 };
-const groupOpen = (g: { id: string; items: NavItem[] }) => navState.value.open[g.id] ?? true;
-function toggleGroup(g: { id: string; items: NavItem[] }): void {
-  navState.value = { ...navState.value, open: { ...navState.value.open, [g.id]: !groupOpen(g) } };
+type NavGroup = { id: string; items: NavItem[] };
+const shownGroups = computed(() => GROUPS.filter((x) => visibleItems(x).length));
+const groupOpen = (g: NavGroup) => navState.value.open[g.id] ?? true;
+const groupActive = (g: NavGroup) => visibleItems(g).some(isActive);
+function toggleGroup(g: NavGroup): void {
+  navState.value = { open: { ...navState.value.open, [g.id]: !groupOpen(g) } };
   saveNav();
 }
-function toggleRail(): void {
-  navState.value = { ...navState.value, rail: !navState.value.rail };
+/** Сворачиваются только подпункты: названия групп остаются на месте. */
+function setAll(open: boolean): void {
+  navState.value = { open: Object.fromEntries(GROUPS.map((g) => [g.id, open])) };
   saveNav();
+}
+/** Переход на другую страницу (меню, «Назад», ссылка из уведомления) раскрывает её группу; после F5 состояние остаётся как было. */
+function revealActive(): void {
+  const g = GROUPS.find(groupActive);
+  if (g && !groupOpen(g)) {
+    navState.value = { open: { ...navState.value.open, [g.id]: true } };
+    saveNav();
+  }
 }
 function go(i: NavItem): void {
   void router.push(
@@ -723,6 +742,7 @@ const ALL_TABS: Tab[] = [
   'automation',
   'vaults',
   'wizards',
+  'transfer',
 ];
 onMounted(async () => {
   try {
@@ -742,6 +762,7 @@ const showActiveTab = () =>
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
   );
 watch(tab, () => {
+  revealActive();
   void loadTab();
   showActiveTab();
 });
@@ -757,51 +778,50 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 <template>
   <section class="space-y-4">
     <h1>{{ t('admin.title') }}</h1>
-    <div
-      class="grid grid-cols-[minmax(0,1fr)] gap-4"
-      :class="
-        navState.rail ? 'md:grid-cols-[3rem_minmax(0,1fr)]' : 'md:grid-cols-[13.5rem_minmax(0,1fr)]'
-      "
-    >
+    <div class="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[14rem_minmax(0,1fr)]">
       <!-- меню не выше видимой части экрана: иначе прокрутка к активному разделу сдвигает всю страницу -->
       <nav
         class="md:sticky md:top-16 md:max-h-[calc(100dvh-8.25rem)] md:self-start md:overflow-y-auto md:pr-1"
         :aria-label="t('admin.title')"
         data-testid="admin-nav"
       >
-        <button
-          type="button"
-          class="nav-link mb-1 hidden w-full text-slate-500 md:inline-flex"
-          :aria-expanded="!navState.rail"
-          :title="navState.rail ? t('admin.navExpand') : t('admin.navCollapse')"
-          :aria-label="navState.rail ? t('admin.navExpand') : t('admin.navCollapse')"
-          data-testid="admin-nav-rail"
-          @click="toggleRail"
-        >
-          <Icon name="all" class="size-4 opacity-80" />
-          <span v-if="!navState.rail">{{ t('admin.navCollapse') }}</span>
-        </button>
+        <div class="mb-1 hidden items-center gap-1 px-1 md:flex">
+          <button
+            v-for="b in [
+              { open: false, label: t('admin.collapseAll'), id: 'collapse-all' },
+              { open: true, label: t('admin.expandAll'), id: 'expand-all' },
+            ]"
+            :key="b.id"
+            type="button"
+            class="rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            :data-testid="`admin-nav-${b.id}`"
+            @click="setAll(b.open)"
+          >
+            {{ b.label }}
+          </button>
+        </div>
         <div
           class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
         >
           <div
-            v-for="g in GROUPS.filter((x) => visibleItems(x).length)"
+            v-for="g in shownGroups"
             :key="g.id"
             class="flex shrink-0 items-center gap-1 md:block md:space-y-0.5"
             :data-testid="`admin-group-${g.id}`"
           >
             <button
               type="button"
-              class="hidden w-full items-start justify-between gap-1 rounded-md px-2.5 pb-0.5 pt-1 text-left text-[11px] font-semibold uppercase leading-tight tracking-wider text-slate-500 hover:text-slate-800 md:flex dark:hover:text-slate-200"
-              :class="
-                navState.rail ? 'md:border-t md:border-slate-200 md:dark:border-slate-800' : ''
-              "
+              class="hidden w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-xs font-semibold hover:text-slate-900 md:flex dark:hover:text-slate-100"
+              :class="groupActive(g) ? 'text-brand-700' : 'text-slate-500'"
               :aria-expanded="groupOpen(g)"
+              :data-group-active="groupActive(g)"
               :data-testid="`admin-group-toggle-${g.id}`"
               @click="toggleGroup(g)"
             >
-              <span :class="navState.rail ? 'sr-only' : ''">{{ t(`admin.group.${g.id}`) }}</span>
-              <span v-if="!navState.rail" aria-hidden="true">{{ groupOpen(g) ? '▾' : '▸' }}</span>
+              <span aria-hidden="true" class="w-3 shrink-0 text-center">{{
+                groupOpen(g) ? '▾' : '▸'
+              }}</span>
+              <span>{{ t(`admin.group.${g.id}`) }}</span>
             </button>
             <template v-for="x in visibleItems(g)" :key="x.id">
               <button
@@ -810,31 +830,13 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 :class="[isActive(x) ? 'nav-link-active' : '', groupOpen(g) ? '' : 'md:hidden']"
                 :aria-current="isActive(x) ? 'page' : undefined"
                 :data-nav-active="isActive(x)"
-                :title="t(x.label)"
                 :data-testid="`admin-tab-${x.id}`"
                 @click="go(x)"
               >
                 <Icon :name="x.icon" class="size-4 shrink-0 opacity-80" />
-                <span :class="navState.rail ? 'md:sr-only' : ''">{{ t(x.label) }}</span>
+                <span>{{ t(x.label) }}</span>
               </button>
             </template>
-          </div>
-          <div class="flex shrink-0 items-center gap-1 md:block md:space-y-0.5">
-            <div
-              class="hidden px-2.5 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 md:block"
-              :class="navState.rail ? 'md:sr-only' : ''"
-            >
-              {{ t('admin.group.data') }}
-            </div>
-            <RouterLink
-              to="/transfer?tab=export"
-              class="nav-link w-full whitespace-nowrap md:whitespace-normal md:text-left"
-              :title="t('transfer.title')"
-              data-testid="admin-tab-transfer"
-            >
-              <Icon name="transfer" class="size-4 shrink-0 opacity-80" />
-              <span :class="navState.rail ? 'md:sr-only' : ''">{{ t('transfer.title') }}</span>
-            </RouterLink>
           </div>
         </div>
       </nav>
@@ -864,6 +866,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <OrganizationPanel v-else-if="tab === 'organization'" />
         <VaultsInventory v-else-if="tab === 'vaults'" />
         <WizardsPanel v-else-if="tab === 'wizards'" />
+        <TransferView v-else-if="tab === 'transfer'" />
         <DepartmentsPanel v-else-if="tab === 'departments'" />
         <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />

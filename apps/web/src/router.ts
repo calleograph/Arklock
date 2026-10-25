@@ -26,11 +26,11 @@ export const router = createRouter({
       component: VaultSettingsView,
       meta: { requiresUnlock: true },
     },
+    // импорт и экспорт живут в администрировании (только главный администратор); старые ссылки ведут туда
     {
       path: '/transfer',
       name: 'transfer',
-      component: () => import('./views/TransferView.vue'),
-      meta: { requiresUnlock: true },
+      redirect: (to) => ({ path: '/admin/transfer', query: to.query }),
     },
     {
       path: '/e/:code([0-9a-f]{12})',
@@ -47,7 +47,7 @@ export const router = createRouter({
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
     { path: '/sso/done', name: 'sso-done', component: SsoDoneView },
     {
-      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|saml|syslog|webhooks|invitations|roles|updates|organization|automation|departments|vaults|wizards)?',
+      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|saml|syslog|webhooks|invitations|roles|updates|organization|automation|departments|vaults|wizards|transfer)?',
       name: 'admin',
       component: AdminView,
       meta: { requiresUnlock: true, requiresAdmin: true },

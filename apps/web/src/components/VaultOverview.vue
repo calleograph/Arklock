@@ -104,7 +104,7 @@ async function checkLeaks(): Promise<void> {
         <button
           v-else
           type="button"
-          class="flex w-full items-center justify-between gap-2 rounded-[8px] px-2 py-1 text-left hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-slate-800"
+          class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent dark:hover:bg-slate-800"
           :disabled="!count(type)"
           :data-testid="`overview-${type}`"
           @click="emit('filter', type)"

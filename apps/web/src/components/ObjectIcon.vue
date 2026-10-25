@@ -26,7 +26,7 @@ const letter = computed(() => (props.label || '?').trim().charAt(0).toUpperCase(
 <template>
   <span
     v-if="variant === 'tile'"
-    class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] ring-1 ring-inset"
+    class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg ring-1 ring-inset"
     :class="
       icon?.image || icon?.name
         ? 'bg-slate-50 ring-slate-500/10 dark:bg-slate-800'
@@ -57,7 +57,7 @@ const letter = computed(() => (props.label || '?').trim().charAt(0).toUpperCase(
     aria-hidden="true"
     data-testid="object-icon"
   >
-    <img v-if="icon?.image" :src="icon.image" alt="" class="size-4 rounded-[3px] object-contain" />
+    <img v-if="icon?.image" :src="icon.image" alt="" class="size-4 rounded-sm object-contain" />
     <svg
       v-else-if="path"
       viewBox="0 0 24 24"

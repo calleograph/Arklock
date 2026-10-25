@@ -824,9 +824,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     });
   }
 
-  /** Событие, происходящее на клиенте (например, экспорт), для журнала действий. */
-  async function audit(action: 'export', format: string, count: number): Promise<void> {
-    await api('POST', '/audit/event', { action, format, count });
+  /**
+   * Импорт и экспорт считаются в браузере, а право на них выдаёт сервер: только главный администратор.
+   * `begin` вызывается до начала работы и при отказе прерывает её; `done` записывает итог в журнал.
+   */
+  async function audit(
+    action: 'export' | 'import',
+    phase: 'begin' | 'done',
+    format?: string,
+    count = 0,
+  ): Promise<void> {
+    await api('POST', '/audit/event', { action, phase, ...(format ? { format } : {}), count });
   }
 
   async function renameBranch(b: BranchItem, name: string): Promise<void> {

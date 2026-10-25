@@ -136,7 +136,7 @@ const showRest = computed(() => !query.value.trim());
       >
         <div v-if="g.list.length">
           <div
-            class="px-2 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+            class="px-2 pb-0.5 pt-2 text-xs font-semibold uppercase tracking-wider text-slate-500"
           >
             {{ t(`guides.sections.${g.id}`) }}
           </div>

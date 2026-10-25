@@ -8,6 +8,32 @@
   --font-sans: 'Onest Variable', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
   --font-mono:
     'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  /*
+   * Типографическая шкала: три основных размера — 14 px (интерфейс), 12 px (подписи, метаданные), 18 px (названия страниц).
+   * Крупные показатели (text-2xl) и заставка входа — единственные обоснованные исключения. Произвольных text-[…px] нет.
+   */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.25rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.125rem;
+  --text-xl--line-height: 1.5rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  /* Радиусы: поля и кнопки — 6, карточки и панели — 10, модальные окна — 12 px. rounded-md/lg/xl берут их из шкалы. */
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-modal: 12px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 12px;
+  /* Высоты: поля, кнопки, поиск и строки меню одинаковые; на сенсорных экранах не меньше 40 px. */
+  --control-h: 2.25rem;
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
   /* Единый характер движения: скольжение без отскока для перемещений и мягкий отскок для появлений. */
   --ease-glide: cubic-bezier(0.65, 0, 0.35, 1);
@@ -238,12 +264,11 @@ body {
 }
 
 h1 {
-  @apply text-[1.375rem] leading-tight font-semibold;
-  letter-spacing: -0.02em;
+  @apply text-lg font-semibold;
+  letter-spacing: -0.01em;
 }
 h2 {
-  @apply text-[0.9375rem] leading-snug font-semibold;
-  letter-spacing: -0.01em;
+  @apply text-sm font-semibold;
 }
 h3 {
   @apply font-semibold;
@@ -305,7 +330,7 @@ code,
 /* сброс Tailwind обнуляет margin, а модальный dialog центрируется именно им */
 dialog {
   margin: auto;
-  @apply rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100;
+  @apply rounded-(--radius-modal) border border-slate-200 bg-white p-0 text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100;
 }
 dialog::backdrop {
   background: rgb(10 15 25 / 0.5);
@@ -331,7 +356,7 @@ dialog::backdrop {
   .btn-primary,
   .btn-danger,
   .btn-ghost {
-    @apply relative inline-flex min-h-[2.125rem] cursor-pointer items-center justify-center gap-1.5 rounded-[9px] px-3 py-1 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
+    @apply relative inline-flex min-h-(--control-h) cursor-pointer items-center justify-center gap-1.5 rounded-(--radius-control) px-3 py-1 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
     transition:
       background-color 160ms var(--ease-out),
       border-color 160ms var(--ease-out),
@@ -388,14 +413,14 @@ dialog::backdrop {
   /* Поля: подпись над полем, кольцо фокуса, ошибка — красная граница и текст под полем (aria-invalid). */
   .input,
   .field {
-    @apply min-h-[2.125rem] w-full rounded-[9px] border border-slate-300 bg-white px-2.5 py-1 text-sm placeholder:text-slate-400 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
+    @apply min-h-(--control-h) w-full rounded-(--radius-control) border border-slate-300 bg-white px-2.5 py-1 text-sm placeholder:text-slate-400 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600;
     box-shadow: inset 0 1px 2px color-mix(in srgb, var(--shade) 5%, transparent);
     transition:
       border-color 150ms var(--ease-out),
       box-shadow 150ms var(--ease-out);
   }
   .field {
-    @apply min-h-10 text-[0.9375rem];
+    @apply min-h-10;
   }
   /* на сенсорных экранах зоны нажатия не меньше 40 px: компактность только там, где есть мышь */
   @media (pointer: coarse) {
@@ -423,18 +448,18 @@ dialog::backdrop {
 
   /* Поверхность. Карточка нужна там, где уровень действительно отделяет содержимое. */
   .card {
-    @apply rounded-[14px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
+    @apply rounded-(--radius-card) border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900;
     box-shadow: var(--surface-shadow);
   }
   .badge {
-    @apply inline-flex items-center rounded-[5px] bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
+    @apply inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
   }
   .badge-brand {
-    @apply inline-flex items-center rounded-[5px] bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
+    @apply inline-flex items-center rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
   }
   /* пустые состояния */
   .empty {
-    @apply flex flex-col items-center justify-center gap-2 rounded-[14px] border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700;
+    @apply flex flex-col items-center justify-center gap-2 rounded-(--radius-card) border border-dashed border-slate-300 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700;
   }
   .empty-icon {
     @apply text-3xl opacity-70;
@@ -453,7 +478,7 @@ dialog::backdrop {
   }
   /* уведомления: ненавязчивые полосы внутри страницы */
   .notice {
-    @apply flex items-start gap-2 rounded-[10px] border px-3 py-2 text-sm;
+    @apply flex items-start gap-2 rounded-(--radius-card) border px-3 py-2 text-sm;
   }
   .notice-ok {
     @apply border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200;
@@ -466,7 +491,7 @@ dialog::backdrop {
   }
   /* Пункты бокового меню: активный — полоса акцента слева и подложка. */
   .nav-link {
-    @apply relative inline-flex items-center gap-2.5 rounded-[9px] px-2.5 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    @apply relative inline-flex items-center gap-2.5 rounded-(--radius-control) px-2.5 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
     transition:
       background-color 150ms var(--ease-out),
       color 150ms var(--ease-out);

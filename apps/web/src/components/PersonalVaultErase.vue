@@ -47,7 +47,7 @@ async function erase(): Promise<void> {
       </p>
       <p class="mt-1 text-xs text-slate-500">{{ t('personal.exportHint') }}</p>
       <details
-        class="mt-3 max-w-lg rounded-[10px] border border-red-200 p-3 text-sm dark:border-red-900"
+        class="mt-3 max-w-lg rounded-lg border border-red-200 p-3 text-sm dark:border-red-900"
       >
         <summary class="cursor-pointer font-medium text-red-700 dark:text-red-300">
           {{ t('personal.eraseTitle') }}

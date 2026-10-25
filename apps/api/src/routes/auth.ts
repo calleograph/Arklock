@@ -43,6 +43,7 @@ import {
 import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { chiefRequired } from './chief.js';
 import { attachmentIdsOfVault } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
@@ -353,21 +354,30 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     return reply.status(201).send({ id: locker.vaultId });
   });
 
-  /** События, которые происходят только на клиенте (экспорт открытых данных), фиксируются в журнале. */
+  /**
+   * Импорт и экспорт открытых данных считаются на клиенте (сервер расшифровать сейф не может), поэтому именно здесь
+   * сервер даёт или не даёт на них право: только главный администратор. `begin` вызывается до чтения/записи и при
+   * отказе останавливает операцию; `done` фиксирует итог (формат и число записей, без содержимого и пароля архива).
+   */
   app.post('/audit/event', { preHandler: auth }, async (req, reply) => {
     const { user } = authOf(req);
+    if (!user.chief || authOf(req).viaToken) throw chiefRequired();
     const body = parse(
       z.object({
-        action: z.literal('export'),
-        format: z.enum(['csv', 'json', 'encrypted']),
-        count: z.number().int().min(0).max(1_000_000),
+        action: z.enum(['export', 'import']),
+        phase: z.enum(['begin', 'done']).default('done'),
+        format: z.enum(['csv', 'json', 'encrypted']).optional(),
+        count: z.number().int().min(0).max(1_000_000).default(0),
       }),
       req.body,
     );
-    await audit(db, `user:${user.id}`, `client.${body.action}`, null, {
-      format: body.format,
-      count: body.count,
-    });
+    await audit(
+      db,
+      `user:${user.id}`,
+      body.phase === 'begin' ? `client.${body.action}.begin` : `client.${body.action}`,
+      null,
+      body.phase === 'begin' ? undefined : { format: body.format ?? null, count: body.count },
+    );
     return reply.status(204).send();
   });
 

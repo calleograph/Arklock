@@ -13,6 +13,7 @@ const PORT_FIREFOX = 18188;
 const PORT_SESSION = 18189;
 const PORT_ENTERPRISE = 18190;
 const PORT_DAILY = 18191;
+const PORT_UI = 18192;
 /** Расширению нужен видимый браузер (в CI — xvfb), поэтому проект включается только по запросу. */
 const WITH_EXTENSION = process.env.E2E_EXTENSION === '1';
 /** Расширение в Firefox проверяется через geckodriver (Selenium) и требует установленного Firefox. */
@@ -95,6 +96,12 @@ export default defineConfig({
       use: { baseURL: `http://127.0.0.1:${PORT_DAILY}` },
     },
     {
+      name: 'ui',
+      testMatch: 'unified-ui.spec.ts',
+      timeout: 300_000,
+      use: { baseURL: `http://127.0.0.1:${PORT_UI}` },
+    },
+    {
       name: 'mobile',
       testMatch: 'mobile.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_MOBILE}` },
@@ -146,6 +153,16 @@ export default defineConfig({
         ...common,
         PORT: String(PORT_DAILY),
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-9',
+      },
+    },
+    {
+      command: 'node apps/api/dist/main.js',
+      url: `http://127.0.0.1:${PORT_UI}/api/v1/ready`,
+      timeout: 60_000,
+      env: {
+        ...common,
+        PORT: String(PORT_UI),
+        BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-u1',
       },
     },
     {

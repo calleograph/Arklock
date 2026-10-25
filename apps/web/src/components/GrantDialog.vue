@@ -162,7 +162,7 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
             <span
               v-for="p in picked"
               :key="key(p)"
-              class="badge-brand gap-1 !py-1 text-[13px]"
+              class="badge-brand gap-1 !py-1 text-xs"
               data-testid="grant-chip"
             >
               <Icon :name="p.kind === 'user' ? 'user' : 'users'" class="size-3.5" />{{ p.name }}
@@ -265,7 +265,7 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
         <!-- разные уровни: у каждого получателя свой -->
         <ul
           v-if="picked.length > 1"
-          class="divide-y divide-slate-200 rounded-[10px] border border-slate-200 dark:divide-slate-800 dark:border-slate-800"
+          class="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800"
         >
           <li v-for="p in picked" :key="key(p)" class="flex items-center gap-2 px-3 py-1.5">
             <Icon

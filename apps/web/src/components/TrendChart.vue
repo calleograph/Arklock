@@ -56,7 +56,7 @@ const max = computed(() => (props.values.length ? Math.max(...props.values) : 0)
       />
     </svg>
     <p v-else class="text-xs text-slate-500">—</p>
-    <div v-if="from && values.length >= 2" class="flex justify-between text-[10px] text-slate-500">
+    <div v-if="from && values.length >= 2" class="flex justify-between text-xs text-slate-500">
       <span>{{ from }}</span
       ><span>{{ to }}</span>
     </div>

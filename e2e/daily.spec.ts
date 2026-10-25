@@ -259,7 +259,7 @@ test('доступность: у кнопок, ссылок и полей ест
     '/admin/overview',
     '/admin/users',
     '/admin/settings?section=security',
-    '/transfer',
+    '/admin/transfer',
     '/help',
     '/security',
   ]) {

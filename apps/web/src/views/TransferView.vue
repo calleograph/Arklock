@@ -241,6 +241,7 @@ async function runImport(): Promise<void> {
     skipped = 0,
     failed = 0;
   try {
+    await ws.audit('import', 'begin');
     // импорт идёт в выбранный сейф: он становится открытым, существующие записи не меняются
     if (ws.currentId !== impVault.value) await ws.select(impVault.value);
     const folderIds = new Map<string, string>();
@@ -289,6 +290,7 @@ async function runImport(): Promise<void> {
       progress.value = i + 1;
     }
     report.value = { created, skipped, failed };
+    await ws.audit('import', 'done', undefined, created).catch(() => undefined);
     await refreshExisting();
   } catch (e) {
     error.value = errorMessage(e, t);
@@ -352,6 +354,7 @@ async function runExport(): Promise<void> {
   let skippedFiles = 0;
   let bytes = 0;
   try {
+    await ws.audit('export', 'begin');
     const parts: {
       name: string | null;
       branches: BranchItem[];
@@ -411,7 +414,7 @@ async function runExport(): Promise<void> {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     // в журнал попадают формат и число записей, но не пароль архива и не содержимое
-    await ws.audit('export', expFormat.value, count);
+    await ws.audit('export', 'done', expFormat.value, count);
     exported.value = { vaults: parts.length, entries: count, files, skipped: skippedFiles };
   } catch (e) {
     error.value = errorMessage(e, t);
@@ -429,11 +432,11 @@ const canExport = computed(
 </script>
 
 <template>
-  <section class="mx-auto max-w-3xl space-y-3" data-testid="transfer-page">
+  <section class="max-w-3xl space-y-3" data-testid="transfer-page">
     <header class="flex flex-wrap items-center justify-between gap-2">
-      <h1 class="flex items-center gap-2">
+      <h2 class="flex items-center gap-2">
         <Icon name="transfer" class="size-5" />{{ t('transfer.title') }}
-      </h1>
+      </h2>
       <div
         class="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-sm dark:bg-slate-800"
         role="tablist"

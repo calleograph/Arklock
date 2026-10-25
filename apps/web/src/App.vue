@@ -122,7 +122,7 @@ const initial = () =>
           </span>
           <span class="hidden leading-tight md:block">
             <span class="block text-base font-semibold tracking-tight">{{ t('app.name') }}</span>
-            <span class="block text-[11px] text-slate-500">{{ t('app.tagline') }}</span>
+            <span class="block text-xs text-slate-500">{{ t('app.tagline') }}</span>
           </span>
         </RouterLink>
 
@@ -249,12 +249,6 @@ const initial = () =>
                     <RouterLink
                       v-for="(item, i) in [
                         { to: '/', icon: 'inbox', label: t('nav.vault'), id: 'menu-vault' },
-                        {
-                          to: '/transfer',
-                          icon: 'transfer',
-                          label: t('transfer.title'),
-                          id: 'menu-transfer',
-                        },
                         {
                           to: '/security?tab=profile',
                           icon: 'user',

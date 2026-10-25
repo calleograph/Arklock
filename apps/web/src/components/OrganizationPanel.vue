@@ -281,7 +281,7 @@ async function cancel(): Promise<void> {
             </button>
           </span>
         </div>
-        <details class="rounded-[10px] border border-slate-200 p-3 dark:border-slate-700">
+        <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <summary class="cursor-pointer font-medium" data-testid="chief-add">
             {{ t('chief.add') }}
           </summary>
@@ -315,7 +315,7 @@ async function cancel(): Promise<void> {
           </form>
           <p class="mt-2 text-xs text-slate-500">{{ t('chief.addHint') }}</p>
         </details>
-        <details class="rounded-[10px] border border-slate-200 p-3 dark:border-slate-700">
+        <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
           <summary class="cursor-pointer font-medium" data-testid="chief-transfer">
             {{ t('chief.transfer') }}
           </summary>

@@ -929,7 +929,7 @@ const fmt = (iso: string) => when(iso);
                   }}</span>
                   <!-- кольцо оставшегося времени кода: убывает линейно, как сам срок -->
                   <span
-                    class="totp-ring num text-[11px] text-slate-500"
+                    class="totp-ring num text-xs text-slate-500"
                     :style="{ '--left': remaining / 30 }"
                     :aria-label="`${remaining} ${t('vault.sec')}`"
                     >{{ remaining }}</span
@@ -1227,7 +1227,7 @@ const fmt = (iso: string) => when(iso);
               :key="k"
               type="button"
               role="radio"
-              class="inline-flex items-center gap-1.5 rounded-[8px] border px-2.5 py-1 text-xs font-medium transition-colors"
+              class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
               :class="
                 form.kind === k
                   ? 'border-brand-500 bg-brand-50 text-brand-700'
@@ -1255,7 +1255,7 @@ const fmt = (iso: string) => when(iso);
               <!-- значок рядом с названием: нажатие раскрывает компактный выбор под полем -->
               <button
                 type="button"
-                class="shrink-0 rounded-[10px] focus-visible:shadow-[var(--ring)] focus-visible:outline-none"
+                class="shrink-0 rounded-lg focus-visible:shadow-[var(--ring)] focus-visible:outline-none"
                 :aria-label="t('icons.title')"
                 :aria-expanded="iconOpen"
                 data-testid="f-icon"
@@ -1277,7 +1277,7 @@ const fmt = (iso: string) => when(iso);
               v-model="form.icon"
               kind="entry"
               :label="form.title"
-              class="mt-2 rounded-[10px] border border-slate-200 p-2 dark:border-slate-700"
+              class="mt-2 rounded-lg border border-slate-200 p-2 dark:border-slate-700"
             />
           </div>
           <template v-if="form.kind !== 'note'">
@@ -1383,7 +1383,7 @@ const fmt = (iso: string) => when(iso);
 
           <!-- необязательное — под раскрытием; открыто, если что-то из этого уже заполнено -->
           <details
-            class="rounded-[10px] border border-slate-200 dark:border-slate-800"
+            class="rounded-lg border border-slate-200 dark:border-slate-800"
             :open="moreOpen"
             data-testid="f-more"
             @toggle="moreOpen = ($event.target as HTMLDetailsElement).open"

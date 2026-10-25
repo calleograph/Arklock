@@ -499,9 +499,12 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
 
 test('import (CSV), encrypted export and the security inspector', async () => {
   const page = adminPage;
-  // раздел «Импорт и экспорт» открывается из главного меню, а не из диалога сейфа
+  // «Импорт и экспорт» — раздел администрирования для главного администратора, в пользовательском меню его нет
   await page.getByTestId('menu-toggle').click();
-  await page.getByTestId('menu-transfer').click();
+  await expect(page.getByTestId('menu-transfer')).toHaveCount(0);
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-transfer').click();
+  await expect(page.getByTestId('admin-nav')).toBeVisible();
   await expect(page.getByTestId('transfer-page')).toBeVisible();
   const csv =
     'title,username,password,url,folder\n"Wi-Fi 1",guest,password,,Офис\n"Wi-Fi 2",guest,password,,Офис\n"Wi-Fi 1",guest,password,,Офис\n"VPN",me,Zq8!vN3#xLp0wRt5,https://vpn.example.com,Офис\n';
@@ -633,7 +636,8 @@ test('transfer keeps nested folders, TOTP, extra fields and attachments across v
     ],
   };
   await page.getByTestId('menu-toggle').click();
-  await page.getByTestId('menu-transfer').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-transfer').click();
   await page.getByTestId('import-file').setInputFiles({
     name: 'synthetic.json',
     mimeType: 'application/json',
