@@ -975,3 +975,36 @@ test('поиск находит запись в другом сейфе без �
   );
   await head.context().close();
 });
+
+test('несколько главных администраторов: приглашение, подтверждение мастер-паролем, отзыв роли', async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  await page.goto('/admin/organization');
+  await expect(page.getByTestId('chief-row')).toHaveCount(1);
+  await page.getByTestId('chief-add').click();
+  await page.getByTestId('chief-add-person-input').fill(headEmail(1));
+  await page.getByTestId(`chief-add-person-result-${headEmail(1)}`).click();
+  await page.getByTestId('chief-add-password').fill(ADMIN.password);
+  await page.getByTestId('chief-add-send').click();
+  await expect(page.getByTestId('chief-offers')).toBeVisible();
+  // роль не появляется без подтверждения самим сотрудником
+  await expect(page.getByTestId('chief-row')).toHaveCount(1);
+
+  const guest = await login(browser, headEmail(1));
+  await guest.goto('/security');
+  await expect(guest.getByTestId('chief-offer-card')).toBeVisible({ timeout: 30_000 });
+  await guest.getByTestId('chief-accept-password').fill(PASSWORD);
+  await guest.getByTestId('chief-accept').click();
+  await expect(guest.getByTestId('chief-accepted')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByTestId('chief-row')).toHaveCount(2, { timeout: 30_000 });
+  // отзыв роли у второго: он остаётся полным администратором, главный остаётся один
+  await page.getByTestId(`chief-remove-${headEmail(1)}`).click();
+  await page.getByTestId('chief-remove-password').fill(ADMIN.password);
+  await page.getByTestId('chief-remove-password').press('Enter');
+  await expect(page.getByTestId('chief-row')).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.getByTestId(`chief-remove-${ADMIN.email}`)).toBeDisabled();
+  await guest.context().close();
+});

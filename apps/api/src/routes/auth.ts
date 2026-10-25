@@ -82,6 +82,7 @@ export async function insertAccount(
     displayName: body.displayName,
     role: opts.role,
     chief: opts.chief ?? false,
+    chiefSince: opts.chief ? new Date() : null,
     authSource: opts.authSource,
     externalId: opts.externalId,
     kdf: body.kdf,

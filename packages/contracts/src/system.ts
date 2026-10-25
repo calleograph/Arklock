@@ -43,5 +43,18 @@ export const DIAGNOSTIC_STATES = [
   'smtp.none',
   'mfa-policy.ok',
   'mfa-policy.off',
+  'integrations.ok',
+  'backups.ok',
+  'backups.none',
+  'backups.old',
+  'dns.ok',
+  'dns.fail',
+  'cert.ok',
+  'cert.soon',
+  'cert.expired',
+  'cert.untrusted',
+  'cert.unreachable',
+  'static.ok',
+  'static.missing',
 ] as const;
 export type DiagnosticState = (typeof DIAGNOSTIC_STATES)[number];

@@ -12,7 +12,12 @@ let admin2: TestClient;
 let member: TestClient;
 
 const authKey = async (c: TestClient) => toBase64Url((await c.derive()).keys.authKey);
-const withReauth = async (c: TestClient, method: 'POST', url: string, payload: unknown) => {
+const withReauth = async (
+  c: TestClient,
+  method: 'POST' | 'DELETE',
+  url: string,
+  payload: unknown,
+) => {
   const token = (await c.req('POST', '/admin/reauth', { authKey: await authKey(c) })).json().token;
   return fixture.app.inject({
     method,
@@ -162,10 +167,6 @@ it('the chief role passes only when the successor confirms; old sessions end', a
   const actions = (await fixture.database.db.select().from(ledger)).map((r) => r.action);
   for (const a of ['admin.chief.offer', 'admin.chief.decline', 'admin.chief.accept'])
     expect(actions).toContain(a);
-  // второго главного администратора база не допускает
-  await expect(
-    fixture.database.db.update(users).set({ chief: true }).where(eq(users.id, admin2.userId)),
-  ).rejects.toThrow();
 });
 
 it('on upgrade the earliest active full administrator becomes the chief', async () => {
@@ -199,4 +200,54 @@ it('on upgrade the earliest active full administrator becomes the chief', async 
   } finally {
     await database.close();
   }
+});
+
+it('several chief administrators: appointed with the person’s confirmation, removed by any chief, never the last one', async () => {
+  // после передачи роли главный — member; прежний главный (chief) остаётся полным администратором
+  const boss = member;
+  const second = new TestClient(fixture.app, 'chief-two@example.com', 'chief-password-1234');
+  await second.register();
+  await second.login();
+  // назначать главных может только главный; предложение не делает человека главным
+  expect(
+    (await withReauth(admin2, 'POST', '/admin/chief/appoint', { userId: second.userId })).json()
+      .error.code,
+  ).toBe('chief_required');
+  expect(
+    (await withReauth(boss, 'POST', '/admin/chief/appoint', { userId: second.userId })).statusCode,
+  ).toBe(200);
+  let list = (await boss.req('GET', '/admin/chief')).json();
+  expect(list.chiefs).toHaveLength(1);
+  expect(list.offers.map((o: { to: { id: string } }) => o.to.id)).toEqual([second.userId]);
+  expect((await second.req('GET', '/auth/chief-offer')).json().offer).toMatchObject({
+    mode: 'add',
+    from: { id: boss.userId },
+  });
+  // неверный мастер-пароль приём не подтверждает
+  const wrong = await second.req('POST', '/auth/chief-offer/accept', { authKey: 'x'.repeat(43) });
+  expect(wrong.statusCode).toBe(401);
+  expect(
+    (await second.req('POST', '/auth/chief-offer/accept', { authKey: await authKey(second) }))
+      .statusCode,
+  ).toBe(200);
+  await second.login();
+  // у предложившего роль осталась, главных двое
+  list = (await boss.req('GET', '/admin/chief')).json();
+  expect(list.chiefs.map((c: { id: string }) => c.id).sort()).toEqual(
+    [boss.userId, second.userId].sort(),
+  );
+  expect(list.chiefs[0].since).toBeTruthy();
+  expect(list.offers).toEqual([]);
+  // второй главный управляет ролью так же: отзывает роль у первого, тот остаётся полным администратором
+  expect(
+    (await withReauth(second, 'DELETE', `/admin/chief/${boss.userId}`, undefined)).statusCode,
+  ).toBe(204);
+  await boss.login();
+  const after = (await second.req('GET', '/admin/chief')).json();
+  expect(after.chiefs.map((c: { id: string }) => c.id)).toEqual([second.userId]);
+  expect((await boss.req('GET', '/admin/chief')).json().you).toBe(false);
+  // последнего главного отозвать нельзя
+  const last = await withReauth(second, 'DELETE', `/admin/chief/${second.userId}`, undefined);
+  expect(last.statusCode).toBe(409);
+  expect(last.json().error.code).toBe('last_chief');
 });

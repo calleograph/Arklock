@@ -25,6 +25,8 @@ import { verifyProof } from '../security.js';
 import { recordFailure, throttle } from './auth.js';
 
 export const CHIEF_OFFER_KEY = 'chief.transfer';
+/** Предложения стать ещё одним главным администратором: у предлагающего роль остаётся, предложений может быть несколько. */
+export const CHIEF_ADD_KEY = 'chief.add';
 const OFFER_TTL_MS = 72 * 3_600_000;
 interface Offer {
   from: string;
@@ -34,6 +36,25 @@ interface Offer {
 
 export const chiefRequired = () =>
   new AppError(403, 'chief_required', 'Only the chief administrator can do this');
+
+async function addOffers(db: Db): Promise<Offer[]> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, CHIEF_ADD_KEY));
+  const list = (row?.value as Offer[] | undefined) ?? [];
+  return list.filter((o) => Date.parse(o.expiresAt) > Date.now());
+}
+async function saveAddOffers(
+  db: Db | Parameters<Parameters<Db['transaction']>[0]>[0],
+  list: Offer[],
+  by: string,
+) {
+  await db
+    .insert(settings)
+    .values({ key: CHIEF_ADD_KEY, value: list, updatedBy: by })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value: list, updatedBy: by, updatedAt: new Date() },
+    });
+}
 
 /** Действующее предложение передать роль главного администратора (просроченное не действует). */
 export async function chiefOffer(db: Db): Promise<Offer | null> {
@@ -66,16 +87,122 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
 
   app.get('/admin/chief', async (req) => {
     const { user } = authOf(req);
-    const [chief] = await db
-      .select({ id: users.id, name: users.displayName, email: users.email })
+    const chiefs = await db
+      .select({
+        id: users.id,
+        name: users.displayName,
+        email: users.email,
+        authSource: users.authSource,
+        since: users.chiefSince,
+        disabled: users.disabledAt,
+      })
       .from(users)
-      .where(eq(users.chief, true));
+      .where(eq(users.chief, true))
+      .orderBy(asc(users.chiefSince), asc(users.displayName));
     const offer = await chiefOffer(db);
+    const adds = await addOffers(db);
     return {
-      chief: chief ?? null,
+      // первый по дате назначения: поле оставлено для прежних клиентов
+      chief: chiefs[0] ? { id: chiefs[0].id, name: chiefs[0].name, email: chiefs[0].email } : null,
+      chiefs: chiefs.map((c) => ({
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        authSource: c.authSource,
+        since: c.since?.toISOString() ?? null,
+        disabled: !!c.disabled,
+      })),
       you: user.chief,
       offer: offer ? { to: await person(offer.to), expiresAt: offer.expiresAt } : null,
+      offers: await Promise.all(
+        adds.map(async (o) => ({ to: await person(o.to), expiresAt: o.expiresAt })),
+      ),
     };
+  });
+
+  /** Предложить стать ещё одним главным администратором: роль появится только после подтверждения мастер-паролем. */
+  app.post('/admin/chief/appoint', async (req) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    requireReauth(ctx, req);
+    const { userId } = parse(z.object({ userId: uuid }).strict(), req.body);
+    const [target] = await db.select().from(users).where(eq(users.id, userId));
+    if (!target || target.disabledAt) throw notFound();
+    if (target.chief)
+      throw new AppError(409, 'conflict', 'The person is already a chief administrator');
+    const list = (await addOffers(db)).filter((o) => o.to !== userId);
+    const offer: Offer = {
+      from: user.id,
+      to: userId,
+      expiresAt: new Date(Date.now() + OFFER_TTL_MS).toISOString(),
+    };
+    await saveAddOffers(db, [...list, offer], user.id);
+    await audit(db, `user:${user.id}`, 'admin.chief.appoint', `user:${userId}`);
+    await notifyUsers(db, [userId], {
+      category: 'security',
+      event: 'admin.chief.offer',
+      resourceType: 'account',
+    });
+    return { expiresAt: offer.expiresAt };
+  });
+
+  app.delete('/admin/chief/appoint/:id', async (req, reply) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const list = await addOffers(db);
+    await saveAddOffers(
+      db,
+      list.filter((o) => o.to !== id),
+      user.id,
+    );
+    await audit(db, `user:${user.id}`, 'admin.chief.cancel', `user:${id}`);
+    return reply.status(204).send();
+  });
+
+  /**
+   * Отозвать роль главного администратора (у себя или у другого). Последнего главного отозвать нельзя.
+   * Человек остаётся полным администратором: снять и это можно обычным изменением роли.
+   */
+  app.delete('/admin/chief/:id', async (req, reply) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    requireReauth(ctx, req);
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    await db.transaction(async (tx) => {
+      const active = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.chief, true), isNull(users.disabledAt)))
+        .for('update');
+      const [target] = await tx.select().from(users).where(eq(users.id, id)).for('update');
+      if (!target?.chief) throw notFound();
+      // остаться должен хотя бы один действующий главный администратор
+      if (!active.some((a) => a.id !== id))
+        throw new AppError(409, 'last_chief', 'The last chief administrator cannot be removed');
+      await tx
+        .update(users)
+        .set({ chief: false, chiefSince: null, updatedAt: new Date() })
+        .where(eq(users.id, id));
+      // права сменились: сеансы завершаются (свой текущий сохраняется)
+      await tx
+        .update(sessions)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(sessions.userId, id),
+            isNull(sessions.revokedAt),
+            id === user.id ? ne(sessions.id, authOf(req).session.id) : undefined,
+          ),
+        );
+      await audit(tx, `user:${user.id}`, 'admin.chief.remove', `user:${id}`);
+    });
+    await notifyUsers(db, [id], {
+      category: 'security',
+      event: 'admin.chief.removed',
+      resourceType: 'account',
+    });
+    return reply.status(204).send();
   });
 
   app.post('/admin/chief/transfer', async (req) => {
@@ -121,8 +248,13 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   app.get('/auth/chief-offer', async (req) => {
     const { user } = authOf(req);
     const offer = await chiefOffer(db);
-    if (!offer || offer.to !== user.id) return { offer: null };
-    return { offer: { from: await person(offer.from), expiresAt: offer.expiresAt } };
+    if (offer && offer.to === user.id)
+      return {
+        offer: { from: await person(offer.from), expiresAt: offer.expiresAt, mode: 'transfer' },
+      };
+    const add = (await addOffers(db)).find((o) => o.to === user.id);
+    if (!add) return { offer: null };
+    return { offer: { from: await person(add.from), expiresAt: add.expiresAt, mode: 'add' } };
   });
 
   app.post('/auth/chief-offer/accept', async (req) => {
@@ -133,6 +265,48 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (!verifyProof(user.authSalt, authKey, user.authHash)) {
       recordFailure(ctx, req, `chief:${user.email}`);
       throw new AppError(401, 'invalid_credentials', 'Master password is incorrect');
+    }
+    const transfer = await chiefOffer(db);
+    if (!transfer || transfer.to !== user.id) {
+      // предложение «стать ещё одним главным»: у предложившего роль остаётся
+      const add = (await addOffers(db)).find((o) => o.to === user.id);
+      if (!add) throw notFound();
+      await db.transaction(async (tx) => {
+        const [prev] = await tx.select().from(users).where(eq(users.id, add.from));
+        if (!prev?.chief) throw new AppError(409, 'conflict', 'The offer is no longer valid');
+        await tx
+          .update(users)
+          .set({
+            chief: true,
+            chiefSince: new Date(),
+            role: 'admin',
+            adminRoleId: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+        await saveAddOffers(
+          tx,
+          (await addOffers(tx)).filter((o) => o.to !== user.id),
+          user.id,
+        );
+        await tx
+          .update(sessions)
+          .set({ revokedAt: new Date() })
+          .where(
+            and(
+              eq(sessions.userId, user.id),
+              isNull(sessions.revokedAt),
+              ne(sessions.id, session.id),
+            ),
+          );
+        await audit(tx, `user:${user.id}`, 'admin.chief.accept', `user:${add.from}`);
+      });
+      await notifyUsers(db, [add.from], {
+        category: 'security',
+        event: 'admin.chief.accepted',
+        resourceType: 'account',
+      });
+      return { chief: true };
     }
     const from = await db.transaction(async (tx) => {
       // одна передача за раз: повторный приём или встречная передача ждут завершения
@@ -148,11 +322,17 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       if (!prev?.chief) throw new AppError(409, 'conflict', 'The offer is no longer valid');
       await tx
         .update(users)
-        .set({ chief: false, updatedAt: new Date() })
+        .set({ chief: false, chiefSince: null, updatedAt: new Date() })
         .where(eq(users.id, prev.id));
       await tx
         .update(users)
-        .set({ chief: true, role: 'admin', adminRoleId: null, updatedAt: new Date() })
+        .set({
+          chief: true,
+          chiefSince: new Date(),
+          role: 'admin',
+          adminRoleId: null,
+          updatedAt: new Date(),
+        })
         .where(eq(users.id, user.id));
       await tx.delete(settings).where(eq(settings.key, CHIEF_OFFER_KEY));
       // права сменились у обоих: прежние сеансы завершаются (текущий сеанс преемника — подтверждён сейчас)
@@ -184,9 +364,20 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   app.post('/auth/chief-offer/decline', async (req, reply) => {
     const { user } = authOf(req);
     const offer = await chiefOffer(db);
-    if (!offer || offer.to !== user.id) throw notFound();
-    await db.delete(settings).where(eq(settings.key, CHIEF_OFFER_KEY));
-    await audit(db, `user:${user.id}`, 'admin.chief.decline', `user:${offer.from}`);
+    if (offer && offer.to === user.id) {
+      await db.delete(settings).where(eq(settings.key, CHIEF_OFFER_KEY));
+      await audit(db, `user:${user.id}`, 'admin.chief.decline', `user:${offer.from}`);
+      return reply.status(204).send();
+    }
+    const list = await addOffers(db);
+    const add = list.find((o) => o.to === user.id);
+    if (!add) throw notFound();
+    await saveAddOffers(
+      db,
+      list.filter((o) => o.to !== user.id),
+      user.id,
+    );
+    await audit(db, `user:${user.id}`, 'admin.chief.decline', `user:${add.from}`);
     return reply.status(204).send();
   });
 

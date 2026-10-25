@@ -14,10 +14,17 @@ import PersonPicker, { type Person as Found } from './PersonPicker.vue';
 const { t } = useI18n();
 const auth = useAuthStore();
 type Person = { id: string; name: string; email: string };
+interface Chief extends Person {
+  authSource: string;
+  since: string | null;
+  disabled: boolean;
+}
 interface Status {
   chief: Person | null;
+  chiefs: Chief[];
   you: boolean;
   offer: { to: Person | null; expiresAt: string } | null;
+  offers: { to: Person | null; expiresAt: string }[];
 }
 interface VaultRow {
   id: string;
@@ -109,6 +116,57 @@ async function offer(): Promise<void> {
     busy.value = false;
   }
 }
+// ---- несколько главных администраторов
+const appointPick = ref<Found[]>([]);
+const appointPassword = ref('');
+const removing = ref<string | null>(null);
+const removePassword = ref('');
+async function appoint(): Promise<void> {
+  const target = appointPick.value[0];
+  if (!target || !appointPassword.value || !auth.user) return;
+  busy.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    const headers = await confirmStepUp(auth.user, appointPassword.value);
+    await api('POST', '/admin/chief/appoint', { userId: target.id }, { headers });
+    appointPassword.value = '';
+    appointPick.value = [];
+    notice.value = t('chief.addSent');
+    await load();
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
+async function withdraw(userId: string): Promise<void> {
+  try {
+    await api('DELETE', `/admin/chief/appoint/${userId}`);
+    await load();
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  }
+}
+async function removeChief(id: string): Promise<void> {
+  if (!removePassword.value || !auth.user) return;
+  busy.value = true;
+  error.value = '';
+  try {
+    const headers = await confirmStepUp(auth.user, removePassword.value);
+    await api('DELETE', `/admin/chief/${id}`, undefined, { headers });
+    removePassword.value = '';
+    removing.value = null;
+    notice.value = t('chief.removed');
+    await load();
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
+const activeChiefs = computed(() => status.value?.chiefs.filter((c) => !c.disabled).length ?? 0);
+
 async function cancel(): Promise<void> {
   busy.value = true;
   try {
@@ -131,11 +189,70 @@ async function cancel(): Promise<void> {
         <h2>{{ t('chief.title') }}</h2>
         <p class="mt-1 text-xs text-slate-500">{{ t('chief.intro') }}</p>
       </div>
-      <p v-if="status?.chief" data-testid="chief-current">
-        <strong>{{ status.chief.name }}</strong>
-        <span class="text-slate-500"> · {{ status.chief.email }}</span>
-        <span v-if="status.you" class="badge ml-1">{{ t('chief.you') }}</span>
-      </p>
+      <div
+        v-if="status?.chiefs.length"
+        class="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700"
+        data-testid="chief-current"
+      >
+        <table class="min-w-full text-sm" data-testid="chief-table">
+          <thead class="text-left text-xs text-slate-500">
+            <tr>
+              <th class="px-2 py-1">{{ t('chief.colName') }}</th>
+              <th>{{ t('chief.colLogin') }}</th>
+              <th>{{ t('chief.colSource') }}</th>
+              <th>{{ t('chief.colSince') }}</th>
+              <th>{{ t('chief.colStatus') }}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="c in status.chiefs"
+              :key="c.id"
+              class="border-t border-slate-200 dark:border-slate-800"
+              data-testid="chief-row"
+            >
+              <td class="px-2 py-1 font-medium">
+                {{ c.name }}
+                <span v-if="c.id === auth.user?.id" class="badge ml-1">{{ t('chief.you') }}</span>
+              </td>
+              <td>{{ c.email }}</td>
+              <td>{{ t(`chief.source.${c.authSource}`) }}</td>
+              <td>{{ c.since ? when(c.since) : '—' }}</td>
+              <td>{{ c.disabled ? t('chief.blocked') : t('chief.active') }}</td>
+              <td class="px-2 text-right">
+                <template v-if="status.you">
+                  <button
+                    v-if="removing !== c.id"
+                    type="button"
+                    class="btn"
+                    :disabled="activeChiefs < 2 && !c.disabled"
+                    :title="activeChiefs < 2 && !c.disabled ? t('chief.lastOne') : undefined"
+                    :data-testid="`chief-remove-${c.email}`"
+                    @click="((removing = c.id), (removePassword = ''))"
+                  >
+                    {{ t('chief.remove') }}
+                  </button>
+                  <form v-else class="inline-flex gap-1" @submit.prevent="removeChief(c.id)">
+                    <input
+                      v-model="removePassword"
+                      type="password"
+                      autocomplete="current-password"
+                      class="input w-40"
+                      :placeholder="t('chief.password')"
+                      required
+                      data-testid="chief-remove-password"
+                    />
+                    <button type="submit" class="btn-danger" :disabled="busy">
+                      {{ t('chief.removeConfirm') }}
+                    </button>
+                  </form>
+                </template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <p v-else-if="status" class="text-slate-500">{{ t('chief.none') }}</p>
 
       <template v-if="status?.you">
@@ -151,6 +268,53 @@ async function cancel(): Promise<void> {
             {{ t('chief.cancel') }}
           </button>
         </div>
+        <div v-if="status.offers.length" class="notice notice-warn" data-testid="chief-offers">
+          <strong>{{ t('chief.offers') }}:</strong>
+          <span
+            v-for="o in status.offers"
+            :key="o.to?.id"
+            class="ml-2 inline-flex items-center gap-1"
+          >
+            {{ o.to?.name ?? '—' }}, {{ when(o.expiresAt) }}
+            <button type="button" class="btn" @click="o.to && withdraw(o.to.id)">
+              {{ t('chief.cancel') }}
+            </button>
+          </span>
+        </div>
+        <details class="rounded-[10px] border border-slate-200 p-3 dark:border-slate-700">
+          <summary class="cursor-pointer font-medium" data-testid="chief-add">
+            {{ t('chief.add') }}
+          </summary>
+          <form class="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="appoint">
+            <label
+              ><span class="field-label">{{ t('chief.colName') }}</span>
+              <PersonPicker
+                v-model="appointPick"
+                :exclude="status.chiefs.map((c) => c.id)"
+                :placeholder="t('chief.choose')"
+                testid="chief-add-person"
+            /></label>
+            <label
+              ><span class="field-label">{{ t('chief.password') }}</span>
+              <input
+                v-model="appointPassword"
+                type="password"
+                autocomplete="current-password"
+                class="input"
+                required
+                data-testid="chief-add-password"
+            /></label>
+            <button
+              type="submit"
+              class="btn-primary self-end"
+              :disabled="busy"
+              data-testid="chief-add-send"
+            >
+              {{ t('chief.send') }}
+            </button>
+          </form>
+          <p class="mt-2 text-xs text-slate-500">{{ t('chief.addHint') }}</p>
+        </details>
         <details class="rounded-[10px] border border-slate-200 p-3 dark:border-slate-700">
           <summary class="cursor-pointer font-medium" data-testid="chief-transfer">
             {{ t('chief.transfer') }}

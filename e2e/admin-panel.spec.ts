@@ -107,11 +107,18 @@ test('administration sections show real data and perform real operations', async
   await tab(page, 'resources');
   await expect(page.getByTestId('res-cpu')).toContainText('%');
   await expect(page.getByTestId('res-disk').first()).toBeVisible();
+  // круговые индикаторы показывают состояние словами, история ресурсов выбирается по периодам
+  await expect(page.getByTestId('res-cpu')).toContainText(
+    /Нормально|Предупреждение|Критично|Normal|Warning|Critical/,
+  );
+  await expect(page.getByTestId('res-history')).toBeVisible();
+  await page.getByTestId('res-range-168').click();
 
   // контейнеры (из снимка помощника)
   await tab(page, 'containers');
   await expect(page.getByTestId('container-row')).toHaveCount(2);
   await expect(page.getByTestId('containers-table')).toContainText('postgres:16-alpine');
+  await expect(page.getByTestId('services-env')).toBeVisible();
 
   // резервные копии
   await tab(page, 'backups');

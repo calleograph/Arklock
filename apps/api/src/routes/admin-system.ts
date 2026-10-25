@@ -1,8 +1,9 @@
+import { lookup } from 'node:dns/promises';
 import { access, constants, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
-import { count, eq, isNull, sql } from 'drizzle-orm';
+import { count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { DiagnosticState } from '@arklock/contracts';
@@ -15,6 +16,10 @@ import { publicUrlOf } from '../public-url.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
 import { parse } from '../errors.js';
 import type { SmtpConfig } from '../mail/smtp.js';
+import { LDAP_PROFILES_KEY } from '../auth/ldap-profiles.js';
+import { SAML_SETTING_KEY } from '../auth/saml.js';
+import { metricsHistory } from '../metrics.js';
+import { SYSLOG_KEY } from '../syslog.js';
 import { diskInfo, type Level } from '../resources.js';
 import { blobSuffix, sweepBlobs } from './attachments.js';
 
@@ -242,6 +247,14 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     };
   });
 
+  app.get('/admin/resources/history', async (req) => {
+    const { hours } = parse(
+      z.object({ hours: z.coerce.number().int().min(1).max(336).default(24) }),
+      req.query,
+    );
+    return { hours, points: await metricsHistory(db, hours) };
+  });
+
   // ------------------------------------------------------------------ хранилища
 
   app.get('/admin/storage', async () => {
@@ -355,6 +368,66 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     if (mfa?.value === 'all' || mfa?.value === 'admins')
       add('mfa-policy', 'ok', 'mfa-policy.ok', { scope: String(mfa.value) });
     else add('mfa-policy', 'warn', 'mfa-policy.off');
+
+    // интеграции: «не используется» не проблема, поэтому уровень всегда «в порядке»
+    const integ = await db
+      .select()
+      .from(settings)
+      .where(inArray(settings.key, [LDAP_PROFILES_KEY, 'sso.oidc', SAML_SETTING_KEY, SYSLOG_KEY]));
+    const on = (key: string, test: (v: unknown) => boolean) =>
+      integ.some((r) => r.key === key && test(r.value));
+    const used = [
+      on(
+        LDAP_PROFILES_KEY,
+        (v) => Array.isArray(v) && v.some((p) => (p as { enabled?: boolean }).enabled),
+      ) && 'LDAP',
+      on('sso.oidc', (v) => !!(v as { enabled?: boolean }).enabled) && 'SSO',
+      on(SAML_SETTING_KEY, (v) => !!(v as { enabled?: boolean }).enabled) && 'SAML',
+      on(SYSLOG_KEY, (v) => !!(v as { enabled?: boolean }).enabled) && 'syslog',
+    ].filter(Boolean);
+    add('integrations', 'ok', 'integrations.ok', { n: used.length, list: used.join(', ') });
+
+    // копии: нужна свежая (не старше недели) — иначе при сбое восстанавливать нечего
+    if (upd?.helper.alive) {
+      const last = (await ctx.updater.backups())?.items
+        .map((i) => Date.parse(i.createdAt))
+        .filter((n) => !Number.isNaN(n))
+        .sort((a, b) => b - a)[0];
+      if (last === undefined) add('backups', 'warn', 'backups.none');
+      else {
+        const days = Math.floor((Date.now() - last) / 86_400_000);
+        if (days > 7) add('backups', 'warn', 'backups.old', { days });
+        else add('backups', 'ok', 'backups.ok', { days });
+      }
+    }
+
+    // публичный адрес: имя должно разрешаться, сертификат — действовать и быть доверенным
+    if (pub?.startsWith('https://')) {
+      const u = new URL(pub);
+      try {
+        await lookup(u.hostname);
+        add('dns', 'ok', 'dns.ok', { host: u.hostname });
+      } catch {
+        add('dns', 'warn', 'dns.fail', { host: u.hostname });
+      }
+      const cert = await probeCertificate(u.hostname, Number(u.port) || 443, 3000);
+      const leaf = cert.chain[0];
+      if (!cert.ok || !leaf) add('cert', 'warn', 'cert.unreachable', { host: u.hostname });
+      else if (leaf.daysLeft < 0) add('cert', 'fail', 'cert.expired', { host: u.hostname });
+      else if (!cert.trusted) add('cert', 'warn', 'cert.untrusted', { host: u.hostname });
+      else if (leaf.daysLeft < 30) add('cert', 'warn', 'cert.soon', { days: leaf.daysLeft });
+      else add('cert', 'ok', 'cert.ok', { days: leaf.daysLeft });
+    }
+
+    // веб-интерфейс: собранные файлы на месте (иначе страница не откроется)
+    if (config.WEB_DIST) {
+      try {
+        await access(path.join(config.WEB_DIST, 'index.html'), constants.R_OK);
+        add('static', 'ok', 'static.ok');
+      } catch {
+        add('static', 'fail', 'static.missing');
+      }
+    }
 
     const worst = checks.some((c) => c.level === 'fail')
       ? 'fail'

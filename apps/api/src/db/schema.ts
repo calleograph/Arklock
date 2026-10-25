@@ -12,7 +12,6 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -22,6 +21,18 @@ export const settings = pgTable('settings', {
   value: jsonb('value').notNull(),
   updatedAt: ts('updated_at').notNull().defaultNow(),
   updatedBy: text('updated_by'),
+});
+
+/**
+ * Лёгкая история ресурсов сервера для графиков в панели: одна строка в несколько минут, хранится 14 дней.
+ * Это не система мониторинга: только нагрузка, память, самый заполненный диск и размер базы.
+ */
+export const metricSamples = pgTable('metric_samples', {
+  at: ts('at').primaryKey(),
+  cpuPct: integer('cpu_pct').notNull(),
+  memPct: integer('mem_pct').notNull(),
+  diskPct: integer('disk_pct').notNull(),
+  dbBytes: bigint('db_bytes', { mode: 'number' }).notNull(),
 });
 
 /** Ledger — журнал действий. Только добавление; секреты и ключи в него не попадают. */
@@ -65,6 +76,8 @@ export const users = pgTable(
     adminRoleId: uuid('admin_role_id'),
     /** Главный администратор: назначает и снимает полных администраторов; роль только передаётся, не теряется. */
     chief: boolean('chief').notNull().default(false),
+    /** Когда назначен главным администратором (null у не главных). */
+    chiefSince: ts('chief_since'),
     /** Карточка сотрудника. Сведения справочные: доступ по ним не выдаётся. */
     title: text('title'),
     department: text('department'),
@@ -99,13 +112,7 @@ export const users = pgTable(
     createdAt: ts('created_at').notNull().defaultNow(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
-  (t) => [
-    uniqueIndex('users_email_idx').on(t.email),
-    // главный администратор один: передача роли снимает отметку с прежнего в той же транзакции
-    uniqueIndex('users_single_chief_idx')
-      .on(t.chief)
-      .where(sql`${t.chief}`),
-  ],
+  (t) => [uniqueIndex('users_email_idx').on(t.email)],
 );
 
 /** Журнал привязки открытых ключей к идентичности (хэш-цепочка). */

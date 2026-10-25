@@ -3,6 +3,8 @@ import { loadConfig } from './config.js';
 import { connect } from './db/connect.js';
 import { BlobStore } from './blobs.js';
 import { runMaintenance } from './maintenance.js';
+import { sampleMetrics } from './metrics.js';
+import os from 'node:os';
 import { syncScheduledLdap } from './auth/ldap-sync.js';
 
 async function main(): Promise<void> {
@@ -31,6 +33,14 @@ async function main(): Promise<void> {
     6 * 3_600_000,
   );
   timer.unref();
+  // История ресурсов для графиков в панели: точка раз в пять минут, первая — сразу после запуска.
+  const sample = () =>
+    void sampleMetrics(database.db, [config.BLOB_DIR, os.tmpdir()]).catch((e: unknown) =>
+      app.log.error({ err: String(e) }, 'metrics sample failed'),
+    );
+  sample();
+  const metricsTimer = setInterval(sample, 5 * 60_000);
+  metricsTimer.unref();
   // Сверка с каталогами — чаще обслуживания: отключённый в каталоге теряет сеансы не позже чем через 30 минут.
   // shortcut: таймер в каждом процессе; при нескольких экземплярах сверка повторяется (она идемпотентна) — тогда нужна общая блокировка
   let syncing = false;

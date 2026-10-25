@@ -7,6 +7,8 @@ import { api, ApiError, apiBinary } from '../services/api';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import OffsiteBackups from './OffsiteBackups.vue';
 import CorporateContinuity from './CorporateContinuity.vue';
+import RingGauge from './RingGauge.vue';
+import TrendChart from './TrendChart.vue';
 import { useAuthStore } from '../stores/auth';
 
 type Section =
@@ -398,6 +400,83 @@ watch(
 );
 
 const disks = computed(() => (data.value?.disks ?? []) as Json[]);
+// пороги для нагрузки и памяти: до 70 % нормально, до 90 % предупреждение, выше — критично
+const envRows = computed(() => {
+  const h = (data.value?.host ?? {}) as Record<string, string | null>;
+  return [
+    {
+      id: 'docker',
+      name: 'Docker Engine',
+      why: t('sys.services.why.docker'),
+      value: h.docker ?? null,
+    },
+    {
+      id: 'compose',
+      name: 'Docker Compose',
+      why: t('sys.services.why.compose'),
+      value: h.compose ?? null,
+    },
+    { id: 'os', name: t('sys.services.os'), why: t('sys.services.why.os'), value: h.os ?? null },
+    {
+      id: 'kernel',
+      name: t('sys.services.kernel'),
+      why: t('sys.services.why.kernel'),
+      value: h.kernel ?? null,
+    },
+  ];
+});
+const pctLevel = (p: number): 'ok' | 'warn' | 'fail' =>
+  p >= 90 ? 'fail' : p >= 70 ? 'warn' : 'ok';
+const memPct = computed(() =>
+  data.value?.memory
+    ? Math.round(
+        ((data.value.memory.totalBytes - data.value.memory.freeBytes) /
+          data.value.memory.totalBytes) *
+          100,
+      )
+    : 0,
+);
+const advice = computed(() => {
+  if (!data.value?.cpu) return [];
+  const out: { id: string; level: string; text: string; to?: string }[] = [];
+  const cpuL = pctLevel(data.value.cpu.loadPct);
+  if (cpuL !== 'ok') out.push({ id: 'cpu', level: cpuL, text: t('sys.res.adviceCpu') });
+  const memL = pctLevel(memPct.value);
+  if (memL !== 'ok') out.push({ id: 'mem', level: memL, text: t('sys.res.adviceMem') });
+  for (const d of disks.value)
+    if (d.level !== 'ok')
+      out.push({
+        id: `disk-${d.id}`,
+        level: d.level,
+        text: t('sys.res.adviceDisk', { name: t(`sys.res.disk.${d.id}`) }),
+        to: '/admin/backups',
+      });
+  return out;
+});
+// история ресурсов (точка раз в несколько минут, хранится две недели)
+const history = ref<{ at: string; cpu: number; mem: number; disk: number }[]>([]);
+const historyHours = ref(24);
+const historyFrom = computed(() => (history.value[0] ? when(history.value[0].at) : ''));
+const historyTo = computed(() =>
+  history.value.length ? when(history.value[history.value.length - 1]!.at) : '',
+);
+async function loadHistory(h = historyHours.value): Promise<void> {
+  historyHours.value = h;
+  try {
+    history.value = (
+      await api<{ points: typeof history.value }>('GET', `/admin/resources/history?hours=${h}`)
+    ).points;
+  } catch {
+    history.value = [];
+  }
+}
+watch(
+  () => props.section,
+  (s) => {
+    if (s === 'resources') void loadHistory();
+  },
+  { immediate: true },
+);
 /** Куда ведёт «Перейти к настройке» из диагностики: каждое предупреждение — с местом исправления. */
 const DIAG_LINK: Record<string, string> = {
   'public-url': '/admin/settings?section=network',
@@ -407,6 +486,11 @@ const DIAG_LINK: Record<string, string> = {
   blobs: '/admin/storage',
   'blobs-consistency': '/admin/storage',
   database: '/admin/backups',
+  backups: '/admin/backups',
+  integrations: '/admin/ldap',
+  dns: '/admin/settings?section=network',
+  cert: '/admin/certificates',
+  static: '/admin/updates',
 };
 </script>
 
@@ -459,28 +543,36 @@ const DIAG_LINK: Record<string, string> = {
         <div class="text-lg font-medium" data-testid="ov-version">{{ data.version }}</div>
         <div class="text-xs text-slate-500">{{ data.commit.slice(0, 8) }} · {{ data.builtAt }}</div>
       </div>
-      <div class="card p-3 text-sm">
+      <div class="card p-3 text-sm" :title="t('sys.overview.uptimeHint')">
         <div class="text-xs text-slate-500">{{ t('sys.overview.uptime') }}</div>
         <div class="text-lg font-medium">{{ fmtUptime(data.uptimeSeconds) }}</div>
       </div>
-      <div class="card p-3 text-sm">
+      <div class="card space-y-0.5 p-3 text-sm" data-testid="ov-state">
         <div class="text-xs text-slate-500">{{ t('sys.overview.state') }}</div>
         <div>
-          DB:
+          {{ t('sys.overview.db') }}:
           <span :class="data.database.ok ? 'text-emerald-600' : 'text-red-600'">{{
-            data.database.ok ? 'OK' : '✗'
+            data.database.ok ? t('sys.overview.dbOk') : t('sys.overview.dbFail')
           }}</span>
-          · API: <span class="text-emerald-600">OK</span> · {{ t('sys.overview.helper') }}:
+        </div>
+        <div>
+          {{ t('sys.overview.api') }}:
+          <span class="text-emerald-600">{{ t('sys.overview.apiOk') }}</span>
+        </div>
+        <div :title="t('sys.overview.helperHint')">
+          {{ t('sys.overview.helper') }}:
           <span :class="data.helper.alive ? 'text-emerald-600' : 'text-amber-600'">{{
-            data.helper.alive ? 'OK' : t('sys.overview.helperOff')
+            data.helper.alive ? t('sys.overview.helperOk') : t('sys.overview.helperOff')
           }}</span>
         </div>
       </div>
-      <div
+      <!-- сначала корпоративные сейфы, затем личные; число ведёт к подробностям -->
+      <component
+        :is="k === 'sharedVaults' ? 'RouterLink' : k === 'users' ? 'RouterLink' : 'div'"
         v-for="k in [
-          'users',
           'sharedVaults',
           'lockers',
+          'users',
           'entries',
           'attachments',
           'activeSessions',
@@ -488,10 +580,16 @@ const DIAG_LINK: Record<string, string> = {
         ]"
         :key="k"
         class="card p-3 text-sm"
+        :class="
+          k === 'sharedVaults' || k === 'users' ? 'hover:bg-slate-50 dark:hover:bg-slate-800' : ''
+        "
+        :to="
+          k === 'sharedVaults' ? '/admin/organization' : k === 'users' ? '/admin/users' : undefined
+        "
       >
         <div class="text-xs text-slate-500">{{ t(`sys.overview.${k}`) }}</div>
         <div class="text-lg font-medium" :data-testid="`ov-${k}`">{{ data.counts[k] }}</div>
-      </div>
+      </component>
       <div class="card p-3 text-sm sm:col-span-2">
         <div class="text-xs text-slate-500">{{ t('sys.overview.lastUpdate') }}</div>
         <div v-if="data.lastUpdate">
@@ -507,96 +605,198 @@ const DIAG_LINK: Record<string, string> = {
 
     <!-- Ресурсы -->
     <div v-else-if="section === 'resources'" class="space-y-3">
-      <div class="grid gap-3 sm:grid-cols-3">
-        <div class="card p-3 text-sm">
-          <div class="text-xs text-slate-500">CPU</div>
-          <div class="text-lg font-medium" data-testid="res-cpu">{{ data.cpu.loadPct }}%</div>
-          <div class="text-xs text-slate-500">
-            {{ data.cpu.cores }} × · load {{ data.cpu.load1.toFixed(2) }} /
-            {{ data.cpu.load5.toFixed(2) }} / {{ data.cpu.load15.toFixed(2) }}
-          </div>
-        </div>
-        <div class="card p-3 text-sm">
-          <div class="text-xs text-slate-500">{{ t('sys.res.memory') }}</div>
-          <div class="text-lg font-medium">
-            {{ fmtBytes(data.memory.totalBytes - data.memory.freeBytes) }} /
-            {{ fmtBytes(data.memory.totalBytes) }}
-          </div>
-          <div class="text-xs text-slate-500">
-            {{ t('sys.res.process') }}: {{ fmtBytes(data.memory.processRssBytes) }}
-          </div>
-        </div>
-        <div class="card p-3 text-sm">
-          <div class="text-xs text-slate-500">{{ t('sys.res.database') }}</div>
-          <div class="text-lg font-medium">{{ fmtBytes(data.database.sizeBytes) }}</div>
-          <div class="text-xs text-slate-500">
-            {{ t('sys.res.files') }}: {{ data.attachments.files }} ·
-            {{ fmtBytes(data.attachments.bytes) }}
-          </div>
-        </div>
-      </div>
-      <div class="card divide-y divide-slate-200 text-sm dark:divide-slate-800">
-        <div
+      <div class="card grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="res-gauges">
+        <RingGauge
+          :pct="data.cpu.loadPct"
+          :level="pctLevel(data.cpu.loadPct)"
+          label="CPU"
+          :sub="`${data.cpu.cores} × · load ${data.cpu.load1.toFixed(2)} / ${data.cpu.load5.toFixed(2)} / ${data.cpu.load15.toFixed(2)}`"
+          :state="t(`sys.res.state.${pctLevel(data.cpu.loadPct)}`)"
+          data-testid="res-cpu"
+        />
+        <RingGauge
+          :pct="memPct"
+          :level="pctLevel(memPct)"
+          :label="t('sys.res.memory')"
+          :sub="`${fmtBytes(data.memory.totalBytes - data.memory.freeBytes)} / ${fmtBytes(data.memory.totalBytes)} · ${t('sys.res.process')} ${fmtBytes(data.memory.processRssBytes)}`"
+          :state="t(`sys.res.state.${pctLevel(memPct)}`)"
+          data-testid="res-memory"
+        />
+        <RingGauge
           v-for="d in disks"
           :key="d.id"
-          class="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+          :pct="d.usedPct"
+          :level="d.level"
+          :label="t(`sys.res.disk.${d.id}`)"
+          :sub="`${t('sys.res.free')} ${fmtBytes(d.freeBytes)} / ${fmtBytes(d.totalBytes)} · ${d.path}`"
+          :state="t(`sys.res.state.${d.level}`)"
           data-testid="res-disk"
+        />
+      </div>
+      <div class="card flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
+        <span>
+          {{ t('sys.res.database') }}:
+          <strong>{{ fmtBytes(data.database.sizeBytes) }}</strong>
+          · {{ t('sys.res.files') }}: {{ data.attachments.files }} ·
+          {{ fmtBytes(data.attachments.bytes) }}
+        </span>
+      </div>
+      <!-- что делать: только при предупреждении или ошибке -->
+      <ul v-if="advice.length" class="space-y-1" data-testid="res-advice">
+        <li
+          v-for="a in advice"
+          :key="a.id"
+          class="notice"
+          :class="a.level === 'fail' ? 'notice-error' : 'notice-warn'"
         >
-          <span
-            >{{ t(`sys.res.disk.${d.id}`) }}
-            <span class="font-mono text-xs text-slate-500">{{ d.path }}</span></span
-          >
-          <span :class="levelClass(d.level)"
-            >{{ d.usedPct }}% · {{ t('sys.res.free') }} {{ fmtBytes(d.freeBytes) }} /
-            {{ fmtBytes(d.totalBytes) }} · {{ levelText(d.level) }}</span
-          >
+          {{ a.text }}
+          <RouterLink v-if="a.to" :to="a.to" class="ml-1 underline">{{
+            t('sys.res.open')
+          }}</RouterLink>
+        </li>
+      </ul>
+      <div class="card space-y-3 p-4" data-testid="res-history">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold">{{ t('sys.res.history') }}</h3>
+          <div class="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800">
+            <button
+              v-for="h in [6, 24, 168, 336]"
+              :key="h"
+              type="button"
+              class="seg"
+              :class="historyHours === h ? 'seg-on' : ''"
+              :data-testid="`res-range-${h}`"
+              @click="loadHistory(h)"
+            >
+              {{ t(`sys.res.range.${h}`) }}
+            </button>
+          </div>
         </div>
+        <p v-if="history.length < 2" class="text-xs text-slate-500">
+          {{ t('sys.res.historyEmpty') }}
+        </p>
+        <div v-else class="grid gap-4 sm:grid-cols-3">
+          <TrendChart
+            :title="'CPU'"
+            :values="history.map((p) => p.cpu)"
+            :from="historyFrom"
+            :to="historyTo"
+          />
+          <TrendChart
+            :title="t('sys.res.memory')"
+            :values="history.map((p) => p.mem)"
+            :from="historyFrom"
+            :to="historyTo"
+          />
+          <TrendChart
+            :title="t('sys.res.diskMax')"
+            :values="history.map((p) => p.disk)"
+            :from="historyFrom"
+            :to="historyTo"
+          />
+        </div>
+        <p class="text-xs text-slate-500">{{ t('sys.res.historyNote') }}</p>
       </div>
     </div>
 
-    <!-- Контейнеры -->
-    <div v-else-if="section === 'containers'" class="card overflow-x-auto">
-      <p v-if="!data.helperAlive" class="p-3 text-sm text-amber-700">
-        {{ t('updates.errHelper') }}
-      </p>
-      <table class="min-w-full text-sm" data-testid="containers-table">
-        <thead class="text-left text-xs text-slate-500">
-          <tr>
-            <th class="px-3 py-2">{{ t('sys.containers.service') }}</th>
-            <th>{{ t('sys.containers.image') }}</th>
-            <th>{{ t('sys.containers.state') }}</th>
-            <th>Health</th>
-            <th>{{ t('sys.containers.started') }}</th>
-            <th>CPU</th>
-            <th>{{ t('sys.res.memory') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="c in data.items"
-            :key="c.service"
-            class="border-t border-slate-200 dark:border-slate-800"
-            data-testid="container-row"
-          >
-            <td class="px-3 py-2">{{ c.service }}</td>
-            <td class="font-mono text-xs">{{ c.image }}</td>
-            <td :class="c.state === 'running' ? 'text-emerald-600' : 'text-red-600'">
-              {{ c.state }}
-            </td>
-            <td :class="c.health === 'healthy' || !c.health ? '' : 'text-amber-600'">
-              {{ c.health || '—' }}
-            </td>
-            <td class="text-xs">
-              {{ fmtDate(c.startedAt) }}<span v-if="c.restarts"> · ↻{{ c.restarts }}</span>
-            </td>
-            <td>{{ c.cpu }}</td>
-            <td class="text-xs">{{ c.memory }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="!data.items.length" class="p-3 text-sm text-slate-500">
-        {{ t('sys.containers.empty') }}
-      </p>
+    <!-- Службы -->
+    <div v-else-if="section === 'containers'" class="space-y-3">
+      <p v-if="!data.helperAlive" class="notice notice-warn">{{ t('updates.errHelper') }}</p>
+      <section class="card overflow-x-auto" data-testid="services-arklock">
+        <h3 class="px-3 pt-3 text-sm font-semibold">{{ t('sys.services.own') }}</h3>
+        <table class="min-w-full text-sm" data-testid="containers-table">
+          <thead class="text-left text-xs text-slate-500">
+            <tr>
+              <th class="px-3 py-2">{{ t('sys.containers.service') }}</th>
+              <th>{{ t('sys.services.purpose') }}</th>
+              <th>{{ t('sys.containers.state') }}</th>
+              <th>{{ t('sys.containers.started') }}</th>
+              <th>CPU</th>
+              <th>{{ t('sys.res.memory') }}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="c in data.items"
+              :key="c.service"
+              class="border-t border-slate-200 dark:border-slate-800"
+              data-testid="container-row"
+            >
+              <td class="px-3 py-2 font-medium">{{ c.service }}</td>
+              <td class="text-xs text-slate-500">
+                {{
+                  te(`sys.services.role.${c.service}`)
+                    ? t(`sys.services.role.${c.service}`)
+                    : c.image
+                }}
+
+                <div class="font-mono text-[11px]">{{ c.image }}</div>
+              </td>
+              <td
+                :class="
+                  c.state === 'running' && (c.health === 'healthy' || !c.health)
+                    ? 'text-emerald-700'
+                    : 'text-red-600'
+                "
+              >
+                {{ c.state }}<span v-if="c.health"> · {{ c.health }}</span>
+              </td>
+              <td class="text-xs">
+                {{ fmtDate(c.startedAt) }}<span v-if="c.restarts"> · ↻{{ c.restarts }}</span>
+              </td>
+              <td>{{ c.cpu }}</td>
+              <td class="text-xs">{{ c.memory }}</td>
+              <td class="px-2 text-right">
+                <RouterLink to="/admin/diagnostics" class="btn">{{
+                  t('sys.services.diagnose')
+                }}</RouterLink>
+              </td>
+            </tr>
+            <tr
+              class="border-t border-slate-200 dark:border-slate-800"
+              data-testid="service-helper"
+            >
+              <td class="px-3 py-2 font-medium">{{ t('sys.overview.helper') }}</td>
+              <td class="text-xs text-slate-500">{{ t('sys.services.role.helper') }}</td>
+              <td :class="data.helperAlive ? 'text-emerald-700' : 'text-amber-700'">
+                {{ data.helperAlive ? t('sys.overview.helperOk') : t('sys.overview.helperOff') }}
+              </td>
+              <td colspan="3" class="text-xs text-slate-500">{{ t('sys.overview.helperHint') }}</td>
+              <td class="px-2 text-right">
+                <RouterLink to="/admin/updates" class="btn">{{
+                  t('sys.services.open')
+                }}</RouterLink>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-if="!data.items.length" class="p-3 text-sm text-slate-500">
+          {{ t('sys.containers.empty') }}
+        </p>
+        <p class="px-3 pb-3 pt-1 text-xs text-slate-500">
+          {{ t('sys.services.checked', { at: data.at ? fmtDate(data.at) : '—' }) }}
+        </p>
+      </section>
+      <section class="card overflow-x-auto" data-testid="services-env">
+        <h3 class="px-3 pt-3 text-sm font-semibold">{{ t('sys.services.env') }}</h3>
+        <table class="min-w-full text-sm">
+          <tbody>
+            <tr
+              v-for="e in envRows"
+              :key="e.id"
+              class="border-t border-slate-200 first:border-0 dark:border-slate-800"
+            >
+              <td class="px-3 py-2 font-medium">{{ e.name }}</td>
+              <td class="text-xs text-slate-500">{{ e.why }}</td>
+              <td :class="e.value ? 'text-emerald-700' : 'text-amber-700'">
+                {{ e.value ?? t('sys.services.unknown') }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="px-3 pb-3 pt-1 text-xs text-slate-500">{{ t('sys.services.envNote') }}</p>
+      </section>
     </div>
 
     <!-- Резервные копии -->
