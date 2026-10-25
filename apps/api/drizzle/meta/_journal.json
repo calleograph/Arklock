@@ -176,6 +176,13 @@
       "when": 1792888495293,
       "tag": "0024_managed_personal",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792891106350,
+      "tag": "0025_entry_short_id",
+      "breakpoints": true
     }
   ]
 }

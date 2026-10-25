@@ -137,6 +137,7 @@ onMounted(async () => {
         {{ t('all') }}
         <input
           type="checkbox"
+          class="switch"
           data-testid="set-personal-lockers"
           :checked="settings['vaults.personalLockers'] === true"
           @change="save({ 'vaults.personalLockers': ($event.target as HTMLInputElement).checked })"

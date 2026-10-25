@@ -1050,3 +1050,62 @@ test('два режима персональных сейфов: сотрудн�
   await page.getByTestId('vaults-kind-private').click();
   await expect(page.getByTestId('vaults-range')).toBeVisible();
 });
+
+test('ссылка на запись: кнопка копирует адрес, у коллеги с доступом запись открывается, у остальных — нет, и это неотличимо от несуществующей', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const hc = new TestClient(httpApp(BASE), headEmail(5), PASSWORD);
+  await hc.login();
+  const lead = (await hc.vaults()).find((v) => v.name === 'Финансы · Руководство')!;
+  const key = await hc.openVault(lead);
+  const made = await hc.createEntry(
+    {
+      kind: 'login',
+      title: 'Ссылочная запись',
+      username: 'link',
+      password: 'Correct-Horse-Battery-9!y',
+      url: '',
+      notes: '',
+      totp: '',
+      tags: [],
+      fields: [],
+      links: [],
+    },
+    { vaultId: lead.id, vaultKey: key },
+  );
+  const code = made.entryId.replace(/-/g, '').slice(0, 12);
+
+  const head = await login(browser, headEmail(5));
+  // ссылка открывает запись сразу, в том числе из другого пространства
+  await head.goto(`/e/${code}`);
+  await expect(head.getByText('Ссылочная запись').first()).toBeVisible({ timeout: 60_000 });
+  await head.evaluate(() => {
+    (window as unknown as { copied: string }).copied = '';
+    navigator.clipboard.writeText = (v: string) => {
+      (window as unknown as { copied: string }).copied = v;
+      return Promise.resolve();
+    };
+  });
+  await head.getByTestId('btn-copy-link').click();
+  const copied = await head.evaluate(() => (window as unknown as { copied: string }).copied);
+  expect(copied).toBe(`${BASE}/e/${code}`);
+  await head.context().close();
+
+  // сотрудник другого отдела: то же сообщение, что и для несуществующего кода
+  const other = await login(browser, staffEmail(0));
+  await other.goto(`/e/${code}`);
+  await expect(other.getByTestId('entry-link-missing')).toBeVisible({ timeout: 30_000 });
+  await other.goto('/e/000000000000');
+  await expect(other.getByTestId('entry-link-missing')).toBeVisible();
+  await other.context().close();
+
+  // до входа: после входа человек попадает на запись, а не на общий список
+  const guest = await (await browser.newContext({ locale: 'ru-RU', baseURL: BASE })).newPage();
+  await guest.goto(`/e/${code}`);
+  await guest.getByTestId('email').fill(headEmail(5));
+  await guest.getByTestId('password').fill(PASSWORD);
+  await guest.getByTestId('submit').click();
+  await expect(guest.getByText('Ссылочная запись').first()).toBeVisible({ timeout: 90_000 });
+  await guest.context().close();
+});

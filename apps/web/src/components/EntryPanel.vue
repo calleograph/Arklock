@@ -37,6 +37,19 @@ import { NO_POLICY, checkPolicy, type PasswordPolicy, policyMessage } from '../s
 import type { VaultView } from '../stores/workspace';
 import { naturalCompare } from '../services/helpers';
 
+const linkCopied = ref(false);
+/** Внутренняя ссылка для коллег: открывается только у тех, у кого есть право на запись (это не внешняя ссылка передачи секрета). */
+async function copyLink(): Promise<void> {
+  if (!props.item) return;
+  const code = props.item.id.replace(/-/g, '').slice(0, 12);
+  try {
+    await navigator.clipboard.writeText(`${window.location.origin}/e/${code}`);
+    linkCopied.value = true;
+    setTimeout(() => (linkCopied.value = false), 2500);
+  } catch {
+    /* буфер обмена недоступен: кнопка просто ничего не копирует */
+  }
+}
 const props = defineProps<{
   /** Выбранная запись; null — создание новой. */
   item: EntryItem | null;
@@ -738,6 +751,12 @@ const fmt = (iso: string) => when(iso);
                 :label="item.data.archived ? t('vault.unarchive') : t('vault.archiveEntry')"
                 data-testid="btn-archive"
                 @click="toggleArchive"
+              />
+              <IconButton
+                icon="external"
+                :label="linkCopied ? t('entryPanel.linkCopied') : t('entryPanel.copyLink')"
+                data-testid="btn-copy-link"
+                @click="copyLink"
               />
               <IconButton
                 icon="star"

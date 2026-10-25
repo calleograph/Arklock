@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SwitchField from './SwitchField.vue';
 import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -356,28 +357,23 @@ const browse = () =>
           class="input"
           data-testid="ldap-profile-name"
       /></label>
-      <label class="flex items-center gap-2"
-        ><input v-model="form.enabled" type="checkbox" data-testid="ldap-enabled" />
-        {{ t('ldap.enabled') }}</label
-      >
+      <SwitchField v-model="form.enabled" data-testid="ldap-enabled" :label="t('ldap.enabled')" />
       <label class="block"
         >{{ t('ldap.url')
         }}<input v-model="form.url" required class="input font-mono" data-testid="ldap-url"
       /></label>
-      <label v-if="hasBindPassword" class="flex items-center gap-2"
-        ><input v-model="clearPassword" type="checkbox" />{{ t('directory.clearPassword') }}</label
-      >
+      <SwitchField
+        v-if="hasBindPassword"
+        v-model="clearPassword"
+        :label="t('directory.clearPassword')"
+      />
       <div class="flex flex-wrap gap-4">
-        <label class="flex items-center gap-2"
-          ><input v-model="form.startTls" type="checkbox" /> {{ t('ldap.startTls') }}</label
-        >
+        <SwitchField v-model="form.startTls" :label="t('ldap.startTls')" />
         <label class="flex items-center gap-2"
           ><input v-model="form.allowPlaintext" type="checkbox" data-testid="ldap-plaintext" />
           {{ t('ldap.allowPlaintext') }}<InfoHint :text="t('hint.ldapPlaintext.text')"
         /></label>
-        <label class="flex items-center gap-2"
-          ><input v-model="form.insecureTls" type="checkbox" /> {{ t('ldap.insecureTls') }}</label
-        >
+        <SwitchField v-model="form.insecureTls" :label="t('ldap.insecureTls')" />
       </div>
       <label class="block"
         >{{ t('ldap.ca')
@@ -431,14 +427,12 @@ const browse = () =>
         </div>
         <p class="text-xs text-slate-500">{{ t('ldap.cardAttrsHint') }}</p>
       </fieldset>
-      <label class="flex items-center gap-2"
-        ><input v-model="form.autoProvision" type="checkbox" /> {{ t('ldap.autoProvision') }}</label
-      >
-      <label class="flex items-center gap-2"
-        ><input v-model="form.syncEnabled" type="checkbox" data-testid="ldap-scheduled-sync" />{{
-          t('directory.scheduled')
-        }}</label
-      >
+      <SwitchField v-model="form.autoProvision" :label="t('ldap.autoProvision')" />
+      <SwitchField
+        v-model="form.syncEnabled"
+        data-testid="ldap-scheduled-sync"
+        :label="t('directory.scheduled')"
+      />
 
       <div class="space-y-2">
         <div class="font-medium">{{ t('ldap.groups') }}</div>

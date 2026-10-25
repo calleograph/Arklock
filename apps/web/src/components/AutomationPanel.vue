@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SwitchField from './SwitchField.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
@@ -214,10 +215,11 @@ const recipients = (r: Rule) =>
       </div>
       <fieldset class="space-y-1">
         <legend class="field-label">{{ t('automation.notify') }}</legend>
-        <label class="flex items-center gap-2"
-          ><input v-model="form.notifyAdmins" type="checkbox" data-testid="rule-admins" />
-          {{ t('automation.admins') }}</label
-        >
+        <SwitchField
+          v-model="form.notifyAdmins"
+          data-testid="rule-admins"
+          :label="t('automation.admins')"
+        />
         <label v-for="c in circles" :key="c.id" class="flex items-center gap-2"
           ><input
             v-model="form.notifyCircles"

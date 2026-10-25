@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SwitchField from './SwitchField.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -119,10 +120,7 @@ const test = () =>
     </div>
 
     <form class="card max-w-2xl space-y-3 p-4 text-sm" @submit.prevent="save">
-      <label class="flex items-center gap-2"
-        ><input v-model="form.enabled" type="checkbox" data-testid="sso-enabled" />
-        {{ t('sso.enabled') }}</label
-      >
+      <SwitchField v-model="form.enabled" data-testid="sso-enabled" :label="t('sso.enabled')" />
       <label class="block"
         >{{ t('sso.issuer')
         }}<input v-model="form.issuer" required class="input font-mono" data-testid="sso-issuer"
@@ -160,13 +158,12 @@ const test = () =>
         >{{ t('sso.domains')
         }}<input v-model="form.domains" class="input" placeholder="example.com, corp.example.com"
       /></label>
-      <label class="flex items-center gap-2"
-        ><input v-model="form.autoProvision" type="checkbox" /> {{ t('sso.autoProvision') }}</label
-      >
-      <label class="flex items-center gap-2"
-        ><input v-model="form.allowInsecure" type="checkbox" data-testid="sso-insecure" />
-        {{ t('sso.allowInsecure') }}</label
-      >
+      <SwitchField v-model="form.autoProvision" :label="t('sso.autoProvision')" />
+      <SwitchField
+        v-model="form.allowInsecure"
+        data-testid="sso-insecure"
+        :label="t('sso.allowInsecure')"
+      />
       <div class="flex gap-2">
         <button type="submit" class="btn-primary" :disabled="busy" data-testid="sso-save">
           {{ t('common.save') }}

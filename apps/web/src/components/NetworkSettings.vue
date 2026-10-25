@@ -28,7 +28,7 @@ const busy = ref(false);
 const editing = ref(false);
 const here = location.origin;
 const auth = useAuthStore();
-// смена адреса меняет ссылки в письмах и приглашениях: подтверждение мастер-паролем, как у отката и удаления копий
+// смена адреса меняет ссылки в письмах и приглашениях: подтверждение паролем разблокировки сейфов, как у отката и удаления копий
 const password = ref('');
 const needPassword = ref(!stepUpHeaders());
 
@@ -61,7 +61,7 @@ async function save(value: string | null): Promise<void> {
     editing.value = false;
     notice.value = t('network.saved');
   } catch (e) {
-    // подтверждение истекло (15 минут): снова спросить мастер-пароль
+    // подтверждение истекло (15 минут): снова спросить пароль разблокировки сейфов
     if (e instanceof ApiError && e.code === 'reauth_required') needPassword.value = true;
     const reason = e instanceof ApiError && (e.details as { reason?: string } | undefined)?.reason;
     error.value = reason ? t(`network.invalid.${reason}`) : errorMessage(e, t);

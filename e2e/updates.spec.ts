@@ -88,7 +88,9 @@ test('administrator checks for updates and applies one from the browser', async 
   await page.getByTestId('reauth-password').fill('wrong-master-password-000');
   await page.getByTestId('reauth-confirm').click();
   await expect(
-    page.getByRole('alert').filter({ hasText: /Неверный мастер-пароль|Wrong master password/ }),
+    page
+      .getByRole('alert')
+      .filter({ hasText: /Неверный пароль разблокировки сейфов|Wrong vault unlock password/ }),
   ).toBeVisible({ timeout: 30_000 });
   await page.getByTestId('reauth-password').fill(MASTER);
   await page.getByTestId('reauth-confirm').click();

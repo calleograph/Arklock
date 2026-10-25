@@ -6,7 +6,7 @@ import { authKeyFor } from '../services/account';
 import { errorMessage, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 
-/** Преемнику предложена роль главного администратора: он принимает её своим мастер-паролем или отказывается. */
+/** Преемнику предложена роль главного администратора: он принимает её своим паролем разблокировки сейфов или отказывается. */
 const { t } = useI18n();
 const auth = useAuthStore();
 const offer = ref<{ from: { name: string; email: string } | null; expiresAt: string } | null>(null);

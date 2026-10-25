@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SwitchField from './SwitchField.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { i18n } from '../i18n';
@@ -11,6 +12,18 @@ const { t } = useI18n({
   messages: {
     ru: {
       hint: 'Вебхук отправляет во внешнюю систему подписанное сообщение о событии журнала: кто, что и над каким объектом сделал. Пароли, записи и ключи в сообщения не попадают.',
+      intro:
+        'Вебхуки позволяют Arklock автоматически уведомлять другие системы о событиях: например, о создании пользователя, изменении прав или ошибке безопасности.',
+      howTitle: 'Как настроить и проверить',
+      how1: 'В принимающей системе (SIEM, чат, автоматизация) создайте адрес HTTPS, который принимает POST с JSON.',
+      how2: 'Нажмите «Добавить вебхук», укажите адрес и, при желании, какие события нужны (например auth., admin.). Секрет подписи показывается один раз — сохраните его в принимающей системе.',
+      how3: 'Нажмите «Проверить доставку»: Arklock отправит тестовое событие и покажет ответ получателя. Счётчики «доставлено / не доставлено» и последняя ошибка видны в строке вебхука.',
+      how4: 'Принимающая система должна проверить подпись и отбросить сообщения со старой меткой времени.',
+      exampleTitle: 'Пример запроса',
+      errorsTitle: 'Частые ошибки',
+      err1: 'Адрес во внутренней сети или по HTTP отклоняется: допустим только публичный HTTPS.',
+      err2: 'Получатель отвечает не 2xx: доставка повторяется три раза (сразу, через 1 и 5 секунд), затем засчитывается как ошибка.',
+      err3: 'Подпись не совпала: проверьте, что берётся тело ровно как получено, а секрет — тот, что показан при создании или перевыпуске.',
       add: 'Добавить вебхук',
       name: 'Название',
       url: 'Адрес получателя (HTTPS)',
@@ -30,6 +43,18 @@ const { t } = useI18n({
     },
     en: {
       hint: 'A webhook sends an external system a signed message about an activity-log event: who did what to which object. Passwords, entries and keys are never included.',
+      intro:
+        'Webhooks let Arklock automatically notify other systems about events: for example, a user created, permissions changed or a security error.',
+      howTitle: 'How to set up and check',
+      how1: 'In the receiving system (SIEM, chat, automation) create an HTTPS address that accepts a POST with JSON.',
+      how2: 'Press “Add a webhook”, enter the address and, if you like, the events you need (for example auth., admin.). The signing secret is shown once — save it in the receiving system.',
+      how3: 'Press “Test delivery”: Arklock sends a test event and shows the receiver’s answer. The delivered / failed counters and the last error are shown in the webhook row.',
+      how4: 'The receiving system must verify the signature and drop messages with an old timestamp.',
+      exampleTitle: 'Example request',
+      errorsTitle: 'Common errors',
+      err1: 'An internal-network or HTTP address is rejected: only public HTTPS is allowed.',
+      err2: 'The receiver answers with a non-2xx code: delivery is retried three times (at once, after 1 and 5 seconds), then counted as failed.',
+      err3: 'The signature does not match: make sure you use the body exactly as received and the secret shown when the webhook was created or reissued.',
       add: 'Add a webhook',
       name: 'Name',
       url: 'Receiver address (HTTPS)',
@@ -130,9 +155,39 @@ async function test(h: Hook, i: number): Promise<void> {
 
 <template>
   <div class="space-y-4" data-testid="webhook-settings">
-    <p class="flex items-center gap-1 text-sm text-slate-500">
-      {{ t('hint') }}<InfoHint :text="t('signHint')" />
-    </p>
+    <div class="space-y-1 text-sm">
+      <p class="max-w-prose">{{ t('intro') }}</p>
+      <p class="flex items-center gap-1 text-slate-500">
+        {{ t('hint') }}<InfoHint :text="t('signHint')" />
+      </p>
+    </div>
+    <details
+      class="rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700"
+      data-testid="webhook-help"
+    >
+      <summary class="cursor-pointer font-medium">{{ t('howTitle') }}</summary>
+      <ol class="mt-2 list-decimal space-y-1 pl-5">
+        <li>{{ t('how1') }}</li>
+        <li>{{ t('how2') }}</li>
+        <li>{{ t('how3') }}</li>
+        <li>{{ t('how4') }}</li>
+      </ol>
+      <h4 class="mt-3 font-medium">{{ t('exampleTitle') }}</h4>
+      <pre class="mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-xs dark:bg-slate-800/50">
+POST /ваш-адрес HTTP/1.1
+X-Arklock-Event: admin.user.create
+X-Arklock-Timestamp: 1792400000
+X-Arklock-Signature: sha256=3f5c…
+
+{ "id": "…", "type": "admin.user.create", "at": "2026-10-25T09:00:00.000Z",
+  "actor": "user:&lt;id&gt;", "target": "user:&lt;id&gt;", "detail": {} }</pre>
+      <h4 class="mt-3 font-medium">{{ t('errorsTitle') }}</h4>
+      <ul class="mt-1 list-disc space-y-1 pl-5">
+        <li>{{ t('err1') }}</li>
+        <li>{{ t('err2') }}</li>
+        <li>{{ t('err3') }}</li>
+      </ul>
+    </details>
     <p v-if="error" class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
       {{ error }}
     </p>
@@ -177,12 +232,8 @@ async function test(h: Hook, i: number): Promise<void> {
           >{{ t('prefixes') }}<input v-model="h.prefixes" class="input" placeholder="auth., admin."
         /></label>
         <div class="flex flex-wrap items-center gap-3">
-          <label class="flex items-center gap-2"
-            ><input v-model="h.enabled" type="checkbox" /> {{ t('enabled') }}</label
-          >
-          <label v-if="h.id" class="flex items-center gap-2"
-            ><input v-model="h.newSecret" type="checkbox" /> {{ t('newSecret') }}</label
-          >
+          <SwitchField v-model="h.enabled" :label="t('enabled')" />
+          <SwitchField v-if="h.id" v-model="h.newSecret" :label="t('newSecret')" />
           <button type="button" class="btn-danger" @click="hooks.splice(i, 1)">
             {{ t('remove') }}
           </button>

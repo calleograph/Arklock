@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SwitchField from './SwitchField.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -266,10 +267,7 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
     </div>
 
     <form class="card max-w-3xl space-y-3 p-4 text-sm" @submit.prevent="save">
-      <label class="flex items-center gap-2"
-        ><input v-model="form.enabled" type="checkbox" data-testid="saml-enabled" />
-        {{ t('saml.enabled') }}</label
-      >
+      <SwitchField v-model="form.enabled" data-testid="saml-enabled" :label="t('saml.enabled')" />
       <label class="block"
         >{{ t('saml.idpEntity')
         }}<input v-model="form.idpEntityId" class="input font-mono" data-testid="saml-idp-entity"
@@ -383,36 +381,22 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
 
       <fieldset class="space-y-1 rounded-md border border-slate-200 p-3 dark:border-slate-700">
         <legend class="px-1 text-xs text-slate-500">{{ t('saml.security') }}</legend>
-        <label class="flex items-center gap-2"
-          ><input v-model="form.wantAssertionsSigned" type="checkbox" />
-          {{ t('saml.wantAssertionsSigned') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.wantResponseSigned" type="checkbox" />
-          {{ t('saml.wantResponseSigned') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.signRequests" type="checkbox" :disabled="!hasSpKey" />
-          {{ t('saml.signRequests') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.forceAuthn" type="checkbox" /> {{ t('saml.forceAuthn') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.allowIdpInitiated" type="checkbox" />
-          {{ t('saml.allowIdpInitiated') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.allowSha1" type="checkbox" /> {{ t('saml.allowSha1') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.autoProvision" type="checkbox" />
-          {{ t('sso.autoProvision') }}</label
-        >
-        <label class="flex items-center gap-2"
-          ><input v-model="form.allowInsecure" type="checkbox" data-testid="saml-insecure" />
-          {{ t('sso.allowInsecure') }}</label
-        >
+        <SwitchField v-model="form.wantAssertionsSigned" :label="t('saml.wantAssertionsSigned')" />
+        <SwitchField v-model="form.wantResponseSigned" :label="t('saml.wantResponseSigned')" />
+        <SwitchField
+          v-model="form.signRequests"
+          :disabled="!hasSpKey"
+          :label="t('saml.signRequests')"
+        />
+        <SwitchField v-model="form.forceAuthn" :label="t('saml.forceAuthn')" />
+        <SwitchField v-model="form.allowIdpInitiated" :label="t('saml.allowIdpInitiated')" />
+        <SwitchField v-model="form.allowSha1" :label="t('saml.allowSha1')" />
+        <SwitchField v-model="form.autoProvision" :label="t('sso.autoProvision')" />
+        <SwitchField
+          v-model="form.allowInsecure"
+          data-testid="saml-insecure"
+          :label="t('sso.allowInsecure')"
+        />
       </fieldset>
 
       <div class="flex flex-wrap gap-2">

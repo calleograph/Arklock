@@ -33,6 +33,12 @@ export const router = createRouter({
       meta: { requiresUnlock: true },
     },
     {
+      path: '/e/:code([0-9a-f]{12})',
+      name: 'entry-link',
+      component: () => import('./views/EntryLinkView.vue'),
+      meta: { requiresUnlock: true },
+    },
+    {
       path: '/inspector',
       name: 'inspector',
       component: InspectorView,
@@ -66,11 +72,40 @@ export const router = createRouter({
   ],
 });
 
+/** Ссылка на запись, открытая до входа: после входа человек попадает на неё, а не на общий список. */
+const RETURN_KEY = 'arklock.return';
+const rememberReturn = (path: string) => {
+  try {
+    if (path.startsWith('/e/')) sessionStorage.setItem(RETURN_KEY, path);
+  } catch {
+    /* без хранилища возврата к ссылке нет: человек откроет её ещё раз */
+  }
+};
+const takeReturn = (): string | null => {
+  try {
+    const v = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    return v && v.startsWith('/e/') ? v : null;
+  } catch {
+    return null;
+  }
+};
+
 router.beforeEach((to) => {
   const auth = useAuthStore();
   if (to.meta.requiresUnlock) {
-    if (!auth.isSignedIn) return { name: 'login' };
-    if (!auth.unlocked) return { name: 'unlock' };
+    if (!auth.isSignedIn) {
+      rememberReturn(to.fullPath);
+      return { name: 'login' };
+    }
+    if (!auth.unlocked) {
+      rememberReturn(to.fullPath);
+      return { name: 'unlock' };
+    }
+  }
+  if (to.name === 'vault' && auth.unlocked) {
+    const back = takeReturn();
+    if (back) return back;
   }
   if (to.meta.requiresAdmin && auth.user?.role !== 'admin' && !auth.user?.delegated)
     return { name: 'vault' };

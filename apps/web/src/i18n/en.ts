@@ -11,7 +11,7 @@ export default {
   common: {
     email: 'Email',
     name: 'Name',
-    password: 'Master password',
+    password: 'Vault unlock password',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',
@@ -29,11 +29,14 @@ export default {
     recover: 'Recover access',
     unlock: 'Unlock',
     unlockHint:
-      'Your session is open, but access to your data is locked. Enter your master password to continue.',
+      'Your session is open, but access to your data is locked. Enter your vault unlock password to continue.',
+    loginPassword: 'Sign-in password',
+    sameForUnlock:
+      'For a local account this is also the vault unlock password: your encryption keys are derived from it on your device. With directory sign-in, the directory password and the vault unlock password are different.',
     passwordHint:
-      'At least 12 characters. The master password cannot be looked up or reset on the server — remember it.',
-    tooShort: 'Master password is too short',
-    sameAsEmail: 'Master password must not equal your email',
+      'At least 12 characters. This password both signs you in and unlocks the vaults; it cannot be looked up or reset on the server — remember it.',
+    tooShort: 'Vault unlock password is too short',
+    sameAsEmail: 'Vault unlock password must not equal your email',
     mismatch: 'Passwords do not match',
     repeat: 'Repeat password',
     invalid: 'Wrong email or password',
@@ -48,7 +51,7 @@ export default {
     firstUser: 'The first account becomes the administrator.',
     recoveryTitle: 'Recovery key',
     recoveryWarn:
-      'This is the only way back in if you forget the master password. An administrator cannot help. Store it somewhere safe. It will not be shown again.',
+      'This is the only way back in if you forget the vault unlock password. An administrator cannot help. Store it somewhere safe. It will not be shown again.',
     recoverySaved: 'I have saved my recovery key',
     continue: 'Continue',
     recoveryCode: 'Recovery key',
@@ -87,10 +90,10 @@ export default {
     revoke: 'End',
     revokeOthers: 'End all others',
     lastSeen: 'Last activity',
-    changePassword: 'Change master password',
-    currentPassword: 'Current master password',
-    newPassword: 'New master password',
-    changed: 'Master password changed. Other sessions were ended.',
+    changePassword: 'Change vault unlock password',
+    currentPassword: 'Current vault unlock password',
+    newPassword: 'New vault unlock password',
+    changed: 'Vault unlock password changed. Other sessions were ended.',
     wrongPassword: 'Current password is incorrect',
   },
   status: {
@@ -151,14 +154,14 @@ export default {
       rejected: 'Rejected request',
     },
     historyResult: { success: 'succeeded', failed: 'failed', rejected: 'rejected' },
-    confirmTitle: 'Confirm your master password',
+    confirmTitle: 'Confirm your vault unlock password',
     confirmHint:
       'A rollback changes the version and may bring back earlier data. Confirmation is valid for 15 minutes.',
     confirm: 'Confirm',
     queued: 'Waiting for the helper',
     errBusy: 'Another operation is already running',
     errHelper: 'The update helper is not running',
-    errPassword: 'Wrong master password',
+    errPassword: 'Wrong vault unlock password',
   },
   ui: { theme: 'Theme', language: 'Language' },
   error: {

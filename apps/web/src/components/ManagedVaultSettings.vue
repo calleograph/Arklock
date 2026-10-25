@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
+import SwitchField from './SwitchField.vue';
 import GroupPicker, { type Group } from './GroupPicker.vue';
 
 /**
@@ -69,10 +70,7 @@ async function save(): Promise<void> {
       </div>
     </div>
     <form class="space-y-2" @submit.prevent="save">
-      <label class="flex items-center gap-2">
-        <input v-model="enabled" type="checkbox" data-testid="managed-enabled" />
-        {{ t('managed.enable') }}
-      </label>
+      <SwitchField v-model="enabled" :label="t('managed.enable')" data-testid="managed-enabled" />
       <div v-if="enabled" class="grid gap-x-3 gap-y-2 sm:grid-cols-2">
         <div>
           <span class="field-label">{{ t('managed.guardiansLabel') }}</span>

@@ -190,6 +190,26 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     return { branches: outBranches, entries: outEntries };
   });
 
+  /**
+   * Короткая ссылка на запись («/e/<код>»): по коду находится запись, но ответ даётся только тому, у кого есть право её видеть.
+   * Нет записи, удалена или нет права — один и тот же ответ 404: код ничего не раскрывает. Перемещение записи в другой сейф
+   * создаёт новую запись, поэтому ссылка на прежнюю перестаёт работать (запись в корзине исходного сейфа).
+   */
+  app.get('/entries/by-short/:code', async (req) => {
+    const { user } = authOf(req);
+    const { code } = parse(z.object({ code: z.string().regex(/^[0-9a-f]{12}$/) }), req.params);
+    const rows = await db
+      .select({ id: entries.id, vaultId: entries.vaultId, branchId: entries.branchId })
+      .from(entries)
+      .where(and(eq(entries.shortId, code), isNull(entries.deletedAt)))
+      .limit(5);
+    for (const r of rows) {
+      const access = await loadAccess(db, r.vaultId, user.id);
+      if (access.role && access.entry(r.id, r.branchId)) return { vaultId: r.vaultId, id: r.id };
+    }
+    throw notFound();
+  });
+
   app.get('/vaults/:vaultId/entries/:entryId', async (req): Promise<EntryRecord> => {
     const { user } = authOf(req);
     const { vaultId, entryId } = parse(entryParams, req.params);

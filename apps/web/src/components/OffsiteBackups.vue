@@ -107,7 +107,7 @@ async function waitOp(requestId: string): Promise<{ ok: boolean; message: string
   return { ok: false, message: t('sys.timeout') };
 }
 
-/** Действующее подтверждение переиспользуется; мастер-пароль спрашивается, только если его нет или оно истекло. */
+/** Действующее подтверждение переиспользуется; пароль разблокировки сейфов спрашивается, только если его нет или оно истекло. */
 async function token(): Promise<Record<string, string>> {
   const ready = stepUpHeaders();
   if (ready) return ready;

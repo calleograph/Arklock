@@ -133,7 +133,7 @@ const title = computed(
     })[mode.value],
 );
 
-/** Вход по коду активации: проверяем код вместе с адресом и переходим к заданию мастер-пароля. */
+/** Вход по коду активации: проверяем код вместе с адресом и переходим к заданию пароля разблокировки сейфов. */
 async function activate(): Promise<void> {
   const code = activationCode.value.trim();
   const typedEmail = email.value.trim().toLowerCase();
@@ -221,7 +221,7 @@ async function submit(): Promise<void> {
       await auth.completeMfa(mfaCode.value.trim());
       mfaStep.value = false;
       mfaCode.value = '';
-      // вход через каталог: ключей ещё нет, нужен мастер-пароль
+      // вход через каталог: ключей ещё нет, нужен пароль разблокировки сейфов
       leaveLdap();
       await router.replace(auth.unlocked ? '/' : '/unlock');
     } else if (ldapEnrollStep.value) {
@@ -631,7 +631,11 @@ async function copyRecovery(): Promise<void> {
         </label>
         <label v-if="!mfaStep && mode !== 'activate'" class="block text-sm">
           <span class="mb-1 block">{{
-            ldapMode && !ldapEnrollStep ? t('ldap.password') : t('common.password')
+            ldapMode && !ldapEnrollStep
+              ? t('ldap.password')
+              : mode === 'signin' && !ldapMode
+                ? t('auth.loginPassword')
+                : t('common.password')
           }}</span>
           <input
             v-model="password"
@@ -658,6 +662,13 @@ async function copyRecovery(): Promise<void> {
             data-testid="repeat"
           />
         </label>
+        <p
+          v-if="mode === 'signin' && !ldapMode"
+          class="text-xs text-slate-500 dark:text-slate-400"
+          data-testid="same-password-note"
+        >
+          {{ t('auth.sameForUnlock') }}
+        </p>
         <p
           v-if="mode === 'register' || mode === 'recover'"
           class="text-xs text-slate-500 dark:text-slate-400"

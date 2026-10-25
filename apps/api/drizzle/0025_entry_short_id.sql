@@ -1,0 +1,2 @@
+ALTER TABLE "entries" ADD COLUMN "short_id" text GENERATED ALWAYS AS (substr(replace(id::text, '-', ''), 1, 12)) STORED;--> statement-breakpoint
+CREATE INDEX "entries_short_idx" ON "entries" USING btree ("short_id");

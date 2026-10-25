@@ -58,7 +58,7 @@ export default {
       handoff_create: 'An external secret-sharing link was created',
       handoff_open: 'An external link was opened',
       handoff_revoke: 'An external link was revoked',
-      auth_password_change: 'Master password changed',
+      auth_password_change: 'Vault unlock password changed',
       auth_recovery_complete: 'Account recovery completed',
       auth_mfa_enable: 'Second factor enabled',
       auth_mfa_disable: 'Second factor disabled',
@@ -123,6 +123,12 @@ export default {
     disable: 'Disable recovery',
   },
   entryPanel: {
+    copyLink: 'Copy link for colleagues',
+    linkCopied: 'Link copied',
+    linkOpening: 'Opening the entry…',
+    linkNotFound:
+      'The entry was not found or you have no access to it. Ask the owner to grant access.',
+    linkHome: 'To my entries',
     tabsLabel: 'Entry sections',
     tabs: {
       details: 'Data',
@@ -256,7 +262,7 @@ export default {
     homePersonal: 'Personal space',
     homeSaved: 'Saved',
     autoLockHint:
-      'Keys stay in this tab only. If you do not use Arklock for longer than the chosen time, it asks for your master password. Scrolling, reading and typing count as use. Reloading the page and locking manually always require the password.',
+      'Keys stay in this tab only. If you do not use Arklock for longer than the chosen time, it asks for your vault unlock password. Scrolling, reading and typing count as use. Reloading the page and locking manually always require the password.',
     autoLockOptions: {
       m30: '30 minutes',
       m60: '1 hour',
@@ -314,7 +320,7 @@ export default {
     requiredByPolicy: 'Your organization requires two-factor authentication',
     requiredNotice: 'The administrator requires two-factor authentication. Set it up to continue.',
     on: 'Enabled. Unused backup codes: {n}.',
-    off: 'Disabled. Sign-in is protected by the master password only.',
+    off: 'Disabled. Sign-in is protected by the vault unlock password only.',
     setup: 'Set up',
     scan: 'Scan the QR code in your authenticator app and enter the code it shows.',
     manualKey: 'Key for manual entry',
@@ -337,7 +343,7 @@ export default {
   },
   tokens: {
     title: 'API tokens and command line',
-    hint: 'A token is for automation and the arklock console client. It does not open your data: decryption happens on your computer with the master password.',
+    hint: 'A token is for automation and the arklock console client. It does not open your data: decryption happens on your computer with the vault unlock password.',
     shownOnce: 'Copy the token now — it will not be shown again.',
     name: 'Name (for example, "backup script")',
     read: 'Read only',
@@ -349,7 +355,7 @@ export default {
     create: 'Create token',
   },
   sys: {
-    confirmPassword: 'Confirm your master password',
+    confirmPassword: 'Confirm your vault unlock password',
     confirmMismatch: 'The confirmation does not match',
     smtpNotConfigured: 'Mail is not configured',
     running: 'Running…',
@@ -506,7 +512,7 @@ export default {
   },
   ldap: {
     useDirectory: 'Sign in with your corporate account',
-    usePassword: 'Sign in with the master password',
+    usePassword: 'Sign in with the vault unlock password',
     username: 'Username or e-mail',
     password: 'Corporate account password',
     invalid: 'Wrong username or password',
@@ -514,7 +520,7 @@ export default {
     notProvisioned: 'Your account has not been created yet, contact your administrator',
     localExists: 'A local account with this address already exists',
     enrollHint:
-      'This is your first sign-in. Choose a master password: it encrypts your data on this device and is not the directory password. It cannot be recovered.',
+      'This is your first sign-in. Choose a vault unlock password: it encrypts your data on this device and is not the directory password. It cannot be recovered.',
     section: 'Directory (LDAP / Active Directory)',
     enabled: 'Enable directory sign-in',
     url: 'Address (ldaps://host:636 or ldap://host:389)',
@@ -558,12 +564,12 @@ export default {
     },
     notYet: 'In the directory but never signed in: {n}',
     notYetHint:
-      'The account appears at the first sign-in: the person creates their master password and keys.',
+      'The account appears at the first sign-in: the person creates their vault unlock password and keys.',
     sampleData: 'Sample of directory data',
     groupsShort: 'groups',
     ok: 'Connection works',
     fail: 'Error',
-    hint: 'Directory passwords are checked by the directory and never stored. The master password is separate: it only decrypts your data in the browser.',
+    hint: 'Directory passwords are checked by the directory and never stored. The vault unlock password is separate: it only decrypts your data in the browser.',
   },
   sso: {
     title: 'SSO sign-in',
@@ -586,7 +592,7 @@ export default {
     test: 'Test the provider',
     ok: 'The provider responds',
     fail: 'Error',
-    hint: 'The provider confirms who the user is; the master password stays separate and only decrypts data in the browser. An account with the same address created another way is not taken over.',
+    hint: 'The provider confirms who the user is; the vault unlock password stays separate and only decrypts data in the browser. An account with the same address created another way is not taken over.',
     error: {
       state: 'The sign-in expired or was already used. Start again.',
       jwt: 'The provider response failed signature verification.',
@@ -620,7 +626,7 @@ export default {
     },
   },
   saml: {
-    hint: 'SAML 2.0 sign-in for corporate identity providers (Entra ID, ADFS, Okta, Keycloak, Shibboleth). The provider confirms who the user is; the master password stays separate and only decrypts data in the browser. Responses must be signed, are bound to the request, and each one works once.',
+    hint: 'SAML 2.0 sign-in for corporate identity providers (Entra ID, ADFS, Okta, Keycloak, Shibboleth). The provider confirms who the user is; the vault unlock password stays separate and only decrypts data in the browser. Responses must be signed, are bound to the request, and each one works once.',
     spData: 'Register Arklock with the provider (service provider data)',
     spEntity: 'Entity ID (Audience)',
     acs: 'Assertion Consumer Service URL (HTTP-POST)',
@@ -711,8 +717,8 @@ export default {
     keepN: 'keeping latest',
     autoOn: 'automatic upload on',
     autoOff: 'automatic upload off',
-    confirmPassword: 'Master password (required to save, delete or download)',
-    needPassword: 'Enter your master password to confirm',
+    confirmPassword: 'Vault unlock password (required to save, delete or download)',
+    needPassword: 'Enter your vault unlock password to confirm',
     test: 'Test connection',
     refresh: 'Refresh list',
     clear: 'Remove settings and secrets',
@@ -765,7 +771,7 @@ export default {
   invite: {
     circleFilter: 'Find a group',
     tab: 'New users',
-    hint: 'The administrator creates an account and gives the person a one-time activation code. The person sets their own master password at first sign-in: the administrator never learns it and cannot access encrypted data.',
+    hint: 'The administrator creates an account and gives the person a one-time activation code. The person sets their own vault unlock password at first sign-in: the administrator never learns it and cannot access encrypted data.',
     newUser: 'New user',
     name: 'Name',
     role: 'Role',
@@ -778,7 +784,7 @@ export default {
     haveCode: 'I have an activation code',
     activateTitle: 'Activate account',
     activateHint:
-      'Enter your e-mail address and the code from your administrator. Then choose a master password.',
+      'Enter your e-mail address and the code from your administrator. Then choose a vault unlock password.',
     badCode:
       'The code does not match: check the e-mail address and code, or ask the administrator for a new one.',
     days: 'Lifetime, days',
@@ -792,7 +798,8 @@ export default {
     expires: 'Valid until',
     none: 'No new users yet',
     st: { pending: 'pending', used: 'used', revoked: 'revoked', expired: 'expired' },
-    banner: 'You have been invited to Arklock. Choose a master password to create your account.',
+    banner:
+      'You have been invited to Arklock. Choose a vault unlock password to create your account.',
     badLink: 'The invitation link is invalid, already used or expired.',
     notify: 'Notify users about security events by e-mail',
   },

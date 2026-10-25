@@ -7,7 +7,7 @@ import { errorMessage } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
 
-/** Сотрудник удаляет свой прежний личный сейф, когда личные сейфы отключены: явное подтверждение и мастер-пароль. */
+/** Сотрудник удаляет свой прежний личный сейф, когда личные сейфы отключены: явное подтверждение и пароль разблокировки сейфов. */
 const { t } = useI18n();
 const auth = useAuthStore();
 const ws = useWorkspaceStore();

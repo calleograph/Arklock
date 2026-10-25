@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
@@ -367,8 +368,17 @@ export const entries = pgTable(
     updatedAt: ts('updated_at').notNull().defaultNow(),
     trashGroup: uuid('trash_group'),
     deletedAt: ts('deleted_at'),
+    /**
+     * Короткий адрес записи для ссылки «/e/…»: 12 знаков из случайного идентификатора. Сам по себе доступа не даёт —
+     * сервер проверяет права того, кто открывает ссылку.
+     */
+    shortId: text('short_id').generatedAlwaysAs(sql`substr(replace(id::text, '-', ''), 1, 12)`),
   },
-  (t) => [index('entries_vault_idx').on(t.vaultId), index('entries_branch_idx').on(t.branchId)],
+  (t) => [
+    index('entries_vault_idx').on(t.vaultId),
+    index('entries_branch_idx').on(t.branchId),
+    index('entries_short_idx').on(t.shortId),
+  ],
 );
 
 /** Ревизии: предыдущие состояния записи (append-only, хранятся ограниченное число). */

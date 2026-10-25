@@ -33,22 +33,22 @@ export const ruHelp = {
         a: 'В карточке записи откройте вкладку «Данные» и раздел «Внешняя ссылка»: создайте одноразовую ссылку с ограниченным сроком и числом просмотров. Ключ находится только в самой ссылке.',
       },
       locked: {
-        q: 'Почему Arklock просит мастер-пароль?',
-        a: 'Arklock закрывает доступ к данным после бездействия, по кнопке «Заблокировать», после выхода и при закрытии вкладки или браузера. Обновление страницы (F5) мастер-пароль не требует, пока сеанс действует. Срок бездействия вы выбираете в «Настройках».',
+        q: 'Почему Arklock просит пароль разблокировки сейфов?',
+        a: 'Arklock закрывает доступ к данным после бездействия, по кнопке «Заблокировать», после выхода и при закрытии вкладки или браузера. Обновление страницы (F5) пароль разблокировки сейфов не требует, пока сеанс действует. Срок бездействия вы выбираете в «Настройках».',
       },
       pending: {
         q: 'Мне назначили доступ, но записей не видно',
         a: 'Права назначены, но доступ к данным ещё не готов: ключ сейфа передаёт уполномоченный участник, когда открывает Arklock. Если записи не появились, попросите администратора сейфа открыть Arklock.',
       },
       forgot: {
-        q: 'Я забыл мастер-пароль',
+        q: 'Я забыл пароль разблокировки сейфов',
         a: 'На сервере его сбросить нельзя. Используйте ключ восстановления, который вы сохранили при регистрации: «Забыли пароль?» на странице входа.',
       },
     },
     admin: {
       newUser: {
         q: 'Как добавить сотрудника?',
-        a: 'Администрирование → Новые пользователи → «Создать пользователя». Передайте сотруднику код активации: мастер-пароль он задаст сам.',
+        a: 'Администрирование → Новые пользователи → «Создать пользователя». Передайте сотруднику код активации: пароль разблокировки сейфов он задаст сам.',
       },
       access: {
         q: 'Как дать доступ к сейфу?',
@@ -102,7 +102,7 @@ export const ruHelp = {
       },
       recovery: {
         name: 'Ключ восстановления',
-        text: 'Код, возвращающий доступ к вашей учётной записи, если вы забыли мастер-пароль. Показывается один раз при регистрации.',
+        text: 'Код, возвращающий доступ к вашей учётной записи, если вы забыли пароль разблокировки сейфов. Показывается один раз при регистрации.',
       },
       corpRecovery: {
         name: 'Корпоративное восстановление',
@@ -114,7 +114,7 @@ export const ruHelp = {
       },
       lock: {
         name: 'Блокировка',
-        text: 'Arklock стирает расшифрованные данные из памяти браузера, для продолжения нужен мастер-пароль. Выход завершает сеанс полностью.',
+        text: 'Arklock стирает расшифрованные данные из памяти браузера, для продолжения нужен пароль разблокировки сейфов. Выход завершает сеанс полностью.',
       },
       mfa: {
         name: 'Второй фактор',
@@ -162,7 +162,8 @@ export const ruHelp = {
     },
     minLength: {
       text: 'Минимальная длина паролей, которые сотрудники сохраняют в записях. Проверяется в браузере при сохранении. 0 — без требования.',
-      details: 'К мастер-паролю не относится: для него всегда действует собственное требование.',
+      details:
+        'К паролю разблокировки сейфов не относится: для него всегда действует собственное требование.',
     },
     classes: {
       text: 'Сколько видов символов обязательно в пароле записи: строчные, прописные, цифры, прочие (0–4). 0 — без требования.',
@@ -194,14 +195,14 @@ export const ruHelp = {
         'Явный запрет сильнее разрешения. Он закрывает доступ на сервере, но не отзывает секреты, которые человек уже сохранил.',
     },
     reloadUnlock: {
-      text: 'После обновления страницы (F5) сотрудник продолжает работу без мастер-пароля, пока сеанс действует.',
+      text: 'После обновления страницы (F5) сотрудник продолжает работу без пароля разблокировки сейфов, пока сеанс действует.',
       details:
         'Ключи шифруются ключом, половина которого хранится в сеансе на сервере, а шифртекст — только во вкладке. Блокировка, выход, отзыв или истечение сеанса делают его бесполезным. Закрытие вкладки и перезапуск браузера по-прежнему требуют входа.',
     },
     pinUnlock: {
-      text: 'Разрешает сотрудникам открывать Arklock после блокировки коротким PIN. PIN не заменяет мастер-пароль при входе.',
+      text: 'Разрешает сотрудникам открывать Arklock после блокировки коротким PIN. PIN не заменяет пароль разблокировки сейфов при входе.',
       details:
-        'Сервер выдаёт часть ключа только после верного PIN и удаляет устройство после пяти неверных попыток. Смена мастер-пароля отключает все PIN. Выключение настройки сразу запрещает разблокировку PIN.',
+        'Сервер выдаёт часть ключа только после верного PIN и удаляет устройство после пяти неверных попыток. Смена пароля разблокировки сейфов отключает все PIN. Выключение настройки сразу запрещает разблокировку PIN.',
     },
     groupAdminRole: {
       text: 'Все участники группы, в том числе пришедшие из каталога, получают разделы этой административной роли. Содержимое сейфов роль не открывает.',
@@ -237,18 +238,18 @@ export const ruHelp = {
     validation: 'Проверьте введённые данные: часть полей заполнена неверно.',
     server:
       'Сервер сейчас не может выполнить действие. Повторите попытку позже; если ошибка повторяется, сообщите администратору.',
-    reauth: 'Для этого действия подтвердите мастер-пароль.',
+    reauth: 'Для этого действия подтвердите пароль разблокировки сейфов.',
     personalDisabled: 'Личные сейфы отключены политикой организации.',
     keyMissing:
       'Доступ к записям ещё не готов: ключ сейфа не передан. Он будет передан, как только уполномоченный участник откроет Arklock.',
     pinWrong: 'Неверный PIN. Осталось попыток: {n}.',
-    pinLocked: 'Слишком много неверных попыток: PIN отключён. Введите мастер-пароль.',
+    pinLocked: 'Слишком много неверных попыток: PIN отключён. Введите пароль разблокировки сейфов.',
     chiefRequired: 'Это может сделать только главный администратор.',
     chiefAdmin:
       'Это главный администратор: сначала передайте роль (Администрирование → Организация).',
     pinDisabled:
-      'Быстрая разблокировка PIN-кодом отключена администратором. Введите мастер-пароль.',
-    pinGone: 'PIN на этом устройстве больше не действует. Введите мастер-пароль.',
+      'Быстрая разблокировка PIN-кодом отключена администратором. Введите пароль разблокировки сейфов.',
+    pinGone: 'PIN на этом устройстве больше не действует. Введите пароль разблокировки сейфов.',
     lastOwner: 'Сначала назначьте нового владельца сейфа.',
     spaceNotEmpty: 'В пространстве есть сейфы. Перенесите их или заархивируйте пространство.',
     spaceArchived: 'Пространство в архиве: сначала верните его из архива.',
@@ -270,7 +271,7 @@ export const ruHelp = {
         text: 'Сервер получает только шифртекст и не может прочитать записи.',
       },
       keys: {
-        title: 'Мастер-пароль не покидает устройство',
+        title: 'Пароль разблокировки сейфов не покидает устройство',
         text: 'Из него в браузере вычисляются ключи (Argon2id); восстановить его на сервере нельзя.',
       },
       host: {
@@ -316,7 +317,7 @@ export const ruHelp = {
     eraseWarn:
       'Будут удалены все записи, вложения и ключи вашего личного сейфа. Отменить это нельзя. В резервных копиях данные останутся до истечения срока их хранения.',
     eraseConfirm: 'Я понимаю, что записи будут удалены безвозвратно',
-    password: 'Мастер-пароль для подтверждения',
+    password: 'Пароль разблокировки сейфов для подтверждения',
     erase: 'Удалить безвозвратно',
     erased: 'Личный сейф удалён.',
   },
@@ -378,7 +379,7 @@ export const ruHelp = {
       },
       http: {
         detail: '{url}',
-        cause: 'Адрес без HTTPS: мастер-пароль и токены передаются открыто',
+        cause: 'Адрес без HTTPS: пароль разблокировки сейфов и токены передаются открыто',
         fix: 'Настройте HTTPS на reverse proxy',
       },
     },
@@ -614,7 +615,7 @@ export const ruHelp = {
     admin_ldap_sync: 'Сверка с каталогом',
     admin_ldap_sync_failed: 'Сбой сверки с каталогом',
     admin_mfa_reset: 'Сброс второго фактора',
-    admin_reauth_failed: 'Неверный мастер-пароль при подтверждении',
+    admin_reauth_failed: 'Неверный пароль разблокировки сейфов при подтверждении',
     admin_role_create: 'Создание роли',
     admin_role_delete: 'Удаление роли',
     admin_role_update: 'Изменение роли',
@@ -647,7 +648,7 @@ export const ruHelp = {
     auth_mfa_disable: 'Отключение второго фактора',
     auth_mfa_enable: 'Включение второго фактора',
     auth_mfa_failed: 'Неверный код второго фактора',
-    auth_password_change: 'Смена мастер-пароля',
+    auth_password_change: 'Смена пароля разблокировки сейфов',
     auth_pin_enable: 'Включение PIN',
     auth_pin_locked: 'PIN заблокирован',
     auth_pin_remove: 'Удаление PIN',
@@ -716,7 +717,7 @@ export const ruHelp = {
     source: { local: 'локальная', ldap: 'каталог', oidc: 'SSO', saml: 'SAML' },
     add: 'Добавить главного администратора',
     addHint:
-      'Сотрудник становится главным администратором, когда подтвердит приглашение своим мастер-паролем (в течение 72 часов). У вас роль остаётся.',
+      'Сотрудник становится главным администратором, когда подтвердит приглашение своим паролем разблокировки сейфов (в течение 72 часов). У вас роль остаётся.',
     addSent: 'Приглашение отправлено. Роль появится после подтверждения.',
     remove: 'Отозвать роль',
     removeConfirm: 'Отозвать',
@@ -729,10 +730,10 @@ export const ruHelp = {
     transfer: 'Передать роль',
     successor: 'Преемник',
     choose: 'Выберите сотрудника',
-    password: 'Ваш мастер-пароль',
+    password: 'Ваш пароль разблокировки сейфов',
     send: 'Предложить',
     transferHint:
-      'Роль перейдёт, когда преемник подтвердит её своим мастер-паролем (в течение 72 часов). Вы останетесь полным администратором; сеансы обоих завершатся, кроме того, в котором преемник принял роль.',
+      'Роль перейдёт, когда преемник подтвердит её своим паролем разблокировки сейфов (в течение 72 часов). Вы останетесь полным администратором; сеансы обоих завершатся, кроме того, в котором преемник принял роль.',
     offered: 'Предложение отправлено. Роль перейдёт после подтверждения преемником.',
     pending: 'Ожидает подтверждения: {name}, до {until}.',
     cancel: 'Отозвать предложение',
@@ -785,7 +786,7 @@ export const ruHelp = {
     set: 'Указать адрес',
     change: 'Изменить',
     noHttps:
-      'Адрес без HTTPS: браузер не защитит мастер-пароль и ключи. Настройте HTTPS на reverse proxy.',
+      'Адрес без HTTPS: браузер не защитит пароль разблокировки сейфов и ключи. Настройте HTTPS на reverse proxy.',
     openedHere: 'Вы открыли Arklock именно по этому адресу — он работает.',
     openedElsewhere:
       'Сейчас Arklock открыт по адресу {here}. Убедитесь, что публичный адрес тоже доступен сотрудникам.',
@@ -924,9 +925,9 @@ export const ruHelp = {
   },
   pin: {
     title: 'Быстрая разблокировка PIN-кодом',
-    hint: 'После блокировки экрана можно открыть Arklock коротким PIN вместо мастер-пароля. Вход в систему по-прежнему требует мастер-пароль.',
+    hint: 'После блокировки экрана можно открыть Arklock коротким PIN вместо пароля разблокировки сейфов. Вход в систему по-прежнему требует пароль разблокировки сейфов.',
     off: 'Администратор не включил разблокировку PIN-кодом.',
-    password: 'Мастер-пароль',
+    password: 'Пароль разблокировки сейфов',
     pin: 'PIN (от 6 до 12 цифр)',
     repeat: 'Повторите PIN',
     enable: 'Включить на этом устройстве',
@@ -941,9 +942,9 @@ export const ruHelp = {
     never: 'ещё не использовалось',
     remove: 'Удалить',
     unlockWith: 'Разблокировать PIN-кодом',
-    orPassword: 'Или введите мастер-пароль:',
+    orPassword: 'Или введите пароль разблокировки сейфов:',
     policy: 'Быстрая разблокировка PIN-кодом',
-    reloadPolicy: 'Не запрашивать мастер-пароль после обновления страницы',
+    reloadPolicy: 'Не запрашивать пароль разблокировки сейфов после обновления страницы',
   },
   spaces: { defaultName: 'Организация' },
 };
@@ -982,22 +983,22 @@ export const enHelp = {
         a: 'In the entry card open the “Data” tab and the “External link” section: create a one-time link with a limited lifetime and number of views. The key is only inside the link.',
       },
       locked: {
-        q: 'Why does Arklock ask for my master password?',
-        a: 'Arklock locks your data after inactivity, when you press “Lock”, after signing out and when the tab or browser is closed. Reloading the page (F5) does not ask for the master password while the session is active. You choose the inactivity time in “Settings”.',
+        q: 'Why does Arklock ask for my vault unlock password?',
+        a: 'Arklock locks your data after inactivity, when you press “Lock”, after signing out and when the tab or browser is closed. Reloading the page (F5) does not ask for the vault unlock password while the session is active. You choose the inactivity time in “Settings”.',
       },
       pending: {
         q: 'I was given access, but I see no entries',
         a: 'Access is assigned, but your data is not ready yet: an authorized member passes on the vault key when they open Arklock. If entries do not appear, ask a vault administrator to open Arklock.',
       },
       forgot: {
-        q: 'I forgot my master password',
+        q: 'I forgot my vault unlock password',
         a: 'It cannot be reset on the server. Use the recovery key you saved at registration: “Forgot your password?” on the sign-in page.',
       },
     },
     admin: {
       newUser: {
         q: 'How do I add an employee?',
-        a: 'Administration → New users → “Create user”. Give the employee the activation code: they set their own master password.',
+        a: 'Administration → New users → “Create user”. Give the employee the activation code: they set their own vault unlock password.',
       },
       access: {
         q: 'How do I give access to a vault?',
@@ -1051,7 +1052,7 @@ export const enHelp = {
       },
       recovery: {
         name: 'Recovery key',
-        text: 'A code that restores your account if you forget the master password. Shown once at registration.',
+        text: 'A code that restores your account if you forget the vault unlock password. Shown once at registration.',
       },
       corpRecovery: {
         name: 'Corporate recovery',
@@ -1063,7 +1064,7 @@ export const enHelp = {
       },
       lock: {
         name: 'Lock',
-        text: 'Arklock erases decrypted data from browser memory; the master password is needed to continue. Signing out ends the session completely.',
+        text: 'Arklock erases decrypted data from browser memory; the vault unlock password is needed to continue. Signing out ends the session completely.',
       },
       mfa: {
         name: 'Second factor',
@@ -1111,7 +1112,8 @@ export const enHelp = {
     },
     minLength: {
       text: 'The minimum length of passwords people save in entries. Checked in the browser when saving. 0 means no requirement.',
-      details: 'It does not apply to the master password, which has its own fixed requirement.',
+      details:
+        'It does not apply to the vault unlock password, which has its own fixed requirement.',
     },
     classes: {
       text: 'How many kinds of characters an entry password must contain: lower case, upper case, digits, other (0–4). 0 means no requirement.',
@@ -1143,14 +1145,14 @@ export const enHelp = {
         'An explicit deny beats an allow. It closes access on the server but does not take back secrets a person already saved.',
     },
     reloadUnlock: {
-      text: 'After a page reload (F5) the employee keeps working without the master password while the session is active.',
+      text: 'After a page reload (F5) the employee keeps working without the vault unlock password while the session is active.',
       details:
         'Keys are encrypted with a key whose half is kept in the server session and the ciphertext only in the tab. Locking, signing out, revoking or expiring the session makes it useless. Closing the tab or restarting the browser still requires signing in.',
     },
     pinUnlock: {
-      text: 'Lets employees open Arklock after a lock with a short PIN. The PIN does not replace the master password for signing in.',
+      text: 'Lets employees open Arklock after a lock with a short PIN. The PIN does not replace the vault unlock password for signing in.',
       details:
-        'The server releases part of the key only after the right PIN and deletes the device after five wrong attempts. Changing the master password turns off every PIN. Turning the setting off blocks PIN unlock at once.',
+        'The server releases part of the key only after the right PIN and deletes the device after five wrong attempts. Changing the vault unlock password turns off every PIN. Turning the setting off blocks PIN unlock at once.',
     },
     groupAdminRole: {
       text: 'Every group member, including people who come from the directory, gets the sections of this administrative role. The role does not open vault contents.',
@@ -1186,18 +1188,19 @@ export const enHelp = {
     validation: 'Check what you entered: some fields are not valid.',
     server:
       'The server cannot do this right now. Try again later; if it keeps happening, tell an administrator.',
-    reauth: 'Confirm your master password for this action.',
+    reauth: 'Confirm your vault unlock password for this action.',
     personalDisabled: 'Personal vaults are turned off by your organization’s policy.',
     keyMissing:
       'Access to entries is not ready yet: the vault key has not been passed on. It will be as soon as an authorized member opens Arklock.',
     pinWrong: 'Wrong PIN. Attempts left: {n}.',
-    pinLocked: 'Too many wrong attempts: the PIN is switched off. Enter your master password.',
+    pinLocked:
+      'Too many wrong attempts: the PIN is switched off. Enter your vault unlock password.',
     chiefRequired: 'Only the chief administrator can do this.',
     chiefAdmin:
       'This is the chief administrator: transfer the role first (Administration → Organization).',
     pinDisabled:
-      'Quick unlock with a PIN is turned off by the administrator. Enter your master password.',
-    pinGone: 'The PIN no longer works on this device. Enter your master password.',
+      'Quick unlock with a PIN is turned off by the administrator. Enter your vault unlock password.',
+    pinGone: 'The PIN no longer works on this device. Enter your vault unlock password.',
     lastOwner: 'Assign a new owner of the vault first.',
     spaceNotEmpty: 'The space still has vaults. Move them or archive the space.',
     spaceArchived: 'The space is archived: restore it from the archive first.',
@@ -1219,7 +1222,7 @@ export const enHelp = {
         text: 'The server only receives ciphertext and cannot read entries.',
       },
       keys: {
-        title: 'The master password never leaves the device',
+        title: 'The vault unlock password never leaves the device',
         text: 'Keys are derived from it in the browser (Argon2id); the server cannot recover it.',
       },
       host: {
@@ -1265,7 +1268,7 @@ export const enHelp = {
     eraseWarn:
       'All entries, attachments and keys of your personal vault will be deleted. This cannot be undone. Backups keep the data until they expire.',
     eraseConfirm: 'I understand the entries will be deleted for good',
-    password: 'Master password to confirm',
+    password: 'Vault unlock password to confirm',
     erase: 'Delete for good',
     erased: 'The personal vault was deleted.',
   },
@@ -1327,7 +1330,7 @@ export const enHelp = {
       },
       http: {
         detail: '{url}',
-        cause: 'No HTTPS: the master password and tokens travel in the clear',
+        cause: 'No HTTPS: the vault unlock password and tokens travel in the clear',
         fix: 'Set up HTTPS on the reverse proxy',
       },
     },
@@ -1563,7 +1566,7 @@ export const enHelp = {
     admin_ldap_sync: 'Directory sync',
     admin_ldap_sync_failed: 'Directory sync failed',
     admin_mfa_reset: 'Second factor reset',
-    admin_reauth_failed: 'Wrong master password on confirmation',
+    admin_reauth_failed: 'Wrong vault unlock password on confirmation',
     admin_role_create: 'Role created',
     admin_role_delete: 'Role deleted',
     admin_role_update: 'Role changed',
@@ -1596,7 +1599,7 @@ export const enHelp = {
     auth_mfa_disable: 'Second factor disabled',
     auth_mfa_enable: 'Second factor enabled',
     auth_mfa_failed: 'Wrong second-factor code',
-    auth_password_change: 'Master password changed',
+    auth_password_change: 'Vault unlock password changed',
     auth_pin_enable: 'PIN enabled',
     auth_pin_locked: 'PIN locked',
     auth_pin_remove: 'PIN removed',
@@ -1665,7 +1668,7 @@ export const enHelp = {
     source: { local: 'local', ldap: 'directory', oidc: 'SSO', saml: 'SAML' },
     add: 'Add a chief administrator',
     addHint:
-      'The employee becomes a chief administrator once they confirm the invitation with their own master password (within 72 hours). You keep your role.',
+      'The employee becomes a chief administrator once they confirm the invitation with their own vault unlock password (within 72 hours). You keep your role.',
     addSent: 'The invitation is sent. The role appears after confirmation.',
     remove: 'Remove the role',
     removeConfirm: 'Remove',
@@ -1678,10 +1681,10 @@ export const enHelp = {
     transfer: 'Transfer the role',
     successor: 'Successor',
     choose: 'Choose an employee',
-    password: 'Your master password',
+    password: 'Your vault unlock password',
     send: 'Offer',
     transferHint:
-      'The role passes once the successor confirms it with their own master password (within 72 hours). You remain a full administrator; sessions of both end, except the one in which the successor accepted.',
+      'The role passes once the successor confirms it with their own vault unlock password (within 72 hours). You remain a full administrator; sessions of both end, except the one in which the successor accepted.',
     offered: 'The offer is sent. The role passes after the successor confirms it.',
     pending: 'Awaiting confirmation: {name}, until {until}.',
     cancel: 'Withdraw the offer',
@@ -1731,7 +1734,7 @@ export const enHelp = {
     set: 'Set the address',
     change: 'Change',
     noHttps:
-      'The address has no HTTPS: the browser will not protect the master password and keys. Set up HTTPS on the reverse proxy.',
+      'The address has no HTTPS: the browser will not protect the vault unlock password and keys. Set up HTTPS on the reverse proxy.',
     openedHere: 'You opened Arklock at exactly this address — it works.',
     openedElsewhere:
       'Arklock is open at {here} right now. Make sure the public address is reachable for employees too.',
@@ -1870,9 +1873,9 @@ export const enHelp = {
   },
   pin: {
     title: 'Quick unlock with a PIN',
-    hint: 'After the screen locks you can open Arklock with a short PIN instead of the master password. Signing in still needs the master password.',
+    hint: 'After the screen locks you can open Arklock with a short PIN instead of the vault unlock password. Signing in still needs the vault unlock password.',
     off: 'The administrator has not turned on PIN unlock.',
-    password: 'Master password',
+    password: 'Vault unlock password',
     pin: 'PIN (6 to 12 digits)',
     repeat: 'Repeat the PIN',
     enable: 'Turn on for this device',
@@ -1887,9 +1890,9 @@ export const enHelp = {
     never: 'not used yet',
     remove: 'Delete',
     unlockWith: 'Unlock with the PIN',
-    orPassword: 'Or enter the master password:',
+    orPassword: 'Or enter the vault unlock password:',
     policy: 'Quick unlock with a PIN',
-    reloadPolicy: 'Do not ask for the master password after a page reload',
+    reloadPolicy: 'Do not ask for the vault unlock password after a page reload',
   },
   spaces: { defaultName: 'Organization' },
 };

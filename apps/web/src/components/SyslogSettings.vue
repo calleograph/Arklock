@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SwitchField from './SwitchField.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -93,10 +94,11 @@ const test = () =>
       {{ notice }}
     </p>
     <form class="card max-w-xl space-y-3 p-4 text-sm" @submit.prevent="save">
-      <label class="flex items-center gap-2"
-        ><input v-model="form.enabled" type="checkbox" data-testid="syslog-enabled" />
-        {{ t('syslog.enabled') }}</label
-      >
+      <SwitchField
+        v-model="form.enabled"
+        data-testid="syslog-enabled"
+        :label="t('syslog.enabled')"
+      />
       <div class="flex gap-3">
         <label class="flex-1"
           >{{ t('syslog.host')
@@ -122,9 +124,11 @@ const test = () =>
           <option value="tls">TLS</option>
         </select>
       </label>
-      <label v-if="form.protocol === 'tls'" class="flex items-center gap-2"
-        ><input v-model="form.insecureTls" type="checkbox" /> {{ t('ldap.insecureTls') }}</label
-      >
+      <SwitchField
+        v-if="form.protocol === 'tls'"
+        v-model="form.insecureTls"
+        :label="t('ldap.insecureTls')"
+      />
       <label class="block"
         >{{ t('syslog.prefixes')
         }}<input v-model="form.prefixes" class="input" placeholder="auth., admin."
