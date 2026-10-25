@@ -49,6 +49,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
 const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
   organization: 'building',
+  vaults: 'database',
   departments: 'folder',
   users: 'user',
   circles: 'users',
@@ -72,6 +73,8 @@ const TAB_ICON: Record<string, IconName> = {
   ledger: 'log',
   automation: 'bell',
 };
+import VaultsInventory from '../components/VaultsInventory.vue';
+import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
@@ -107,6 +110,7 @@ type Tab =
   | 'organization'
   | 'departments'
   | 'automation'
+  | 'vaults'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -124,6 +128,7 @@ const TAB_PERM: Record<Tab, string> = {
   users: 'admin.users',
   organization: 'admin.users',
   departments: 'admin.circles',
+  vaults: 'admin.users',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -623,6 +628,7 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
     id: 'people',
     items: [nav('users'), nav('invitations'), nav('departments'), nav('circles')],
   },
+  { id: 'vaultsGroup', items: [nav('vaults')] },
   {
     id: 'security',
     items: [nav('settings', 'security', 'shield'), nav('roles'), nav('automation'), nav('ledger')],
@@ -709,6 +715,7 @@ const ALL_TABS: Tab[] = [
   'organization',
   'departments',
   'automation',
+  'vaults',
 ];
 onMounted(async () => {
   try {
@@ -848,6 +855,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <SyslogSettings v-else-if="tab === 'syslog'" />
         <UpdatesView v-else-if="tab === 'updates'" />
         <OrganizationPanel v-else-if="tab === 'organization'" />
+        <VaultsInventory v-else-if="tab === 'vaults'" />
         <DepartmentsPanel v-else-if="tab === 'departments'" />
         <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />
@@ -1679,6 +1687,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             /></label>
             <PersonalLockerSettings />
           </section>
+          <ManagedVaultSettings v-show="settingsTab === 'storage'" />
           <section
             class="card space-y-3 p-4 text-sm"
             data-testid="settings-group-notify"

@@ -221,12 +221,12 @@ export class TestClient {
   }
 
   /** Создаёт общее хранилище (клиент генерирует ключ, запечатывает и подписывает его для себя). */
-  async createSharedVault(name: string) {
+  async createSharedVault(name: string, extra: Record<string, unknown> = {}) {
     const id = crypto.randomUUID();
     const vk = createVaultKey();
     const sealedKey = await sealVaultKeyFor(vk, this.publicKey, id, this.userId, 1);
     const signature = await signKeyGrant(this.signPrivateKey, id, this.userId, 1, sealedKey);
-    const res = await this.req('POST', '/vaults', { id, name, sealedKey, signature });
+    const res = await this.req('POST', '/vaults', { id, name, sealedKey, signature, ...extra });
     return { res, id, key: vk };
   }
 

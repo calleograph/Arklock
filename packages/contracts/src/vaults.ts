@@ -36,6 +36,8 @@ export const vaultInfo = z.object({
   pendingKey: z.boolean(),
   /** Эффективные полномочия пользователя в хранилище (без грантов на ветви и записи). */
   permissions: z.array(z.string()),
+  /** Персональный корпоративный сейф: к нему по политике организации имеют доступ группы-хранители. */
+  managed: z.boolean().optional(),
 });
 export type VaultInfo = z.infer<typeof vaultInfo>;
 
@@ -45,6 +47,8 @@ export const createVaultRequest = z.object({
   name: z.string().trim().min(1).max(100),
   sealedKey: sealedBox,
   signature,
+  /** Создать как персональный корпоративный сейф (по политике организации); пространство — основное. */
+  managed: z.boolean().optional(),
 });
 
 export const entryWrite = z.object({

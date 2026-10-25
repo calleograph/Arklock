@@ -181,6 +181,11 @@ export const vaults = pgTable('vaults', {
   createdAt: ts('created_at').notNull().defaultNow(),
   /** Последний отчёт инспектора о сейфе: без него «0 проблем» нельзя отличить от «не проверялся». */
   signalsReportedAt: ts('signals_reported_at'),
+  /**
+   * Персональный корпоративный сейф сотрудника: открыто объявленная политика, по которой группы-хранители организации
+   * (vault_circles.managed) тоже имеют доступ. Личный приватный сейф (kind = locker) этого признака не имеет.
+   */
+  managedFor: uuid('managed_for').references(() => users.id, { onDelete: 'set null' }),
 });
 
 /** Прямое членство и роль в хранилище. Ключ хранилища выдаётся отдельно (vault_keys). */
@@ -310,6 +315,8 @@ export const vaultCircles = pgTable(
     role: text('role', { enum: ['admin', 'editor', 'reader', 'limited'] }).notNull(),
     customRoleId: uuid('custom_role_id'),
     expiresAt: ts('expires_at'),
+    /** Группа-хранитель персонального корпоративного сейфа: ставится политикой организации, владелец её не меняет. */
+    managed: boolean('managed').notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.vaultId, t.circleId] })],
 );

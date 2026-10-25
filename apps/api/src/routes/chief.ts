@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNull, max, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, max, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
@@ -9,6 +9,8 @@ import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import type { Db } from '../db/connect.js';
 import {
+  circleMembers,
+  circles,
   entries,
   sessions,
   settings,
@@ -16,6 +18,7 @@ import {
   spaces,
   users,
   vaultCircles,
+  vaultKeys,
   vaultMembers,
   vaults,
 } from '../db/schema.js';
@@ -379,6 +382,115 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     );
     await audit(db, `user:${user.id}`, 'admin.chief.decline', `user:${add.from}`);
     return reply.status(204).send();
+  });
+
+  /**
+   * Инвентаризация сейфов для главного администратора: тип, владелец, пространство, участники, записи, активность и состояние
+   * ключей. Только метаданные: ни названий записей, ни содержимого, ни ключей. Типы: корпоративный, персональный корпоративный
+   * (доступ хранителей объявлен политикой) и личный приватный (только счётчики и владелец).
+   */
+  app.get('/admin/vaults', async (req) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    const o = parse(
+      z.object({
+        kind: z.enum(['corporate', 'managed', 'private']).optional(),
+        q: z.string().trim().max(100).default(''),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+        offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+      }),
+      req.query,
+    );
+    const owner = sql`(select u.display_name from vault_members m join users u on u.id = m.user_id where m.vault_id = ${vaults.id} and m.role = 'owner' limit 1)`;
+    const kindOf = sql<string>`case when ${vaults.kind} = 'locker' then 'private' when ${vaults.managedFor} is not null then 'managed' else 'corporate' end`;
+    const like = o.q ? `%${o.q.replace(/[\\%_]/g, '\\$&')}%` : null;
+    const where = and(
+      o.kind ? sql`${kindOf} = ${o.kind}` : undefined,
+      like ? sql`(${vaults.name} ilike ${like} or ${owner} ilike ${like})` : undefined,
+    );
+    const [rows, [total], kinds] = await Promise.all([
+      db
+        .select({
+          id: vaults.id,
+          kind: kindOf,
+          name: vaults.name,
+          spaceId: vaults.spaceId,
+          keyVersion: vaults.keyVersion,
+          createdAt: vaults.createdAt,
+          owner: sql<string | null>`${owner}`,
+        })
+        .from(vaults)
+        .where(where)
+        .orderBy(asc(vaults.name), asc(vaults.createdAt))
+        .limit(o.limit)
+        .offset(o.offset),
+      db.select({ n: count() }).from(vaults).where(where),
+      db.select({ kind: kindOf, n: count() }).from(vaults).groupBy(kindOf),
+    ]);
+    const ids = rows.map((r) => r.id);
+    const [spaceRows, memberRows, groupRows, stats, keyRows, guardianRows] = ids.length
+      ? await Promise.all([
+          db.select({ id: spaces.id, name: spaces.name }).from(spaces),
+          db
+            .select({ vaultId: vaultMembers.vaultId, userId: vaultMembers.userId })
+            .from(vaultMembers)
+            .where(inArray(vaultMembers.vaultId, ids)),
+          db
+            .select({ vaultId: vaultCircles.vaultId, userId: circleMembers.userId })
+            .from(vaultCircles)
+            .innerJoin(circleMembers, eq(circleMembers.circleId, vaultCircles.circleId))
+            .where(inArray(vaultCircles.vaultId, ids)),
+          db
+            .select({ vaultId: entries.vaultId, n: count(), last: max(entries.updatedAt) })
+            .from(entries)
+            .where(and(inArray(entries.vaultId, ids), isNull(entries.deletedAt)))
+            .groupBy(entries.vaultId),
+          db
+            .select({
+              vaultId: vaultKeys.vaultId,
+              userId: vaultKeys.userId,
+              keyVersion: vaultKeys.keyVersion,
+            })
+            .from(vaultKeys)
+            .where(inArray(vaultKeys.vaultId, ids)),
+          db
+            .select({ vaultId: vaultCircles.vaultId, name: circles.name })
+            .from(vaultCircles)
+            .innerJoin(circles, eq(circles.id, vaultCircles.circleId))
+            .where(and(inArray(vaultCircles.vaultId, ids), eq(vaultCircles.managed, true))),
+        ])
+      : [[], [], [], [], [], []];
+    const items = rows.map((r) => {
+      const people = new Set([
+        ...memberRows.filter((m) => m.vaultId === r.id).map((m) => m.userId),
+        ...groupRows.filter((m) => m.vaultId === r.id).map((m) => m.userId),
+      ]);
+      const withKey = new Set(
+        keyRows
+          .filter((k) => k.vaultId === r.id && k.keyVersion === r.keyVersion)
+          .map((k) => k.userId),
+      );
+      const st = stats.find((x) => x.vaultId === r.id);
+      return {
+        id: r.id,
+        kind: r.kind,
+        name: r.kind === 'private' ? null : r.name,
+        space: spaceRows.find((s) => s.id === r.spaceId)?.name ?? null,
+        owner: r.owner,
+        people: people.size,
+        entries: st?.n ?? 0,
+        lastChange: st?.last ? new Date(st.last).toISOString() : null,
+        pendingKeys: [...people].filter((u) => !withKey.has(u)).length,
+        guardians: guardianRows.filter((g) => g.vaultId === r.id).map((g) => g.name),
+        createdAt: r.createdAt.toISOString(),
+      };
+    });
+    const by = (k: string) => kinds.find((x) => x.kind === k)?.n ?? 0;
+    return {
+      items,
+      total: total?.n ?? 0,
+      counts: { corporate: by('corporate'), managed: by('managed'), private: by('private') },
+    };
   });
 
   /** Обзор организации для главного администратора: пространства и сейфы, только метаданные. */

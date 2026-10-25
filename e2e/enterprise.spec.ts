@@ -1008,3 +1008,45 @@ test('несколько главных администраторов: приг
   await expect(page.getByTestId(`chief-remove-${ADMIN.email}`)).toBeDisabled();
   await guest.context().close();
 });
+
+test('два режима персональных сейфов: сотрудник видит условия, хранители получают доступ, администратор видит тип в инвентаризации', async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // администратор включает режим и выбирает группу-хранителя
+  await page.goto('/admin/settings?section=storage');
+  await expect(page.getByTestId('managed-settings')).toBeVisible();
+  await page.getByTestId('managed-enabled').check();
+  await page.getByTestId('managed-guardians-pick-input').fill('Информационная');
+  await page.getByTestId('managed-guardians-pick-result-Информационная безопасность').click();
+  await page.getByTestId('managed-save').click();
+  await expect(page.getByTestId('managed-settings').getByRole('status')).toBeVisible();
+
+  // сотрудник: условия показаны до создания, без подтверждения создать нельзя
+  const emp = await login(browser, staffEmail(9));
+  await emp.getByTestId('vault-actions').click();
+  await emp.getByTestId('btn-new-managed').click();
+  await expect(emp.getByTestId('managed-guardians')).toContainText('Информационная безопасность');
+  await expect(emp.getByTestId('managed-create')).toBeDisabled();
+  await emp.getByTestId('managed-understood').check();
+  await emp.getByTestId('managed-create').click();
+  await expect(emp.getByTestId('managed-dialog')).toHaveCount(0, { timeout: 90_000 });
+  await expect(emp.getByTestId('vault-select')).toContainText('Персональный');
+  // повторно пункт не предлагается; в настройках сейфа условие названо и не снимается владельцем
+  await emp.getByTestId('vault-actions').click();
+  await expect(emp.getByTestId('btn-new-managed')).toHaveCount(0);
+  await emp.keyboard.press('Escape');
+  await emp.getByTestId('vault-actions').click();
+  await emp.getByTestId('btn-vault-settings').click();
+  await expect(emp.getByTestId('managed-banner')).toContainText('Информационная безопасность');
+  await expect(emp.getByTestId('circle-row').getByRole('button')).toHaveCount(0);
+  await emp.context().close();
+
+  // инвентаризация главного администратора: тип и хранители, без содержимого
+  await page.goto('/admin/vaults');
+  await page.getByTestId('vaults-kind-managed').click();
+  await expect(page.getByTestId('vault-row')).toHaveCount(1);
+  await expect(page.getByTestId('vault-row')).toContainText('Информационная безопасность');
+  await page.getByTestId('vaults-kind-private').click();
+  await expect(page.getByTestId('vaults-range')).toBeVisible();
+});

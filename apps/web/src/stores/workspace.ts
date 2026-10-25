@@ -106,6 +106,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const searchQuery = ref('');
   /** Политика организации: false — личные сейфы не показываются и не принимают записи. */
   const personalAllowed = ref(false);
+  /** Персональный корпоративный сейф: включён ли режим, какие группы получат доступ и с какой ролью (условия показываются заранее). */
+  const managedPolicy = ref<{ enabled: boolean; guardians: string[]; role: 'reader' | 'editor' }>({
+    enabled: false,
+    guardians: [],
+    role: 'reader',
+  });
   const personalDataRestricted = ref(false);
   /** Записей в личном сейфе (без содержимого) и закрытые сотрудником уведомления — из профиля на сервере. */
   const personalEntries = ref(0);
@@ -137,6 +143,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     trash.value = { branches: [], entries: [] };
     keyLog = [];
     personalAllowed.value = false;
+    managedPolicy.value = { enabled: false, guardians: [], role: 'reader' };
     personalDataRestricted.value = false;
   }
 
@@ -198,6 +205,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       (): Record<string, unknown> => ({}),
     );
     personalAllowed.value = policy['vaults.personalLockers'] === true;
+    managedPolicy.value = {
+      enabled: policy['vaults.managedPersonal'] === true,
+      guardians: (policy['vaults.managedGuardians'] as string[] | undefined) ?? [],
+      role: policy['vaults.managedRole'] === 'editor' ? 'editor' : 'reader',
+    };
     personalDataRestricted.value = policy['vaults.personalDataRestricted'] === true;
     personalEntries.value = Number(policy['vaults.personalEntries'] ?? 0);
     dismissedNotices.value = (policy['notices.dismissed'] as string[] | undefined) ?? [];
@@ -858,7 +870,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function createVault(
     name: string,
-    opts: { spaceId?: string; select?: boolean } = {},
+    opts: { spaceId?: string; select?: boolean; managed?: boolean } = {},
   ): Promise<string> {
     const auth = useAuthStore();
     const { publicKey, signPrivateKey } = auth.keys();
@@ -867,8 +879,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const sealedKey = await sealVaultKeyFor(key, publicKey, id, auth.user!.id, 1);
     await api('POST', '/vaults', {
       id,
-      spaceId: opts.spaceId ?? currentSpaceId.value ?? undefined,
+      spaceId: opts.managed ? undefined : (opts.spaceId ?? currentSpaceId.value ?? undefined),
       name,
+      ...(opts.managed ? { managed: true } : {}),
       sealedKey,
       signature: await signKeyGrant(signPrivateKey, id, auth.user!.id, 1, sealedKey),
     });
@@ -1492,6 +1505,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentId,
     searchQuery,
     personalAllowed,
+    managedPolicy,
     personalDataRestricted,
     personalEntries,
     dismissedNotices,

@@ -16,6 +16,7 @@ import { auditRotations, rotateLostAccess, subjectUsers } from '../rotate-signal
 import type { Db } from '../db/connect.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
+import { managedPolicy } from '../managed-vaults.js';
 import { enforceDenyRules } from '../automation.js';
 import { notifyUsers } from '../notifications.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -204,6 +205,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           : null,
         pendingKey: !k || k.k.keyVersion !== v.keyVersion,
         permissions: [...a.perms].sort(),
+        ...(v.managedFor ? { managed: true } : {}),
       });
     }
     return out;
@@ -217,12 +219,23 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   app.post('/vaults', async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(createVaultRequest, req.body);
-    if (user.role !== 'admin' && (await creatorsPolicy()) !== 'members') throw forbidden();
+    const managed = body.managed ? await managedPolicy(db) : null;
+    if (managed) {
+      // персональный корпоративный сейф создаёт любой сотрудник, если организация включила режим: условия показаны заранее
+      if (!managed.enabled || !managed.guardians.length)
+        throw new AppError(409, 'managed_disabled', 'Managed personal vaults are not enabled');
+      const [mine] = await db
+        .select({ id: vaults.id })
+        .from(vaults)
+        .where(eq(vaults.managedFor, user.id));
+      if (mine)
+        throw new AppError(409, 'already_exists', 'You already have a managed personal vault');
+    } else if (user.role !== 'admin' && (await creatorsPolicy()) !== 'members') throw forbidden();
     const [dupe] = await db.select({ id: vaults.id }).from(vaults).where(eq(vaults.id, body.id));
     if (dupe) throw new AppError(409, 'already_exists', 'Vault already exists');
     await assertGrantSignature(user.id, body.id, user.id, 1, body.sealedKey, body.signature);
     await db.transaction(async (tx) => {
-      const spaceId = body.spaceId ?? DEFAULT_SPACE_ID;
+      const spaceId = managed ? DEFAULT_SPACE_ID : (body.spaceId ?? DEFAULT_SPACE_ID);
       await tx.select().from(spaces).where(eq(spaces.id, spaceId)).for('update');
       await requireSpace(tx, spaceId, user.id);
       await tx.insert(vaults).values({
@@ -232,7 +245,12 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         name: body.name,
         keyVersion: 1,
         createdBy: user.id,
+        ...(managed ? { managedFor: user.id } : {}),
       });
+      for (const g of managed?.guardians ?? [])
+        await tx
+          .insert(vaultCircles)
+          .values({ vaultId: body.id, circleId: g.id, role: managed!.role, managed: true });
       await tx.insert(vaultMembers).values({ vaultId: body.id, userId: user.id, role: 'owner' });
       await tx.insert(vaultKeys).values({
         vaultId: body.id,
@@ -243,8 +261,66 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         signature: body.signature,
       });
     });
-    await audit(db, `user:${user.id}`, 'vault.create', `vault:${body.id}`);
+    await audit(
+      db,
+      `user:${user.id}`,
+      managed ? 'vault.managed.create' : 'vault.create',
+      `vault:${body.id}`,
+    );
     return reply.status(201).send({ id: body.id });
+  });
+
+  /** Группы-хранители персонального корпоративного сейфа меняет только политика организации, а не владелец сейфа. */
+  async function assertNotGuardian(vaultId: string, circleId: string): Promise<void> {
+    const [row] = await db
+      .select({ managed: vaultCircles.managed })
+      .from(vaultCircles)
+      .where(and(eq(vaultCircles.vaultId, vaultId), eq(vaultCircles.circleId, circleId)));
+    if (row?.managed)
+      throw new AppError(409, 'managed_guardian', 'This group is set by the organization policy');
+  }
+
+  /**
+   * Сделать свой сейф персональным корпоративным: по политике организации к нему получают доступ группы-хранители.
+   * Только владелец и только если организация включила режим; условия сотрудник видит заранее (GET /auth/policy).
+   * Ключи хранителям выдаёт клиент владельца (сервер ключей выдать не может).
+   */
+  app.post('/vaults/:vaultId/managed', async (req, reply) => {
+    const { user } = authOf(req);
+    const { vaultId } = parse(vaultParams, req.params);
+    const v = await getVault(vaultId);
+    if (v.kind !== 'shared') throw forbidden();
+    const [me] = await db
+      .select({ role: vaultMembers.role })
+      .from(vaultMembers)
+      .where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, user.id)));
+    if (me?.role !== 'owner') throw forbidden();
+    if (v.managedFor) throw new AppError(409, 'already_exists', 'The vault is already managed');
+    const policy = await managedPolicy(db);
+    if (!policy.enabled || !policy.guardians.length)
+      throw new AppError(409, 'managed_disabled', 'Managed personal vaults are not enabled');
+    const [mine] = await db
+      .select({ id: vaults.id })
+      .from(vaults)
+      .where(eq(vaults.managedFor, user.id));
+    if (mine)
+      throw new AppError(409, 'already_exists', 'You already have a managed personal vault');
+    await db.transaction(async (tx) => {
+      await tx.update(vaults).set({ managedFor: user.id }).where(eq(vaults.id, vaultId));
+      for (const g of policy.guardians)
+        await tx
+          .insert(vaultCircles)
+          .values({ vaultId, circleId: g.id, role: policy.role, managed: true })
+          .onConflictDoUpdate({
+            target: [vaultCircles.vaultId, vaultCircles.circleId],
+            set: { role: policy.role, customRoleId: null, expiresAt: null, managed: true },
+          });
+    });
+    await audit(db, `user:${user.id}`, 'vault.managed.create', `vault:${vaultId}`, {
+      guardians: policy.guardians.length,
+      role: policy.role,
+    });
+    return reply.status(204).send();
   });
 
   app.patch('/vaults/:vaultId', async (req) => {
@@ -271,6 +347,9 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
     if (v.kind === 'locker' || !access.can('vault.delete')) throw forbidden();
+    // персональный корпоративный сейф закреплён за сотрудником: смена владельца скрыла бы от него объявленные условия
+    if (v.managedFor)
+      throw new AppError(409, 'managed_vault', 'A managed personal vault cannot change its owner');
     if (body.userId === user.id)
       throw new AppError(400, 'validation_error', 'You already own this vault');
     const [me] = await db
@@ -329,6 +408,13 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     const v = await getVault(vaultId);
     if (v.kind === 'locker' || !access.can('vault.delete')) throw forbidden();
+    // удалить персональный корпоративный сейф может только главный администратор: данные принадлежат организации
+    if (v.managedFor && !user.chief)
+      throw new AppError(
+        409,
+        'managed_vault',
+        'Only a chief administrator deletes a managed personal vault',
+      );
     const blobIds = await attachmentIdsOfVault(db, vaultId);
     await db.delete(vaults).where(eq(vaults.id, vaultId));
     await ctx.blobs.remove(blobIds);
@@ -359,6 +445,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         role: vaultCircles.role,
         customRoleId: vaultCircles.customRoleId,
         expiresAt: vaultCircles.expiresAt,
+        managed: vaultCircles.managed,
         name: circles.name,
       })
       .from(vaultCircles)
@@ -431,6 +518,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         role: c.role,
         customRoleId: c.customRoleId,
         expiresAt: c.expiresAt?.toISOString() ?? null,
+        managed: c.managed,
       })),
     };
   });
@@ -591,6 +679,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (!body.role && !body.customRoleId)
       throw new AppError(400, 'validation_error', 'Specify a role or a custom role');
     assertCanAssign(access, await assignmentPerms(body.role, body.customRoleId));
+    await assertNotGuardian(vaultId, circleId);
     const [c] = await db.select({ id: circles.id }).from(circles).where(eq(circles.id, circleId));
     if (!c) throw notFound();
     await db
@@ -623,6 +712,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const { vaultId, circleId } = parse(z.object({ vaultId: uuid, circleId: uuid }), req.params);
     const access = await requireVault(db, vaultId, user.id);
     if (!access.isAdmin) throw forbidden();
+    await assertNotGuardian(vaultId, circleId);
     const members = await subjectUsers(db, 'circle', circleId);
     const { result: res, opened } = await rotateLostAccess(
       db,

@@ -46,6 +46,7 @@ import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsOfVault } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
+import { managedPolicy } from '../managed-vaults.js';
 import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
 import { DEFAULT_SPACE_ID, spaceAccess } from '../spaces.js';
 
@@ -294,11 +295,16 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   app.get('/auth/policy', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
     const personalAllowed = await personalLockersAllowed(db, user.id);
+    const managed = await managedPolicy(db);
     const rows = await db.select().from(settings);
     const get = (k: string, d: unknown) => rows.find((r) => r.key === k)?.value ?? d;
     return {
       'vaults.creators': get('vaults.creators', 'admins'),
       'vaults.personalLockers': personalAllowed,
+      // персональный корпоративный сейф: условия показываются сотруднику до создания
+      'vaults.managedPersonal': managed.enabled && managed.guardians.length > 0,
+      'vaults.managedGuardians': managed.guardians.map((g) => g.name),
+      'vaults.managedRole': managed.role,
       // о прежних личных данных сообщаем, только если они действительно есть (пустой сейф — не данные)
       'vaults.personalDataRestricted': !personalAllowed && (await personalEntryCount(user.id)) > 0,
       'vaults.personalEntries': await personalEntryCount(user.id),

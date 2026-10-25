@@ -169,6 +169,13 @@
       "when": 1792886191640,
       "tag": "0023_metric_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792888495293,
+      "tag": "0024_managed_personal",
+      "breakpoints": true
     }
   ]
 }

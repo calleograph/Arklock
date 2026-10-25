@@ -39,6 +39,7 @@ import {
 import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
+import { syncManagedGuardians } from '../managed-vaults.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
 const SETTINGS: Record<string, z.ZodType> = {
@@ -48,6 +49,10 @@ const SETTINGS: Record<string, z.ZodType> = {
   'vaults.personalLockers': z.boolean(),
   'vaults.personalLockerUsers': z.array(uuid).max(10000),
   'vaults.personalLockerCircles': z.array(uuid).max(10000),
+  /** Персональные корпоративные сейфы: можно ли создавать, какие группы имеют к ним доступ и с какой ролью. */
+  'vaults.managedPersonal': z.boolean(),
+  'vaults.managedGuardians': z.array(uuid).max(20),
+  'vaults.managedRole': z.enum(['reader', 'editor']),
   'trash.retentionDays': z.number().int().min(1).max(3650),
   /** Срок хранения журнала действий, дней: 0 — бессрочно, иначе не меньше 30 (короче — слишком легко стереть следы). */
   'ledger.retentionDays': z
@@ -92,6 +97,9 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'vaults.personalLockers': false,
   'vaults.personalLockerUsers': [],
   'vaults.personalLockerCircles': [],
+  'vaults.managedPersonal': false,
+  'vaults.managedGuardians': [],
+  'vaults.managedRole': 'reader',
   'trash.retentionDays': 30,
   'ledger.retentionDays': 0,
   'session.idleHours': 12,
@@ -630,49 +638,97 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
   // ------------------------------------------------------------------ настройки
 
   /** Inventory contains only ownership/counts; no personal ciphertext or keys are disclosed. */
-  app.get('/admin/settings/personal-lockers', async () => {
-    const [people, groups, memberships, lockers, stored] = await Promise.all([
+  /**
+   * Личные сейфы и исключения. Страницами и с поиском: в организации на десятки тысяч человек полный список не нужен.
+   * Без запроса показываются те, у кого есть личный сейф или личное разрешение; с запросом — найденные сотрудники.
+   */
+  app.get('/admin/settings/personal-lockers', async (req) => {
+    const o = parse(
+      z.object({
+        q: z.string().trim().max(100).default(''),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+        offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+      }),
+      req.query,
+    );
+    const stored = await db
+      .select()
+      .from(settings)
+      .where(
+        inArray(settings.key, [
+          'vaults.personalLockers',
+          'vaults.personalLockerUsers',
+          'vaults.personalLockerCircles',
+        ]),
+      );
+    const value = (key: string) => stored.find((r) => r.key === key)?.value;
+    const everyone = value('vaults.personalLockers') === true;
+    const allowedUsers = (
+      Array.isArray(value('vaults.personalLockerUsers')) ? value('vaults.personalLockerUsers') : []
+    ) as string[];
+    const allowedCircles = (
+      Array.isArray(value('vaults.personalLockerCircles'))
+        ? value('vaults.personalLockerCircles')
+        : []
+    ) as string[];
+    const hasLocker = sql`exists (select 1 from vaults v where v.kind = 'locker' and v.created_by = ${users.id})`;
+    const where = o.q
+      ? matchUser(o.q)
+      : allowedUsers.length
+        ? or(hasLocker, inArray(users.id, allowedUsers))
+        : hasLocker;
+    const [people, [total], groups] = await Promise.all([
       db
         .select({ id: users.id, name: users.displayName, email: users.email })
         .from(users)
-        .orderBy(asc(users.displayName)),
-      db.select({ id: circles.id, name: circles.name }).from(circles).orderBy(asc(circles.name)),
-      db.select().from(circleMembers),
-      db
-        .select({
-          id: vaults.id,
-          userId: vaults.createdBy,
-          createdAt: vaults.createdAt,
-          entries: count(entries.id),
-        })
-        .from(vaults)
-        .leftJoin(entries, eq(entries.vaultId, vaults.id))
-        .where(eq(vaults.kind, 'locker'))
-        .groupBy(vaults.id, vaults.createdBy, vaults.createdAt),
-      db
-        .select()
-        .from(settings)
-        .where(
-          inArray(settings.key, [
-            'vaults.personalLockers',
-            'vaults.personalLockerUsers',
-            'vaults.personalLockerCircles',
-          ]),
-        ),
+        .where(where)
+        .orderBy(asc(users.displayName), asc(users.email))
+        .limit(o.limit)
+        .offset(o.offset),
+      db.select({ n: count() }).from(users).where(where),
+      allowedCircles.length
+        ? db
+            .select({ id: circles.id, name: circles.name })
+            .from(circles)
+            .where(inArray(circles.id, allowedCircles))
+            .orderBy(asc(circles.name))
+        : [],
     ]);
-    const value = (key: string) => stored.find((r) => r.key === key)?.value;
-    const everyone = value('vaults.personalLockers') === true;
-    const allowedUsers = value('vaults.personalLockerUsers');
-    const allowedCircles = value('vaults.personalLockerCircles');
+    const ids = people.map((p) => p.id);
+    const [memberships, lockers] = ids.length
+      ? await Promise.all([
+          allowedCircles.length
+            ? db
+                .select()
+                .from(circleMembers)
+                .where(
+                  and(
+                    inArray(circleMembers.userId, ids),
+                    inArray(circleMembers.circleId, allowedCircles),
+                  ),
+                )
+            : [],
+          db
+            .select({
+              id: vaults.id,
+              userId: vaults.createdBy,
+              createdAt: vaults.createdAt,
+              entries: count(entries.id),
+            })
+            .from(vaults)
+            .leftJoin(entries, eq(entries.vaultId, vaults.id))
+            .where(and(eq(vaults.kind, 'locker'), inArray(vaults.createdBy, ids)))
+            .groupBy(vaults.id, vaults.createdBy, vaults.createdAt),
+        ])
+      : [[], []];
     return {
       circles: groups,
+      total: total?.n ?? 0,
       users: people.map((u) => ({
         ...u,
         allowed:
-          everyone ||
-          (Array.isArray(allowedUsers) && allowedUsers.includes(u.id)) ||
-          (Array.isArray(allowedCircles) &&
-            memberships.some((m) => m.userId === u.id && allowedCircles.includes(m.circleId))),
+          everyone || allowedUsers.includes(u.id) || memberships.some((m) => m.userId === u.id),
+        direct: allowedUsers.includes(u.id),
         lockers: lockers.filter((v) => v.userId === u.id),
       })),
     };
@@ -699,6 +755,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     for (const [key, table] of [
       ['vaults.personalLockerUsers', users],
       ['vaults.personalLockerCircles', circles],
+      ['vaults.managedGuardians', circles],
     ] as const) {
       const ids = body[key] as string[] | undefined;
       if (ids?.length) {
@@ -726,6 +783,8 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           set: { value: value as never, updatedAt: new Date(), updatedBy: user.id },
         });
       if (key === 'security.mfaRequired') resetMfaPolicyCache(ctx);
+      if (key === 'vaults.managedGuardians' || key === 'vaults.managedRole')
+        await syncManagedGuardians(db, user.id);
       if (key === 'session.idleHours' || key === 'session.maxHours') resetSessionLimitsCache(ctx);
       await audit(db, `user:${user.id}`, 'admin.setting.change', key, {
         value: Array.isArray(value)

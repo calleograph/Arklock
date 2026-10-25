@@ -25,7 +25,7 @@ const isOwner = computed(() => vault.value?.role === 'owner');
 const info = ref<{
   keyVersion: number;
   members: MemberInfo[];
-  circles: { id: string; name: string; role: string }[];
+  circles: { id: string; name: string; role: string; managed?: boolean }[];
 } | null>(null);
 const fingerprints = ref<Record<string, string>>({});
 const error = ref('');
@@ -472,6 +472,17 @@ void decryptEntry;
       <p class="text-xs text-slate-500">{{ t('settings.signedKeyHint') }}</p>
     </div>
 
+    <p v-if="vault.managed" class="notice notice-warn" data-testid="managed-banner">
+      {{
+        t('managed.banner', {
+          groups: (info?.circles ?? [])
+            .filter((c) => c.managed)
+            .map((c) => c.name)
+            .join(', '),
+        })
+      }}
+    </p>
+
     <!-- Круги -->
     <div class="space-y-2">
       <h2 class="font-medium">{{ t('settings.circles') }}</h2>
@@ -482,8 +493,11 @@ void decryptEntry;
           class="flex items-center justify-between px-3 py-2"
           data-testid="circle-row"
         >
-          ◎ {{ c.name }} · {{ t(`role.${c.role}`)
-          }}<button type="button" class="btn-danger" @click="removeCircle(c.id)">
+          <span>
+            ◎ {{ c.name }} · {{ t(`role.${c.role}`) }}
+            <span v-if="c.managed" class="badge ml-1">{{ t('managed.byPolicy') }}</span>
+          </span>
+          <button v-if="!c.managed" type="button" class="btn-danger" @click="removeCircle(c.id)">
             {{ t('settings.remove') }}
           </button>
         </li>

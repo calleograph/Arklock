@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import ManagedVaultDialog from '../components/ManagedVaultDialog.vue';
 import BranchNode from '../components/BranchNode.vue';
 import Icon from '../components/Icon.vue';
 import IconButton from '../components/IconButton.vue';
@@ -203,6 +204,11 @@ const canWrite = computed(
 );
 const isVaultAdmin = computed(() => !!vault.value?.canManageMembers);
 const selectedBranch = computed(() => ws.branches.find((b) => b.id === branchSel.value) ?? null);
+const showManaged = ref(false);
+// режим включён организацией, а такого сейфа у сотрудника ещё нет
+const canCreateManaged = computed(
+  () => ws.managedPolicy.enabled && !ws.vaults.some((v) => v.managed),
+);
 const canCreateVault = computed(
   () => !!ws.currentSpaceId && (auth.user?.role === 'admin' || creatorsPolicy.value),
 );
@@ -503,6 +509,16 @@ const vaultActions = computed<ActionItem[]>(() => [
   ...(canCreateVault.value
     ? [{ id: 'new', label: t('vault.newVault'), icon: 'plus' as const, testid: 'btn-new-vault' }]
     : []),
+  ...(canCreateManaged.value
+    ? [
+        {
+          id: 'managed',
+          label: t('managed.title'),
+          icon: 'users' as const,
+          testid: 'btn-new-managed',
+        },
+      ]
+    : []),
   { id: 'spaces', label: t('spaces.manage'), icon: 'folder', testid: 'spaces-open' },
   { id: 'transfer', label: t('transfer.title'), icon: 'transfer', testid: 'btn-transfer' },
   { id: 'inspector', label: t('inspector.title'), icon: 'shield', testid: 'btn-inspector' },
@@ -510,6 +526,7 @@ const vaultActions = computed<ActionItem[]>(() => [
 function onVaultAction(id: string): void {
   if (id === 'settings') void router.push(`/vault/${vault.value!.id}/settings`);
   else if (id === 'new') void newVault();
+  else if (id === 'managed') showManaged.value = true;
   else if (id === 'spaces') showSpaces.value = !showSpaces.value;
   else if (id === 'transfer')
     void router.push({ path: '/transfer', query: { vault: vault.value?.id } });
@@ -1396,5 +1413,10 @@ void router;
         </div>
       </form>
     </div>
+    <ManagedVaultDialog
+      v-if="showManaged"
+      @close="showManaged = false"
+      @done="showManaged = false"
+    />
   </section>
 </template>
