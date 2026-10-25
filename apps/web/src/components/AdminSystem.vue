@@ -7,6 +7,7 @@ import { api, ApiError, apiBinary } from '../services/api';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import OffsiteBackups from './OffsiteBackups.vue';
 import CorporateContinuity from './CorporateContinuity.vue';
+import LogViewer from './LogViewer.vue';
 import RingGauge from './RingGauge.vue';
 import TrendChart from './TrendChart.vue';
 import { useAuthStore } from '../stores/auth';
@@ -978,11 +979,7 @@ const DIAG_LINK: Record<string, string> = {
         }}</RouterLink>
       </form>
       <p class="text-xs text-slate-500">{{ t('sys.logs.hint') }}</p>
-      <pre
-        v-if="data.log"
-        class="max-h-[60vh] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-900"
-        data-testid="log-text"
-        >{{ data.log.text }}</pre>
+      <LogViewer v-if="data.log" :text="data.log.text" />
       <p v-else class="text-sm text-slate-500">{{ t('sys.logs.none') }}</p>
     </div>
 
@@ -1068,25 +1065,64 @@ const DIAG_LINK: Record<string, string> = {
       <p v-if="!data.items.length" class="text-sm text-slate-500" data-testid="certs-empty">
         {{ t('sys.certs.empty') }}
       </p>
-      <div v-for="i in data.items" :key="i.target" class="card p-3 text-sm" data-testid="cert-item">
-        <div class="flex justify-between">
-          <span class="font-medium">{{ i.label }} · {{ i.target }}</span
-          ><span :class="levelClass(i.level)">{{ levelText(i.level) }}</span>
-        </div>
-        <p v-if="!i.ok" class="text-red-600">{{ i.error }}</p>
-        <ul v-else class="mt-1 space-y-1">
-          <li v-for="c in i.chain" :key="c.fingerprint256" class="text-xs">
-            <b>{{ c.subject }}</b> ← {{ c.issuer }} · {{ fmtDate(c.validFrom) }} →
-            {{ fmtDate(c.validTo) }} ·
-            <span :class="c.daysLeft < 30 ? 'text-amber-600' : ''"
-              >{{ c.daysLeft }} {{ t('sys.certs.days') }}</span
+      <div v-if="data.items.length" class="card overflow-x-auto">
+        <table class="min-w-full text-sm" data-testid="certs-table">
+          <thead class="text-left text-xs text-slate-500">
+            <tr>
+              <th class="px-3 py-2">{{ t('sys.certs.purpose') }}</th>
+              <th>{{ t('sys.certs.host') }}</th>
+              <th>{{ t('sys.certs.issuer') }}</th>
+              <th>{{ t('sys.certs.from') }}</th>
+              <th>{{ t('sys.certs.to') }}</th>
+              <th>{{ t('sys.certs.left') }}</th>
+              <th>{{ t('sys.certs.key') }}</th>
+              <th>{{ t('sys.certs.state') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="i in data.items"
+              :key="`${i.purpose}-${i.target}`"
+              class="border-t border-slate-200 align-top dark:border-slate-800"
+              data-testid="cert-item"
             >
-          </li>
-        </ul>
-        <p v-if="i.ok && !i.trusted" class="text-xs text-amber-700">
-          {{ t('sys.certs.untrusted') }}
-        </p>
+              <td class="px-3 py-2">
+                <div class="font-medium">{{ t(`sys.certs.use.${i.purpose}`) }}</div>
+                <div class="text-xs text-slate-500">{{ i.label }}</div>
+              </td>
+              <td class="font-mono text-xs">{{ i.target }}</td>
+              <template v-if="i.ok && i.chain[0]">
+                <td class="text-xs">{{ i.chain[0].issuer }}</td>
+                <td class="text-xs">{{ fmtDate(i.chain[0].validFrom) }}</td>
+                <td class="text-xs">{{ fmtDate(i.chain[0].validTo) }}</td>
+                <td :class="i.chain[0].daysLeft < 30 ? 'font-medium text-amber-700' : ''">
+                  {{ i.chain[0].daysLeft }}
+                </td>
+                <td class="text-xs">{{ i.chain[0].key ?? '—' }}</td>
+              </template>
+              <td v-else colspan="5" class="text-xs text-red-600">{{ i.error }}</td>
+              <td>
+                <span :class="levelClass(i.level)">{{ levelText(i.level) }}</span>
+                <div v-if="i.ok && !i.trusted" class="text-xs text-amber-700">
+                  {{ t('sys.certs.untrusted') }}
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+      <details class="card p-3 text-sm" data-testid="certs-help">
+        <summary class="cursor-pointer font-medium">{{ t('sys.certs.helpTitle') }}</summary>
+        <dl class="mt-2 space-y-2">
+          <div v-for="u in ['https', 'ldaps', 'smtp', 'sso', 'syslog']" :key="u">
+            <dt class="font-medium">{{ t(`sys.certs.use.${u}`) }}</dt>
+            <dd class="text-xs text-slate-600 dark:text-slate-300">
+              {{ t(`sys.certs.why.${u}`) }}
+            </dd>
+          </div>
+        </dl>
+        <p class="mt-2 text-xs text-slate-500">{{ t('sys.certs.chainHelp') }}</p>
+      </details>
     </div>
 
     <!-- Почта -->

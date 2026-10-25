@@ -50,6 +50,7 @@ const TAB_ICON: Record<string, IconName> = {
   overview: 'chart',
   organization: 'building',
   vaults: 'database',
+  wizards: 'check',
   departments: 'folder',
   users: 'user',
   circles: 'users',
@@ -73,6 +74,7 @@ const TAB_ICON: Record<string, IconName> = {
   ledger: 'log',
   automation: 'bell',
 };
+import WizardsPanel from '../components/WizardsPanel.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
 import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
@@ -111,6 +113,7 @@ type Tab =
   | 'departments'
   | 'automation'
   | 'vaults'
+  | 'wizards'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -129,6 +132,7 @@ const TAB_PERM: Record<Tab, string> = {
   organization: 'admin.users',
   departments: 'admin.circles',
   vaults: 'admin.users',
+  wizards: 'admin.users',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -626,7 +630,7 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
   { id: 'overview', items: [nav('overview'), nav('organization')] },
   {
     id: 'people',
-    items: [nav('users'), nav('invitations'), nav('departments'), nav('circles')],
+    items: [nav('wizards'), nav('users'), nav('invitations'), nav('departments'), nav('circles')],
   },
   { id: 'vaultsGroup', items: [nav('vaults')] },
   {
@@ -716,6 +720,7 @@ const ALL_TABS: Tab[] = [
   'departments',
   'automation',
   'vaults',
+  'wizards',
 ];
 onMounted(async () => {
   try {
@@ -856,6 +861,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <UpdatesView v-else-if="tab === 'updates'" />
         <OrganizationPanel v-else-if="tab === 'organization'" />
         <VaultsInventory v-else-if="tab === 'vaults'" />
+        <WizardsPanel v-else-if="tab === 'wizards'" />
         <DepartmentsPanel v-else-if="tab === 'departments'" />
         <WebhookSettings v-else-if="tab === 'webhooks'" />
         <SsoSettings v-else-if="tab === 'sso'" />

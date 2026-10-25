@@ -45,7 +45,8 @@ const sdEscape = (v: string): string =>
  */
 export function formatSyslog(ev: AuditEvent, host = os.hostname()): string {
   const pri = 16 * 8 + severity(ev.action); // local0
-  const sd = [`actor="${sdEscape(ev.actor)}"`];
+  const result = /failed|denied|reject|blocked/.test(ev.action) ? 'failure' : 'success';
+  const sd = [`actor="${sdEscape(ev.actor)}"`, `result="${result}"`];
   if (ev.target) sd.push(`target="${sdEscape(ev.target)}"`);
   for (const [k, v] of Object.entries(ev.detail ?? {})) {
     if (/^[A-Za-z0-9_-]{1,32}$/.test(k)) sd.push(`${k}="${sdEscape(String(v)).slice(0, 200)}"`);

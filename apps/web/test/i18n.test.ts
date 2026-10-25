@@ -34,7 +34,8 @@ describe('единый словарь терминов', () => {
       k.startsWith('files.') ||
       k.startsWith('offsite.') ||
       k === 'admin.tab.storage' ||
-      k === 'admin.group.storage';
+      k === 'admin.group.storage' ||
+      k.startsWith('guides.');
     const hits = Object.entries(ru).filter(([k, v]) => /хранилищ/i.test(v) && !ok(k));
     expect(hits).toEqual([]);
   });

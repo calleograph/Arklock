@@ -188,6 +188,12 @@ test('administration sections show real data and perform real operations', async
   await tab(page, 'logs');
   await page.getByTestId('log-fetch').click();
   await expect(page.getByTestId('log-text')).toContainText('app: started', { timeout: 30_000 });
+  // журнал разбирается на строки: поиск и уровень сужают список, уровень назван словом, а не только цветом
+  await page.getByTestId('log-search').fill('app: started');
+  await expect(page.getByTestId('log-count')).toContainText(/(Показано|Showing) 1 /);
+  await page.getByTestId('log-level').selectOption('error');
+  await expect(page.getByTestId('log-text')).not.toContainText('app: started');
+  await page.getByTestId('log-level').selectOption('');
 
   // хранилища и диагностика
   await tab(page, 'storage');

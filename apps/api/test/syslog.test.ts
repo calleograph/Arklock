@@ -96,6 +96,16 @@ describe('syslog message format (RFC 5424)', () => {
       /^<132>1 2026-10-12T01:02:03\.000Z host1 arklock - auth\.login\.failed \[arklock@0 /,
     );
     expect(msg).toContain('actor="user:abc"');
+    expect(msg).toContain('result="failure"');
+    expect(
+      formatSyslog({
+        at: new Date(),
+        actor: 'user:abc',
+        action: 'entry.create',
+        target: null,
+        detail: null,
+      }),
+    ).toContain('result="success"');
     expect(msg).toContain('ip="203.0.113.9"');
     expect(msg).toContain('note="a\\"b\\]c\\\\d INJECTED"'); // кавычки, скобка и обратная косая экранированы, перевод строки убран
     expect(msg.includes('\n')).toBe(false);

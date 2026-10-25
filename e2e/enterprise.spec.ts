@@ -1109,3 +1109,33 @@ test('ссылка на запись: кнопка копирует адрес, 
   await expect(guest.getByText('Ссылочная запись').first()).toBeVisible({ timeout: 90_000 });
   await guest.context().close();
 });
+
+test('справка: темы по задачам, поиск, административные темы видны только администратору', async ({
+  browser,
+}) => {
+  await page.goto('/help');
+  await expect(page.getByTestId('help-topic-user-twoFactor')).toContainText('Яндекс Ключ');
+  await expect(page.getByTestId('help-topic-admin-firstSetup')).toBeVisible();
+  // поиск оставляет только подходящие темы
+  await page.getByTestId('help-search').fill('LDAPS');
+  await expect(page.getByTestId('help-topic-admin-directory')).toBeVisible();
+  await expect(page.getByTestId('help-topic-user-twoFactor')).toHaveCount(0);
+  await page.getByTestId('help-search').fill('такого-слова-нет-нигде');
+  await expect(page.getByRole('status')).toBeVisible();
+
+  const staff = await login(browser, staffEmail(3));
+  await staff.goto('/help');
+  await expect(staff.getByTestId('help-topic-user-firstLogin')).toBeVisible();
+  await expect(staff.getByTestId('help-topic-admin-firstSetup')).toHaveCount(0);
+  await staff.context().close();
+});
+
+test('«Мастера настройки»: точка входа к сложным операциям и переход к нужному разделу', async () => {
+  await page.goto('/admin/wizards');
+  await expect(page.getByTestId('wizards')).toBeVisible();
+  for (const id of ['setup', 'dept', 'people', 'ldap', 'backup', 'recovery'])
+    await expect(page.getByTestId(`wizard-${id}`)).toBeVisible();
+  await page.getByTestId('wizard-dept').click();
+  await expect(page).toHaveURL(/\/admin\/departments$/);
+  await expect(page.getByTestId('departments')).toBeVisible();
+});

@@ -16,7 +16,7 @@ import { publicUrlOf } from '../public-url.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
 import { parse } from '../errors.js';
 import type { SmtpConfig } from '../mail/smtp.js';
-import { LDAP_PROFILES_KEY } from '../auth/ldap-profiles.js';
+import { LDAP_PROFILES_KEY, readLdapProfiles } from '../auth/ldap-profiles.js';
 import { SAML_SETTING_KEY } from '../auth/saml.js';
 import { metricsHistory } from '../metrics.js';
 import { SYSLOG_KEY } from '../syslog.js';
@@ -57,6 +57,8 @@ export interface CertInfo {
     validTo: string;
     daysLeft: number;
     fingerprint256: string;
+    /** Ключ и подпись: RSA с длиной или кривая; для разбора срока замены и совместимости. */
+    key?: string;
   }[];
   level: Level;
 }
@@ -81,6 +83,7 @@ export function probeCertificate(host: string, port: number, timeoutMs = 8000): 
           validTo: new Date(to).toISOString(),
           daysLeft: Math.floor((to - Date.now()) / 86_400_000),
           fingerprint256: cur.fingerprint256,
+          key: cur.asn1Curve ? `EC ${cur.asn1Curve}` : cur.bits ? `RSA ${cur.bits}` : undefined,
         });
         cur = cur.issuerCertificate;
       }
@@ -439,24 +442,68 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   // ------------------------------------------------------------------ сертификаты
 
-  function certTargets(stored: StoredSmtp | null): { label: string; host: string; port: number }[] {
-    const out: { label: string; host: string; port: number }[] = [];
+  type CertTarget = { label: string; purpose: string; host: string; port: number };
+  /**
+   * Адреса, чьи сертификаты Arklock проверяет: публичный HTTPS, LDAPS каталога, защищённая почта, провайдер единого входа и
+   * журнал syslog по TLS. Только узлы, настроенные в системе, а не произвольные.
+   */
+  async function certTargets(stored: StoredSmtp | null): Promise<CertTarget[]> {
+    const out: CertTarget[] = [];
     const pub = publicUrlOf(ctx);
     if (pub?.startsWith('https://')) {
       const u = new URL(pub);
-      out.push({ label: 'public', host: u.hostname, port: Number(u.port || 443) });
+      out.push({
+        label: 'public',
+        purpose: 'https',
+        host: u.hostname,
+        port: Number(u.port || 443),
+      });
+    }
+    for (const p of await readLdapProfiles(db)) {
+      try {
+        const u = new URL(p.url);
+        if (u.protocol === 'ldaps:')
+          out.push({
+            label: p.name,
+            purpose: 'ldaps',
+            host: u.hostname,
+            port: Number(u.port || 636),
+          });
+      } catch {
+        /* адрес профиля неверен: его покажет сам раздел каталога */
+      }
     }
     if (stored && stored.security === 'tls')
-      out.push({ label: 'smtp', host: stored.host, port: stored.port });
-    return out;
+      out.push({ label: 'smtp', purpose: 'smtp', host: stored.host, port: stored.port });
+    const [oidc] = await db.select().from(settings).where(eq(settings.key, 'sso.oidc'));
+    const issuer = (oidc?.value as { issuer?: string; enabled?: boolean } | undefined)?.issuer;
+    if (issuer?.startsWith('https://')) {
+      const u = new URL(issuer);
+      out.push({ label: 'sso', purpose: 'sso', host: u.hostname, port: Number(u.port || 443) });
+    }
+    const [sys] = await db.select().from(settings).where(eq(settings.key, SYSLOG_KEY));
+    const sv = sys?.value as
+      { enabled?: boolean; protocol?: string; host?: string; port?: number } | undefined;
+    if (sv?.enabled && sv.protocol === 'tls' && sv.host)
+      out.push({ label: 'syslog', purpose: 'syslog', host: sv.host, port: sv.port ?? 6514 });
+    const seen = new Set<string>();
+    return out.filter(
+      (t) =>
+        !seen.has(`${t.purpose}|${t.host}:${t.port}`) &&
+        seen.add(`${t.purpose}|${t.host}:${t.port}`),
+    );
   }
 
   app.get('/admin/certificates', async () => {
     const [row] = await db.select().from(settings).where(eq(settings.key, SMTP_KEY));
     // Проверяются только адреса, известные системе (публичный адрес и настроенные серверы), а не произвольные узлы
-    const targets = certTargets((row?.value as StoredSmtp | undefined) ?? null);
+    const targets = await certTargets((row?.value as StoredSmtp | undefined) ?? null);
     const items = await Promise.all(
-      targets.map(async (t) => ({ label: t.label, ...(await probeCertificate(t.host, t.port)) })),
+      targets.map(async (t) => ({
+        label: t.label,
+        purpose: t.purpose,
+        ...(await probeCertificate(t.host, t.port)),
+      })),
     );
     return { items, publicUrl: publicUrlOf(ctx) || null };
   });

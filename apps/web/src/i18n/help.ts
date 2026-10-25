@@ -108,6 +108,34 @@ export const ruHelp = {
         name: 'Корпоративное восстановление',
         text: 'Заранее подготовленный пакет, с помощью которого уполномоченный администратор возвращает доступ к корпоративным сейфам, если все владельцы недоступны. Личные сейфы он не открывает.',
       },
+      role: {
+        name: 'Роль',
+        text: 'Набор прав в сейфе: читатель, редактор, администратор, владелец. Роль нужна, чтобы выдать одинаковые права многим людям одним действием.',
+      },
+      level: {
+        name: 'Уровень доступа',
+        text: 'Что можно делать с папкой или записью: только читать, изменять, управлять, видеть структуру или совсем нет доступа («Закрыто»). Уровень на папке или записи уточняет роль в сейфе.',
+      },
+      totp: {
+        name: 'Одноразовый код (TOTP)',
+        text: 'Шестизначное число, которое приложение-аутентификатор (например, Яндекс Ключ) создаёт каждые 30 секунд. Нужно как второй фактор при входе и для сервисов, которые вы храните в записях.',
+      },
+      ldaps: {
+        name: 'LDAPS',
+        text: 'Защищённое подключение Arklock к корпоративному каталогу (Active Directory). Благодаря ему сотрудники входят своей корпоративной учётной записью, а группы каталога сопоставляются с группами Arklock.',
+      },
+      sso: {
+        name: 'Единый вход (SSO)',
+        text: 'Вход через корпоративного провайдера (OpenID Connect или SAML): сотрудник подтверждает себя там и не вводит пароль учётной записи в Arklock.',
+      },
+      webhook: {
+        name: 'Вебхук',
+        text: 'Автоматическое сообщение другой системе о событии в Arklock (создан пользователь, изменены права). Сообщения подписаны и не содержат паролей и записей.',
+      },
+      syslog: {
+        name: 'Syslog',
+        text: 'Отправка событий журнала Arklock во внешнюю систему сбора журналов, чтобы хранить их отдельно и разбирать инциденты.',
+      },
       custodian: {
         name: 'Хранитель ключа',
         text: 'Участник сейфа, который может передавать ключ другим. Нужно не меньше двух.',
@@ -1057,6 +1085,34 @@ export const enHelp = {
       corpRecovery: {
         name: 'Corporate recovery',
         text: 'A pre-made package that lets an authorized administrator restore access to corporate vaults when every owner is unavailable. It never opens personal vaults.',
+      },
+      role: {
+        name: 'Role',
+        text: 'A set of rights in a vault: reader, editor, administrator, owner. A role lets you give the same rights to many people in one action.',
+      },
+      level: {
+        name: 'Access level',
+        text: 'What can be done with a folder or entry: only read, edit, manage, see the structure, or no access at all (“Closed”). A level on a folder or entry refines the role in the vault.',
+      },
+      totp: {
+        name: 'One-time code (TOTP)',
+        text: 'A six-digit number an authenticator app (for example Yandex Key) creates every 30 seconds. It is the second factor at sign-in and for services you keep in entries.',
+      },
+      ldaps: {
+        name: 'LDAPS',
+        text: 'A secure connection from Arklock to the corporate directory (Active Directory). It lets employees sign in with their corporate account and maps directory groups to Arklock groups.',
+      },
+      sso: {
+        name: 'Single sign-on (SSO)',
+        text: 'Sign-in through the corporate provider (OpenID Connect or SAML): the employee proves identity there and does not type an account password into Arklock.',
+      },
+      webhook: {
+        name: 'Webhook',
+        text: 'An automatic message to another system about an event in Arklock (a user created, permissions changed). Messages are signed and carry no passwords or entries.',
+      },
+      syslog: {
+        name: 'Syslog',
+        text: 'Sending Arklock activity-log events to an external log collector, so they are stored separately and incidents can be investigated.',
       },
       custodian: {
         name: 'Key custodian',
