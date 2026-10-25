@@ -147,11 +147,11 @@ upd_cleanup() { # upd_cleanup ОБРАЗ_ДЛЯ_ОТКАТА
   if upd_host_is_ours; then
     # записи кэша, которые сейчас использует идущая сборка, BuildKit не удаляет — параллельная сборка не ломается
     # сразу после сборки BuildKit ещё некоторое время считает записи занятыми — повторяем, потом сообщаем как есть
-    local try left
-    for try in 1 2 3 4 5 6; do
+    local left
+    for _ in 1 2 3 4 5 6; do
       docker builder prune -af >/dev/null 2>&1 || true
       left="$(docker system df --format '{{.Type}}|{{.Size}}' 2>/dev/null | awk -F'|' '$1 == "Build Cache" {print $2}')"
-      [ -z "$left" ] || [ "$left" = "0B" ] && break
+      if [ -z "$left" ] || [ "$left" = "0B" ]; then break; fi
       sleep 5
     done
     if [ -z "$left" ] || [ "$left" = "0B" ]; then cache="кэш сборки очищен"; else cache="кэш сборки не очищен полностью (осталось $left)"; fi
