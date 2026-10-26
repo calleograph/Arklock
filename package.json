@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "check:private": "node scripts/check-private-data.mjs",
+    "check:wiki": "node scripts/check-wiki.mjs",
     "test:e2e": "playwright test",
     "check:licenses": "node scripts/check-licenses.mjs"
   },

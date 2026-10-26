@@ -1,6 +1,6 @@
 # Развёртывание
 
-Состояние: Этап 2. **Контейнерное развёртывание не проверено запуском** (Docker на машине разработки недоступен; проверка — job `container` в CI) — запуск через `docker compose` (см. корневой README). Установщик чистого сервера, reverse proxy, резервное копирование и обновление из интерфейса появятся в Этапе 5; план — `docs/architecture/updater.md`.
+Установка, reverse proxy, резервное копирование и обновление из интерфейса реализованы: см. [docs/INSTALL.md](../INSTALL.md), [docs/UPDATE.md](../UPDATE.md), [docs/BACKUP_AND_RESTORE.md](../BACKUP_AND_RESTORE.md). Контейнерное развёртывание проверяется в CI (задачи `container`, `installer`, `shared-host`).
 
 ## Требования к reverse proxy
 

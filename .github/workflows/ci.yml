@@ -21,6 +21,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run format:check
       - run: npm run lint
+      # исходники вики: ссылки, изображения, версия и дата на каждой странице
+      - run: npm run check:wiki
       # typecheck зависит от собранных пакетов (@arklock/crypto, @arklock/contracts)
       - run: npm run build
       # манифест и код расширения для Firefox проверяются валидатором Mozilla (предупреждения считаются ошибками)
