@@ -369,6 +369,12 @@ export const useAuthStore = defineStore('auth', () => {
     if (hasToken.value) await api('PUT', '/auth/preferences', { theme: id });
   }
 
+  /** Запоминает на сервере, что сотрудник прочитал примечания к версии (сообщение об обновлении больше не показывается). */
+  async function markReleaseSeen(version: string): Promise<void> {
+    if (user.value) user.value = { ...user.value, seenRelease: version };
+    if (hasToken.value) await api('PUT', '/auth/preferences', { seenRelease: version });
+  }
+
   /** Пространство, которое открывается при входе (на всех устройствах): id, «personal» или null — по умолчанию. */
   async function setHomeSpace(space: string | null): Promise<void> {
     await api('PUT', '/auth/preferences', { homeSpace: space });
@@ -377,6 +383,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     setTheme,
+    markReleaseSeen,
     setHomeSpace,
     hold,
     user,

@@ -103,6 +103,8 @@ export const users = pgTable(
     profileSource: jsonb('profile_source').$type<Record<string, 'ldap'>>().notNull().default({}),
     /** Цветовая тема интерфейса (личная настройка; к шифруемым данным не относится). */
     theme: text('theme'),
+    /** Версия Arklock, примечания к которой сотрудник уже видел («Что нового»); null — ещё не видел ни одной. */
+    seenRelease: text('seen_release'),
     // пространство, которое открывается при входе: uuid пространства или 'personal'; пусто — по умолчанию организации
     homeSpace: text('home_space'),
     /** Закрытые сотрудником информационные уведомления (идентификаторы), чтобы они не появлялись снова. */

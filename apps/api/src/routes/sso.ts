@@ -372,6 +372,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         .limit(1);
       if (dupe) throw new AppError(409, 'already_exists', 'Account already exists');
       await insertAccount(tx, full, {
+        release: ctx.config.APP_VERSION,
         role: 'member',
         authSource: ident.source,
         externalId: ident.externalId,

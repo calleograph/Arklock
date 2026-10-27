@@ -6,6 +6,7 @@ import type { UpdatesOverview } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
+import { openWhatsNew } from '../services/releases';
 import InstallInventory from '../components/InstallInventory.vue';
 import AutoUpdateSettings from '../components/AutoUpdateSettings.vue';
 
@@ -31,6 +32,10 @@ function lineTone(line: string): string {
   return '';
 }
 const busy = ref(false);
+/** Последняя успешная установка версии (из журнала действий помощника). */
+const lastInstall = computed(() =>
+  data.value?.history.find((h) => h.action === 'update' && h.result === 'success'),
+);
 
 // Повторное подтверждение пароля: токен живёт 5 минут и хранится только в памяти.
 const askPassword = ref(false);
@@ -230,7 +235,23 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
       >
         <div class="flex justify-between gap-4 px-4 py-2.5">
           <dt class="text-slate-500">{{ t('updates.installed') }}</dt>
-          <dd class="font-medium" data-testid="installed-version">{{ data.installed.version }}</dd>
+          <dd class="flex items-center gap-3 font-medium">
+            <span data-testid="installed-version">{{ data.installed.version }}</span>
+            <button
+              type="button"
+              class="btn"
+              data-testid="updates-whatsnew"
+              @click="openWhatsNew()"
+            >
+              {{ t('whatsnew.menu') }}
+            </button>
+          </dd>
+        </div>
+        <div class="flex justify-between gap-4 px-4 py-2.5">
+          <dt class="text-slate-500">{{ t('whatsnew.installedAt') }}</dt>
+          <dd data-testid="last-install">
+            {{ lastInstall ? `${fmt(lastInstall.at)} · ${lastInstall.versionTo ?? ''}` : '—' }}
+          </dd>
         </div>
         <div class="flex justify-between gap-4 px-4 py-2.5">
           <dt class="text-slate-500">{{ t('updates.build') }}</dt>

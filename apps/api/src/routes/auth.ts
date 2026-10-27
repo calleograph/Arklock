@@ -75,6 +75,8 @@ export async function insertAccount(
     createCorporate?: boolean;
     /** Первая учётная запись установки — главный администратор. */
     chief?: boolean;
+    /** Версия Arklock при создании: новому сотруднику не показывают примечания о прошлых обновлениях. */
+    release: string;
   },
 ): Promise<void> {
   const authSalt = randomB64url(16);
@@ -86,6 +88,7 @@ export async function insertAccount(
     role: opts.role,
     chief: opts.chief ?? false,
     chiefSince: opts.chief ? new Date() : null,
+    seenRelease: opts.release,
     authSource: opts.authSource,
     externalId: opts.externalId,
     kdf: body.kdf,
@@ -173,6 +176,7 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     chief: u.chief,
     // пока сотрудник не выбрал тему сам, действует тема по умолчанию, заданная администратором
     theme: u.theme ?? (await defaultTheme(ctx.db)),
+    seenRelease: u.seenRelease,
     homeSpace: u.homeSpace,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
@@ -462,6 +466,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         {
           role: n === 0 ? 'admin' : (invite?.role ?? 'member'),
           chief: n === 0,
+          release: ctx.config.APP_VERSION,
           authSource: 'local',
           externalId: null,
           createCorporate: n === 0 && !(await personalLockersAllowed(tx, body.userId)),
@@ -542,8 +547,14 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         .object({
           theme: z.enum(THEME_IDS).optional(),
           homeSpace: z.union([uuid, z.literal('personal'), z.null()]).optional(),
+          seenRelease: z
+            .string()
+            .regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/)
+            .optional(),
         })
-        .refine((b) => b.theme !== undefined || b.homeSpace !== undefined),
+        .refine(
+          (b) => b.theme !== undefined || b.homeSpace !== undefined || b.seenRelease !== undefined,
+        ),
       req.body,
     );
     // открывать можно только пространство, в котором сотрудник состоит
@@ -555,6 +566,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       .set({
         ...(body.theme ? { theme: body.theme } : {}),
         ...(body.homeSpace !== undefined ? { homeSpace: body.homeSpace } : {}),
+        ...(body.seenRelease ? { seenRelease: body.seenRelease } : {}),
       })
       .where(eq(users.id, user.id));
     return reply.status(204).send();

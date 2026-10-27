@@ -86,6 +86,8 @@ export const userBundle = z.object({
   chief: z.boolean().optional(),
   /** Выбранная цветовая тема; пусто — тема по умолчанию. */
   theme: z.string().nullable().optional(),
+  /** Версия, о которой сотрудник уже прочитал примечания («Что нового»). */
+  seenRelease: z.string().nullable().optional(),
   /** Пространство, которое открывается при входе: id, «personal» или пусто — пространство организации по умолчанию. */
   homeSpace: z.string().nullable().optional(),
   publicKey,

@@ -29,6 +29,8 @@ jobs:
             test "$(node -p "require('./$f').version")" = "$ver" || { echo "$f has a different version"; exit 1; }
           done
           grep -q "^## \[$ver\]" CHANGELOG.md || { echo "CHANGELOG.md has no section for $ver"; exit 1; }
+          # примечания к выпуску обязательны: раздел с датой и пунктами, без шаблонного текста, JSON «Что нового» актуален
+          node scripts/release-notes.mjs --check
           echo "version=$ver" >> "$GITHUB_OUTPUT"
 
   image:
@@ -85,7 +87,8 @@ jobs:
       - name: Release notes from CHANGELOG
         run: |
           ver="${{ needs.verify-tag.outputs.version }}"
-          awk -v v="$ver" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          node scripts/release-notes.mjs --notes "$ver" > notes.md
+          test -s notes.md
           {
             echo
             echo "## Установка"
@@ -117,6 +120,21 @@ jobs:
         run: |
           ver="${{ needs.verify-tag.outputs.version }}"
           gh release create "v$ver" dist/* --title "Arklock $ver" --notes-file notes.md --verify-tag
+      - name: Published description matches CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${{ needs.verify-tag.outputs.version }}"
+          node scripts/release-notes.mjs --notes "$ver" > expected.md
+          gh release view "v$ver" --json body -q .body > published.md
+          # опубликованный текст начинается с примечаний из CHANGELOG (дальше — блок установки)
+          python3 - <<'PY'
+          exp = open('expected.md', encoding='utf-8').read().strip()
+          got = open('published.md', encoding='utf-8').read().replace('\r\n', '\n').strip()
+          assert got.startswith(exp), 'GitHub Release description differs from CHANGELOG.md'
+          print('release description matches CHANGELOG')
+          PY
+          test "$(jq -r .version dist/release.json)" = "$ver"
 
   verify-published:
     name: published release installs on a clean machine

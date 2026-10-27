@@ -23,6 +23,8 @@ jobs:
       - run: npm run lint
       # исходники вики: ссылки, изображения, версия и дата на каждой странице
       - run: npm run check:wiki
+      # CHANGELOG.md — источник «Что нового»: запись текущей версии, категории, актуальный JSON
+      - run: npm run check:release-notes
       # typecheck зависит от собранных пакетов (@arklock/crypto, @arklock/contracts)
       - run: npm run build
       # манифест и код расширения для Firefox проверяются валидатором Mozilla (предупреждения считаются ошибками)

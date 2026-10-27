@@ -4,6 +4,8 @@ import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from './stores/auth';
 import { useWorkspaceStore } from './stores/workspace';
+import WhatsNewDialog from './components/WhatsNewDialog.vue';
+import { cmpVersion, openWhatsNew, whatsNew } from './services/releases';
 import { applyTheme, DEFAULT_THEME, isTheme, PREVIEW, storedTheme, THEMES } from './services/theme';
 import Icon from './components/Icon.vue';
 import GlobalSearchResults from './components/GlobalSearchResults.vue';
@@ -84,6 +86,26 @@ onMounted(() => {
   applyTheme(storedTheme() ?? DEFAULT_THEME, false);
   document.documentElement.lang = locale.value;
 });
+
+// сообщение об обновлении: сотрудник ещё не читал примечания к установленной версии (на любом устройстве)
+const appVersion = __APP_VERSION__;
+const closedBanner = ref(false);
+const updatedBanner = computed(
+  () =>
+    auth.isSignedIn &&
+    auth.unlocked &&
+    !closedBanner.value &&
+    cmpVersion(auth.user?.seenRelease ?? '0.0.0', __APP_VERSION__) < 0,
+);
+function closeBanner(): void {
+  closedBanner.value = true;
+  void auth.markReleaseSeen(__APP_VERSION__).catch(() => undefined);
+}
+function openBannerNotes(): void {
+  const from = auth.user?.seenRelease ?? null;
+  closedBanner.value = true;
+  openWhatsNew(from);
+}
 
 const initial = () =>
   (auth.user?.displayName || auth.user?.email || '?').trim().charAt(0).toUpperCase();
@@ -279,6 +301,18 @@ const initial = () =>
                       <Icon :name="item.icon as 'inbox'" class="size-4 opacity-80" />
                       {{ item.label }}
                     </RouterLink>
+                    <button
+                      type="button"
+                      class="menu-item w-full text-left"
+                      data-testid="menu-whatsnew"
+                      @click="
+                        closeMenu();
+                        openWhatsNew();
+                      "
+                    >
+                      <Icon name="sparkle" class="size-4 opacity-80" />
+                      {{ t('whatsnew.menu') }}
+                    </button>
                   </nav>
 
                   <!-- на телефоне язык переключается здесь: в шапке ему не хватает места -->
@@ -333,8 +367,27 @@ const initial = () =>
         </div>
       </div>
     </header>
+    <div
+      v-if="updatedBanner"
+      class="border-b border-brand-100 bg-brand-50 text-sm text-brand-700"
+      role="status"
+      data-testid="updated-banner"
+    >
+      <div
+        class="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-4 gap-y-1 px-3 py-1.5 sm:px-5"
+      >
+        <span class="min-w-0 flex-1">{{ t('whatsnew.banner', { v: appVersion }) }}</span>
+        <button type="button" class="btn" data-testid="banner-open" @click="openBannerNotes">
+          {{ t('whatsnew.menu') }}
+        </button>
+        <button type="button" class="btn-ghost" data-testid="banner-close" @click="closeBanner">
+          {{ t('whatsnew.close') }}
+        </button>
+      </div>
+    </div>
     <main id="main" class="mx-auto max-w-screen-2xl px-3 py-3 sm:px-5 sm:py-4">
       <RouterView />
     </main>
+    <WhatsNewDialog v-if="whatsNew" :from="whatsNew.from" @close="whatsNew = null" />
   </div>
 </template>

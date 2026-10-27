@@ -399,3 +399,53 @@ test('each employee picks a theme that applies at once, survives F5 and a new si
   }
   expect(external).toEqual([]);
 });
+
+test('«Что нового»: сообщение после обновления показывается один раз и помнится на сервере', async ({
+  baseURL,
+}) => {
+  // у нового сотрудника сообщения нет: примечания о прошлых версиях ему не нужны
+  await member.goto('/');
+  await expect(member.getByTestId('vault-select')).toBeVisible();
+  await expect(member.getByTestId('updated-banner')).toHaveCount(0);
+  // имитируем сотрудника, который последний раз читал примечания давно
+  const token = await tokenOf(member);
+  const put = await member.request.put('/api/v1/auth/preferences', {
+    headers: { authorization: `Bearer ${token}` },
+    data: { seenRelease: '1.70.0' },
+  });
+  expect(put.status()).toBe(204);
+  await member.reload();
+  await expect(member.getByTestId('updated-banner')).toBeVisible();
+  await member.getByTestId('banner-open').click();
+  const dialog = member.getByTestId('whatsnew-dialog');
+  await expect(dialog).toBeVisible();
+  // сводка пропущенных версий: несколько выпусков, а не один
+  expect(await dialog.locator('[data-testid^="release-"]').count()).toBeGreaterThan(3);
+  await expect(dialog.getByTestId('whatsnew-full')).toHaveAttribute('href', /releases\/tag\/v/);
+  await member.getByTestId('whatsnew-close').click();
+  await expect(member.getByTestId('updated-banner')).toHaveCount(0);
+  // после F5 и на другом устройстве сообщение не повторяется
+  await member.reload();
+  await expect(member.getByTestId('vault-select')).toBeVisible();
+  await expect(member.getByTestId('updated-banner')).toHaveCount(0);
+  const device = await (
+    await browser.newContext({ viewport: { width: 1366, height: 768 } })
+  ).newPage();
+  await device.goto(baseURL!);
+  await device.getByTestId('email').fill(MEMBER.email);
+  await device.getByTestId('password').fill(MEMBER.password);
+  await device.getByTestId('submit').click();
+  await expect(device.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  await expect(device.getByTestId('updated-banner')).toHaveCount(0);
+  // кнопка в меню открывает окно текущей версии и без сообщения
+  await device.getByTestId('menu-toggle').click();
+  await device.getByTestId('menu-whatsnew').click();
+  await expect(device.getByTestId('whatsnew-dialog')).toBeVisible();
+  await expect(device.getByTestId('whatsnew-dialog')).toContainText('Arklock 1.78.0');
+  await device.screenshot({ path: 'docs/screenshots/whatsnew.png' });
+  // администратору видно то же в разделе «Обновления»
+  await chief.goto('/admin/updates');
+  await expect(chief.getByTestId('updates-whatsnew')).toBeVisible();
+  await expect(chief.getByTestId('last-install')).toBeVisible();
+  expect(external).toEqual([]);
+});
