@@ -305,8 +305,19 @@ test('hints are not clipped by their containers', async () => {
   expect(clipped, clipped.join('\n')).toEqual([]);
 });
 
-test('laptop sizes and all six themes keep the admin layout usable', async () => {
-  const themes = ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset'];
+test('laptop sizes and all ten themes keep the admin layout usable', async () => {
+  const themes = [
+    'glass',
+    'night',
+    'grove',
+    'aurora',
+    'corporate',
+    'light',
+    'dark',
+    'forest',
+    'emerald',
+    'sunset',
+  ];
   for (const [w, h] of [
     [1280, 800],
     [1366, 768],
@@ -334,9 +345,57 @@ test('laptop sizes and all six themes keep the admin layout usable', async () =>
     await chief.goto('/admin/transfer');
     await chief.evaluate((id) => {
       document.documentElement.dataset.theme = id;
-      document.documentElement.classList.toggle('dark', ['dark', 'forest'].includes(id));
+      document.documentElement.classList.toggle(
+        'dark',
+        ['dark', 'forest', 'night', 'aurora'].includes(id),
+      );
     }, theme);
     await expect(chief.getByTestId('admin-nav')).toBeVisible();
     await expect(chief.getByTestId('transfer-page')).toBeVisible();
   }
+});
+
+test('each employee picks a theme that applies at once, survives F5 and a new sign-in', async ({
+  baseURL,
+}) => {
+  const themeOf = (p: Page) => p.evaluate(() => document.documentElement.dataset.theme);
+  const pick = async (p: Page, id: string) => {
+    await p.goto('/settings');
+    await p.getByTestId(`theme-${id}`).click();
+    expect(await themeOf(p)).toBe(id);
+    await expect(p.getByTestId(`theme-${id}`)).toHaveAttribute('aria-checked', 'true');
+  };
+  await pick(chief, 'night');
+  await pick(member, 'grove');
+  for (const [page, id] of [
+    [chief, 'night'],
+    [member, 'grove'],
+  ] as const) {
+    await page.reload();
+    expect(await themeOf(page)).toBe(id);
+  }
+  // новый вход с «другого устройства» получает сохранённую тему
+  const device = await (
+    await browser.newContext({ viewport: { width: 1366, height: 768 } })
+  ).newPage();
+  await device.goto(baseURL!);
+  await device.getByTestId('email').fill(MEMBER.email);
+  await device.getByTestId('password').fill(MEMBER.password);
+  await device.getByTestId('submit').click();
+  await expect(device.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
+  expect(await themeOf(device)).toBe('grove');
+  // тёмная тема не оставляет светлых страниц в разделах администрирования
+  await chief.goto('/admin/users');
+  expect(
+    await chief.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
+  ).toBe('rgb(14, 16, 36)');
+  for (const tab of ['users', 'updates', 'transfer', 'settings']) {
+    await chief.goto(`/admin/${tab}`);
+    await expect(chief.getByTestId('admin-nav')).toBeVisible();
+    const over = await chief.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(over, tab).toBeLessThanOrEqual(0);
+  }
+  expect(external).toEqual([]);
 });

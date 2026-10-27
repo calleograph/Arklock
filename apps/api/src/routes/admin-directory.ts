@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { circleWrite, uuid } from '@arklock/contracts';
+import { circleWrite, THEME_IDS, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
 import { notifyUsers } from '../notifications.js';
@@ -44,6 +44,8 @@ import { syncManagedGuardians } from '../managed-vaults.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
 const SETTINGS: Record<string, z.ZodType> = {
+  /** Тема для сотрудников, которые ещё не выбрали свою; выбор сотрудника не перезаписывается. */
+  'appearance.defaultTheme': z.enum(THEME_IDS),
   'registration.mode': z.enum(['closed', 'open']),
   'vaults.creators': z.enum(['admins', 'members']),
   /** false permits only explicit user/group exceptions. */
@@ -93,6 +95,7 @@ const SETTINGS: Record<string, z.ZodType> = {
     .regex(/^[\x21-\x7e]*$/),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
+  'appearance.defaultTheme': 'corporate',
   'registration.mode': 'closed',
   'vaults.creators': 'admins',
   'vaults.personalLockers': false,

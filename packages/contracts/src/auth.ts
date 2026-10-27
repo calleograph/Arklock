@@ -60,6 +60,21 @@ export const registerRequest = z.object({
 });
 export type RegisterRequest = z.infer<typeof registerRequest>;
 
+/** Цветовые темы интерфейса: первые четыре — многослойные оформления со стеклом и фоновой графикой. */
+export const THEME_IDS = [
+  'glass',
+  'night',
+  'grove',
+  'aurora',
+  'corporate',
+  'light',
+  'dark',
+  'forest',
+  'emerald',
+  'sunset',
+] as const;
+export type ThemeId = (typeof THEME_IDS)[number];
+
 export const userBundle = z.object({
   id: uuid,
   email: z.string(),

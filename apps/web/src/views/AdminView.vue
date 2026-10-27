@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { THEMES } from '../services/theme';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -1321,6 +1322,19 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               >
                 <option value="admins">{{ t('admin.onlyAdmins') }}</option>
                 <option value="members">{{ t('admin.allMembers') }}</option>
+              </select></label
+            >
+            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+              ><span class="inline-flex items-center gap-1">{{ t('admin.defaultTheme') }}</span
+              ><select
+                :value="settings['appearance.defaultTheme']"
+                class="input w-auto"
+                data-testid="set-default-theme"
+                @change="
+                  saveSetting('appearance.defaultTheme', ($event.target as HTMLSelectElement).value)
+                "
+              >
+                <option v-for="id in THEMES" :key="id" :value="id">{{ t(`theme.${id}`) }}</option>
               </select></label
             >
           </section>

@@ -3,9 +3,9 @@
   var t = 'corporate';
   try {
     var v = localStorage.getItem('arklock.theme');
-    if (/^(corporate|light|dark|forest|emerald|sunset)$/.test(v)) t = v;
+    if (/^(glass|night|grove|aurora|corporate|light|dark|forest|emerald|sunset)$/.test(v)) t = v;
   } catch {}
   var r = document.documentElement;
   r.setAttribute('data-theme', t);
-  if (t === 'dark' || t === 'forest') r.classList.add('dark');
+  if (t === 'dark' || t === 'forest' || t === 'night' || t === 'aurora') r.classList.add('dark');
 })();

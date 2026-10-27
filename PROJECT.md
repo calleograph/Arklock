@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-26. Версия в VERSION и пакетах: **1.76.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
+Последнее обновление: 2026-10-26. Версия в VERSION и пакетах: **1.77.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
 
 ## Назначение и архитектура
 
@@ -51,7 +51,7 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 
 Существующие install.sh, scripts/{backup,restore,update,rollback,diag,status}.sh и конвейеры CI/Release сохранены.
 
-- Единая дизайн-система и административная навигация (1.76.0): токены размеров, радиусов и текста в `style.css`, постоянное меню `AdminView` с группами, импорт и экспорт только для главного администратора (сервер проверяет роль) — `docs/DESIGN_SYSTEM.md`.
+- Единая дизайн-система и административная навигация (1.77.0): токены размеров, радиусов и текста в `style.css`, постоянное меню `AdminView` с группами, импорт и экспорт только для главного администратора (сервер проверяет роль) — `docs/DESIGN_SYSTEM.md`.
 
 ## Проверка текущего блока
 

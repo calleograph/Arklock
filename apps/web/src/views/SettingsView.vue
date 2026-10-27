@@ -6,7 +6,14 @@ import NotificationPreferences from '../components/NotificationPreferences.vue';
 import PinSettings from '../components/PinSettings.vue';
 import PersonalVaultErase from '../components/PersonalVaultErase.vue';
 import { useWorkspaceStore } from '../stores/workspace';
-import { DEFAULT_THEME, isTheme, PREVIEW, THEMES, type ThemeId } from '../services/theme';
+import {
+  CLASSIC_THEMES,
+  DEFAULT_THEME,
+  GLASS_THEMES,
+  isTheme,
+  PREVIEW,
+  type ThemeId,
+} from '../services/theme';
 import { errorMessage, spaceLabel } from '../services/helpers';
 import {
   AUTO_LOCK_OPTIONS,
@@ -87,12 +94,67 @@ function setLocale(value: 'ru' | 'en'): void {
         {{ notice }}
       </p>
       <div
-        class="grid grid-cols-2 gap-3 sm:grid-cols-3"
+        class="grid gap-3 sm:grid-cols-2"
         role="radiogroup"
         :aria-label="t('prefs.appearance')"
+        data-testid="theme-featured"
       >
         <button
-          v-for="id in THEMES"
+          v-for="id in GLASS_THEMES"
+          :key="id"
+          type="button"
+          role="radio"
+          :aria-checked="current() === id"
+          :data-testid="`theme-${id}`"
+          class="group overflow-hidden rounded-xl border text-left transition-shadow hover:shadow-md"
+          :class="
+            current() === id
+              ? 'border-brand-500 ring-2 ring-brand-500'
+              : 'border-slate-200 dark:border-slate-700'
+          "
+          @click="choose(id)"
+        >
+          <span
+            class="relative block h-24 overflow-hidden"
+            :style="{
+              background: PREVIEW[id].bg,
+              backgroundImage: `url(/bg/${id}.svg)`,
+              backgroundSize: id === 'grove' ? '60% auto' : '140% auto',
+              backgroundPosition: id === 'grove' ? 'left bottom' : 'center bottom',
+              backgroundRepeat: 'no-repeat',
+            }"
+            aria-hidden="true"
+          >
+            <span
+              class="absolute inset-x-3 top-3 block space-y-1.5 rounded-lg p-2 shadow-sm"
+              :style="{ background: PREVIEW[id].card, opacity: 0.92 }"
+            >
+              <span
+                class="block h-1.5 w-3/4 rounded"
+                :style="{ background: PREVIEW[id].text, opacity: 0.3 }"
+              />
+              <span class="block h-3 w-1/3 rounded" :style="{ background: PREVIEW[id].accent }" />
+            </span>
+          </span>
+          <span class="flex items-start gap-2 bg-white p-3">
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold">{{ t(`theme.${id}`) }}</span>
+              <span class="mt-0.5 block text-xs text-slate-500">{{ t(`theme.${id}Hint`) }}</span>
+            </span>
+            <span v-if="current() === id" class="badge-brand shrink-0" data-testid="theme-selected"
+              >✔ {{ t('theme.selected') }}</span
+            >
+          </span>
+        </button>
+      </div>
+      <h3 class="mb-2 mt-5 text-xs font-medium text-slate-500">{{ t('theme.classic') }}</h3>
+      <div
+        class="grid grid-cols-2 gap-3 sm:grid-cols-3"
+        role="radiogroup"
+        :aria-label="t('theme.classic')"
+      >
+        <button
+          v-for="id in CLASSIC_THEMES"
           :key="id"
           type="button"
           role="radio"

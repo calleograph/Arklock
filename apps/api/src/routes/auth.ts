@@ -11,6 +11,7 @@ import {
   recoveryStartRequest,
   registerRequest,
   uuid,
+  THEME_IDS,
 } from '@arklock/contracts';
 import type {
   RegisterRequest,
@@ -156,6 +157,12 @@ async function insertLocker(
   });
 }
 
+/** Тема по умолчанию для сотрудников, не выбравших свою (настройка администратора). */
+async function defaultTheme(db: AppContext['db']): Promise<string> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'appearance.defaultTheme'));
+  return THEME_IDS.find((id) => id === row?.value) ?? 'corporate';
+}
+
 export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Promise<UserBundle> {
   return {
     id: u.id,
@@ -164,7 +171,8 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     role: u.role,
     delegated: u.role !== 'admin' && (await adminPermsOf(ctx, u)).size > 0,
     chief: u.chief,
-    theme: u.theme,
+    // пока сотрудник не выбрал тему сам, действует тема по умолчанию, заданная администратором
+    theme: u.theme ?? (await defaultTheme(ctx.db)),
     homeSpace: u.homeSpace,
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
@@ -532,7 +540,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const body = parse(
       z
         .object({
-          theme: z.enum(['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']).optional(),
+          theme: z.enum(THEME_IDS).optional(),
           homeSpace: z.union([uuid, z.literal('personal'), z.null()]).optional(),
         })
         .refine((b) => b.theme !== undefined || b.homeSpace !== undefined),
