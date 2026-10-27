@@ -1,4 +1,5 @@
 import { eq, lt, or, and, inArray, isNotNull, sql } from 'drizzle-orm';
+import { MAX_EVENTS } from './shield/events.js';
 import type { BlobStore } from './blobs.js';
 import type { Db } from './db/connect.js';
 import { audit } from './audit.js';
@@ -6,9 +7,12 @@ import { expireAccounts } from './account-expiry.js';
 import { rotateExpiredAccess } from './rotate-signals.js';
 import { loadAccess } from './access.js';
 import {
+  captchaUsed,
   entries,
   handoffs,
   ledger,
+  securityBlocks,
+  securityEvents,
   sessions,
   settings,
   signals,
@@ -45,6 +49,7 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
     .where(
       sql`${handoffs.openWindowMinutes} is not null and ${handoffs.firstOpenedAt} + ${handoffs.openWindowMinutes} * interval '1 minute' <= ${now} and ${handoffs.ciphertext} <> ''`,
     );
+  const shieldRetention = await pruneSecurityData(db, now);
   const files = blobs ? await sweepBlobs({ db, blobs }, now) : { orphans: 0, pending: 0 };
   return {
     trash,
@@ -52,6 +57,7 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
     handoffs: hand.length,
     files,
     journal: await pruneLedger(db, now),
+    securityEvents: shieldRetention,
     digest: await signalsDigest(db, now),
     expired,
     lapsed: await rotateExpiredAccess(db, now),
@@ -59,6 +65,25 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
 }
 
 const PRUNE_BATCH = 10_000;
+
+/** Журнал событий безопасности: срок хранения и верхний предел строк; старые блокировки и использованные решения проверки. */
+async function pruneSecurityData(db: Db, now: Date): Promise<number> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, 'security.shield'));
+  const raw = (row?.value as { retentionDays?: number } | undefined)?.retentionDays;
+  const days = typeof raw === 'number' && raw >= 7 ? raw : 90;
+  const old = await db
+    .delete(securityEvents)
+    .where(lt(securityEvents.at, new Date(now.getTime() - days * 86_400_000)))
+    .returning({ id: securityEvents.id });
+  await db.execute(
+    sql`delete from security_events where id < (select id from security_events order by id desc offset ${MAX_EVENTS} limit 1)`,
+  );
+  await db
+    .delete(securityBlocks)
+    .where(lt(securityBlocks.expiresAt, new Date(now.getTime() - 180 * 86_400_000)));
+  await db.delete(captchaUsed).where(lt(captchaUsed.expiresAt, now));
+  return old.length;
+}
 
 /**
  * Срок хранения журнала действий (`ledger.retentionDays`, 0 — бессрочно, иначе не меньше 30 дней).

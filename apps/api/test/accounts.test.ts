@@ -19,7 +19,7 @@ import {
 } from '@arklock/crypto';
 import { entries, ledger, pinDevices, sessions, settings } from '../src/db/schema.js';
 import { MIN_KDF } from '@arklock/crypto';
-import { FAST, TestClient, createTestApp } from './helpers.js';
+import { FAST, TestClient, createTestApp, postSolving } from './helpers.js';
 
 let app: FastifyInstance;
 let database: Awaited<ReturnType<typeof createTestApp>>['database'];
@@ -208,19 +208,36 @@ describe('sessions', () => {
   });
 });
 
+const ip = (a: string) => ({ 'x-forwarded-for': a });
+
 describe('brute force protection', () => {
-  it('locks out after repeated failures, also for unknown accounts, and sets Retry-After', async () => {
+  it('asks for additional verification after repeated failures, the same for unknown accounts', async () => {
     const victim = new TestClient(app, 'bob@example.com', 'bob-password-123');
-    for (let i = 0; i < 4; i++) {
-      expect((await victim.loginRaw('wrong-password-' + i)).statusCode).toBe(401);
+    for (let i = 0; i < 5; i++) {
+      expect(
+        (
+          await victim.loginRaw('wrong-password-' + i, {
+            solve: false,
+            headers: ip('198.51.100.1'),
+          })
+        ).statusCode,
+      ).toBe(401);
     }
-    const blocked = await victim.loginRaw();
-    expect(blocked.statusCode).toBe(429);
-    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+    // даже верный пароль без проверки не принимается: решение проверяет сервер
+    const asked = await victim.loginRaw(undefined, { solve: false, headers: ip('198.51.100.1') });
+    expect(asked.statusCode).toBe(403);
+    expect(asked.json().error.code).toBe('captcha_required');
+    expect(asked.json().error.details.captcha.bits).toBeGreaterThanOrEqual(12);
 
     const ghost = new TestClient(app, 'ghost2@example.com', 'x-password-123');
-    for (let i = 0; i < 4; i++) await ghost.loginRaw('nope' + i);
-    expect((await ghost.loginRaw()).statusCode).toBe(429);
+    for (let i = 0; i < 5; i++)
+      await ghost.loginRaw('nope' + i, { solve: false, headers: ip('198.51.100.2') });
+    const ghostAsked = await ghost.loginRaw(undefined, {
+      solve: false,
+      headers: ip('198.51.100.2'),
+    });
+    expect(ghostAsked.statusCode).toBe(403);
+    expect(ghostAsked.json().error.code).toBe('captcha_required');
   });
 });
 
@@ -435,11 +452,7 @@ describe('password change and account recovery', () => {
     const oldPrivate = c.privateKey;
 
     const start = (
-      await app.inject({
-        method: 'POST',
-        url: '/api/v1/auth/recovery/start',
-        payload: { email: c.email },
-      })
+      await postSolving(app, '/api/v1/auth/recovery/start', { email: c.email })
     ).json();
     const rk = await parseRecoveryCode(oldRecovery);
     const priv = await unwrapPrivateKeyWithRecovery(
@@ -460,29 +473,25 @@ describe('password change and account recovery', () => {
     const wrapped = await wrapAccountPrivateKey(keys.wrapKey, priv, start.userId);
     const wrappedSign = await wrapSignPrivateKey(keys.wrapKey, signPriv, start.userId);
     const send = async (proof: Uint8Array) =>
-      app.inject({
-        method: 'POST',
-        url: '/api/v1/auth/recovery/complete',
-        payload: {
-          email: c.email,
-          recoveryProof: toBase64Url(proof),
-          kdf: FAST,
-          salt: toBase64Url(salt),
-          newAuthKey: toBase64Url(keys.authKey),
-          wrappedPrivateKey: wrapped,
-          wrappedSignPrivateKey: wrappedSign,
-          newRecoveryProof: toBase64Url(await deriveRecoveryProof(newRecovery.key, start.userId)),
-          newRecoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
-            newRecovery.key,
-            priv,
-            start.userId,
-          ),
-          newRecoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
-            newRecovery.key,
-            signPriv,
-            start.userId,
-          ),
-        },
+      postSolving(app, '/api/v1/auth/recovery/complete', {
+        email: c.email,
+        recoveryProof: toBase64Url(proof),
+        kdf: FAST,
+        salt: toBase64Url(salt),
+        newAuthKey: toBase64Url(keys.authKey),
+        wrappedPrivateKey: wrapped,
+        wrappedSignPrivateKey: wrappedSign,
+        newRecoveryProof: toBase64Url(await deriveRecoveryProof(newRecovery.key, start.userId)),
+        newRecoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
+          newRecovery.key,
+          priv,
+          start.userId,
+        ),
+        newRecoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
+          newRecovery.key,
+          signPriv,
+          start.userId,
+        ),
       });
 
     expect((await send(new Uint8Array(32).fill(7))).statusCode).toBe(401);
@@ -501,18 +510,10 @@ describe('password change and account recovery', () => {
 
   it('recovery start looks the same for unknown accounts', async () => {
     const known = (
-      await app.inject({
-        method: 'POST',
-        url: '/api/v1/auth/recovery/start',
-        payload: { email: 'frank@example.com' },
-      })
+      await postSolving(app, '/api/v1/auth/recovery/start', { email: 'frank@example.com' })
     ).json();
     const unknown = (
-      await app.inject({
-        method: 'POST',
-        url: '/api/v1/auth/recovery/start',
-        payload: { email: 'nobody@example.com' },
-      })
+      await postSolving(app, '/api/v1/auth/recovery/start', { email: 'nobody@example.com' })
     ).json();
     expect(Object.keys(unknown).sort()).toEqual(Object.keys(known).sort());
     expect(unknown.recoveryWrappedPrivateKey.length).toBe(known.recoveryWrappedPrivateKey.length);

@@ -15,6 +15,7 @@ import * as reload from '../services/reload';
 import { clearStepUp } from '../services/stepup';
 import { fromBase64Url } from '@arklock/crypto';
 import { useWorkspaceStore } from './workspace';
+import { withCaptcha } from '../services/captcha';
 import { applyTheme, type ThemeId } from '../services/theme';
 import { autoLockMinutes, idleExpired } from '../services/autolock';
 
@@ -174,11 +175,13 @@ export const useAuthStore = defineStore('auth', () => {
     password: string,
     profileId?: string,
   ): Promise<'unlock' | 'mfa' | 'enroll'> {
-    const res = await api<
-      | SessionResponse
-      | MfaChallengeResponse
-      | { enroll: true; enrollToken: string; email: string; name: string }
-    >('POST', '/auth/ldap/login', { username, password, profileId }, { auth: false });
+    const res = await withCaptcha((captcha) =>
+      api<
+        | SessionResponse
+        | MfaChallengeResponse
+        | { enroll: true; enrollToken: string; email: string; name: string }
+      >('POST', '/auth/ldap/login', { username, password, profileId, captcha }, { auth: false }),
+    );
     if ('enroll' in res) {
       ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
       return 'enroll';

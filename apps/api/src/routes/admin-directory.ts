@@ -265,9 +265,8 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       accessUntil: u.accessUntil?.toISOString() ?? null,
       // временная блокировка входа после неудачных попыток (пароль, второй фактор, восстановление)
       lockedFor: Math.max(
-        ctx.attempts.byEmail.retryAfter(u.email),
+        ctx.shield.accountBlockedFor(u.email),
         ctx.attempts.byEmail.retryAfter(`mfa:${u.id}`),
-        ctx.attempts.byEmail.retryAfter(`recovery:${u.email}`),
       ),
       disabledNote: u.disabledAt ? u.disabledNote : null,
       authSource: u.authSource,
@@ -401,6 +400,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     if (!target) throw notFound();
     for (const key of [target.email, `mfa:${id}`, `recovery:${target.email}`])
       ctx.attempts.byEmail.reset(key);
+    await ctx.shield.unlockAccount(target.email, `user:${user.id}`);
     await audit(db, `user:${user.id}`, 'admin.user.unlock', `user:${id}`);
     return reply.status(204).send();
   });

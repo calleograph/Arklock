@@ -6,6 +6,8 @@
 #   scripts/admin-reset.sh enable ПОЧТА               включить отключённую учётную запись
 #   scripts/admin-reset.sh promote ПОЧТА              сделать пользователя администратором
 #   scripts/admin-reset.sh chief ПОЧТА                назначить главного администратора (если прежний недоступен)
+#   scripts/admin-reset.sh access-off                 выключить ограничение доступа по IP-адресам и подсетям (если администратор отрезал себя)
+#   scripts/admin-reset.sh unblock-all                снять все блокировки адресов (история блокировок остаётся)
 #   scripts/admin-reset.sh new-setup-token            выпустить новый код первой настройки (пока в системе нет ни одного пользователя)
 #   [--env ФАЙЛ] [--yes]
 #
@@ -23,12 +25,12 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --env) export ENV_FILE="$2"; shift 2 ;;
     --yes|-y) YES=1; shift ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "Неизвестный параметр: $1" ;;
     *) TARGET="$1"; shift ;;
   esac
 done
-[ -n "$CMD" ] || { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ -n "$CMD" ] || { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 init_instance
 need_cmd docker
 
@@ -98,6 +100,19 @@ case "$CMD" in
     sql "$TARGET" "begin; update users set chief = false where chief and id <> '$uid'; update users set chief = true, role = 'admin', admin_role_id = null where id = '$uid'; delete from settings where key = 'chief.transfer'; update sessions set revoked_at = now() where user_id = '$uid' and revoked_at is null; commit" >/dev/null
     audit_op admin.chief.assign "$uid" "$TARGET"
     ok "Пользователь назначен главным администратором (его сеансы завершены — нужен новый вход)"
+    ;;
+  access-off)
+    # аварийный путь: выключает «Разрешать доступ только с указанных адресов»; правила и журнал остаются, запускается без входа в веб-интерфейс
+    confirm "Ограничение доступа по IP-адресам будет выключено: Arklock станет доступен с любых адресов (правила сохранятся)."
+    sql "" "insert into settings (key, value, updated_by) values ('security.access', '{\"enabled\": false}'::jsonb, 'operator') on conflict (key) do update set value = '{\"enabled\": false}'::jsonb, updated_by = 'operator', updated_at = now()" >/dev/null
+    sql "" "insert into security_events (kind, level, result, rule, source) values ('access_restriction_off', 'critical', 'disabled_by_operator', 'access.cli', 'operator')" >/dev/null
+    ok "Ограничение доступа по IP выключено; в течение 10 секунд применится на всех экземплярах"
+    ;;
+  unblock-all)
+    confirm "Все активные блокировки адресов будут сняты (записи о них и журнал событий сохранятся)."
+    n="$(sql "" "with r as (update security_blocks set released_at = now(), released_by = 'operator' where released_at is null and expires_at > now() returning 1) select count(*) from r" | tr -d '[:space:]')"
+    sql "" "insert into security_events (kind, level, result, rule, source) values ('ip_unblocked', 'warn', 'released_all_by_operator', 'cli', 'operator')" >/dev/null
+    ok "Снято блокировок: ${n:-0} (применится в течение 10 секунд)"
     ;;
   new-setup-token)
     n="$(sql "" "select count(*) from users" | tr -d '[:space:]')"

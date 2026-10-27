@@ -23,6 +23,7 @@ import { registerAdminSystemRoutes } from './routes/admin-system.js';
 import { registerAdminSmtpRoutes } from './routes/admin-smtp.js';
 import { deliverQueuedMail } from './mail/send.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
+import { registerAdminShieldRoutes } from './routes/admin-shield.js';
 import { registerContinuityRoutes } from './routes/continuity.js';
 import { registerOffboardingRoutes } from './routes/admin-offboarding.js';
 import { registerCorporateRecoveryRoutes } from './routes/corporate-recovery.js';
@@ -70,10 +71,17 @@ function notFound(requestId: string): ErrorResponse {
 declare module 'fastify' {
   interface FastifyInstance {
     routeTable: { method: string; url: string }[];
+    shield: import('./shield/throttle.js').Shield;
+    access: import('./shield/access.js').AccessControl;
+    securityLog: import('./shield/events.js').SecurityLog;
   }
 }
 
 export async function buildApp({ config, database }: AppDeps): Promise<FastifyInstance> {
+  // доверие к proxy: по числу звеньев, пока не создан контекст со списком доверенных адресов из панели
+  let trustFn: (address: string, hop: number) => boolean = (_a, hop) =>
+    hop < config.TRUSTED_PROXY_HOPS;
+  const trust = (address: string, hop: number) => trustFn(address, hop);
   const app = Fastify({
     logger:
       config.LOG_LEVEL === 'silent'
@@ -91,7 +99,8 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
               censor: '[redacted]',
             },
           },
-    trustProxy: (_address: string, hop: number) => hop <= config.TRUSTED_PROXY_HOPS,
+    // hop 0 — сам сокет: он считается прокси, только если перед сервером стоит хотя бы один прокси; N прокси доверяются ровно N звеньев
+    trustProxy: (address: string, hop: number) => trust(address, hop),
     bodyLimit: 2 * 1024 * 1024,
     genReqId: () => crypto.randomUUID(),
   });
@@ -103,6 +112,38 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   app.decorate('routeTable', routeTable);
   const ctx = createContext(config, database);
   await loadPublicUrl(ctx);
+  app.decorate('shield', ctx.shield);
+  app.decorate('access', ctx.access);
+  app.decorate('securityLog', ctx.securityLog);
+  await ctx.shield.start();
+  await ctx.access.start();
+  trustFn = ctx.access.trust(config.TRUSTED_PROXY_HOPS);
+  // разрешённые клиентские подсети: проверка до любой обработки запроса (веб-интерфейс и API)
+  const deniedSeen = new Map<string, number>();
+  app.addHook('onRequest', async (req, reply) => {
+    if (ctx.access.permits(req.ip)) return;
+    const last = deniedSeen.get(req.ip) ?? 0;
+    if (Date.now() - last > 60_000) {
+      deniedSeen.set(req.ip, Date.now());
+      if (deniedSeen.size > 5000) deniedSeen.clear();
+      ctx.securityLog.record({
+        kind: 'ip_not_allowed',
+        level: 'warn',
+        result: 'denied',
+        ip: req.ip,
+        rule: 'access.subnets',
+        requestId: req.id,
+      });
+    }
+    return reply.status(403).send({
+      error: { code: 'ip_not_allowed', message: 'Access from this address is not allowed' },
+    });
+  });
+  app.addHook('onClose', async () => {
+    ctx.shield.stop();
+    ctx.access.stop();
+    await ctx.securityLog.flush();
+  });
 
   app.addHook('onSend', async (_req, reply, payload) => {
     reply.header('X-Content-Type-Options', 'nosniff');
@@ -168,6 +209,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSmtpRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerAdminShieldRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContinuityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerOffboardingRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerCorporateRecoveryRoutes, { prefix: API_PREFIX, ctx });

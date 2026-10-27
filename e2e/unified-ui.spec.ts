@@ -441,11 +441,93 @@ test('«Что нового»: сообщение после обновлени�
   await device.getByTestId('menu-toggle').click();
   await device.getByTestId('menu-whatsnew').click();
   await expect(device.getByTestId('whatsnew-dialog')).toBeVisible();
-  await expect(device.getByTestId('whatsnew-dialog')).toContainText('Arklock 1.78.0');
+  await expect(device.getByTestId('whatsnew-dialog')).toContainText(
+    `Arklock ${readFileSync('VERSION', 'utf8').trim()}`,
+  );
   await device.screenshot({ path: 'docs/screenshots/whatsnew.png' });
   // администратору видно то же в разделе «Обновления»
   await chief.goto('/admin/updates');
   await expect(chief.getByTestId('updates-whatsnew')).toBeVisible();
   await expect(chief.getByTestId('last-install')).toBeVisible();
   expect(external).toEqual([]);
+});
+
+test('«Защита веб-приложения»: вкладки внутри административного меню, правило, блокировка и события', async () => {
+  await chief.setViewportSize({ width: 1366, height: 768 });
+  await chief.goto('/admin/shield');
+  await expect(chief.getByTestId('shield-panel')).toBeVisible();
+  await expect(chief.getByTestId('admin-nav')).toBeVisible();
+  await expect(chief.getByTestId('shield-overview')).toBeVisible();
+  await expect(chief.getByTestId('ov-failed')).toBeVisible();
+  // вкладки меняются, левое меню остаётся
+  for (const id of ['login', 'ips', 'blocks', 'requests', 'events', 'advanced']) {
+    await chief.getByTestId(`shield-tab-${id}`).click();
+    await expect(chief.getByTestId(`shield-${id}`)).toBeVisible();
+    await expect(chief.getByTestId('admin-nav')).toBeVisible();
+  }
+  const over = await chief.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(over).toBeLessThanOrEqual(0);
+
+  // правило подсети: изменение защиты просит пароль
+  await chief.getByTestId('shield-tab-ips').click();
+  await expect(chief.getByTestId('your-ip')).toBeVisible();
+  await chief.getByTestId('rule-cidr').fill('192.0.2.0/24');
+  await chief.getByTestId('rule-add').click();
+  await chief.getByTestId('shield-password').fill(CHIEF.password);
+  await chief.getByTestId('shield-reauth-ok').click();
+  await expect(chief.getByTestId('rule-192.0.2.0/24')).toBeVisible();
+  // включение в режиме подтверждения (консоль сервера — 127.0.0.1 — разрешена всегда, поэтому тест не отрезает себя)
+  await chief.getByTestId('access-enable').click();
+  await chief.getByTestId('access-ack').check();
+  await chief.getByTestId('access-start').click();
+  await expect(chief.getByTestId('access-pending')).toBeVisible();
+  await chief.getByTestId('access-confirm').click();
+  await expect(chief.getByTestId('access-pending')).toHaveCount(0);
+  await expect(chief.getByTestId('access-state')).toHaveAttribute('data-enabled', 'true');
+  await chief.getByTestId('access-disable').click();
+  await expect(chief.getByTestId('access-state')).toHaveAttribute('data-enabled', 'false');
+
+  // ручная блокировка и снятие
+  await chief.getByTestId('shield-tab-blocks').click();
+  await chief.getByTestId('block-ip').fill('192.0.2.99');
+  await chief.getByTestId('block-reason').fill('Проверка блокировки');
+  await chief.getByTestId('block-add').click();
+  await expect(chief.getByTestId('block-192.0.2.99')).toBeVisible();
+  chief.once('dialog', (d) => void d.accept());
+  await chief.getByTestId('block-192.0.2.99').getByTestId('block-release').click();
+  await expect(chief.getByTestId('block-192.0.2.99')).toHaveCount(0);
+
+  // события: изменения защиты записаны, фильтр по уровню работает
+  await chief.getByTestId('shield-tab-events').click();
+  await chief.getByTestId('ev-period').selectOption('all');
+  await chief.getByTestId('ev-apply').click();
+  await expect(chief.getByTestId('ev-table')).toContainText(/Изменена защита|Protection changed/);
+  await chief.screenshot({ path: 'docs/screenshots/shield-events.png' });
+  await chief.getByTestId('shield-tab-overview').click();
+  await chief.screenshot({ path: 'docs/screenshots/shield-overview.png' });
+  // обычному сотруднику раздел недоступен
+  await member.goto('/admin/shield');
+  await expect(member).not.toHaveURL(/admin/);
+});
+
+test('после нескольких ошибок вход требует проверку, решает её в браузере и пускает владельца', async ({
+  baseURL,
+}) => {
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+  const page = await ctx.newPage();
+  await page.goto(baseURL!);
+  for (let i = 0; i < 6; i++) {
+    await page.getByTestId('email').fill(MEMBER.email);
+    await page.getByTestId('password').fill(`wrong-password-${i}-wrong`);
+    await page.getByTestId('submit').click();
+    await expect(page.getByTestId('submit')).toBeEnabled({ timeout: 90_000 });
+  }
+  // верный пароль: браузер сам решает задание, пользователь ничего не вводит
+  await page.getByTestId('email').fill(MEMBER.email);
+  await page.getByTestId('password').fill(MEMBER.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 120_000 });
+  await ctx.close();
 });

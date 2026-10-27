@@ -52,6 +52,74 @@ export const webhookDeliveries = pgTable(
   (t) => [index('webhook_deliveries_hook_idx').on(t.hookId, t.at)],
 );
 
+/**
+ * Блокировки адресов (автоматические и ручные). Строка остаётся после снятия: история атак не обнуляется.
+ * key — «ip:<адрес>» или «pair:<адрес>|<хэш учётной записи>».
+ */
+export const securityBlocks = pgTable(
+  'security_blocks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    key: text('key').notNull(),
+    source: text('source', { enum: ['auto', 'manual'] }).notNull(),
+    reason: text('reason').notNull(),
+    rule: text('rule').notNull(),
+    strikes: integer('strikes').notNull().default(1),
+    hits: integer('hits').notNull().default(1),
+    createdAt: ts('created_at').notNull().defaultNow(),
+    expiresAt: ts('expires_at').notNull(),
+    createdBy: text('created_by'),
+    releasedAt: ts('released_at'),
+    releasedBy: text('released_by'),
+  },
+  (t) => [index('security_blocks_key_idx').on(t.key, t.createdAt)],
+);
+
+/**
+ * Журнал событий безопасности (отдельно от журнала действий). Паролей, кодов, токенов и тел запросов здесь нет;
+ * неизвестные учётные записи хранятся только хэшем.
+ */
+export const securityEvents = pgTable(
+  'security_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    at: ts('at').notNull().defaultNow(),
+    ip: text('ip'),
+    userId: text('user_id'),
+    account: text('account'),
+    kind: text('kind').notNull(),
+    level: text('level', { enum: ['info', 'warn', 'critical', 'ok'] }).notNull(),
+    rule: text('rule'),
+    result: text('result').notNull(),
+    seconds: integer('seconds'),
+    source: text('source'),
+    requestId: text('request_id'),
+    detail: jsonb('detail').notNull().default({}),
+  },
+  (t) => [
+    index('security_events_at_idx').on(t.at),
+    index('security_events_ip_idx').on(t.ip, t.at),
+    index('security_events_kind_idx').on(t.kind, t.at),
+  ],
+);
+
+/** Использованные решения проверки (одноразовость), чтобы решение нельзя было применить повторно, в том числе на другом экземпляре. */
+export const captchaUsed = pgTable('captcha_used', {
+  id: text('id').primaryKey(),
+  expiresAt: ts('expires_at').notNull(),
+});
+
+/** Правила доступа по IP-адресам и подсетям (разрешённые клиентские подсети). */
+export const ipRules = pgTable('ip_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cidr: text('cidr').notNull().unique(),
+  comment: text('comment').notNull().default(''),
+  enabled: boolean('enabled').notNull().default(true),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+  updatedBy: text('updated_by'),
+});
+
 /** Ledger — журнал действий. Только добавление; секреты и ключи в него не попадают. */
 export const ledger = pgTable(
   'ledger',

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { THEMES } from '../services/theme';
+import ShieldPanel from '../components/ShieldPanel.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -53,6 +54,7 @@ const TAB_ICON: Record<string, IconName> = {
   vaults: 'database',
   wizards: 'check',
   transfer: 'transfer',
+  shield: 'lock',
   departments: 'folder',
   users: 'user',
   circles: 'users',
@@ -118,6 +120,7 @@ type Tab =
   | 'vaults'
   | 'wizards'
   | 'transfer'
+  | 'shield'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -138,6 +141,7 @@ const TAB_PERM: Record<Tab, string> = {
   vaults: 'admin.users',
   wizards: 'admin.users',
   transfer: 'chief',
+  shield: 'chief',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -163,7 +167,7 @@ const TAB_PERM: Record<Tab, string> = {
 const adminPerms = ref<{ full: boolean; permissions: string[] } | null>(null);
 /** Импорт и экспорт — только главный администратор: делегированные роли и обычные администраторы раздела не видят. */
 const canTab = (x: Tab) =>
-  x === 'transfer'
+  x === 'transfer' || x === 'shield'
     ? !!auth.user?.chief
     : !adminPerms.value ||
       adminPerms.value.full ||
@@ -647,7 +651,13 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
   { id: 'vaultsGroup', items: [nav('vaults'), nav('transfer')] },
   {
     id: 'security',
-    items: [nav('settings', 'security', 'shield'), nav('roles'), nav('automation'), nav('ledger')],
+    items: [
+      nav('settings', 'security', 'shield'),
+      nav('shield'),
+      nav('roles'),
+      nav('automation'),
+      nav('ledger'),
+    ],
   },
   {
     id: 'system',
@@ -744,6 +754,7 @@ const ALL_TABS: Tab[] = [
   'vaults',
   'wizards',
   'transfer',
+  'shield',
 ];
 onMounted(async () => {
   try {
@@ -862,6 +873,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <AutomationPanel v-if="tab === 'automation'" />
         <RolesPanel v-else-if="tab === 'roles'" />
         <InvitationsPanel v-else-if="tab === 'invitations'" />
+        <ShieldPanel v-else-if="tab === 'shield'" />
         <SyslogSettings v-else-if="tab === 'syslog'" />
         <UpdatesView v-else-if="tab === 'updates'" />
         <OrganizationPanel v-else-if="tab === 'organization'" />

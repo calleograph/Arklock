@@ -27,6 +27,7 @@ import type {
   UserBundle,
 } from '@arklock/contracts';
 import { api } from './api';
+import { withCaptcha } from './captcha';
 import { getAssertion } from './webauthn';
 import { deriveKeys } from './kdf';
 
@@ -190,11 +191,13 @@ export async function signIn(
     keys.authKey.fill(0);
   };
   try {
-    const res = await api<SessionResponse | MfaChallengeResponse>(
-      'POST',
-      '/auth/login',
-      { email, authKey: toBase64Url(keys.authKey) },
-      { auth: false },
+    const res = await withCaptcha((captcha) =>
+      api<SessionResponse | MfaChallengeResponse>(
+        'POST',
+        '/auth/login',
+        { email, authKey: toBase64Url(keys.authKey), captcha },
+        { auth: false },
+      ),
     );
     if ('mfaRequired' in res) {
       // ключ обёртки удерживается в замыкании до ввода кода (или отмены)
@@ -311,11 +314,13 @@ export async function recoverAccount(
   newPassword: string,
 ): Promise<{ recoveryCode: string }> {
   const recoveryKey = await parseRecoveryCode(recoveryCode);
-  const start = await api<{
-    userId: string;
-    recoveryWrappedPrivateKey: string;
-    recoveryWrappedSignPrivateKey: string;
-  }>('POST', '/auth/recovery/start', { email }, { auth: false });
+  const start = await withCaptcha((captcha) =>
+    api<{
+      userId: string;
+      recoveryWrappedPrivateKey: string;
+      recoveryWrappedSignPrivateKey: string;
+    }>('POST', '/auth/recovery/start', { email, captcha }, { auth: false }),
+  );
   const privateKey = await unwrapPrivateKeyWithRecovery(
     recoveryKey,
     start.recoveryWrappedPrivateKey,
@@ -329,30 +334,28 @@ export async function recoverAccount(
   const salt = generateSalt();
   const keys = await deriveKeys(newPassword, salt, start.userId, DEFAULT_KDF);
   const fresh = await generateRecoveryKey();
-  await api(
-    'POST',
-    '/auth/recovery/complete',
-    {
-      email,
-      recoveryProof: toBase64Url(await deriveRecoveryProof(recoveryKey, start.userId)),
-      kdf: DEFAULT_KDF,
-      salt: toBase64Url(salt),
-      newAuthKey: toBase64Url(keys.authKey),
-      wrappedPrivateKey: await wrapAccountPrivateKey(keys.wrapKey, privateKey, start.userId),
-      wrappedSignPrivateKey: await wrapSignPrivateKey(keys.wrapKey, signPrivate, start.userId),
-      newRecoveryProof: toBase64Url(await deriveRecoveryProof(fresh.key, start.userId)),
-      newRecoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
-        fresh.key,
-        privateKey,
-        start.userId,
-      ),
-      newRecoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
-        fresh.key,
-        signPrivate,
-        start.userId,
-      ),
-    },
-    { auth: false },
+  const body = {
+    email,
+    recoveryProof: toBase64Url(await deriveRecoveryProof(recoveryKey, start.userId)),
+    kdf: DEFAULT_KDF,
+    salt: toBase64Url(salt),
+    newAuthKey: toBase64Url(keys.authKey),
+    wrappedPrivateKey: await wrapAccountPrivateKey(keys.wrapKey, privateKey, start.userId),
+    wrappedSignPrivateKey: await wrapSignPrivateKey(keys.wrapKey, signPrivate, start.userId),
+    newRecoveryProof: toBase64Url(await deriveRecoveryProof(fresh.key, start.userId)),
+    newRecoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
+      fresh.key,
+      privateKey,
+      start.userId,
+    ),
+    newRecoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
+      fresh.key,
+      signPrivate,
+      start.userId,
+    ),
+  };
+  await withCaptcha((captcha) =>
+    api('POST', '/auth/recovery/complete', { ...body, captcha }, { auth: false }),
   );
   privateKey.fill(0);
   signPrivate.fill(0);

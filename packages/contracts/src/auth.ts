@@ -97,7 +97,21 @@ export const userBundle = z.object({
 });
 export type UserBundle = z.infer<typeof userBundle>;
 
-export const loginRequest = z.object({ email: accountIdentifier, authKey });
+/** Решение дополнительной проверки (подбор): задание, выданное сервером, и найденное число. */
+export const captchaSolution = z.object({
+  id: z.string().max(40),
+  salt: z.string().max(40),
+  bits: z.number().int().min(1).max(32),
+  exp: z.number().int(),
+  sig: z.string().max(64),
+  number: z.number().int().min(0),
+});
+export type CaptchaSolution = z.infer<typeof captchaSolution>;
+export const loginRequest = z.object({
+  email: accountIdentifier,
+  authKey,
+  captcha: captchaSolution.optional(),
+});
 export const sessionResponse = z.object({
   token: z.string(),
   expiresAt: z.string(),
@@ -126,7 +140,10 @@ export const changePasswordRequest = z.object({
   wrappedSignPrivateKey: wrappedKey,
 });
 
-export const recoveryStartRequest = z.object({ email: accountIdentifier });
+export const recoveryStartRequest = z.object({
+  email: accountIdentifier,
+  captcha: captchaSolution.optional(),
+});
 export const recoveryStartResponse = z.object({
   userId: uuid,
   recoveryWrappedPrivateKey: wrappedKey,
@@ -136,6 +153,7 @@ export const recoveryStartResponse = z.object({
 });
 export const recoveryCompleteRequest = z.object({
   email: accountIdentifier,
+  captcha: captchaSolution.optional(),
   recoveryProof: proof,
   kdf: kdfParams,
   salt: b64url(22, 22),

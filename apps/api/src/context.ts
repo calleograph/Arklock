@@ -10,6 +10,10 @@ import { LoginTickets } from './auth/tickets.js';
 import { MfaChallenges, type MfaPolicy } from './auth/mfa.js';
 import { AttemptLimiter } from './rateLimit.js';
 import { UpdaterChannel } from './updater/protocol.js';
+import { SecurityLog } from './shield/events.js';
+import { Shield } from './shield/throttle.js';
+import { AccessControl } from './shield/access.js';
+import { Alerts } from './shield/alerts.js';
 
 /** Общие зависимости маршрутов. */
 export interface AppContext {
@@ -18,6 +22,12 @@ export interface AppContext {
   db: Db;
   /** Ограничитель попыток входа/восстановления по адресу и по IP. */
   attempts: { byEmail: AttemptLimiter; byIp: AttemptLimiter };
+  /** Централизованная защита входа и восстановления (ограничения, блокировки, дополнительная проверка). */
+  shield: Shield;
+  /** Разрешённые клиентские подсети и доверенные reverse proxy. */
+  access: AccessControl;
+  alerts: Alerts;
+  securityLog: SecurityLog;
   reauth: ReauthStore;
   updater: UpdaterChannel;
   blobs: BlobStore;
@@ -42,7 +52,20 @@ export function createContext(config: Config, database: Database): AppContext {
     void syslog.forward(ev);
     webhooks.forward(ev);
   });
-  return {
+  const securityLog = new SecurityLog(database.db);
+  const ctx: AppContext = {
+    alerts: undefined as never,
+    shield: new Shield(database.db, config.APP_SECRET, securityLog),
+    access: new AccessControl(database.db, () =>
+      securityLog.record({
+        kind: 'access_restriction_rollback',
+        level: 'critical',
+        result: 'rolled_back',
+        rule: 'access.confirm',
+        source: 'system',
+      }),
+    ),
+    securityLog,
     config,
     database,
     db: database.db,
@@ -59,4 +82,7 @@ export function createContext(config: Config, database: Database): AppContext {
       byIp: new AttemptLimiter(config.LOGIN_MAX_ATTEMPTS * 5, windowMs),
     },
   };
+  ctx.alerts = new Alerts(ctx);
+  securityLog.onRecord = (e) => ctx.alerts.handle(e);
+  return ctx;
 }

@@ -22,11 +22,59 @@ import {
   verifyKeyGrant,
   encryptBranchName,
 } from '@arklock/crypto';
+import { createHash } from 'node:crypto';
 import type { EntryRecord, SessionResponse, VaultInfo } from '@arklock/contracts';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { connect } from '../src/db/connect.js';
 import { settings } from '../src/db/schema.js';
+
+/** Решение дополнительной проверки, как это делает браузер: подбор числа с нулевыми старшими битами SHA-256. */
+export function solveChallenge(c: {
+  id: string;
+  salt: string;
+  bits: number;
+  exp: number;
+  sig: string;
+}) {
+  for (let number = 0; ; number++) {
+    const d = createHash('sha256').update(`${c.salt}${number}`).digest();
+    let bits = 0;
+    for (const byte of d) {
+      if (byte === 0) bits += 8;
+      else {
+        bits += Math.clz32(byte) - 24;
+        break;
+      }
+    }
+    if (bits >= c.bits) return { ...c, number };
+  }
+}
+
+/** POST без сеанса; если сервер просит дополнительную проверку, решает её и повторяет (как браузер). */
+export async function postSolving(
+  app: FastifyInstance,
+  url: string,
+  payload: Record<string, unknown>,
+) {
+  const send = (captcha?: unknown) =>
+    app.inject({ method: 'POST', url, payload: { ...payload, captcha } as never });
+  const res = await send();
+  if (res.statusCode === 403 && res.json().error?.code === 'captcha_required')
+    return send(solveChallenge(res.json().error.details.captcha));
+  return res;
+}
+
+/** Для тестов с сотнями ошибок входа: проверка минимальной сложности (12 бит), формат и проверка на сервере те же. */
+export async function cheapCaptcha(
+  app: FastifyInstance,
+  database: { db: { insert: typeof import('drizzle-orm/pg-core').PgDatabase.prototype.insert } },
+) {
+  await database.db
+    .insert(settings)
+    .values({ key: 'security.shield', value: { captchaBits: 12, captchaMaxBits: 12 } });
+  await app.shield.reloadPolicy();
+}
 
 export const FAST = { memoryKiB: 64, iterations: 1, parallelism: 1 };
 const LOW_FLOOR = { memoryKiB: 8, iterations: 1, parallelism: 1 };
@@ -144,13 +192,27 @@ export class TestClient {
     return { params, keys };
   }
 
-  async loginRaw(password = this.password) {
+  /** Вход одной попыткой; при требовании дополнительной проверки решает её и повторяет (как браузер). */
+  async loginRaw(
+    password = this.password,
+    opts: { solve?: boolean; headers?: Record<string, string> } = {},
+  ) {
     const { keys } = await this.derive(password);
-    return this.app.inject({
-      method: 'POST',
-      url: '/api/v1/auth/login',
-      payload: { email: this.email, authKey: toBase64Url(keys.authKey) },
-    });
+    const send = (captcha?: unknown) =>
+      this.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        headers: opts.headers,
+        payload: { email: this.email, authKey: toBase64Url(keys.authKey), captcha },
+      });
+    let res = await send();
+    if (
+      opts.solve !== false &&
+      res.statusCode === 403 &&
+      res.json().error.code === 'captcha_required'
+    )
+      res = await send(solveChallenge(res.json().error.details.captcha));
+    return res;
   }
 
   /** Вход и расшифровка закрытого ключа мастер-паролем, как делает браузер. */

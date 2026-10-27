@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-27. Версия в VERSION и пакетах: **1.78.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
+Последнее обновление: 2026-10-27. Версия в VERSION и пакетах: **1.79.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
 
 ## Назначение и архитектура
 
@@ -54,6 +54,7 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 - Единая дизайн-система и административная навигация (1.76.0): токены размеров, радиусов и текста в `style.css`, постоянное меню `AdminView` с группами, импорт и экспорт только для главного администратора (сервер проверяет роль) — `docs/DESIGN_SYSTEM.md`.
 - Темы оформления (1.77.0): десять тем, четыре со стеклом и фоновыми рисунками (`glass`, `night`, `grove`, `aurora`), личный выбор в «Настройках → Внешний вид», тема организации по умолчанию — `docs/DESIGN_SYSTEM.md`.
 - Примечания к выпускам и «Что нового» (1.78.0): `CHANGELOG.md` — единственный источник, `scripts/release-notes.mjs` собирает `apps/web/src/release-notes.json` и текст GitHub Release, отметка просмотра `users.seen_release`, проверка в CI и при выпуске.
+- Защита входа и «Защита веб-приложения» (1.79.0): `apps/api/src/shield/`, маршруты `/admin/shield/*` (главный администратор), `docs/security/web-protection.md`.
 
 ## Проверка текущего блока
 

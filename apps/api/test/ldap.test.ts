@@ -4,7 +4,14 @@ import type { FastifyInstance } from 'fastify';
 import { buildUserFilter, escapeFilter, DEFAULT_USER_FILTER } from '../src/auth/ldap.js';
 import { settings, users, circleMembers } from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
-import { APP_SECRET, TestClient, awayFromTotpStepEdge, createTestApp } from './helpers.js';
+import {
+  APP_SECRET,
+  TestClient,
+  awayFromTotpStepEdge,
+  cheapCaptcha,
+  createTestApp,
+  postSolving,
+} from './helpers.js';
 import { syncScheduledLdap } from '../src/auth/ldap-sync.js';
 
 // ldapjs используется только как тестовый каталог
@@ -186,15 +193,12 @@ const cfg = (extra: object = {}) => ({
 });
 
 const ldapLogin = (username: string, password: string, profileId?: string) =>
-  app.inject({
-    method: 'POST',
-    url: '/api/v1/auth/ldap/login',
-    payload: { username, password, profileId },
-  });
+  postSolving(app, '/api/v1/auth/ldap/login', { username, password, profileId });
 
 beforeAll(async () => {
   await startDirectory();
   ({ app, database } = await createTestApp());
+  await cheapCaptcha(app, database);
   admin = new TestClient(app, 'admin@example.com', 'admin-password-123');
   expect((await admin.register()).statusCode).toBe(201);
   await admin.login();

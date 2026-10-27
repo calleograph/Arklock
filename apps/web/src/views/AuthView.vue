@@ -8,6 +8,7 @@ import * as account from '../services/account';
 import { hasPin } from '../services/pin';
 import { errorMessage, hasWebCrypto } from '../services/helpers';
 import { api, ApiError } from '../services/api';
+import { captchaBusy } from '../services/captcha';
 
 type Mode = 'signin' | 'register' | 'recover' | 'unlock' | 'activate';
 
@@ -685,6 +686,15 @@ async function copyRecovery(): Promise<void> {
           {{ error }}
         </p>
 
+        <p
+          v-if="captchaBusy"
+          class="text-center text-xs text-slate-500"
+          role="status"
+          aria-live="polite"
+          data-testid="captcha-working"
+        >
+          {{ t('auth.verifying') }}
+        </p>
         <button
           type="submit"
           class="btn-primary min-h-10 w-full"

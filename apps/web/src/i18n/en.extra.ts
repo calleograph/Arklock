@@ -246,6 +246,9 @@ export default {
     mainNav: 'Main navigation',
     selected: 'Selected',
   },
+  auth: {
+    verifying: 'Extra verification after several failed attempts… this takes a few seconds',
+  },
   whatsnew: {
     menu: 'What’s new',
     title: 'What’s new in Arklock {v}',
@@ -1377,6 +1380,7 @@ export default {
     personalLockers: 'Allow personal vaults',
     title: 'Administration',
     tab: {
+      shield: 'Web application protection',
       users: 'Users',
       circles: 'Groups',
       settings: 'Settings',

@@ -2,7 +2,7 @@ import { X509Certificate } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { uuid } from '@arklock/contracts';
+import { captchaSolution, uuid } from '@arklock/contracts';
 import type { MfaChallengeResponse, SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import {
@@ -78,6 +78,7 @@ const loginSchema = z.object({
   profileId: profileId.optional(),
   username: z.string().trim().min(1).max(256),
   password: z.string().min(1).max(512),
+  captcha: captchaSolution.optional(),
 });
 
 const ipOf = (req: FastifyRequest) => req.ip ?? null;
@@ -340,19 +341,6 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     };
   });
 
-  function throttle(req: FastifyRequest, username: string): string {
-    const key = `ldap:${username.toLowerCase()}`;
-    const wait = Math.max(
-      ctx.attempts.byEmail.retryAfter(key),
-      ctx.attempts.byIp.retryAfter(ipOf(req) ?? 'unknown'),
-    );
-    if (wait > 0)
-      throw new AppError(429, 'too_many_attempts', 'Too many attempts, try again later', {
-        retryAfterSeconds: wait,
-      });
-    return key;
-  }
-
   app.post(
     '/auth/ldap/login',
     async (
@@ -366,7 +354,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       const body = parse(loginSchema, req.body);
       const s = await stored(body.profileId ?? 'default');
       if (!s?.enabled) throw new AppError(404, 'ldap_disabled', 'LDAP sign-in is not enabled');
-      const key = throttle(req, body.username);
+      await ctx.shield.guard(req, 'directory', body.username, body.captcha);
       let ident;
       try {
         ident = await ldapAuthenticate(s, bindSecret(s), body.username, body.password);
@@ -401,12 +389,11 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
               .where(eq(sessions.userId, linked.id));
           }
         }
-        ctx.attempts.byEmail.fail(key);
-        ctx.attempts.byIp.fail(ipOf(req) ?? 'unknown');
+        ctx.shield.recordFailure(req, 'directory', body.username, null);
         await audit(db, 'anonymous', 'auth.ldap.failed', null, { ip: ipOf(req) });
         throw new AppError(401, 'invalid_credentials', 'Invalid username or password');
       }
-      ctx.attempts.byEmail.reset(key);
+      ctx.shield.recordSuccess(req, 'directory', body.username);
       if (!ident.email)
         throw new AppError(403, 'ldap_no_email', 'The directory entry has no e-mail address');
 

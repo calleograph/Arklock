@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { settings } from '../src/db/schema.js';
-import { createTestApp, TestClient } from './helpers.js';
+import { cheapCaptcha, createTestApp, TestClient } from './helpers.js';
 
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
 let admin: TestClient;
@@ -8,6 +8,7 @@ let bob: TestClient;
 
 beforeAll(async () => {
   fixture = await createTestApp({ LOGIN_MAX_ATTEMPTS: '3' });
+  await cheapCaptcha(fixture.app, fixture.database);
   admin = new TestClient(fixture.app, 'lock-admin@example.com', 'lock-admin-password-1');
   await admin.register();
   await fixture.database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
@@ -18,9 +19,16 @@ beforeAll(async () => {
 afterAll(async () => fixture.app.close());
 
 it('an administrator sees a temporary sign-in lockout and can lift it', async () => {
-  for (let i = 0; i < 3; i++)
-    expect((await bob.loginRaw('wrong-password-000')).statusCode).toBe(401);
-  expect((await bob.loginRaw()).statusCode).toBe(429);
+  // пара «адрес + учётная запись» ограничивается после 10 ошибок; ошибок и решений проверки здесь накапливается много
+  let last = 0;
+  for (let i = 0; i < 40 && last !== 429; i++)
+    last = (
+      await bob.loginRaw('wrong-password-000', { headers: { 'x-forwarded-for': '198.51.100.77' } })
+    ).statusCode;
+  expect(last).toBe(429);
+  expect(
+    (await bob.loginRaw(undefined, { headers: { 'x-forwarded-for': '198.51.100.77' } })).statusCode,
+  ).toBe(429);
   const row = async () =>
     (
       (await admin.req('GET', '/admin/users')).json() as { email: string; lockedFor: number }[]
@@ -29,5 +37,7 @@ it('an administrator sees a temporary sign-in lockout and can lift it', async ()
   expect((await bob.req('POST', `/admin/users/${bob.userId}/unlock`)).statusCode).toBe(401);
   expect((await admin.req('POST', `/admin/users/${bob.userId}/unlock`)).statusCode).toBe(204);
   expect((await row()).lockedFor).toBe(0);
-  expect((await bob.loginRaw()).statusCode).toBe(200);
+  expect(
+    (await bob.loginRaw(undefined, { headers: { 'x-forwarded-for': '198.51.100.77' } })).statusCode,
+  ).toBe(200);
 });

@@ -491,11 +491,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
 
   app.post('/auth/login', async (req, reply): Promise<SessionResponse | MfaChallengeResponse> => {
     const body = parse(loginRequest, req.body);
-    throttle(ctx, req, body.email);
+    await ctx.shield.guard(req, 'login', body.email, body.captcha);
     const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
     const ok = verifyProof(u?.authSalt ?? DUMMY_SALT, body.authKey, u?.authHash ?? DUMMY_HASH);
     if (!u || !ok || u.disabledAt) {
-      recordFailure(ctx, req, body.email);
+      ctx.shield.recordFailure(req, 'login', body.email, u?.id ?? null);
       await audit(
         db,
         u ? `user:${u.id}` : 'anonymous',
@@ -507,7 +507,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       );
       throw new AppError(401, 'invalid_credentials', 'Invalid email or password');
     }
-    ctx.attempts.byEmail.reset(body.email);
+    ctx.shield.recordSuccess(req, 'login', body.email);
     // Учётные записи корпоративного каталога входят только через него: отключение в каталоге должно закрывать доступ
     if (u.authSource !== 'local')
       throw new AppError(403, 'external_login_required', 'Sign in with your corporate account');
@@ -685,8 +685,9 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   /** Восстановление доступа ключом восстановления: шаг 1 — получить зашифрованный закрытый ключ. */
   app.post('/auth/recovery/start', async (req) => {
     const body = parse(recoveryStartRequest, req.body);
-    throttle(ctx, req, `recovery:${body.email}`);
-    ctx.attempts.byEmail.fail(`recovery:${body.email}`);
+    await ctx.shield.guard(req, 'recovery', body.email, body.captcha);
+    // каждый запрос шага 1 — попытка: строгий предел восстановления считает и их
+    ctx.shield.recordFailure(req, 'recovery', body.email, null, 'recovery_started');
     const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
     if (u) {
       return {
@@ -710,7 +711,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   app.post('/auth/recovery/complete', async (req, reply) => {
     const body = parse(recoveryCompleteRequest, req.body);
     checkKdf(ctx, body.kdf);
-    throttle(ctx, req, `recovery:${body.email}`);
+    await ctx.shield.guard(req, 'recovery', body.email, body.captcha);
     const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
     const ok = verifyProof(
       u?.recoverySalt ?? DUMMY_SALT,
@@ -718,13 +719,13 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       u?.recoveryHash ?? DUMMY_HASH,
     );
     if (!u || !ok || u.disabledAt) {
-      recordFailure(ctx, req, `recovery:${body.email}`);
+      ctx.shield.recordFailure(req, 'recovery', body.email, u?.id ?? null, 'recovery_failed');
       await audit(db, u ? `user:${u.id}` : 'anonymous', 'auth.recovery.failed', null, {
         ip: ipOf(req),
       });
       throw new AppError(401, 'invalid_credentials', 'Recovery failed');
     }
-    ctx.attempts.byEmail.reset(`recovery:${body.email}`);
+    ctx.shield.recordSuccess(req, 'recovery', body.email);
     const authSalt = randomB64url(16);
     const recoverySalt = randomB64url(16);
     await db.transaction(async (tx) => {
