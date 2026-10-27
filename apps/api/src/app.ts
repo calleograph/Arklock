@@ -24,6 +24,7 @@ import { registerAdminSmtpRoutes } from './routes/admin-smtp.js';
 import { deliverQueuedMail } from './mail/send.js';
 import { registerAdminDirectoryRoutes } from './routes/admin-directory.js';
 import { registerAdminShieldRoutes } from './routes/admin-shield.js';
+import { installRequestGuard } from './shield/requests.js';
 import { registerContinuityRoutes } from './routes/continuity.js';
 import { registerOffboardingRoutes } from './routes/admin-offboarding.js';
 import { registerCorporateRecoveryRoutes } from './routes/corporate-recovery.js';
@@ -74,6 +75,7 @@ declare module 'fastify' {
     shield: import('./shield/throttle.js').Shield;
     access: import('./shield/access.js').AccessControl;
     securityLog: import('./shield/events.js').SecurityLog;
+    requests: import('./shield/requests.js').RequestGuard;
   }
 }
 
@@ -117,6 +119,8 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   app.decorate('securityLog', ctx.securityLog);
   await ctx.shield.start();
   await ctx.access.start();
+  await ctx.requests.load();
+  app.decorate('requests', ctx.requests);
   trustFn = ctx.access.trust(config.TRUSTED_PROXY_HOPS);
   // разрешённые клиентские подсети: проверка до любой обработки запроса (веб-интерфейс и API)
   const deniedSeen = new Map<string, number>();
@@ -139,6 +143,7 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
       error: { code: 'ip_not_allowed', message: 'Access from this address is not allowed' },
     });
   });
+  installRequestGuard(app, ctx.requests);
   app.addHook('onClose', async () => {
     ctx.shield.stop();
     ctx.access.stop();

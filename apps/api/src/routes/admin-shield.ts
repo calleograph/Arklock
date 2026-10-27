@@ -12,6 +12,14 @@ import { AppError, notFound, parse } from '../errors.js';
 import { ACCESS_KEY, CONFIRM_SECONDS, PROXIES_KEY, type AccessState } from '../shield/access.js';
 import { CidrSet, normalizeIp, parseCidr } from '../shield/ip.js';
 import { SHIELD_KEY, shieldPolicy } from '../shield/policy.js';
+import {
+  DEFAULT_LIMITS,
+  LIMITS_KEY,
+  MIN_LIMIT,
+  RULES,
+  WAF_KEY,
+  type LimitClass,
+} from '../shield/requests.js';
 import { chiefRequired } from './chief.js';
 
 const DAY = 86_400_000;
@@ -470,6 +478,66 @@ export const registerAdminShieldRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     await access.reload();
     await changed(req, 'access.rule.add', false, { cidr: p.cidr });
     return reply.status(204).send();
+  });
+
+  // ---------------------------------------------------------------- правила запросов и классы ограничений
+  const wafModes = () => Object.fromEntries(ctx.requests.modes);
+  app.get('/admin/shield/rules', async () => {
+    const stats = await ctx.requests.stats();
+    return {
+      rules: RULES.map((r) => ({
+        id: r.id,
+        category: r.category,
+        risk: r.risk,
+        defaultMode: r.mode,
+        mode: ctx.requests.modes.get(r.id) ?? r.mode,
+        hits24h: stats.get(r.id)?.n ?? 0,
+        last: stats.get(r.id)?.last ?? null,
+      })),
+      limits: (Object.keys(DEFAULT_LIMITS) as LimitClass[]).map((c) => ({
+        class: c,
+        perMinute: ctx.requests.limits[c],
+        default: DEFAULT_LIMITS[c],
+        min: MIN_LIMIT,
+        hits24h: stats.get(`rate.${c}`)?.n ?? 0,
+      })),
+      probing: { ...ctx.requests.probing, hits24h: stats.get('probing.ids')?.n ?? 0 },
+    };
+  });
+  app.put('/admin/shield/rules/:id', async (req, reply) => {
+    requireReauth(ctx, req);
+    const { id } = parse(z.object({ id: z.string().max(60) }), req.params);
+    const body = parse(z.object({ mode: z.enum(['observe', 'protect']) }), req.body);
+    const rule = RULES.find((r) => r.id === id);
+    if (!rule) throw notFound();
+    const before = ctx.requests.modes.get(id);
+    ctx.requests.modes.set(id, body.mode);
+    await put(WAF_KEY, { modes: wafModes() }, actor(req));
+    await changed(req, `waf.${id}`, before === 'protect' && body.mode === 'observe', {
+      mode: body.mode,
+    });
+    return reply.status(204).send();
+  });
+  app.put('/admin/shield/limits', async (req) => {
+    requireReauth(ctx, req);
+    const body = parse(
+      z.object({
+        auth: z.number().int().min(MIN_LIMIT).max(100_000).optional(),
+        secrets: z.number().int().min(MIN_LIMIT).max(100_000).optional(),
+        keys: z.number().int().min(MIN_LIMIT).max(100_000).optional(),
+        admin: z.number().int().min(MIN_LIMIT).max(100_000).optional(),
+        integrations: z.number().int().min(MIN_LIMIT).max(100_000).optional(),
+      }),
+      req.body,
+    );
+    const next = { ...ctx.requests.limits, ...body };
+    await put(LIMITS_KEY, next, actor(req));
+    const weakens = (Object.keys(body) as LimitClass[]).some(
+      (c) => body[c]! > ctx.requests.limits[c],
+    );
+    ctx.requests.limits = next;
+    await changed(req, 'limits', weakens);
+    return next;
   });
 
   // ---------------------------------------------------------------- события

@@ -143,6 +143,9 @@ async function refreshExisting(): Promise<void> {
   }
 }
 
+/** Предел записей в одном импорте: больше — разбить файл на части. */
+const IMPORT_MAX_ITEMS = 50_000;
+
 const FORMATS: ImportFormat[] = ['csv', 'bitwarden', 'passwork', 'keepass', 'arklock', 'encrypted'];
 
 async function onFile(ev: Event): Promise<void> {
@@ -198,6 +201,11 @@ async function preview(): Promise<void> {
     else if (format.value === 'passwork') result.value = importPassworkJson(text);
     else if (format.value === 'keepass') result.value = importKeepassXml(text);
     else result.value = importArklockJson(text);
+    // защита от файла с миллионами записей: браузер и сервер не должны захлебнуться одним импортом
+    if (result.value && result.value.items.length > IMPORT_MAX_ITEMS) {
+      result.value = null;
+      error.value = t('transfer.tooMany', { n: IMPORT_MAX_ITEMS });
+    }
   } catch (e) {
     result.value = null;
     error.value =

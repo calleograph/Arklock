@@ -149,8 +149,44 @@ export const ruShield = {
           'Ограничения размера запросов и частоты попыток входа, восстановления, внешних ссылок и второго фактора',
         ssrf: 'Запросы сервера к внешним адресам (вебхуки, каталоги) не доходят до внутренних сетей',
       },
-      later:
-        'Эвристические правила и классы ограничений API настраиваются в следующих выпусках; сейчас они не заявлены.',
+      rulesTitle: 'Правила фильтрации запросов',
+      rulesHint:
+        'Проверяются путь и строка запроса, но не тела запросов (там шифртекст и пароли). «Наблюдение» только записывает срабатывания, «Защита» отклоняет запрос. Новые эвристики начинают с наблюдения; выключить правило совсем нельзя.',
+      category: 'Категория',
+      mode: 'Режим',
+      hits: 'Срабатываний за сутки',
+      last: 'Последнее',
+      observe: 'Наблюдение',
+      protect: 'Защита',
+      cat: {
+        scan: 'Сканирование',
+        path: 'Обход пути',
+        method: 'Метод',
+        media: 'Тип содержимого',
+        injection: 'Подозрительные параметры',
+      },
+      rule: {
+        'scan.sensitive-path':
+          'Обращения к служебным файлам и чужим системам (.env, .git, wp-login.php, *.sql); 15 таких запросов за 10 минут блокируют адрес',
+        'path.traversal': 'Попытки выйти за пределы пути (../, %2e%2e, нулевой байт)',
+        'method.unexpected': 'Методы HTTP, которые Arklock не использует (TRACE, CONNECT…)',
+        'media.unexpected': 'Тело запроса с неожиданным типом содержимого',
+        'inject.sql-pattern': 'Типовые признаки SQL-инъекции в пути и строке запроса',
+        'inject.xss-pattern': 'Типовые признаки XSS в пути и строке запроса',
+      },
+      limitsTitle: 'Ограничения частоты по классам API',
+      limitsHint:
+        'Запросов в минуту на сеанс (без сеанса — на адрес). Обновления, резервные копии и потоковая передача вложений не ограничиваются этими счётчиками. Не меньше 60.',
+      class: {
+        auth: 'Вход и восстановление',
+        secrets: 'Записи и вложения',
+        keys: 'Ключи и доступ',
+        admin: 'Администрирование',
+        integrations: 'Интеграции и токены',
+      },
+      limitMeta: 'по умолчанию {d}; отклонено за сутки: {n}',
+      probing:
+        'Перебор идентификаторов: {w} ответов «не найдено/нельзя» за 5 минут — предупреждение, {b} — сеанс ограничивается на 5 минут. За сутки срабатываний: {n}.',
     },
     events: {
       period: 'Период',
@@ -361,8 +397,44 @@ export const enShield = {
           'Limits on request size and on sign-in, recovery, external link and second-factor attempts',
         ssrf: 'Server-side requests (webhooks, directories) cannot reach internal networks',
       },
-      later:
-        'Heuristic rules and per-class API limits are configured in later releases; they are not claimed now.',
+      rulesTitle: 'Request filtering rules',
+      rulesHint:
+        'The path and query string are checked, never request bodies (they hold ciphertext and passwords). “Observe” only records hits, “Protect” rejects the request. New heuristics start in observe mode; a rule cannot be switched off completely.',
+      category: 'Category',
+      mode: 'Mode',
+      hits: 'Hits in 24 h',
+      last: 'Last',
+      observe: 'Observe',
+      protect: 'Protect',
+      cat: {
+        scan: 'Scanning',
+        path: 'Path traversal',
+        method: 'Method',
+        media: 'Content type',
+        injection: 'Suspicious parameters',
+      },
+      rule: {
+        'scan.sensitive-path':
+          'Requests for service files and other systems (.env, .git, wp-login.php, *.sql); 15 of them in 10 minutes block the address',
+        'path.traversal': 'Attempts to leave the path (../, %2e%2e, null byte)',
+        'method.unexpected': 'HTTP methods Arklock never uses (TRACE, CONNECT…)',
+        'media.unexpected': 'Request body with an unexpected content type',
+        'inject.sql-pattern': 'Typical SQL injection patterns in the path and query string',
+        'inject.xss-pattern': 'Typical XSS patterns in the path and query string',
+      },
+      limitsTitle: 'Rate limits per API class',
+      limitsHint:
+        'Requests per minute per session (per address when there is no session). Updates, backups and streamed attachments are not limited by these counters. Minimum 60.',
+      class: {
+        auth: 'Sign-in and recovery',
+        secrets: 'Entries and attachments',
+        keys: 'Keys and access',
+        admin: 'Administration',
+        integrations: 'Integrations and tokens',
+      },
+      limitMeta: 'default {d}; rejected in 24 h: {n}',
+      probing:
+        'Identifier probing: {w} “not found/forbidden” answers in 5 minutes raise a warning, {b} throttle the session for 5 minutes. Hits in 24 h: {n}.',
     },
     events: {
       period: 'Period',

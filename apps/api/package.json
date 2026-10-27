@@ -1,6 +1,6 @@
 {
   "name": "@arklock/api",
-  "version": "1.79.0",
+  "version": "1.80.0",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
@@ -12,8 +12,8 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@arklock/contracts": "1.79.0",
-    "@arklock/crypto": "1.79.0",
+    "@arklock/contracts": "1.80.0",
+    "@arklock/crypto": "1.80.0",
     "@electric-sql/pglite": "^0.3.0",
     "@fastify/static": "^10.1.6",
     "@node-saml/node-saml": "^5.1.0",

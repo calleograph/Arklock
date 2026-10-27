@@ -1177,6 +1177,7 @@ export default {
     import: 'Import',
     export: 'Export',
     tooBig: 'The file is larger than 200 MB',
+    tooMany: 'The file has more than {n} entries: split it into parts and import them one by one',
     badPassphrase: 'Wrong archive password or damaged file',
     formats:
       'CSV, JSON (Arklock, Bitwarden, Passwork), XML (KeePass 2) and the Arklock encrypted archive are supported. The file is processed in your browser and is not sent anywhere.',

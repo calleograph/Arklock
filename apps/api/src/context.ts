@@ -14,6 +14,7 @@ import { SecurityLog } from './shield/events.js';
 import { Shield } from './shield/throttle.js';
 import { AccessControl } from './shield/access.js';
 import { Alerts } from './shield/alerts.js';
+import { RequestGuard } from './shield/requests.js';
 
 /** Общие зависимости маршрутов. */
 export interface AppContext {
@@ -27,6 +28,8 @@ export interface AppContext {
   /** Разрешённые клиентские подсети и доверенные reverse proxy. */
   access: AccessControl;
   alerts: Alerts;
+  /** Правила фильтрации запросов, классы ограничений частоты, обнаружение перебора идентификаторов. */
+  requests: RequestGuard;
   securityLog: SecurityLog;
   reauth: ReauthStore;
   updater: UpdaterChannel;
@@ -55,6 +58,7 @@ export function createContext(config: Config, database: Database): AppContext {
   const securityLog = new SecurityLog(database.db);
   const ctx: AppContext = {
     alerts: undefined as never,
+    requests: undefined as never,
     shield: new Shield(database.db, config.APP_SECRET, securityLog),
     access: new AccessControl(database.db, () =>
       securityLog.record({
@@ -83,6 +87,7 @@ export function createContext(config: Config, database: Database): AppContext {
     },
   };
   ctx.alerts = new Alerts(ctx);
+  ctx.requests = new RequestGuard(database.db, securityLog, ctx.shield);
   securityLog.onRecord = (e) => ctx.alerts.handle(e);
   return ctx;
 }

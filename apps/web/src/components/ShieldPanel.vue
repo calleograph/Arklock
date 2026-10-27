@@ -169,6 +169,47 @@ const access = ref<Access | null>(null);
 const blocks = ref<{ active: Block[]; history: Block[] } | null>(null);
 const events = ref<{ total: number; items: EventRow[] } | null>(null);
 const proxiesText = ref('');
+interface RuleRow {
+  id: string;
+  category: string;
+  risk: 'warn' | 'critical';
+  defaultMode: 'observe' | 'protect';
+  mode: 'observe' | 'protect';
+  hits24h: number;
+  last: string | null;
+}
+interface LimitRow {
+  class: string;
+  perMinute: number;
+  default: number;
+  min: number;
+  hits24h: number;
+}
+const waf = ref<{
+  rules: RuleRow[];
+  limits: LimitRow[];
+  probing: { warn: number; block: number; hits24h: number };
+} | null>(null);
+const limitDraft = ref<Record<string, number>>({});
+async function loadRules(): Promise<void> {
+  waf.value = await api('GET', '/admin/shield/rules');
+  limitDraft.value = Object.fromEntries(waf.value!.limits.map((l) => [l.class, l.perMinute]));
+}
+async function setMode(r: RuleRow, mode: 'observe' | 'protect'): Promise<void> {
+  if (mode === r.mode) return;
+  await guarded(async (headers) => {
+    await api('PUT', `/admin/shield/rules/${r.id}`, { mode }, { headers });
+    await loadRules();
+  });
+}
+async function saveLimits(): Promise<void> {
+  const body = { ...limitDraft.value };
+  await guarded(async (headers) => {
+    await api('PUT', '/admin/shield/limits', body, { headers });
+    notice.value = t('shield.saved');
+    await loadRules();
+  });
+}
 
 const unknownPart = (name: string) => overview.value?.unknown.includes(name);
 
@@ -255,6 +296,7 @@ async function loadTab(): Promise<void> {
     if (tab.value === 'advanced') await loadAccess();
     else if (tab.value === 'ips') await loadAccess();
     else if (tab.value === 'blocks') await loadBlocks();
+    else if (tab.value === 'requests') await loadRules();
     else if (tab.value === 'events') {
       readFilter();
       await loadEvents();
@@ -1021,7 +1063,96 @@ const KIND_OPTIONS = [
           <span>{{ t(`shield.requests.items.${k}`) }}</span>
         </li>
       </ul>
-      <p class="text-xs text-slate-500">{{ t('shield.requests.later') }}</p>
+
+      <div class="card space-y-2 p-4 text-sm">
+        <h3>{{ t('shield.requests.rulesTitle') }}</h3>
+        <p class="text-xs text-slate-500">{{ t('shield.requests.rulesHint') }}</p>
+        <div class="overflow-x-auto">
+          <table data-testid="waf-rules">
+            <thead>
+              <tr>
+                <th>{{ t('shield.events.rule') }}</th>
+                <th>{{ t('shield.requests.category') }}</th>
+                <th>{{ t('shield.requests.mode') }}</th>
+                <th>{{ t('shield.blocks.risk') }}</th>
+                <th>{{ t('shield.requests.hits') }}</th>
+                <th>{{ t('shield.requests.last') }}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in waf?.rules ?? []" :key="r.id" :data-testid="`waf-${r.id}`">
+                <td class="font-mono text-xs">
+                  {{ r.id }}
+                  <div class="font-sans text-slate-500">
+                    {{ t(`shield.requests.rule.${r.id}`) }}
+                  </div>
+                </td>
+                <td>{{ t(`shield.requests.cat.${r.category}`) }}</td>
+                <td>
+                  <select
+                    :value="r.mode"
+                    class="input w-auto"
+                    :aria-label="r.id"
+                    @change="
+                      setMode(
+                        r,
+                        ($event.target as HTMLSelectElement).value as 'observe' | 'protect',
+                      )
+                    "
+                  >
+                    <option value="observe">{{ t('shield.requests.observe') }}</option>
+                    <option value="protect">{{ t('shield.requests.protect') }}</option>
+                  </select>
+                </td>
+                <td>
+                  <span class="badge" :class="levelClass[r.risk]"
+                    >{{ levelMark[r.risk] }} {{ t(`shield.level.${r.risk}`) }}</span
+                  >
+                </td>
+                <td>{{ r.hits24h }}</td>
+                <td class="text-xs">{{ r.last ? when(r.last) : '—' }}</td>
+                <td>
+                  <button type="button" class="btn-ghost" @click="openEvents({ rule: r.id })">
+                    {{ t('shield.overview.open') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <form v-if="waf" class="card space-y-2 p-4 text-sm" @submit.prevent="saveLimits">
+        <h3>{{ t('shield.requests.limitsTitle') }}</h3>
+        <p class="text-xs text-slate-500">{{ t('shield.requests.limitsHint') }}</p>
+        <div class="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
+          <label v-for="l in waf.limits" :key="l.class">
+            <span class="field-label">{{ t(`shield.requests.class.${l.class}`) }}</span>
+            <input
+              v-model.number="limitDraft[l.class]"
+              type="number"
+              :min="l.min"
+              max="100000"
+              class="input"
+              :data-testid="`limit-${l.class}`"
+            />
+            <span class="text-xs text-slate-500">{{
+              t('shield.requests.limitMeta', { d: l.default, n: l.hits24h })
+            }}</span>
+          </label>
+        </div>
+        <p class="text-xs text-slate-500">
+          {{
+            t('shield.requests.probing', {
+              w: waf.probing.warn,
+              b: waf.probing.block,
+              n: waf.probing.hits24h,
+            })
+          }}
+        </p>
+        <button type="submit" class="btn" data-testid="limits-save">{{ t('shield.save') }}</button>
+      </form>
     </div>
 
     <!-- 6. События -->
