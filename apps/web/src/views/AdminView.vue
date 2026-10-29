@@ -12,6 +12,7 @@ import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
 import DepartmentsPanel from '../components/DepartmentsPanel.vue';
 import SetupChecklist from '../components/SetupChecklist.vue';
+import ErrorBoundary from '../components/ErrorBoundary.vue';
 import { generatorFrom } from '../services/policy';
 import { useWorkspaceStore } from '../stores/workspace';
 import LdapSettings from '../components/LdapSettings.vue';
@@ -691,7 +692,7 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
 const isActive = (i: NavItem) =>
   tab.value === i.tab && (i.tab !== 'settings' || (i.section ?? 'main') === settingsTab.value);
 const visibleItems = (g: { items: NavItem[] }) => g.items.filter((i) => canTab(i.tab));
-// группы раскрыты; выбор администратора (в том числе «Свернуть всё») запоминается между переходами и после F5
+// по умолчанию раскрыта только группа текущего раздела; выбор администратора (в том числе «Свернуть всё») запоминается между переходами и после F5
 const NAV_KEY = 'arklock.admin.nav';
 const readNav = (): { open: Record<string, boolean> } => {
   try {
@@ -711,8 +712,8 @@ const saveNav = () => {
 };
 type NavGroup = { id: string; items: NavItem[] };
 const shownGroups = computed(() => GROUPS.filter((x) => visibleItems(x).length));
-const groupOpen = (g: NavGroup) => navState.value.open[g.id] ?? true;
 const groupActive = (g: NavGroup) => visibleItems(g).some(isActive);
+const groupOpen = (g: NavGroup) => navState.value.open[g.id] ?? groupActive(g);
 function toggleGroup(g: NavGroup): void {
   navState.value = { open: { ...navState.value.open, [g.id]: !groupOpen(g) } };
   saveNav();
@@ -729,6 +730,11 @@ function revealActive(): void {
     navState.value = { open: { ...navState.value.open, [g.id]: true } };
     saveNav();
   }
+}
+const navValue = computed(() => GROUPS.flatMap((g) => g.items).find(isActive)?.id ?? '');
+function goValue(id: string): void {
+  const i = GROUPS.flatMap((g) => g.items).find((x) => x.id === id);
+  if (i) go(i);
 }
 function go(i: NavItem): void {
   void router.push(
@@ -813,9 +819,19 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             {{ b.label }}
           </button>
         </div>
-        <div
-          class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 md:mx-0 md:block md:space-y-1 md:overflow-visible md:px-0 md:pb-0"
+        <!-- телефон: один список разделов по группам вместо длинной ленты кнопок -->
+        <select
+          class="input md:hidden"
+          :value="navValue"
+          :aria-label="t('admin.title')"
+          data-testid="admin-nav-select"
+          @change="goValue(($event.target as HTMLSelectElement).value)"
         >
+          <optgroup v-for="g in shownGroups" :key="g.id" :label="t(`admin.group.${g.id}`)">
+            <option v-for="x in visibleItems(g)" :key="x.id" :value="x.id">{{ t(x.label) }}</option>
+          </optgroup>
+        </select>
+        <div class="hidden md:block md:space-y-1">
           <div
             v-for="g in shownGroups"
             :key="g.id"
@@ -854,1056 +870,1086 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         </div>
       </nav>
       <div class="min-w-0 space-y-4">
-        <SetupChecklist v-if="tab === 'overview' && isFull()" />
-        <p
-          v-if="error"
-          class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
-          role="alert"
-          data-testid="admin-error"
-        >
-          {{ error }}
-        </p>
-        <p
-          v-if="notice"
-          class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-          role="status"
-        >
-          {{ notice }}
-        </p>
-
-        <AutomationPanel v-if="tab === 'automation'" />
-        <RolesPanel v-else-if="tab === 'roles'" />
-        <InvitationsPanel v-else-if="tab === 'invitations'" />
-        <ShieldPanel v-else-if="tab === 'shield'" />
-        <MailSettings v-else-if="tab === 'smtp'" />
-        <SyslogSettings v-else-if="tab === 'syslog'" />
-        <UpdatesView v-else-if="tab === 'updates'" />
-        <OrganizationPanel v-else-if="tab === 'organization'" />
-        <VaultsInventory v-else-if="tab === 'vaults'" />
-        <WizardsPanel v-else-if="tab === 'wizards'" />
-        <TransferView v-else-if="tab === 'transfer'" />
-        <DepartmentsPanel v-else-if="tab === 'departments'" />
-        <WebhookSettings v-else-if="tab === 'webhooks'" />
-        <SsoSettings v-else-if="tab === 'sso'" />
-        <SamlSettings v-else-if="tab === 'saml'" />
-        <LdapSettings v-else-if="tab === 'ldap'" />
-        <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
-
-        <div v-else-if="tab === 'users'" class="card overflow-x-auto">
-          <div class="flex flex-wrap gap-2 p-3">
-            <input
-              v-model="userSearch"
-              type="search"
-              class="input max-w-sm"
-              :aria-label="t('corporate.findUsers')"
-              :placeholder="t('corporate.findUsers')"
-              data-testid="admin-user-search"
-            />
-            <select v-model="userStatus" class="input w-auto" :aria-label="t('admin.status')">
-              <option value="">{{ t('corporate.allStatuses') }}</option>
-              <option value="active">{{ t('admin.active') }}</option>
-              <option value="disabled">{{ t('admin.disabled') }}</option>
-            </select>
-            <select
-              v-model="userRole"
-              class="input w-auto max-w-full"
-              :aria-label="t('admin.role')"
-              data-testid="users-role-filter"
-            >
-              <option value="">{{ t('admin.allRoles') }}</option>
-              <option value="admin">{{ t('admin.roleAdmin') }}</option>
-              <option value="member">{{ t('admin.roleMember') }}</option>
-              <option v-for="r in adminRoles" :key="r.id" :value="`role:${r.id}`">
-                {{ r.name }}
-              </option>
-            </select>
-          </div>
-          <UserProfilePanel
-            v-if="profileOf && !offboarding"
-            :key="profileOf.id"
-            :user-id="profileOf.id"
-            :admin-roles="adminRoles"
-            :can-ledger="canTab('ledger')"
-            @close="profileOf = null"
-            @offboard="((offboarding = profileOf), (profileOf = null))"
-            @changed="loadUsers"
-          />
-          <OffboardingPanel
-            v-if="offboarding"
-            :key="offboarding.id"
-            :user="{ id: offboarding.id, name: offboarding.name }"
-            :is-full="isFull()"
-            @close="offboarding = null"
-            @done="loadUsers"
-          />
-          <div
-            v-if="pickedUsers.length"
-            class="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
-            data-testid="users-bulk"
+        <ErrorBoundary :reset-key="tab">
+          <SetupChecklist v-if="tab === 'overview' && isFull()" />
+          <p
+            v-if="error"
+            class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+            role="alert"
+            data-testid="admin-error"
           >
-            <span>{{ t('admin.picked', { n: pickedUsers.length }) }}</span>
-            <button
-              type="button"
-              class="btn-danger"
-              :disabled="bulkBusy"
-              data-testid="users-bulk-disable"
-              @click="bulkStatus(true)"
-            >
-              {{ t('admin.disable') }}
-            </button>
-            <button
-              type="button"
-              class="btn"
-              :disabled="bulkBusy"
-              data-testid="users-bulk-enable"
-              @click="bulkStatus(false)"
-            >
-              {{ t('admin.enable') }}
-            </button>
-            <button type="button" class="btn-ghost" @click="picked = new Set()">
-              {{ t('common.cancel') }}
-            </button>
-          </div>
-          <table class="min-w-full text-sm" data-testid="users-table">
-            <thead class="text-left text-xs text-slate-500">
-              <tr>
-                <th class="w-8 pl-3">
-                  <input
-                    type="checkbox"
-                    :checked="allPicked"
-                    :aria-label="t('admin.pickAll')"
-                    data-testid="users-pick-all"
-                    @change="pickAll"
-                  />
-                </th>
-                <SortTh
-                  class="px-3 py-2"
-                  :label="t('common.name')"
-                  :dir="userSort.by === 'name' ? userSort.dir : null"
-                  testid="users-sort-name"
-                  @sort="sortUsers('name')"
-                />
-                <th>{{ t('admin.role') }}</th>
-                <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
-                <SortTh
-                  :label="t('admin.lastSeen')"
-                  :dir="userSort.by === 'seen' ? userSort.dir : null"
-                  testid="users-sort-seen"
-                  @sort="sortUsers('seen')"
-                />
-                <th>{{ t('admin.status') }}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="u in visibleUsers"
-                :key="u.id"
-                class="border-t border-slate-200 dark:border-slate-800"
-                data-testid="user-row"
-                @contextmenu.prevent="userMenu = { x: $event.clientX, y: $event.clientY, u }"
-              >
-                <td class="w-8 pl-3">
-                  <input
-                    v-if="pickable(u)"
-                    type="checkbox"
-                    :checked="picked.has(u.id)"
-                    :aria-label="u.name"
-                    :data-testid="`user-pick-${u.email}`"
-                    @change="togglePick(u)"
-                  />
-                </td>
-                <td class="px-3 py-2">
-                  <button
-                    type="button"
-                    class="text-left font-medium hover:text-brand-600 hover:underline"
-                    :data-testid="`profile-open-${u.email}`"
-                    @click="((offboarding = null), (profileOf = u))"
-                  >
-                    {{ u.name }}
-                  </button>
-                  <span v-if="u.chief" class="badge ml-1" data-testid="chief-badge">{{
-                    t('chief.badge')
-                  }}</span>
-                  <div class="text-xs text-slate-500">{{ u.email }}</div>
-                  <div class="text-xs text-slate-500">{{ u.authSource ?? 'local' }}</div>
-                </td>
-                <td>
-                  <select
-                    :value="u.role"
-                    class="input w-auto"
-                    :aria-label="`${t('admin.role')}: ${u.name}`"
-                    :disabled="u.id === auth.user?.id || u.chief || !auth.user?.chief"
-                    :title="auth.user?.chief ? undefined : t('chief.onlyChief')"
-                    @change="patchUser(u, { role: ($event.target as HTMLSelectElement).value })"
-                  >
-                    <option value="admin">{{ t('admin.roleAdmin') }}</option>
-                    <option value="member">{{ t('admin.roleMember') }}</option>
-                  </select>
-                </td>
-                <td v-if="isFull() && adminRoles.length">
-                  <select
-                    :value="u.adminRoleId ?? ''"
-                    class="input w-auto"
-                    :aria-label="`${t('admin.adminRole')}: ${u.name}`"
-                    :disabled="u.role === 'admin'"
-                    :data-testid="`admin-role-${u.email}`"
-                    @change="
-                      patchUser(u, {
-                        adminRoleId: ($event.target as HTMLSelectElement).value || null,
-                      })
-                    "
-                  >
-                    <option value="">{{ t('admin.noAdminRole') }}</option>
-                    <option v-for="r in adminRoles" :key="r.id" :value="r.id">{{ r.name }}</option>
-                  </select>
-                </td>
-                <td class="text-xs">{{ fmt(u.lastSeenAt) }}</td>
-                <td>
-                  <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
-                    u.disabled ? t('admin.disabled') : t('admin.active')
-                  }}</span>
-                  <span
-                    v-if="!u.disabled && u.lockedFor"
-                    class="block text-xs text-amber-700 dark:text-amber-300"
-                    data-testid="user-locked"
-                    >{{ t('admin.lockedFor', { m: Math.ceil(u.lockedFor / 60) }) }}</span
-                  >
-                  <span
-                    v-if="!u.disabled && u.accessUntil"
-                    class="block text-xs text-amber-700 dark:text-amber-300"
-                    data-testid="user-access-until"
-                    >{{ t('admin.accessUntilShort', { at: when(u.accessUntil) }) }}</span
-                  >
-                  <span
-                    v-if="u.disabled && u.disabledReason"
-                    class="block text-xs text-slate-500"
-                    :title="u.disabledNote ?? ''"
-                    data-testid="user-disabled-reason"
-                    >{{ t(`admin.disabledBy.${u.disabledReason}`)
-                    }}<template v-if="u.disabledNote">: {{ u.disabledNote }}</template></span
-                  >
-                </td>
-                <td class="px-3 text-right">
-                  <ActionMenu
-                    :title="`${t('admin.userActions')}: ${u.name}`"
-                    :items="userActions(u)"
-                    :data-testid="`user-actions-${u.email}`"
-                    @select="(id) => onUserAction(u, id)"
-                  />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div
-            class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-800"
-            data-testid="users-pager"
-          >
-            <span data-testid="users-range">{{
-              t('admin.pageRange', {
-                from: userTotal ? userPage * USER_PAGE + 1 : 0,
-                to: Math.min(userTotal, (userPage + 1) * USER_PAGE),
-                total: userTotal,
-              })
-            }}</span>
-            <span class="flex gap-1">
-              <button
-                type="button"
-                class="btn"
-                :disabled="userPage === 0"
-                data-testid="users-prev"
-                @click="userPageBy(-1)"
-              >
-                {{ t('admin.pagePrev') }}
-              </button>
-              <button
-                type="button"
-                class="btn"
-                :disabled="(userPage + 1) * USER_PAGE >= userTotal"
-                data-testid="users-next"
-                @click="userPageBy(1)"
-              >
-                {{ t('admin.pageNext') }}
-              </button>
-            </span>
-          </div>
-        </div>
-
-        <div v-else-if="tab === 'circles'" class="space-y-3">
-          <input
-            v-model="circleSearch"
-            type="search"
-            class="input max-w-sm"
-            :aria-label="t('corporate.findGroups')"
-            :placeholder="t('corporate.findGroups')"
-            data-testid="admin-group-search"
-          />
-          <form class="flex flex-wrap gap-2" @submit.prevent="createCircle">
-            <input
-              v-model="newCircle.name"
-              required
-              maxlength="100"
-              class="input max-w-xs"
-              :placeholder="t('common.name')"
-              data-testid="circle-name"
-            />
-            <input
-              v-model="newCircle.description"
-              maxlength="500"
-              class="input max-w-sm"
-              :placeholder="t('admin.description')"
-            />
-            <button type="submit" class="btn-primary" data-testid="circle-create">
-              {{ t('admin.create') }}
-            </button>
-          </form>
-          <ul
-            class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
-            data-testid="circles-list"
-          >
-            <li v-for="c in visibleCircles" :key="c.id" class="px-3 py-2">
-              <div class="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  class="min-w-0 truncate text-left font-medium"
-                  :data-testid="`circle-${c.name}`"
-                  @click="run(() => showCircle(c))"
-                >
-                  ◎ {{ c.name }}
-                  <span class="text-xs text-slate-500"
-                    >· {{ c.members }} {{ t('admin.membersN') }}</span
-                  >
-                </button>
-                <span v-if="isFull() && adminRoles.length" class="inline-flex items-center gap-1">
-                  <select
-                    :value="c.adminRoleId ?? ''"
-                    class="input w-auto"
-                    :aria-label="`${t('admin.adminRole')}: ${c.name}`"
-                    :data-testid="`circle-admin-role-${c.name}`"
-                    @change="
-                      run(async () => {
-                        await api('PATCH', `/admin/circles/${c.id}`, {
-                          adminRoleId: ($event.target as HTMLSelectElement).value || null,
-                        });
-                        await loadCircles();
-                      })
-                    "
-                  >
-                    <option value="">{{ t('admin.noAdminRole') }}</option>
-                    <option v-for="r in adminRoles" :key="r.id" :value="r.id">{{ r.name }}</option>
-                  </select>
-                  <InfoHint
-                    :text="t('hint.groupAdminRole.text')"
-                    :details="t('hint.groupAdminRole.details')"
-                  />
-                </span>
-                <button
-                  type="button"
-                  class="btn"
-                  :aria-label="`${t('vault.rename')}: ${c.name}`"
-                  @click="editingCircle = { ...c }"
-                >
-                  {{ t('vault.rename') }}
-                </button>
-                <button type="button" class="btn-danger" @click="deleteCircle(c)">
-                  {{ t('common.delete') }}
-                </button>
-              </div>
-              <form
-                v-if="editingCircle?.id === c.id"
-                class="my-2 flex flex-wrap gap-2"
-                @submit.prevent="updateCircle"
-              >
-                <input
-                  v-model="editingCircle.name"
-                  required
-                  maxlength="100"
-                  class="input"
-                  :aria-label="t('common.name')"
-                />
-                <input
-                  v-model="editingCircle.description"
-                  maxlength="500"
-                  class="input"
-                  :aria-label="t('admin.description')"
-                />
-                <button type="submit" class="btn-primary">{{ t('common.save') }}</button
-                ><button type="button" class="btn" @click="editingCircle = null">
-                  {{ t('common.cancel') }}
-                </button>
-              </form>
-              <div v-if="openCircle === c.id" class="mt-2 space-y-2">
-                <ul class="text-xs">
-                  <li v-for="m in circleMembers" :key="m.id" class="flex justify-between py-0.5">
-                    <label class="flex items-center gap-2"
-                      ><input v-model="selectedMembers" :value="m.id" type="checkbox" />{{
-                        m.name
-                      }}
-                      ({{ m.email }})</label
-                    >
-                    <button
-                      type="button"
-                      class="text-red-600"
-                      :aria-label="`${t('common.delete')}: ${m.name}`"
-                      @click="removeFromCircle(m.id)"
-                    >
-                      ×
-                    </button>
-                  </li>
-                </ul>
-                <button
-                  v-if="selectedMembers.length"
-                  type="button"
-                  class="btn-danger"
-                  @click="updateGroupMembers('remove')"
-                >
-                  {{ t('corporate.removeSelected') }} ({{ selectedMembers.length }})
-                </button>
-                <div class="space-y-1">
-                  <PersonPicker
-                    v-model="groupPick"
-                    multiple
-                    :exclude="circleMembers.map((m) => m.id)"
-                    :placeholder="t('corporate.addSeveral')"
-                    testid="circle-add-user"
-                  />
-                  <button
-                    type="button"
-                    class="btn"
-                    :disabled="!groupPick.length"
-                    data-testid="circle-add"
-                    @click="updateGroupMembers('add')"
-                  >
-                    {{ t('settings.add')
-                    }}<span v-if="groupPick.length"> ({{ groupPick.length }})</span>
-                  </button>
-                </div>
-                <div class="space-y-1 text-xs">
-                  <h3 class="font-medium">{{ t('corporate.groupVaults') }}</h3>
-                  <p v-if="!assignedVaults.length" class="text-slate-500">
-                    {{ t('corporate.noGroupVaults') }}
-                  </p>
-                  <p v-for="v in assignedVaults" :key="v.id">
-                    {{ vaultLabel(v, t) }} ·
-                    {{ v.customRoleId ? t('corporate.customRole') : t(`role.${v.role}`)
-                    }}<span v-if="v.expiresAt"> · {{ fmt(v.expiresAt) }}</span>
-                  </p>
-                </div>
-              </div>
-            </li>
-          </ul>
-        </div>
-
-        <div v-else-if="tab === 'settings'" class="space-y-6">
-          <h2 class="text-base font-semibold" data-testid="settings-title">
-            {{ t(`admin.settingsTab.${settingsTab}`) }}
-          </h2>
-          <AdminCorporateRecovery v-if="isFull() && settingsTab === 'security'" />
-          <NetworkSettings v-if="settingsTab === 'network'" />
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-access"
-            v-show="settingsTab === 'main'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.access') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.registration') }}<InfoHint :text="t('hint.registration.text')" /></span
-              ><select
-                :value="settings['registration.mode']"
-                class="input w-auto"
-                data-testid="set-registration"
-                @change="
-                  saveSetting('registration.mode', ($event.target as HTMLSelectElement).value)
-                "
-              >
-                <option value="closed">{{ t('admin.closed') }}</option>
-                <option value="open">{{ t('admin.open') }}</option>
-              </select></label
-            >
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.vaultCreators')
-                }}<InfoHint :text="t('hint.vaultCreators.text')" /></span
-              ><select
-                :value="settings['vaults.creators']"
-                class="input w-auto"
-                data-testid="set-creators"
-                @change="saveSetting('vaults.creators', ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="admins">{{ t('admin.onlyAdmins') }}</option>
-                <option value="members">{{ t('admin.allMembers') }}</option>
-              </select></label
-            >
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1">{{ t('admin.defaultTheme') }}</span
-              ><select
-                :value="settings['appearance.defaultTheme']"
-                class="input w-auto"
-                data-testid="set-default-theme"
-                @change="
-                  saveSetting('appearance.defaultTheme', ($event.target as HTMLSelectElement).value)
-                "
-              >
-                <option v-for="id in THEMES" :key="id" :value="id">{{ t(`theme.${id}`) }}</option>
-              </select></label
-            >
-          </section>
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-sessions"
-            v-show="settingsTab === 'security'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.sessions') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('adminx.mfaRequired')
-                }}<InfoHint
-                  :text="t('hint.mfaRequired.text')"
-                  :details="t('hint.mfaRequired.details')" /></span
-              ><select
-                :value="settings['security.mfaRequired']"
-                class="input w-auto"
-                data-testid="set-mfa"
-                @change="
-                  saveSetting('security.mfaRequired', ($event.target as HTMLSelectElement).value)
-                "
-              >
-                <option value="off">{{ t('adminx.mfaOff') }}</option>
-                <option value="admins">{{ t('adminx.mfaAdmins') }}</option>
-                <option value="all">{{ t('adminx.mfaAll') }}</option>
-              </select></label
-            >
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('pin.reloadPolicy')
-                }}<InfoHint
-                  :text="t('hint.reloadUnlock.text')"
-                  :details="t('hint.reloadUnlock.details')" /></span
-              ><input
-                type="checkbox"
-                class="switch"
-                :checked="settings['security.reloadUnlock'] !== false"
-                data-testid="set-reload"
-                @change="
-                  saveSetting('security.reloadUnlock', ($event.target as HTMLInputElement).checked)
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('pin.policy')
-                }}<InfoHint
-                  :text="t('hint.pinUnlock.text')"
-                  :details="t('hint.pinUnlock.details')" /></span
-              ><input
-                type="checkbox"
-                class="switch"
-                :checked="settings['security.pinUnlock'] === true"
-                data-testid="set-pin"
-                @change="
-                  saveSetting('security.pinUnlock', ($event.target as HTMLInputElement).checked)
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.sessionIdle')
-                }}<InfoHint
-                  :text="t('hint.sessionIdle.text')"
-                  :details="t('hint.sessionIdle.details')" /></span
-              ><input
-                :value="settings['session.idleHours']"
-                type="number"
-                min="0.25"
-                max="720"
-                step="0.25"
-                class="input w-24"
-                data-testid="set-session-idle"
-                @change="
-                  saveSetting(
-                    'session.idleHours',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.sessionMax') }}<InfoHint :text="t('hint.sessionMax.text')" /></span
-              ><input
-                :value="settings['session.maxHours']"
-                type="number"
-                min="0"
-                max="8760"
-                step="1"
-                class="input w-24"
-                data-testid="set-session-max"
-                @change="
-                  saveSetting('session.maxHours', Number(($event.target as HTMLInputElement).value))
-                "
-            /></label>
-          </section>
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-passwords"
-            v-show="settingsTab === 'security'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.passwords') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('policy.minLength')
-                }}<InfoHint
-                  :text="t('hint.minLength.text')"
-                  :details="t('hint.minLength.details')" /></span
-              ><input
-                :value="settings['policy.password.minLength']"
-                type="number"
-                min="0"
-                max="128"
-                class="input w-24"
-                data-testid="set-minlen"
-                @change="
-                  saveSetting(
-                    'policy.password.minLength',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('policy.classesLabel') }}<InfoHint :text="t('hint.classes.text')" /></span
-              ><input
-                :value="settings['policy.password.classes']"
-                type="number"
-                min="0"
-                max="4"
-                class="input w-24"
-                data-testid="set-classes"
-                @change="
-                  saveSetting(
-                    'policy.password.classes',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span>{{ t('policy.maxRepeatLabel') }}</span
-              ><input
-                :value="settings['policy.password.maxRepeat'] ?? 0"
-                type="number"
-                min="0"
-                max="20"
-                class="input w-24"
-                data-testid="set-max-repeat"
-                @change="
-                  saveSetting(
-                    'policy.password.maxRepeat',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span>{{ t('admin.revealSeconds') }}</span
-              ><input
-                :value="settings['security.revealSeconds'] ?? 0"
-                type="number"
-                min="0"
-                max="3600"
-                class="input w-24"
-                data-testid="set-reveal-seconds"
-                @change="
-                  saveSetting(
-                    'security.revealSeconds',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.passwordMaxAge')
-                }}<InfoHint :text="t('hint.passwordMaxAge.text')" /></span
-              ><input
-                :value="settings['security.passwordMaxAgeDays']"
-                type="number"
-                min="0"
-                max="3650"
-                class="input w-24"
-                @change="
-                  saveSetting(
-                    'security.passwordMaxAgeDays',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-          </section>
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-generator"
-            v-show="settingsTab === 'security'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.generator') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.generatorHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span>{{ t('generator.length') }}</span
-              ><input
-                :value="settings['generator.length'] ?? 20"
-                type="number"
-                min="8"
-                max="128"
-                class="input w-24"
-                data-testid="set-gen-length"
-                @change="
-                  saveSetting('generator.length', Number(($event.target as HTMLInputElement).value))
-                "
-            /></label>
-            <fieldset class="flex flex-wrap gap-x-4 gap-y-1">
-              <legend class="mb-1">{{ t('admin.genClasses') }}</legend>
-              <label v-for="c in GEN_CLASSES" :key="c" class="flex items-center gap-2"
-                ><input
-                  type="checkbox"
-                  :checked="settings[`generator.${c}`] !== false"
-                  :disabled="settings[`generator.${c}`] !== false && genClassesOn <= 1"
-                  :data-testid="`set-gen-${c}`"
-                  @change="
-                    saveSetting(`generator.${c}`, ($event.target as HTMLInputElement).checked)
-                  "
-                />{{ t(`generator.${c}`) }}</label
-              >
-            </fieldset>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.genExclude') }}<InfoHint :text="t('admin.genExcludeHint')" /></span
-              ><input
-                :value="settings['generator.exclude'] ?? ''"
-                maxlength="64"
-                spellcheck="false"
-                autocomplete="off"
-                class="input w-48 font-mono"
-                data-testid="set-gen-exclude"
-                @change="
-                  saveSetting(
-                    'generator.exclude',
-                    ($event.target as HTMLInputElement).value.replace(/[^\x21-\x7e]/g, ''),
-                  )
-                "
-            /></label>
-          </section>
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-links"
-            v-show="settingsTab === 'security'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.links') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.linksHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span>{{ t('admin.linksMaxMinutes') }}</span
-              ><input
-                :value="settings['links.maxMinutes'] ?? 0"
-                type="number"
-                min="0"
-                max="43200"
-                class="input w-28"
-                data-testid="set-links-minutes"
-                @change="
-                  saveSetting('links.maxMinutes', Number(($event.target as HTMLInputElement).value))
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span>{{ t('admin.linksMaxViews') }}</span
-              ><input
-                :value="settings['links.maxViews'] ?? 100"
-                type="number"
-                min="1"
-                max="100"
-                class="input w-28"
-                data-testid="set-links-views"
-                @change="
-                  saveSetting('links.maxViews', Number(($event.target as HTMLInputElement).value))
-                "
-            /></label>
-            <label class="block"
-              ><span class="field-label">{{ t('admin.linksNotice') }}</span
-              ><textarea
-                :value="String(settings['links.notice'] ?? '')"
-                rows="2"
-                maxlength="500"
-                class="input"
-                data-testid="set-links-notice"
-                @change="saveSetting('links.notice', ($event.target as HTMLTextAreaElement).value)"
-              />
-            </label>
-          </section>
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-storage"
-            v-show="settingsTab === 'storage'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.storage') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.trashDays') }}<InfoHint :text="t('hint.trashDays.text')" /></span
-              ><input
-                :value="settings['trash.retentionDays']"
-                type="number"
-                min="1"
-                max="3650"
-                class="input w-24"
-                data-testid="set-trash"
-                @change="
-                  saveSetting(
-                    'trash.retentionDays',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('admin.ledgerDays') }}<InfoHint :text="t('hint.ledgerDays.text')" /></span
-              ><select
-                :value="settings['ledger.retentionDays'] ?? 0"
-                class="input w-auto"
-                data-testid="set-ledger-days"
-                @change="
-                  saveSetting(
-                    'ledger.retentionDays',
-                    Number(($event.target as HTMLSelectElement).value),
-                  )
-                "
-              >
-                <option v-for="d in ledgerKeepOptions" :key="d" :value="d">
-                  {{
-                    te(`admin.ledgerKeep.${d}`)
-                      ? t(`admin.ledgerKeep.${d}`)
-                      : t('admin.ledgerKeepDays', { n: d })
-                  }}
-                </option>
-              </select></label
-            >
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('adminx.attachMax') }}<InfoHint :text="t('hint.attachMax.text')" /></span
-              ><input
-                :value="settings['storage.attachmentMaxMiB']"
-                type="number"
-                min="0"
-                max="512"
-                class="input w-24"
-                data-testid="set-attach-max"
-                @change="
-                  saveSetting(
-                    'storage.attachmentMaxMiB',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('adminx.vaultQuota') }}<InfoHint :text="t('hint.vaultQuota.text')" /></span
-              ><input
-                :value="settings['storage.vaultQuotaMiB']"
-                type="number"
-                min="0"
-                class="input w-24"
-                data-testid="set-vault-quota"
-                @change="
-                  saveSetting(
-                    'storage.vaultQuotaMiB',
-                    Number(($event.target as HTMLInputElement).value),
-                  )
-                "
-            /></label>
-            <PersonalLockerSettings />
-          </section>
-          <ManagedVaultSettings v-show="settingsTab === 'storage'" />
-          <section
-            class="card space-y-3 p-4 text-sm"
-            data-testid="settings-group-notify"
-            v-show="settingsTab === 'notify'"
-          >
-            <div>
-              <h2 class="font-medium">{{ t('admin.settingsGroup.notify') }}</h2>
-              <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>
-            </div>
-            <label class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
-              ><span class="inline-flex items-center gap-1"
-                >{{ t('invite.notify') }}<InfoHint :text="t('hint.notify.text')" /></span
-              ><input
-                type="checkbox"
-                class="switch"
-                :checked="settings['notifications.security'] !== false"
-                data-testid="set-notify"
-                @change="
-                  saveSetting('notifications.security', ($event.target as HTMLInputElement).checked)
-                "
-            /></label>
-          </section>
-          <div class="card space-y-2 p-4 text-sm">
-            <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
-            <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
-            <textarea
-              v-model="rangeUrl"
-              rows="2"
-              class="input font-mono"
-              :aria-label="t('admin.rangeTitle')"
-              data-testid="range-url"
-            ></textarea>
-            <div class="flex gap-2">
-              <button type="button" class="btn" data-testid="range-test" @click="testRange">
-                {{ t('admin.test') }}</button
-              ><button
-                type="button"
-                class="btn-primary"
-                data-testid="range-save"
-                @click="saveRange"
-              >
-                {{ t('common.save') }}
-              </button>
-            </div>
-            <p v-if="rangeResult" class="whitespace-pre-line break-all" data-testid="range-result">
-              {{ rangeResult }}
-            </p>
-          </div>
-        </div>
-
-        <div v-else class="space-y-3">
-          <form class="flex flex-wrap gap-2" @submit.prevent="loadLedger()">
-            <select
-              v-model="filter.action"
-              class="input w-auto"
-              :aria-label="t('admin.actionPrefix')"
-              data-testid="ledger-action"
-            >
-              <option v-for="k in LEDGER_KINDS" :key="k" :value="k">
-                {{ t(`admin.ledgerKind.${k.replaceAll('.', '') || 'all'}`) }}
-              </option>
-            </select>
-            <select
-              v-model="filter.level"
-              class="input w-auto"
-              :aria-label="t('admin.ledgerLevel.label')"
-              data-testid="ledger-level"
-            >
-              <option value="">{{ t('admin.ledgerLevel.all') }}</option>
-              <option v-for="k in LEDGER_LEVELS" :key="k" :value="k">
-                {{ t(`admin.ledgerLevel.${k}`) }}
-              </option>
-            </select>
-            <input
-              v-model="filter.q"
-              type="search"
-              class="input w-72"
-              :placeholder="t('admin.ledgerSearch')"
-              :aria-label="t('admin.ledgerSearch')"
-              data-testid="ledger-search"
-            />
-            <input v-model="filter.from" type="date" class="input w-auto" /><input
-              v-model="filter.to"
-              type="date"
-              class="input w-auto"
-            />
-            <button type="submit" class="btn" data-testid="ledger-apply">
-              {{ t('admin.apply') }}
-            </button>
-            <button type="button" class="btn" data-testid="ledger-export" @click="exportLedger">
-              CSV
-            </button>
-          </form>
-          <p v-if="ledgerUser" class="flex items-center gap-2 text-sm" data-testid="ledger-user">
-            <span class="badge-brand">{{
-              t('admin.ledgerOnlyUser', { name: ledgerUser.name || ledgerUser.id.slice(0, 8) })
-            }}</span>
-            <button
-              type="button"
-              class="text-xs underline"
-              data-testid="ledger-user-clear"
-              @click="router.replace('/admin/ledger')"
-            >
-              {{ t('admin.ledgerAllUsers') }}
-            </button>
+            {{ error }}
           </p>
-          <div class="card overflow-x-auto">
-            <table class="min-w-full text-xs" data-testid="ledger-table">
-              <thead class="text-left text-slate-500">
+          <p
+            v-if="notice"
+            class="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+            role="status"
+          >
+            {{ notice }}
+          </p>
+
+          <AutomationPanel v-if="tab === 'automation'" />
+          <RolesPanel v-else-if="tab === 'roles'" />
+          <InvitationsPanel v-else-if="tab === 'invitations'" />
+          <ShieldPanel v-else-if="tab === 'shield'" />
+          <MailSettings v-else-if="tab === 'smtp'" />
+          <SyslogSettings v-else-if="tab === 'syslog'" />
+          <UpdatesView v-else-if="tab === 'updates'" />
+          <OrganizationPanel v-else-if="tab === 'organization'" />
+          <VaultsInventory v-else-if="tab === 'vaults'" />
+          <WizardsPanel v-else-if="tab === 'wizards'" />
+          <TransferView v-else-if="tab === 'transfer'" />
+          <DepartmentsPanel v-else-if="tab === 'departments'" />
+          <WebhookSettings v-else-if="tab === 'webhooks'" />
+          <SsoSettings v-else-if="tab === 'sso'" />
+          <SamlSettings v-else-if="tab === 'saml'" />
+          <LdapSettings v-else-if="tab === 'ldap'" />
+          <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
+
+          <div v-else-if="tab === 'users'" class="card overflow-x-auto">
+            <div class="flex flex-wrap gap-2 p-3">
+              <input
+                v-model="userSearch"
+                type="search"
+                class="input max-w-sm"
+                :aria-label="t('corporate.findUsers')"
+                :placeholder="t('corporate.findUsers')"
+                data-testid="admin-user-search"
+              />
+              <select v-model="userStatus" class="input w-auto" :aria-label="t('admin.status')">
+                <option value="">{{ t('corporate.allStatuses') }}</option>
+                <option value="active">{{ t('admin.active') }}</option>
+                <option value="disabled">{{ t('admin.disabled') }}</option>
+              </select>
+              <select
+                v-model="userRole"
+                class="input w-auto max-w-full"
+                :aria-label="t('admin.role')"
+                data-testid="users-role-filter"
+              >
+                <option value="">{{ t('admin.allRoles') }}</option>
+                <option value="admin">{{ t('admin.roleAdmin') }}</option>
+                <option value="member">{{ t('admin.roleMember') }}</option>
+                <option v-for="r in adminRoles" :key="r.id" :value="`role:${r.id}`">
+                  {{ r.name }}
+                </option>
+              </select>
+            </div>
+            <UserProfilePanel
+              v-if="profileOf && !offboarding"
+              :key="profileOf.id"
+              :user-id="profileOf.id"
+              :admin-roles="adminRoles"
+              :can-ledger="canTab('ledger')"
+              @close="profileOf = null"
+              @offboard="((offboarding = profileOf), (profileOf = null))"
+              @changed="loadUsers"
+            />
+            <OffboardingPanel
+              v-if="offboarding"
+              :key="offboarding.id"
+              :user="{ id: offboarding.id, name: offboarding.name }"
+              :is-full="isFull()"
+              @close="offboarding = null"
+              @done="loadUsers"
+            />
+            <div
+              v-if="pickedUsers.length"
+              class="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+              data-testid="users-bulk"
+            >
+              <span>{{ t('admin.picked', { n: pickedUsers.length }) }}</span>
+              <button
+                type="button"
+                class="btn-danger"
+                :disabled="bulkBusy"
+                data-testid="users-bulk-disable"
+                @click="bulkStatus(true)"
+              >
+                {{ t('admin.disable') }}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                :disabled="bulkBusy"
+                data-testid="users-bulk-enable"
+                @click="bulkStatus(false)"
+              >
+                {{ t('admin.enable') }}
+              </button>
+              <button type="button" class="btn-ghost" @click="picked = new Set()">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+            <table class="min-w-full text-sm" data-testid="users-table">
+              <thead class="text-left text-xs text-slate-500">
                 <tr>
+                  <th class="w-8 pl-3">
+                    <input
+                      type="checkbox"
+                      :checked="allPicked"
+                      :aria-label="t('admin.pickAll')"
+                      data-testid="users-pick-all"
+                      @change="pickAll"
+                    />
+                  </th>
                   <SortTh
                     class="px-3 py-2"
-                    :label="t('admin.time')"
-                    :dir="ledgerSort.by === 'at' ? ledgerSort.dir : null"
-                    testid="ledger-sort-at"
-                    @sort="sortLedger('at')"
+                    :label="t('common.name')"
+                    :dir="userSort.by === 'name' ? userSort.dir : null"
+                    testid="users-sort-name"
+                    @sort="sortUsers('name')"
                   />
-                  <th>{{ t('admin.actor') }}</th>
+                  <th>{{ t('admin.role') }}</th>
+                  <th v-if="isFull() && adminRoles.length">{{ t('admin.adminRole') }}</th>
                   <SortTh
-                    :label="t('admin.action')"
-                    :dir="ledgerSort.by === 'action' ? ledgerSort.dir : null"
-                    testid="ledger-sort-action"
-                    @sort="sortLedger('action')"
+                    :label="t('admin.lastSeen')"
+                    :dir="userSort.by === 'seen' ? userSort.dir : null"
+                    testid="users-sort-seen"
+                    @sort="sortUsers('seen')"
                   />
-                  <th>{{ t('admin.target') }}</th>
+                  <th>{{ t('admin.status') }}</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
                 <tr
-                  v-for="l in ledger"
-                  :key="l.id"
+                  v-for="u in visibleUsers"
+                  :key="u.id"
                   class="border-t border-slate-200 dark:border-slate-800"
-                  data-testid="ledger-row"
+                  data-testid="user-row"
+                  @contextmenu.prevent="userMenu = { x: $event.clientX, y: $event.clientY, u }"
                 >
-                  <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
-                  <td class="max-w-56 truncate" :title="l.actor">
-                    {{ l.actorName ?? l.actor }}
-                    <span v-if="l.detail?.ip" class="font-mono text-slate-500">
-                      · {{ l.detail.ip }}</span
+                  <td class="w-8 pl-3">
+                    <input
+                      v-if="pickable(u)"
+                      type="checkbox"
+                      :checked="picked.has(u.id)"
+                      :aria-label="u.name"
+                      :data-testid="`user-pick-${u.email}`"
+                      @change="togglePick(u)"
+                    />
+                  </td>
+                  <td class="px-3 py-2">
+                    <button
+                      type="button"
+                      class="text-left font-medium hover:text-brand-600 hover:underline"
+                      :data-testid="`profile-open-${u.email}`"
+                      @click="((offboarding = null), (profileOf = u))"
+                    >
+                      {{ u.name }}
+                    </button>
+                    <span v-if="u.chief" class="badge ml-1" data-testid="chief-badge">{{
+                      t('chief.badge')
+                    }}</span>
+                    <div class="text-xs text-slate-500">{{ u.email }}</div>
+                    <div class="text-xs text-slate-500">{{ u.authSource ?? 'local' }}</div>
+                  </td>
+                  <td>
+                    <select
+                      :value="u.role"
+                      class="input w-auto"
+                      :aria-label="`${t('admin.role')}: ${u.name}`"
+                      :disabled="u.id === auth.user?.id || u.chief || !auth.user?.chief"
+                      :title="auth.user?.chief ? undefined : t('chief.onlyChief')"
+                      @change="patchUser(u, { role: ($event.target as HTMLSelectElement).value })"
+                    >
+                      <option value="admin">{{ t('admin.roleAdmin') }}</option>
+                      <option value="member">{{ t('admin.roleMember') }}</option>
+                    </select>
+                  </td>
+                  <td v-if="isFull() && adminRoles.length">
+                    <select
+                      :value="u.adminRoleId ?? ''"
+                      class="input w-auto"
+                      :aria-label="`${t('admin.adminRole')}: ${u.name}`"
+                      :disabled="u.role === 'admin'"
+                      :data-testid="`admin-role-${u.email}`"
+                      @change="
+                        patchUser(u, {
+                          adminRoleId: ($event.target as HTMLSelectElement).value || null,
+                        })
+                      "
+                    >
+                      <option value="">{{ t('admin.noAdminRole') }}</option>
+                      <option v-for="r in adminRoles" :key="r.id" :value="r.id">
+                        {{ r.name }}
+                      </option>
+                    </select>
+                  </td>
+                  <td class="text-xs">{{ fmt(u.lastSeenAt) }}</td>
+                  <td>
+                    <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
+                      u.disabled ? t('admin.disabled') : t('admin.active')
+                    }}</span>
+                    <span
+                      v-if="!u.disabled && u.lockedFor"
+                      class="block text-xs text-amber-700 dark:text-amber-300"
+                      data-testid="user-locked"
+                      >{{ t('admin.lockedFor', { m: Math.ceil(u.lockedFor / 60) }) }}</span
+                    >
+                    <span
+                      v-if="!u.disabled && u.accessUntil"
+                      class="block text-xs text-amber-700 dark:text-amber-300"
+                      data-testid="user-access-until"
+                      >{{ t('admin.accessUntilShort', { at: when(u.accessUntil) }) }}</span
+                    >
+                    <span
+                      v-if="u.disabled && u.disabledReason"
+                      class="block text-xs text-slate-500"
+                      :title="u.disabledNote ?? ''"
+                      data-testid="user-disabled-reason"
+                      >{{ t(`admin.disabledBy.${u.disabledReason}`)
+                      }}<template v-if="u.disabledNote">: {{ u.disabledNote }}</template></span
                     >
                   </td>
-                  <td class="whitespace-nowrap pr-3">
-                    <span
-                      class="mr-1 inline-block size-2 rounded-full"
-                      :class="
-                        l.level === 'critical'
-                          ? 'bg-red-600'
-                          : l.level === 'warning'
-                            ? 'bg-amber-500'
-                            : 'bg-slate-400'
-                      "
-                      :title="t(`admin.ledgerLevel.${l.level}`)"
-                      role="img"
-                      :aria-label="t(`admin.ledgerLevel.${l.level}`)"
-                    ></span>
-                    <span :title="l.action">{{ actionText(l.action) }}</span>
-                    <span v-if="l.detail?.clientReported" class="badge ml-1">{{
-                      t('entryPanel.clientReported')
-                    }}</span>
-                  </td>
-                  <td
-                    class="max-w-56 truncate"
-                    :class="l.targetName ? '' : 'font-mono'"
-                    :title="l.target ?? ''"
-                  >
-                    {{ targetText(l) }}
+                  <td class="px-3 text-right">
+                    <ActionMenu
+                      :title="`${t('admin.userActions')}: ${u.name}`"
+                      :items="userActions(u)"
+                      :data-testid="`user-actions-${u.email}`"
+                      @select="(id) => onUserAction(u, id)"
+                    />
                   </td>
                 </tr>
               </tbody>
             </table>
+            <div
+              class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-800"
+              data-testid="users-pager"
+            >
+              <span data-testid="users-range">{{
+                t('admin.pageRange', {
+                  from: userTotal ? userPage * USER_PAGE + 1 : 0,
+                  to: Math.min(userTotal, (userPage + 1) * USER_PAGE),
+                  total: userTotal,
+                })
+              }}</span>
+              <span class="flex gap-1">
+                <button
+                  type="button"
+                  class="btn"
+                  :disabled="userPage === 0"
+                  data-testid="users-prev"
+                  @click="userPageBy(-1)"
+                >
+                  {{ t('admin.pagePrev') }}
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  :disabled="(userPage + 1) * USER_PAGE >= userTotal"
+                  data-testid="users-next"
+                  @click="userPageBy(1)"
+                >
+                  {{ t('admin.pageNext') }}
+                </button>
+              </span>
+            </div>
           </div>
-          <button v-if="next" type="button" class="btn" @click="loadLedger(true)">
-            {{ t('admin.more') }}
-          </button>
-        </div>
+
+          <div v-else-if="tab === 'circles'" class="space-y-3">
+            <input
+              v-model="circleSearch"
+              type="search"
+              class="input max-w-sm"
+              :aria-label="t('corporate.findGroups')"
+              :placeholder="t('corporate.findGroups')"
+              data-testid="admin-group-search"
+            />
+            <form class="flex flex-wrap gap-2" @submit.prevent="createCircle">
+              <input
+                v-model="newCircle.name"
+                required
+                maxlength="100"
+                class="input max-w-xs"
+                :placeholder="t('common.name')"
+                data-testid="circle-name"
+              />
+              <input
+                v-model="newCircle.description"
+                maxlength="500"
+                class="input max-w-sm"
+                :placeholder="t('admin.description')"
+              />
+              <button type="submit" class="btn-primary" data-testid="circle-create">
+                {{ t('admin.create') }}
+              </button>
+            </form>
+            <ul
+              class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
+              data-testid="circles-list"
+            >
+              <li v-for="c in visibleCircles" :key="c.id" class="px-3 py-2">
+                <div class="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    class="min-w-0 truncate text-left font-medium"
+                    :data-testid="`circle-${c.name}`"
+                    @click="run(() => showCircle(c))"
+                  >
+                    ◎ {{ c.name }}
+                    <span class="text-xs text-slate-500"
+                      >· {{ c.members }} {{ t('admin.membersN') }}</span
+                    >
+                  </button>
+                  <span v-if="isFull() && adminRoles.length" class="inline-flex items-center gap-1">
+                    <select
+                      :value="c.adminRoleId ?? ''"
+                      class="input w-auto"
+                      :aria-label="`${t('admin.adminRole')}: ${c.name}`"
+                      :data-testid="`circle-admin-role-${c.name}`"
+                      @change="
+                        run(async () => {
+                          await api('PATCH', `/admin/circles/${c.id}`, {
+                            adminRoleId: ($event.target as HTMLSelectElement).value || null,
+                          });
+                          await loadCircles();
+                        })
+                      "
+                    >
+                      <option value="">{{ t('admin.noAdminRole') }}</option>
+                      <option v-for="r in adminRoles" :key="r.id" :value="r.id">
+                        {{ r.name }}
+                      </option>
+                    </select>
+                    <InfoHint
+                      :text="t('hint.groupAdminRole.text')"
+                      :details="t('hint.groupAdminRole.details')"
+                    />
+                  </span>
+                  <button
+                    type="button"
+                    class="btn"
+                    :aria-label="`${t('vault.rename')}: ${c.name}`"
+                    @click="editingCircle = { ...c }"
+                  >
+                    {{ t('vault.rename') }}
+                  </button>
+                  <button type="button" class="btn-danger" @click="deleteCircle(c)">
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
+                <form
+                  v-if="editingCircle?.id === c.id"
+                  class="my-2 flex flex-wrap gap-2"
+                  @submit.prevent="updateCircle"
+                >
+                  <input
+                    v-model="editingCircle.name"
+                    required
+                    maxlength="100"
+                    class="input"
+                    :aria-label="t('common.name')"
+                  />
+                  <input
+                    v-model="editingCircle.description"
+                    maxlength="500"
+                    class="input"
+                    :aria-label="t('admin.description')"
+                  />
+                  <button type="submit" class="btn-primary">{{ t('common.save') }}</button
+                  ><button type="button" class="btn" @click="editingCircle = null">
+                    {{ t('common.cancel') }}
+                  </button>
+                </form>
+                <div v-if="openCircle === c.id" class="mt-2 space-y-2">
+                  <ul class="text-xs">
+                    <li v-for="m in circleMembers" :key="m.id" class="flex justify-between py-0.5">
+                      <label class="flex items-center gap-2"
+                        ><input v-model="selectedMembers" :value="m.id" type="checkbox" />{{
+                          m.name
+                        }}
+                        ({{ m.email }})</label
+                      >
+                      <button
+                        type="button"
+                        class="text-red-600"
+                        :aria-label="`${t('common.delete')}: ${m.name}`"
+                        @click="removeFromCircle(m.id)"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  </ul>
+                  <button
+                    v-if="selectedMembers.length"
+                    type="button"
+                    class="btn-danger"
+                    @click="updateGroupMembers('remove')"
+                  >
+                    {{ t('corporate.removeSelected') }} ({{ selectedMembers.length }})
+                  </button>
+                  <div class="space-y-1">
+                    <PersonPicker
+                      v-model="groupPick"
+                      multiple
+                      :exclude="circleMembers.map((m) => m.id)"
+                      :placeholder="t('corporate.addSeveral')"
+                      testid="circle-add-user"
+                    />
+                    <button
+                      type="button"
+                      class="btn"
+                      :disabled="!groupPick.length"
+                      data-testid="circle-add"
+                      @click="updateGroupMembers('add')"
+                    >
+                      {{ t('settings.add')
+                      }}<span v-if="groupPick.length"> ({{ groupPick.length }})</span>
+                    </button>
+                  </div>
+                  <div class="space-y-1 text-xs">
+                    <h3 class="font-medium">{{ t('corporate.groupVaults') }}</h3>
+                    <p v-if="!assignedVaults.length" class="text-slate-500">
+                      {{ t('corporate.noGroupVaults') }}
+                    </p>
+                    <p v-for="v in assignedVaults" :key="v.id">
+                      {{ vaultLabel(v, t) }} ·
+                      {{ v.customRoleId ? t('corporate.customRole') : t(`role.${v.role}`)
+                      }}<span v-if="v.expiresAt"> · {{ fmt(v.expiresAt) }}</span>
+                    </p>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <div v-else-if="tab === 'settings'" class="space-y-6">
+            <h2 class="text-base font-semibold" data-testid="settings-title">
+              {{ t(`admin.settingsTab.${settingsTab}`) }}
+            </h2>
+            <AdminCorporateRecovery v-if="isFull() && settingsTab === 'security'" />
+            <NetworkSettings v-if="settingsTab === 'network'" />
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-access"
+              v-show="settingsTab === 'main'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.access') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
+              </div>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.registration')
+                  }}<InfoHint :text="t('hint.registration.text')" /></span
+                ><select
+                  :value="settings['registration.mode']"
+                  class="input w-auto"
+                  data-testid="set-registration"
+                  @change="
+                    saveSetting('registration.mode', ($event.target as HTMLSelectElement).value)
+                  "
+                >
+                  <option value="closed">{{ t('admin.closed') }}</option>
+                  <option value="open">{{ t('admin.open') }}</option>
+                </select></label
+              >
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.vaultCreators')
+                  }}<InfoHint :text="t('hint.vaultCreators.text')" /></span
+                ><select
+                  :value="settings['vaults.creators']"
+                  class="input w-auto"
+                  data-testid="set-creators"
+                  @change="
+                    saveSetting('vaults.creators', ($event.target as HTMLSelectElement).value)
+                  "
+                >
+                  <option value="admins">{{ t('admin.onlyAdmins') }}</option>
+                  <option value="members">{{ t('admin.allMembers') }}</option>
+                </select></label
+              >
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1">{{ t('admin.defaultTheme') }}</span
+                ><select
+                  :value="settings['appearance.defaultTheme']"
+                  class="input w-auto"
+                  data-testid="set-default-theme"
+                  @change="
+                    saveSetting(
+                      'appearance.defaultTheme',
+                      ($event.target as HTMLSelectElement).value,
+                    )
+                  "
+                >
+                  <option v-for="id in THEMES" :key="id" :value="id">{{ t(`theme.${id}`) }}</option>
+                </select></label
+              >
+            </section>
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-sessions"
+              v-show="settingsTab === 'security'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.sessions') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
+              </div>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('adminx.mfaRequired')
+                  }}<InfoHint
+                    :text="t('hint.mfaRequired.text')"
+                    :details="t('hint.mfaRequired.details')" /></span
+                ><select
+                  :value="settings['security.mfaRequired']"
+                  class="input w-auto"
+                  data-testid="set-mfa"
+                  @change="
+                    saveSetting('security.mfaRequired', ($event.target as HTMLSelectElement).value)
+                  "
+                >
+                  <option value="off">{{ t('adminx.mfaOff') }}</option>
+                  <option value="admins">{{ t('adminx.mfaAdmins') }}</option>
+                  <option value="all">{{ t('adminx.mfaAll') }}</option>
+                </select></label
+              >
+              <label class="check-row"
+                ><input
+                  type="checkbox"
+                  :checked="settings['security.reloadUnlock'] !== false"
+                  data-testid="set-reload"
+                  @change="
+                    saveSetting(
+                      'security.reloadUnlock',
+                      ($event.target as HTMLInputElement).checked,
+                    )
+                  " /><span class="check-text"
+                  ><span class="inline-flex items-center gap-1"
+                    >{{ t('pin.reloadPolicy')
+                    }}<InfoHint
+                      :text="t('hint.reloadUnlock.text')"
+                      :details="t('hint.reloadUnlock.details')" /></span></span
+              ></label>
+              <label class="check-row"
+                ><input
+                  type="checkbox"
+                  :checked="settings['security.pinUnlock'] === true"
+                  data-testid="set-pin"
+                  @change="
+                    saveSetting('security.pinUnlock', ($event.target as HTMLInputElement).checked)
+                  " /><span class="check-text"
+                  ><span class="inline-flex items-center gap-1"
+                    >{{ t('pin.policy')
+                    }}<InfoHint
+                      :text="t('hint.pinUnlock.text')"
+                      :details="t('hint.pinUnlock.details')" /></span></span
+              ></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.sessionIdle')
+                  }}<InfoHint
+                    :text="t('hint.sessionIdle.text')"
+                    :details="t('hint.sessionIdle.details')" /></span
+                ><input
+                  :value="settings['session.idleHours']"
+                  type="number"
+                  min="0.25"
+                  max="720"
+                  step="0.25"
+                  class="input w-24"
+                  data-testid="set-session-idle"
+                  @change="
+                    saveSetting(
+                      'session.idleHours',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.sessionMax') }}<InfoHint :text="t('hint.sessionMax.text')" /></span
+                ><input
+                  :value="settings['session.maxHours']"
+                  type="number"
+                  min="0"
+                  max="8760"
+                  step="1"
+                  class="input w-24"
+                  data-testid="set-session-max"
+                  @change="
+                    saveSetting(
+                      'session.maxHours',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+            </section>
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-passwords"
+              v-show="settingsTab === 'security'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.passwords') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
+              </div>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('policy.minLength')
+                  }}<InfoHint
+                    :text="t('hint.minLength.text')"
+                    :details="t('hint.minLength.details')" /></span
+                ><input
+                  :value="settings['policy.password.minLength']"
+                  type="number"
+                  min="0"
+                  max="128"
+                  class="input w-24"
+                  data-testid="set-minlen"
+                  @change="
+                    saveSetting(
+                      'policy.password.minLength',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('policy.classesLabel') }}<InfoHint :text="t('hint.classes.text')" /></span
+                ><input
+                  :value="settings['policy.password.classes']"
+                  type="number"
+                  min="0"
+                  max="4"
+                  class="input w-24"
+                  data-testid="set-classes"
+                  @change="
+                    saveSetting(
+                      'policy.password.classes',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span>{{ t('policy.maxRepeatLabel') }}</span
+                ><input
+                  :value="settings['policy.password.maxRepeat'] ?? 0"
+                  type="number"
+                  min="0"
+                  max="20"
+                  class="input w-24"
+                  data-testid="set-max-repeat"
+                  @change="
+                    saveSetting(
+                      'policy.password.maxRepeat',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span>{{ t('admin.revealSeconds') }}</span
+                ><input
+                  :value="settings['security.revealSeconds'] ?? 0"
+                  type="number"
+                  min="0"
+                  max="3600"
+                  class="input w-24"
+                  data-testid="set-reveal-seconds"
+                  @change="
+                    saveSetting(
+                      'security.revealSeconds',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.passwordMaxAge')
+                  }}<InfoHint :text="t('hint.passwordMaxAge.text')" /></span
+                ><input
+                  :value="settings['security.passwordMaxAgeDays']"
+                  type="number"
+                  min="0"
+                  max="3650"
+                  class="input w-24"
+                  @change="
+                    saveSetting(
+                      'security.passwordMaxAgeDays',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+            </section>
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-generator"
+              v-show="settingsTab === 'security'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.generator') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.generatorHint') }}</p>
+              </div>
+              <label class="setting-row"
+                ><span>{{ t('generator.length') }}</span
+                ><input
+                  :value="settings['generator.length'] ?? 20"
+                  type="number"
+                  min="8"
+                  max="128"
+                  class="input w-24"
+                  data-testid="set-gen-length"
+                  @change="
+                    saveSetting(
+                      'generator.length',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <fieldset class="flex flex-wrap gap-x-4 gap-y-1">
+                <legend class="mb-1">{{ t('admin.genClasses') }}</legend>
+                <label v-for="c in GEN_CLASSES" :key="c" class="flex items-center gap-2"
+                  ><input
+                    type="checkbox"
+                    :checked="settings[`generator.${c}`] !== false"
+                    :disabled="settings[`generator.${c}`] !== false && genClassesOn <= 1"
+                    :data-testid="`set-gen-${c}`"
+                    @change="
+                      saveSetting(`generator.${c}`, ($event.target as HTMLInputElement).checked)
+                    "
+                  />{{ t(`generator.${c}`) }}</label
+                >
+              </fieldset>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.genExclude') }}<InfoHint :text="t('admin.genExcludeHint')" /></span
+                ><input
+                  :value="settings['generator.exclude'] ?? ''"
+                  maxlength="64"
+                  spellcheck="false"
+                  autocomplete="off"
+                  class="input w-48 font-mono"
+                  data-testid="set-gen-exclude"
+                  @change="
+                    saveSetting(
+                      'generator.exclude',
+                      ($event.target as HTMLInputElement).value.replace(/[^\x21-\x7e]/g, ''),
+                    )
+                  "
+              /></label>
+            </section>
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-links"
+              v-show="settingsTab === 'security'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.links') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.linksHint') }}</p>
+              </div>
+              <label class="setting-row"
+                ><span>{{ t('admin.linksMaxMinutes') }}</span
+                ><input
+                  :value="settings['links.maxMinutes'] ?? 0"
+                  type="number"
+                  min="0"
+                  max="43200"
+                  class="input w-28"
+                  data-testid="set-links-minutes"
+                  @change="
+                    saveSetting(
+                      'links.maxMinutes',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span>{{ t('admin.linksMaxViews') }}</span
+                ><input
+                  :value="settings['links.maxViews'] ?? 100"
+                  type="number"
+                  min="1"
+                  max="100"
+                  class="input w-28"
+                  data-testid="set-links-views"
+                  @change="
+                    saveSetting('links.maxViews', Number(($event.target as HTMLInputElement).value))
+                  "
+              /></label>
+              <label class="block"
+                ><span class="field-label">{{ t('admin.linksNotice') }}</span
+                ><textarea
+                  :value="String(settings['links.notice'] ?? '')"
+                  rows="2"
+                  maxlength="500"
+                  class="input"
+                  data-testid="set-links-notice"
+                  @change="
+                    saveSetting('links.notice', ($event.target as HTMLTextAreaElement).value)
+                  "
+                />
+              </label>
+            </section>
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-storage"
+              v-show="settingsTab === 'storage'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.storage') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
+              </div>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.trashDays') }}<InfoHint :text="t('hint.trashDays.text')" /></span
+                ><input
+                  :value="settings['trash.retentionDays']"
+                  type="number"
+                  min="1"
+                  max="3650"
+                  class="input w-24"
+                  data-testid="set-trash"
+                  @change="
+                    saveSetting(
+                      'trash.retentionDays',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.ledgerDays') }}<InfoHint :text="t('hint.ledgerDays.text')" /></span
+                ><select
+                  :value="settings['ledger.retentionDays'] ?? 0"
+                  class="input w-auto"
+                  data-testid="set-ledger-days"
+                  @change="
+                    saveSetting(
+                      'ledger.retentionDays',
+                      Number(($event.target as HTMLSelectElement).value),
+                    )
+                  "
+                >
+                  <option v-for="d in ledgerKeepOptions" :key="d" :value="d">
+                    {{
+                      te(`admin.ledgerKeep.${d}`)
+                        ? t(`admin.ledgerKeep.${d}`)
+                        : t('admin.ledgerKeepDays', { n: d })
+                    }}
+                  </option>
+                </select></label
+              >
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('adminx.attachMax') }}<InfoHint :text="t('hint.attachMax.text')" /></span
+                ><input
+                  :value="settings['storage.attachmentMaxMiB']"
+                  type="number"
+                  min="0"
+                  max="512"
+                  class="input w-24"
+                  data-testid="set-attach-max"
+                  @change="
+                    saveSetting(
+                      'storage.attachmentMaxMiB',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('adminx.vaultQuota') }}<InfoHint :text="t('hint.vaultQuota.text')" /></span
+                ><input
+                  :value="settings['storage.vaultQuotaMiB']"
+                  type="number"
+                  min="0"
+                  class="input w-24"
+                  data-testid="set-vault-quota"
+                  @change="
+                    saveSetting(
+                      'storage.vaultQuotaMiB',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <PersonalLockerSettings />
+            </section>
+            <ManagedVaultSettings v-show="settingsTab === 'storage'" />
+            <section
+              class="card space-y-3 p-4 text-sm"
+              data-testid="settings-group-notify"
+              v-show="settingsTab === 'notify'"
+            >
+              <div>
+                <h2 class="font-medium">{{ t('admin.settingsGroup.notify') }}</h2>
+                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>
+              </div>
+              <label class="check-row"
+                ><input
+                  type="checkbox"
+                  :checked="settings['notifications.security'] !== false"
+                  data-testid="set-notify"
+                  @change="
+                    saveSetting(
+                      'notifications.security',
+                      ($event.target as HTMLInputElement).checked,
+                    )
+                  " /><span class="check-text"
+                  ><span class="inline-flex items-center gap-1"
+                    >{{ t('invite.notify') }}<InfoHint :text="t('hint.notify.text')" /></span></span
+              ></label>
+            </section>
+            <div class="card space-y-2 p-4 text-sm">
+              <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
+              <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
+              <textarea
+                v-model="rangeUrl"
+                rows="2"
+                class="input font-mono"
+                :aria-label="t('admin.rangeTitle')"
+                data-testid="range-url"
+              ></textarea>
+              <div class="flex gap-2">
+                <button type="button" class="btn" data-testid="range-test" @click="testRange">
+                  {{ t('admin.test') }}</button
+                ><button
+                  type="button"
+                  class="btn-primary"
+                  data-testid="range-save"
+                  @click="saveRange"
+                >
+                  {{ t('common.save') }}
+                </button>
+              </div>
+              <p
+                v-if="rangeResult"
+                class="whitespace-pre-line break-all"
+                data-testid="range-result"
+              >
+                {{ rangeResult }}
+              </p>
+            </div>
+          </div>
+
+          <div v-else class="space-y-3">
+            <form class="flex flex-wrap gap-2" @submit.prevent="loadLedger()">
+              <select
+                v-model="filter.action"
+                class="input w-auto"
+                :aria-label="t('admin.actionPrefix')"
+                data-testid="ledger-action"
+              >
+                <option v-for="k in LEDGER_KINDS" :key="k" :value="k">
+                  {{ t(`admin.ledgerKind.${k.replaceAll('.', '') || 'all'}`) }}
+                </option>
+              </select>
+              <select
+                v-model="filter.level"
+                class="input w-auto"
+                :aria-label="t('admin.ledgerLevel.label')"
+                data-testid="ledger-level"
+              >
+                <option value="">{{ t('admin.ledgerLevel.all') }}</option>
+                <option v-for="k in LEDGER_LEVELS" :key="k" :value="k">
+                  {{ t(`admin.ledgerLevel.${k}`) }}
+                </option>
+              </select>
+              <input
+                v-model="filter.q"
+                type="search"
+                class="input w-72"
+                :placeholder="t('admin.ledgerSearch')"
+                :aria-label="t('admin.ledgerSearch')"
+                data-testid="ledger-search"
+              />
+              <input v-model="filter.from" type="date" class="input w-auto" /><input
+                v-model="filter.to"
+                type="date"
+                class="input w-auto"
+              />
+              <button type="submit" class="btn" data-testid="ledger-apply">
+                {{ t('admin.apply') }}
+              </button>
+              <button type="button" class="btn" data-testid="ledger-export" @click="exportLedger">
+                CSV
+              </button>
+            </form>
+            <p v-if="ledgerUser" class="flex items-center gap-2 text-sm" data-testid="ledger-user">
+              <span class="badge-brand">{{
+                t('admin.ledgerOnlyUser', { name: ledgerUser.name || ledgerUser.id.slice(0, 8) })
+              }}</span>
+              <button
+                type="button"
+                class="text-xs underline"
+                data-testid="ledger-user-clear"
+                @click="router.replace('/admin/ledger')"
+              >
+                {{ t('admin.ledgerAllUsers') }}
+              </button>
+            </p>
+            <div class="card overflow-x-auto">
+              <table class="min-w-full text-xs" data-testid="ledger-table">
+                <thead class="text-left text-slate-500">
+                  <tr>
+                    <SortTh
+                      class="px-3 py-2"
+                      :label="t('admin.time')"
+                      :dir="ledgerSort.by === 'at' ? ledgerSort.dir : null"
+                      testid="ledger-sort-at"
+                      @sort="sortLedger('at')"
+                    />
+                    <th>{{ t('admin.actor') }}</th>
+                    <SortTh
+                      :label="t('admin.action')"
+                      :dir="ledgerSort.by === 'action' ? ledgerSort.dir : null"
+                      testid="ledger-sort-action"
+                      @sort="sortLedger('action')"
+                    />
+                    <th>{{ t('admin.target') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="l in ledger"
+                    :key="l.id"
+                    class="border-t border-slate-200 dark:border-slate-800"
+                    data-testid="ledger-row"
+                  >
+                    <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
+                    <td class="max-w-56 truncate" :title="l.actor">
+                      {{ l.actorName ?? l.actor }}
+                      <span v-if="l.detail?.ip" class="font-mono text-slate-500">
+                        · {{ l.detail.ip }}</span
+                      >
+                    </td>
+                    <td class="whitespace-nowrap pr-3">
+                      <span
+                        class="mr-1 inline-block size-2 rounded-full"
+                        :class="
+                          l.level === 'critical'
+                            ? 'bg-red-600'
+                            : l.level === 'warning'
+                              ? 'bg-amber-500'
+                              : 'bg-slate-400'
+                        "
+                        :title="t(`admin.ledgerLevel.${l.level}`)"
+                        role="img"
+                        :aria-label="t(`admin.ledgerLevel.${l.level}`)"
+                      ></span>
+                      <span :title="l.action">{{ actionText(l.action) }}</span>
+                      <span v-if="l.detail?.clientReported" class="badge ml-1">{{
+                        t('entryPanel.clientReported')
+                      }}</span>
+                    </td>
+                    <td
+                      class="max-w-56 truncate"
+                      :class="l.targetName ? '' : 'font-mono'"
+                      :title="l.target ?? ''"
+                    >
+                      {{ targetText(l) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button v-if="next" type="button" class="btn" @click="loadLedger(true)">
+              {{ t('admin.more') }}
+            </button>
+          </div>
+        </ErrorBoundary>
       </div>
     </div>
     <ContextMenu

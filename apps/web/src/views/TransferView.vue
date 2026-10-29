@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import Icon from '../components/Icon.vue';
 import InfoHint from '../components/InfoHint.vue';
+import SwitchField from '../components/SwitchField.vue';
 import { copyWithAutoClear } from '../services/clipboard';
 import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
 import {
@@ -534,15 +535,13 @@ const canExport = computed(
       </div>
 
       <div v-if="format === 'csv' && rows.length" class="space-y-1">
-        <label class="flex items-center gap-2"
-          ><input
-            v-model="hasHeader"
-            type="checkbox"
-            data-testid="import-header"
-            @change="onHeaderToggle" />
-          {{ t('transfer.skipHeader') }}
-          <InfoHint :text="t('transfer.skipHeaderHint')"
-        /></label>
+        <SwitchField
+          v-model="hasHeader"
+          :label="t('transfer.skipHeader')"
+          :hint="t('transfer.skipHeaderHint')"
+          data-testid="import-header"
+          @change="onHeaderToggle"
+        />
         <div class="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
           <table class="min-w-full text-xs" data-testid="import-mapping">
             <thead>

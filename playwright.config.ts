@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { defineConfig } from '@playwright/test';
+import { defineConfig, type PlaywrightTestConfig } from '@playwright/test';
 
 const PORT_ACCOUNTS = 18181;
 const PORT_UPDATES = 18182;
@@ -42,6 +42,41 @@ const common = {
 };
 
 /**
+ * Меню администрирования по умолчанию раскрывает только группу текущего раздела. Сценарии, которые переходят между разделами
+ * кликами, начинают с раскрытым меню (как после «Развернуть всё»); проверки самого поведения меню сбрасывают это состояние.
+ */
+const NAV_GROUPS = [
+  'overview',
+  'people',
+  'vaultsGroup',
+  'security',
+  'system',
+  'storage',
+  'integrations',
+  'server',
+];
+function withOpenAdminMenu(projects: NonNullable<PlaywrightTestConfig['projects']>) {
+  const open = JSON.stringify({ open: Object.fromEntries(NAV_GROUPS.map((g) => [g, true])) });
+  for (const p of projects) {
+    const base = p.use?.baseURL;
+    if (!base) continue;
+    p.use = {
+      ...p.use,
+      storageState: {
+        cookies: [],
+        origins: [
+          {
+            origin: new URL(base).origin,
+            localStorage: [{ name: 'arklock.admin.nav', value: open }],
+          },
+        ],
+      },
+    };
+  }
+  return projects;
+}
+
+/**
  * E2E в настоящем браузере. На CI используется Chromium, установленный через `npx playwright install`;
  * локально можно указать установленный браузер: E2E_CHANNEL=msedge | chrome.
  */
@@ -52,7 +87,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: { channel: process.env.E2E_CHANNEL || undefined, trace: 'retain-on-failure' },
-  projects: [
+  projects: withOpenAdminMenu([
     {
       name: 'accounts',
       testMatch: 'accounts.spec.ts',
@@ -122,7 +157,7 @@ export default defineConfig({
       testMatch: 'updates.spec.ts',
       use: { baseURL: `http://127.0.0.1:${PORT_UPDATES}` },
     },
-  ],
+  ]),
   webServer: [
     {
       command: 'node apps/api/dist/main.js',
@@ -163,6 +198,8 @@ export default defineConfig({
         ...common,
         PORT: String(PORT_UI),
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-u1',
+        // тестовые приёмники почты слушают loopback
+        SMTP_ALLOW_LOOPBACK: 'on',
       },
     },
     {

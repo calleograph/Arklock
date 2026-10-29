@@ -394,6 +394,12 @@ code,
   background: var(--scrim);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
+  /* окно выше экрана (открыта экранная клавиатура, альбомная ориентация) прокручивается: верх и низ достижимы */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal-scrim > .modal {
+  margin-block: auto;
 }
 .modal,
 dialog {
@@ -612,7 +618,7 @@ dialog::backdrop {
   }
   /* сегментированный переключатель вида внутри вкладки */
   .seg {
-    @apply rounded-md px-3 py-1 font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100;
+    @apply shrink-0 rounded-md px-3 py-1 font-medium text-slate-600 transition-colors hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100;
   }
   .seg-on {
     @apply bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100;
@@ -636,45 +642,99 @@ dialog::backdrop {
       conic-gradient(var(--color-brand-500) calc(var(--left, 1) * 360deg), var(--color-slate-200) 0);
     transition: background 1s linear;
   }
-  /* поле формы с подписью */
+  /*
+   * Поле формы с подписью. Подпись всегда одной высоты (значок «i» не делает строку выше), поэтому поля в одном ряду
+   * начинаются на одном уровне. Подсказка под полем и текст ошибки идут отдельными строками и не двигают соседей по ряду.
+   */
   .field-label {
-    @apply mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300;
+    @apply mb-1 flex min-h-5 items-center gap-1 text-xs leading-4 font-medium text-slate-600 dark:text-slate-300;
+  }
+  .field-hint {
+    @apply mt-1 text-xs leading-4 text-slate-500;
+  }
+  .field-error {
+    @apply mt-1 text-xs leading-4 text-red-600 dark:text-red-400;
+  }
+  /* ряд полей: поля прижаты к верхней границе, высота ряда — по самому высокому полю */
+  .form-grid {
+    @apply grid items-start gap-x-3 gap-y-2.5 sm:grid-cols-2;
+  }
+  .form-grid > .span-2 {
+    @apply sm:col-span-2;
   }
 
   /*
-   * Переключатель вместо флажка для настроек «вкл/выкл». Остаётся настоящим checkbox (клавиатура, формы, тесты);
-   * бегунок движется с пружиной (Kinetics: Switch Spring).
+   * Флажок: один вид для всех параметров «вкл/выкл». Пустой квадрат с чёткой границей, включённый — акцентный фон
+   * и белая галочка. Остаётся настоящим checkbox (клавиатура, формы, чтение с экрана).
    */
-  input[type='checkbox'].switch {
-    @apply relative shrink-0 cursor-pointer appearance-none rounded-full bg-slate-300 dark:bg-slate-700;
-    width: 2.25rem;
-    height: 1.25rem;
-    transition: background-color 180ms var(--ease-out);
+  input[type='checkbox'] {
+    @apply relative inline-block size-[1.125rem] shrink-0 cursor-pointer appearance-none rounded-[4px] border-[1.5px] border-slate-500 bg-white align-middle dark:border-slate-400 dark:bg-slate-950;
+    transition:
+      background-color 140ms var(--ease-out),
+      border-color 140ms var(--ease-out),
+      box-shadow 140ms var(--ease-out);
   }
-  input[type='checkbox'].switch::after {
+  input[type='checkbox']:hover:not(:disabled) {
+    @apply border-brand-500;
+  }
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate {
+    background-color: var(--color-brand-500);
+    border-color: var(--color-brand-600);
+  }
+  input[type='checkbox']:checked::after {
     content: '';
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 1rem;
-    height: 1rem;
-    border-radius: 9999px;
-    background: #fff;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
-    transition: transform 320ms var(--ease-spring);
+    left: 4.5px;
+    top: 1px;
+    width: 5px;
+    height: 9px;
+    border: solid var(--on-brand);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
   }
-  input[type='checkbox'].switch:checked {
-    background: var(--color-brand-500);
+  input[type='checkbox']:indeterminate::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    top: 50%;
+    height: 2px;
+    margin-top: -1px;
+    background: var(--on-brand);
   }
-  input[type='checkbox'].switch:checked::after {
-    transform: translateX(1rem);
-  }
-  input[type='checkbox'].switch:focus-visible {
+  input[type='checkbox']:focus-visible {
     outline: none;
     box-shadow: var(--ring);
   }
-  input[type='checkbox'].switch:disabled {
+  input[type='checkbox']:disabled {
     @apply cursor-not-allowed opacity-50;
+  }
+  /*
+   * Строка «название — поле» в настройках: поле стоит сразу за названием в общей колонке, а не у правого края окна,
+   * поэтому видно, к какому параметру оно относится. На телефоне — одна колонка.
+   */
+  .setting-row {
+    @apply grid grid-cols-[minmax(0,1fr)] items-center gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,24rem)_minmax(10rem,18rem)];
+  }
+  .setting-row > :not(span) {
+    @apply max-w-full justify-self-start;
+  }
+  /* строка параметра: флажок слева рядом с названием, пояснение под названием и с тем же отступом */
+  .check-row {
+    @apply flex min-h-7 cursor-pointer items-start gap-2 text-sm leading-5;
+  }
+  .check-row > input[type='checkbox'] {
+    @apply mt-px;
+  }
+  .check-row:has(> input:disabled) {
+    @apply cursor-not-allowed;
+  }
+  .check-text {
+    @apply min-w-0 flex-1;
+  }
+  .check-hint {
+    @apply mt-0.5 block text-xs leading-4 text-slate-500;
   }
 
   /*
@@ -980,4 +1040,16 @@ h2 {
 .update-console-line.tone-error {
   color: #fda4af;
   font-weight: 600;
+}
+
+/*
+ * Поля ввода не меньше 16 px на телефоне: иначе iOS приближает страницу при фокусе, и поле уезжает из окна.
+ * Правило вне слоёв: служебные классы размера текста (text-xs) не должны его перебивать.
+ */
+@media (max-width: 640px), (pointer: coarse) {
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }

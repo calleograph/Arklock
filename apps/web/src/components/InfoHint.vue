@@ -52,7 +52,7 @@ onBeforeUnmount(() => {
 <template>
   <span
     ref="root"
-    class="relative inline-flex align-middle"
+    class="relative -my-1 inline-flex align-middle"
     @mouseenter="peek = true"
     @mouseleave="peek = false"
   >

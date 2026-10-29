@@ -22,6 +22,11 @@ export default {
     loading: 'Loading…',
     working: 'Deriving keys…',
     confirmDelete: 'Delete this entry permanently?',
+    retry: 'Try again',
+    unsaved: 'Unsaved changes: press “Save”',
+    sectionFailed: 'This section could not be shown',
+    sectionFailedHint:
+      'The rest of the app still works. Press “Try again” or open another section; if this repeats, give the administrator the code below.',
   },
   auth: {
     signIn: 'Sign in',

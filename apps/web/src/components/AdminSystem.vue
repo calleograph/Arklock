@@ -559,7 +559,10 @@ const DIAG_LINK: Record<string, string> = {
 
     <!-- Ресурсы -->
     <div v-else-if="section === 'resources'" class="space-y-3">
-      <div class="card grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="res-gauges">
+      <div
+        class="card grid grid-cols-[minmax(0,1fr)] gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3"
+        data-testid="res-gauges"
+      >
         <RingGauge
           :pct="data.cpu.loadPct"
           :level="pctLevel(data.cpu.loadPct)"

@@ -7,6 +7,8 @@ import { errorMessage, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
 import InfoHint from './InfoHint.vue';
+import UnsavedHint from './UnsavedHint.vue';
+import { useDirty } from '../services/dirty';
 
 interface Stage {
   stage: string;
@@ -173,11 +175,15 @@ const blank = (): Form => ({
   purposes: [],
   fallback: false,
 });
+const { dirty, clean, reset } = useDirty(() => form.value);
 function edit(p: Profile | null): void {
   notice.value = '';
   error.value = '';
   form.value = p ? { ...p, id: p.id, password: '', purposes: [...p.purposes] } : blank();
+  clean();
 }
+/** NTLM сервер принимает только по шифрованному соединению: без него форма не даёт сохранить и объясняет почему. */
+const ntlmNeedsTls = computed(() => form.value?.auth === 'ntlm' && form.value.security === 'none');
 function setSecurity(v: Form['security']): void {
   if (!form.value) return;
   form.value.security = v;
@@ -202,6 +208,7 @@ const body = (f: Form) => ({
 const saving = ref(false);
 async function afterSave(): Promise<void> {
   form.value = null;
+  reset();
   notice.value = t('mail.form.saved');
   await load();
 }
@@ -556,7 +563,7 @@ const typeLabel = (r: Row) =>
         <h3 class="font-semibold">
           {{ form.id ? t('mail.form.editTitle', { name: form.name }) : t('mail.form.newTitle') }}
         </h3>
-        <div class="grid gap-3 sm:grid-cols-2">
+        <div class="form-grid">
           <label class="block sm:col-span-2">
             <span class="field-label">{{ t('mail.form.name') }}</span>
             <input
@@ -581,7 +588,7 @@ const typeLabel = (r: Row) =>
             />
           </label>
           <label class="block">
-            <span class="field-label inline-flex items-center gap-1"
+            <span class="field-label"
               >{{ t('mail.form.security') }}<InfoHint :text="t('mail.form.securityHint')"
             /></span>
             <select
@@ -624,9 +631,9 @@ const typeLabel = (r: Row) =>
           {{ t('mail.form.noneWarn') }}
         </p>
 
-        <div class="grid gap-3 sm:grid-cols-2">
+        <div class="form-grid">
           <label class="block sm:col-span-2">
-            <span class="field-label inline-flex items-center gap-1"
+            <span class="field-label"
               >{{ t('mail.form.auth')
               }}<InfoHint v-if="form.auth === 'ntlm'" :text="t('mail.form.ntlmHint')"
             /></span>
@@ -635,6 +642,9 @@ const typeLabel = (r: Row) =>
               <option value="password">{{ t('mail.form.authPassword') }}</option>
               <option value="ntlm">{{ t('mail.form.authNtlm') }}</option>
             </select>
+            <p v-if="ntlmNeedsTls" class="field-error" role="alert" data-testid="smtp-ntlm-tls">
+              {{ t('mail.form.ntlmNeedsTls') }}
+            </p>
           </label>
           <template v-if="form.auth !== 'none'">
             <label class="block">
@@ -649,7 +659,7 @@ const typeLabel = (r: Row) =>
               />
             </label>
             <label class="block">
-              <span class="field-label inline-flex items-center gap-1"
+              <span class="field-label"
                 >{{ t('mail.form.password') }}<InfoHint :text="t('mail.form.passwordHint')"
               /></span>
               <input
@@ -663,7 +673,7 @@ const typeLabel = (r: Row) =>
             </label>
           </template>
           <label class="block">
-            <span class="field-label inline-flex items-center gap-1"
+            <span class="field-label"
               >{{ t('mail.form.from') }}<InfoHint :text="t('mail.form.fromHint')"
             /></span>
             <input
@@ -686,16 +696,11 @@ const typeLabel = (r: Row) =>
         </div>
 
         <div class="space-y-2">
-          <label class="flex items-start gap-2">
-            <input
-              v-model="form.verifyCert"
-              type="checkbox"
-              class="mt-1"
-              data-testid="smtp-verify"
-            />
-            <span>
+          <label class="check-row">
+            <input v-model="form.verifyCert" type="checkbox" data-testid="smtp-verify" />
+            <span class="check-text">
               {{ t('mail.form.verify') }}
-              <span class="block text-xs text-slate-500">{{ t('mail.form.verifyHint') }}</span>
+              <span class="check-hint">{{ t('mail.form.verifyHint') }}</span>
             </span>
           </label>
           <p v-if="!form.verifyCert" class="notice notice-warn" data-testid="smtp-verify-warn">
@@ -711,33 +716,46 @@ const typeLabel = (r: Row) =>
         </div>
 
         <fieldset class="space-y-1">
-          <legend class="field-label inline-flex items-center gap-1">
+          <legend class="field-label">
             {{ t('mail.form.routing') }}<InfoHint :text="t('mail.form.routingHint')" />
           </legend>
-          <div class="flex flex-wrap gap-x-4 gap-y-1">
-            <label v-for="ty in TYPES" :key="ty" class="flex items-center gap-1.5">
+          <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+            <label v-for="ty in TYPES" :key="ty" class="check-row">
               <input
                 v-model="form.purposes"
                 type="checkbox"
                 :value="ty"
                 :data-testid="`smtp-purpose-${ty}`"
               />
-              {{ t(`mail.type.${ty}`) }}
+              <span class="check-text">{{ t(`mail.type.${ty}`) }}</span>
             </label>
           </div>
-          <label class="flex items-center gap-1.5">
+          <label class="check-row">
             <input v-model="form.fallback" type="checkbox" data-testid="smtp-fallback" />
-            {{ t('mail.form.fallback') }}
+            <span class="check-text">{{ t('mail.form.fallback') }}</span>
           </label>
         </fieldset>
 
-        <div class="flex gap-2">
-          <button type="submit" class="btn-primary" :disabled="saving" data-testid="smtp-save">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="submit"
+            class="btn-primary"
+            :disabled="saving || ntlmNeedsTls"
+            data-testid="smtp-save"
+          >
             {{ t('mail.form.save') }}
           </button>
-          <button type="button" class="btn" @click="form = null">
+          <button
+            type="button"
+            class="btn"
+            @click="
+              form = null;
+              reset();
+            "
+          >
             {{ t('mail.form.cancel') }}
           </button>
+          <UnsavedHint :dirty="dirty" />
         </div>
       </form>
 

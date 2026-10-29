@@ -84,7 +84,7 @@ async function submit(): Promise<void> {
     <header class="flex flex-wrap items-center justify-between gap-2">
       <h1 class="text-xl font-semibold">{{ t('security.title') }}</h1>
       <div
-        class="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-sm dark:bg-slate-800"
+        class="flex max-w-full gap-1 overflow-x-auto rounded-lg bg-slate-100 p-0.5 text-sm dark:bg-slate-800"
         role="tablist"
       >
         <button

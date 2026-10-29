@@ -6,6 +6,8 @@ import { errorMessage, when } from '../services/helpers';
 import { confirmStepUp } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
 import SwitchField from './SwitchField.vue';
+import UnsavedHint from './UnsavedHint.vue';
+import { useDirty } from '../services/dirty';
 
 /**
  * Автоматические проверки и плановая установка. Проверка по умолчанию включена (каждые 30 минут), установка — только по явному
@@ -25,6 +27,7 @@ const password = ref('');
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
+const { dirty, clean } = useDirty(() => [check.value, install.value, at.value]);
 watch(
   () => props.auto,
   (a) => {
@@ -32,6 +35,7 @@ watch(
     check.value = a.check;
     install.value = a.install;
     at.value = a.at;
+    clean();
   },
   { immediate: true },
 );
@@ -60,6 +64,7 @@ async function save(): Promise<void> {
     );
     password.value = '';
     notice.value = t('autoUpdate.saved');
+    clean();
     emit('saved');
   } catch (e) {
     error.value = errorMessage(e, t);
@@ -93,7 +98,7 @@ async function save(): Promise<void> {
         :details="t('autoUpdate.installDetails')"
         data-testid="auto-install"
       />
-      <div v-if="install" class="flex flex-wrap items-end gap-3">
+      <div v-if="install" class="form-grid max-w-md pl-7">
         <label class="block">
           <span class="field-label">{{ t('autoUpdate.at') }}</span>
           <input v-model="at" type="time" required class="input w-32" data-testid="auto-at" />
@@ -113,9 +118,12 @@ async function save(): Promise<void> {
       <p v-if="install" class="text-xs text-slate-500">{{ t('autoUpdate.policy') }}</p>
       <p v-if="error" class="text-red-600" role="alert">{{ error }}</p>
       <p v-if="notice" class="text-emerald-700" role="status">{{ notice }}</p>
-      <button type="submit" class="btn-primary" :disabled="busy" data-testid="auto-save">
-        {{ t('common.save') }}
-      </button>
+      <div class="flex flex-wrap items-center gap-3">
+        <button type="submit" class="btn-primary" :disabled="busy" data-testid="auto-save">
+          {{ t('common.save') }}
+        </button>
+        <UnsavedHint :dirty="dirty" />
+      </div>
     </form>
   </section>
 </template>

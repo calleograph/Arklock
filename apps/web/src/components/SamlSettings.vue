@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SwitchField from './SwitchField.vue';
+import UnsavedHint from './UnsavedHint.vue';
+import { useDirty } from '../services/dirty';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -110,7 +112,12 @@ async function load(): Promise<void> {
     hasSpKey.value = r.hasSpKey === true;
   }
 }
-onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
+const { dirty, clean } = useDirty(() => form.value);
+onMounted(() =>
+  load()
+    .then(clean)
+    .catch((e) => (error.value = errorMessage(e, t))),
+);
 
 async function wrap(fn: () => Promise<void>): Promise<void> {
   busy.value = true;
@@ -162,6 +169,7 @@ const save = () =>
       allowInsecure: f.allowInsecure,
     });
     notice.value = t('admin.saved');
+    clean();
     await load();
   });
 
@@ -403,6 +411,7 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
         <button type="submit" class="btn-primary" :disabled="busy" data-testid="saml-save">
           {{ t('common.save') }}
         </button>
+        <UnsavedHint :dirty="dirty" />
         <button type="button" class="btn" :disabled="busy" data-testid="saml-test" @click="runTest">
           {{ t('saml.test') }}
         </button>

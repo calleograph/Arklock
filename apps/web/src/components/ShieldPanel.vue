@@ -1029,10 +1029,9 @@ const KIND_OPTIONS = [
                 <td class="font-mono text-xs">{{ r.cidr }}</td>
                 <td>{{ r.comment }}</td>
                 <td>
-                  <label class="flex items-center gap-2"
+                  <label class="check-row"
                     ><input
                       type="checkbox"
-                      class="switch"
                       :checked="r.enabled"
                       :aria-label="r.cidr"
                       @change="toggleRule(r)"
@@ -1498,9 +1497,9 @@ const KIND_OPTIONS = [
             max="1440"
             class="input"
         /></label>
-        <label class="flex items-center gap-2 self-end"
-          ><input v-model="draft.alertMail" type="checkbox" class="switch" />
-          {{ t('shield.advanced.alertMail') }}</label
+        <label class="check-row sm:mt-6"
+          ><input v-model="draft.alertMail" type="checkbox" />
+          <span class="check-text">{{ t('shield.advanced.alertMail') }}</span></label
         >
         <p class="text-xs text-slate-500 sm:col-span-2">
           {{ t('shield.advanced.limitsNote') }} {{ t('shield.advanced.alertsNote') }}

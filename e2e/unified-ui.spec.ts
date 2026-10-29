@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { fakeSmtp, makePki } from '../apps/api/test/smtp-fake.js';
 
 const SETUP = 'e2e-setup-code-e2e-setup-code-u1';
 const CHIEF = {
@@ -981,4 +982,293 @@ test('адрес без защищённого контекста: страни�
   );
   expect(over).toBeLessThanOrEqual(0);
   await ctx.close();
+});
+
+// ---- 1.85.0: форма SMTP, ровные поля, флажки, меню, адаптивность
+
+/** Подтверждение мастер-паролем для небезопасных настроек почты (если вопрос задан). */
+async function reauthIfAsked(page: Page, password: string): Promise<void> {
+  const asked = await page
+    .getByTestId('mail-reauth-password')
+    .waitFor({ timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!asked) return;
+  await page.getByTestId('mail-reauth-password').fill(password);
+  await page.getByTestId('mail-reauth-ok').click();
+}
+
+test('SMTP: переключение способов входа не очищает экран; NTLM сохраняется и проходит проверку на сервере с NTLM', async () => {
+  const pageErrors: string[] = [];
+  const onError = (e: Error) => pageErrors.push(e.message);
+  chief.on('pageerror', onError);
+  const pki = await makePki();
+  const fake = await fakeSmtp({
+    tls: { mode: 'starttls', key: pki.keyPem, cert: pki.certPem },
+    authBefore: [],
+    auth: ['NTLM'],
+    ntlm: { user: 'svc-mail', domain: 'CORP', password: 'N7lm-Synthetic-pw', withTimestamp: true },
+  });
+  try {
+    await chief.goto('/admin/smtp');
+    await chief.getByTestId('smtp-add').click();
+    // все способы входа по кругу, в том числе повторно: форма и меню остаются на месте
+    for (const mode of ['password', 'ntlm', 'none', 'ntlm', 'password', 'none', 'ntlm']) {
+      await chief.getByTestId('smtp-auth').selectOption(mode);
+      await expect(chief.getByTestId('smtp-form')).toBeVisible();
+      await expect(chief.getByTestId('admin-nav')).toBeVisible();
+      await expect(chief.getByTestId('smtp-user')).toBeVisible({ visible: mode !== 'none' });
+      await expect(chief.getByTestId('smtp-password')).toBeVisible({ visible: mode !== 'none' });
+    }
+    // подсказки NTLM (в них «логин@домен») читаются, а не ломают отрисовку
+    await expect(chief.getByTestId('smtp-user')).toHaveAttribute(
+      'placeholder',
+      /логин@домен|login@domain/,
+    );
+    // NTLM без шифрования сервер не принимает: форма говорит об этом и не даёт сохранить
+    await chief.getByTestId('smtp-security').selectOption('none');
+    await expect(chief.getByTestId('smtp-ntlm-tls')).toBeVisible();
+    await expect(chief.getByTestId('smtp-save')).toBeDisabled();
+    await chief.getByTestId('smtp-security').selectOption('starttls');
+    await expect(chief.getByTestId('smtp-ntlm-tls')).toBeHidden();
+    await expect(chief.getByTestId('smtp-save')).toBeEnabled();
+
+    await chief.getByTestId('smtp-name').fill('Exchange NTLM');
+    await chief.getByTestId('smtp-host').fill('127.0.0.1');
+    await chief.getByTestId('smtp-port').fill(String(fake.port));
+    await chief.getByTestId('smtp-user').fill('CORP\\svc-mail');
+    await chief.getByTestId('smtp-password').fill('N7lm-Synthetic-pw');
+    await chief.getByTestId('smtp-from').fill('arklock@corp.example');
+    await chief.getByTestId('smtp-verify').uncheck(); // тестовый сертификат не из доверенного центра
+    await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+    await chief.getByTestId('smtp-save').click();
+    await reauthIfAsked(chief, CHIEF.password);
+    await expect(chief.getByTestId('mail-notice')).toBeVisible();
+
+    const card = chief.locator('[data-profile]', { hasText: 'Exchange NTLM' });
+    await card.locator('[data-action="check"]').click();
+    await expect(card.getByTestId('smtp-result')).toContainText(/Проверка пройдена|Check passed/);
+    expect(fake.stats.ntlmV2).toBe(1);
+    expect(fake.log.join('\n')).not.toContain('N7lm-Synthetic-pw');
+
+    // повторное открытие: способ входа и учётная запись на месте, пароль в форму не возвращается
+    await card.locator('[data-action="edit"]').click();
+    await expect(chief.getByTestId('smtp-auth')).toHaveValue('ntlm');
+    await expect(chief.getByTestId('smtp-user')).toHaveValue('CORP\\svc-mail');
+    await expect(chief.getByTestId('smtp-password')).toHaveValue('');
+    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    await chief.screenshot({ path: 'docs/screenshots/ui-smtp-ntlm-form.png' });
+    expect(pageErrors).toEqual([]);
+  } finally {
+    chief.off('pageerror', onError);
+    await fake.close();
+  }
+});
+
+test('сбой отрисовки или ответа API остаётся внутри раздела: меню и другие разделы работают', async () => {
+  await chief.route('**/api/v1/admin/smtp/profiles', (route) =>
+    route.fulfill({ json: { activeId: null, profiles: [{ id: 'x', name: 'Неполный профиль' }] } }),
+  );
+  await chief.goto('/admin/smtp');
+  await expect(chief.getByTestId('section-error')).toBeVisible();
+  await expect(chief.getByTestId('admin-nav')).toBeVisible();
+  await expect(chief.getByTestId('section-error-retry')).toBeVisible();
+  await chief.unroute('**/api/v1/admin/smtp/profiles');
+  // «Повторить» и переход в другой раздел возвращают рабочий интерфейс
+  await chief.getByTestId('section-error-retry').click();
+  await expect(chief.getByTestId('section-error')).toBeHidden();
+  await chief.getByTestId('admin-tab-syslog').click();
+  await expect(chief.getByTestId('syslog-save')).toBeVisible();
+  // недоступный сервер: сообщение в разделе, меню живо
+  await chief.route('**/api/v1/admin/smtp/profiles', (route) => route.abort());
+  await chief.getByTestId('admin-tab-smtp').click();
+  await expect(chief.getByTestId('admin-nav')).toBeVisible();
+  await expect(chief.getByTestId('smtp-add')).toBeVisible();
+  await chief.unroute('**/api/v1/admin/smtp/profiles');
+});
+
+test('поля формы стоят ровно: верхние границы в ряду совпадают, подсказка «i» не меняет высоту подписи', async () => {
+  for (const width of [1280, 1024, 768]) {
+    await chief.setViewportSize({ width, height: 900 });
+    await chief.goto('/admin/smtp');
+    await chief.getByTestId('smtp-add').click();
+    await chief.getByTestId('smtp-auth').selectOption('ntlm');
+    const top = async (id: string) => (await chief.getByTestId(id).boundingBox())!.y;
+    const h = async (id: string) => (await chief.getByTestId(id).boundingBox())!.height;
+    for (const [a, b] of [
+      ['smtp-host', 'smtp-security'],
+      ['smtp-port', 'smtp-timeout'],
+      ['smtp-user', 'smtp-password'],
+      ['smtp-from', 'smtp-from-name'],
+    ] as const) {
+      expect(
+        Math.abs((await top(a)) - (await top(b))),
+        `${width}: ${a} / ${b}`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        Math.abs((await h(a)) - (await h(b))),
+        `${width}: высота ${a} / ${b}`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  }
+  await chief.setViewportSize({ width: 1366, height: 768 });
+});
+
+test('параметры «вкл/выкл» — флажки с галочкой слева от названия; несохранённое изменение видно', async () => {
+  await chief.goto('/admin/updates');
+  const box = chief.getByTestId('auto-check');
+  await expect(box).toBeVisible();
+  const style = await box.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const label = el.closest('label')!;
+    return {
+      appearance: cs.appearance,
+      width: parseFloat(cs.width),
+      border: parseFloat(cs.borderTopWidth),
+      boxLeft: el.getBoundingClientRect().left,
+      textLeft: label.querySelector('.check-text')!.getBoundingClientRect().left,
+      labelRight: label.getBoundingClientRect().right,
+      boxRight: el.getBoundingClientRect().right,
+    };
+  });
+  expect(style.appearance).toBe('none');
+  expect(style.width).toBeGreaterThanOrEqual(16);
+  expect(style.border).toBeGreaterThanOrEqual(1); // граница видна (на экранах 1× рисуется 1 px)
+  expect(style.boxLeft).toBeLessThan(style.textLeft); // флажок рядом с названием, а не у правого края
+  expect(style.labelRight - style.boxRight).toBeGreaterThan(40);
+  // включённый флажок рисует галочку
+  await expect(box).toBeChecked();
+  expect(await box.evaluate((el) => getComputedStyle(el, '::after').content)).not.toBe('none');
+  // изменение без «Сохранить» помечено; возврат к прежнему значению снимает пометку
+  await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+  await box.click();
+  await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+  await box.click();
+  await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+  // переключателей прежнего вида в приложении не осталось
+  for (const route of [
+    '/admin/settings',
+    '/admin/shield',
+    '/admin/ldap',
+    '/admin/saml',
+    '/admin/sso',
+  ]) {
+    await chief.goto(route);
+    await chief.waitForLoadState('networkidle');
+    expect(await chief.locator('input.switch').count(), route).toBe(0);
+  }
+});
+
+test('меню администрирования: по умолчанию раскрыта только текущая группа; на телефоне — один список разделов', async () => {
+  await chief.evaluate(() => localStorage.removeItem('arklock.admin.nav'));
+  await chief.goto('/admin/smtp');
+  await expect(chief.getByTestId('admin-tab-smtp')).toBeVisible();
+  await expect(chief.getByTestId('admin-tab-users')).toBeHidden();
+  await expect(chief.getByTestId('admin-tab-resources')).toBeHidden();
+  const menu = await chief.getByTestId('admin-nav').boundingBox();
+  expect(menu!.height).toBeLessThan(520); // раньше меню не помещалось на экране и прокручивалось
+  // клик по группе раскрывает её, текущая остаётся
+  await chief.getByTestId('admin-group-toggle-system').click();
+  await expect(chief.getByTestId('admin-tab-resources')).toBeVisible();
+  await expect(chief.getByTestId('admin-tab-smtp')).toBeVisible();
+  // телефон: выбор раздела из списка с группами, кнопок меню нет
+  await chief.setViewportSize({ width: 390, height: 844 });
+  await expect(chief.getByTestId('admin-nav-select')).toBeVisible();
+  await expect(chief.getByTestId('admin-tab-smtp')).toBeHidden();
+  await chief.getByTestId('admin-nav-select').selectOption('syslog');
+  await expect(chief).toHaveURL(/\/admin\/syslog/);
+  await expect(chief.getByTestId('syslog-save')).toBeVisible();
+  await expect(chief.getByTestId('admin-nav-select')).toHaveValue('syslog');
+  await chief.setViewportSize({ width: 1366, height: 768 });
+  await chief.evaluate(() => {
+    const all = [
+      'overview',
+      'people',
+      'vaultsGroup',
+      'security',
+      'system',
+      'storage',
+      'integrations',
+      'server',
+    ];
+    localStorage.setItem(
+      'arklock.admin.nav',
+      JSON.stringify({ open: Object.fromEntries(all.map((g) => [g, true])) }),
+    );
+  });
+});
+
+test('ширины 320–1920: страница не прокручивается вбок, поля на телефоне не меньше 16 px, формы одноколоночные', async () => {
+  const routes = [
+    '/',
+    '/settings',
+    '/security',
+    '/notifications',
+    '/admin/overview',
+    '/admin/resources',
+    '/admin/smtp',
+    '/admin/updates',
+    '/admin/users',
+    '/admin/settings',
+    '/admin/shield',
+    '/admin/ldap',
+    '/admin/backups',
+    '/admin/ledger',
+    '/admin/roles',
+  ];
+  const problems: string[] = [];
+  for (const width of [320, 375, 390, 768, 1024, 1280, 1920]) {
+    await chief.setViewportSize({ width, height: width < 600 ? 800 : 900 });
+    for (const route of routes) {
+      await chief.goto(route);
+      await chief.waitForLoadState('networkidle');
+      const m = await chief.evaluate(() => {
+        const vw = document.documentElement.clientWidth;
+        const small = [
+          ...document.querySelectorAll(
+            'input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea',
+          ),
+        ]
+          .filter((el) => el.getBoundingClientRect().width > 0)
+          .filter((el) => parseFloat(getComputedStyle(el).fontSize) < 16).length;
+        return { over: document.documentElement.scrollWidth - vw, vw, small };
+      });
+      if (m.over > 1) problems.push(`${width} ${route}: прокрутка вбок ${m.over}px`);
+      if (width <= 560 && m.small)
+        problems.push(`${width} ${route}: полей меньше 16px — ${m.small}`);
+    }
+  }
+  // форма SMTP на телефоне — одна колонка, на планшете — две
+  await chief.setViewportSize({ width: 390, height: 844 });
+  await chief.goto('/admin/smtp');
+  await chief.getByTestId('smtp-add').click();
+  const hostX = (await chief.getByTestId('smtp-host').boundingBox())!;
+  const secX = (await chief.getByTestId('smtp-security').boundingBox())!;
+  if (Math.abs(hostX.x - secX.x) > 1) problems.push('телефон: форма не в одну колонку');
+  await chief.setViewportSize({ width: 768, height: 900 });
+  const hostT = (await chief.getByTestId('smtp-host').boundingBox())!;
+  const secT = (await chief.getByTestId('smtp-security').boundingBox())!;
+  if (!(secT.x > hostT.x + hostT.width - 1)) problems.push('планшет: форма не в две колонки');
+  expect(problems, problems.join('\n')).toEqual([]);
+  await chief.setViewportSize({ width: 1366, height: 768 });
+});
+
+test('окно выше экрана (экранная клавиатура, альбомный телефон) прокручивается: верх и низ достижимы', async () => {
+  await chief.goto('/');
+  await chief.getByTestId('btn-new-folder').click();
+  await chief.setViewportSize({ width: 390, height: 180 });
+  const modal = chief
+    .getByTestId('name-input')
+    .locator('xpath=ancestor::*[contains(@class,"modal")][1]');
+  const scrim = chief.locator('.modal-scrim').last();
+  await expect(modal).toBeVisible();
+  const box = async () => (await modal.boundingBox())!;
+  expect(await scrim.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
+  await scrim.evaluate((e) => e.scrollTo(0, 0));
+  expect((await box()).y).toBeGreaterThanOrEqual(0);
+  await scrim.evaluate((e) => e.scrollTo(0, e.scrollHeight));
+  const b = await box();
+  expect(b.y + b.height).toBeLessThanOrEqual(180 + 1);
+  await chief.keyboard.press('Escape');
+  await chief.setViewportSize({ width: 1366, height: 768 });
 });

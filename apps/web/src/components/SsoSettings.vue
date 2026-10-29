@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SwitchField from './SwitchField.vue';
+import UnsavedHint from './UnsavedHint.vue';
+import { useDirty } from '../services/dirty';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -48,7 +50,12 @@ async function load(): Promise<void> {
     hasSecret.value = r.hasClientSecret === true;
   }
 }
-onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
+const { dirty, clean } = useDirty(() => form.value);
+onMounted(() =>
+  load()
+    .then(clean)
+    .catch((e) => (error.value = errorMessage(e, t))),
+);
 
 async function wrap(fn: () => Promise<void>): Promise<void> {
   busy.value = true;
@@ -84,6 +91,7 @@ const save = () =>
       autoProvision: f.autoProvision,
     });
     notice.value = t('admin.saved');
+    clean();
     await load();
   });
 
@@ -168,6 +176,7 @@ const test = () =>
         <button type="submit" class="btn-primary" :disabled="busy" data-testid="sso-save">
           {{ t('common.save') }}
         </button>
+        <UnsavedHint :dirty="dirty" />
         <button type="button" class="btn" :disabled="busy" data-testid="sso-test" @click="test">
           {{ t('sso.test') }}
         </button>

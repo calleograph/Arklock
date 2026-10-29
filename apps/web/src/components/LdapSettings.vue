@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SwitchField from './SwitchField.vue';
+import UnsavedHint from './UnsavedHint.vue';
+import { useDirty } from '../services/dirty';
 import InfoHint from './InfoHint.vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -185,7 +187,12 @@ async function load(): Promise<void> {
   );
   loaded.value = true;
 }
-onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
+const { dirty, clean } = useDirty(() => form.value);
+onMounted(() =>
+  load()
+    .then(clean)
+    .catch((e) => (error.value = errorMessage(e, t))),
+);
 
 // сведения о загруженном сертификате центра сертификации: издатель, срок, отпечаток
 interface CaInfo {
@@ -264,6 +271,7 @@ const save = () =>
           : form.value.bindPassword,
     });
     notice.value = t('admin.saved');
+    clean();
     await load();
   });
 
@@ -410,12 +418,14 @@ const browse = () =>
         v-model="clearPassword"
         :label="t('directory.clearPassword')"
       />
-      <div class="flex flex-wrap gap-4">
+      <div class="space-y-1.5">
         <SwitchField v-model="form.startTls" :label="t('ldap.startTls')" />
-        <label class="flex items-center gap-2"
-          ><input v-model="form.allowPlaintext" type="checkbox" data-testid="ldap-plaintext" />
-          {{ t('ldap.allowPlaintext') }}<InfoHint :text="t('hint.ldapPlaintext.text')"
-        /></label>
+        <SwitchField
+          v-model="form.allowPlaintext"
+          :label="t('ldap.allowPlaintext')"
+          :hint="t('hint.ldapPlaintext.text')"
+          data-testid="ldap-plaintext"
+        />
         <SwitchField v-model="form.insecureTls" :label="t('ldap.insecureTls')" />
       </div>
       <div class="space-y-1" data-testid="ldap-ca">
@@ -546,6 +556,7 @@ const browse = () =>
       <button type="submit" class="btn-primary" :disabled="busy" data-testid="ldap-save">
         {{ t('common.save') }}
       </button>
+      <UnsavedHint :dirty="dirty" />
     </form>
 
     <div class="card max-w-2xl space-y-3 p-4 text-sm">

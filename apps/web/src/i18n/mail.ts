@@ -46,10 +46,12 @@ export const ruMail = {
       authNone: 'Без аутентификации (relay разрешён по адресу сервера Arklock)',
       authPassword: 'Логин и пароль (SMTP AUTH)',
       authNtlm: 'Windows NTLM (Microsoft Exchange)',
+      ntlmNeedsTls:
+        'NTLM используется только по шифрованному соединению: выберите STARTTLS или SSL/TLS в поле «Защита соединения».',
       ntlmHint:
-        'Для Exchange, который объявляет только AUTH NTLM. Используется только NTLMv2 и только по защищённому соединению. Учётная запись: ДОМЕН\\логин или логин@домен.',
+        "Для Exchange, который объявляет только AUTH NTLM. Используется только NTLMv2 и только по защищённому соединению. Учётная запись: ДОМЕН\\логин или логин{'@'}домен.",
       user: 'Учётная запись',
-      userNtlm: 'ДОМЕН\\логин или логин@домен',
+      userNtlm: "ДОМЕН\\логин или логин{'@'}домен",
       password: 'Пароль',
       passwordSet: 'задан, оставьте пустым, чтобы не менять',
       passwordHint: 'Хранится зашифрованным и после сохранения не показывается.',
@@ -176,7 +178,7 @@ export const ruMail = {
       },
       auth_ntlm: {
         title: 'Ошибка обмена NTLM',
-        hint: 'Проверьте учётную запись (ДОМЕН\\логин или логин@домен) и что сервер принимает NTLMv2. NTLMv1 не используется.',
+        hint: "Проверьте учётную запись (ДОМЕН\\логин или логин{'@'}домен) и что сервер принимает NTLMv2. NTLMv1 не используется.",
       },
       relay_denied: {
         title: 'Сервер не пересылает почту',
@@ -339,10 +341,12 @@ export const enMail = {
       authNone: 'No authentication (relay allowed by the Arklock server address)',
       authPassword: 'Login and password (SMTP AUTH)',
       authNtlm: 'Windows NTLM (Microsoft Exchange)',
+      ntlmNeedsTls:
+        'NTLM is only used over an encrypted connection: choose STARTTLS or SSL/TLS in “Connection security”.',
       ntlmHint:
-        'For Exchange that announces only AUTH NTLM. Only NTLMv2 is used, and only over a protected connection. Account: DOMAIN\\login or login@domain.',
+        "For Exchange that announces only AUTH NTLM. Only NTLMv2 is used, and only over a protected connection. Account: DOMAIN\\login or login{'@'}domain.",
       user: 'Account',
-      userNtlm: 'DOMAIN\\login or login@domain',
+      userNtlm: "DOMAIN\\login or login{'@'}domain",
       password: 'Password',
       passwordSet: 'set, leave empty to keep',
       passwordHint: 'Stored encrypted and never shown after saving.',
@@ -470,7 +474,7 @@ export const enMail = {
       },
       auth_ntlm: {
         title: 'NTLM exchange failed',
-        hint: 'Check the account (DOMAIN\\login or login@domain) and that the server accepts NTLMv2. NTLMv1 is not used.',
+        hint: "Check the account (DOMAIN\\login or login{'@'}domain) and that the server accepts NTLMv2. NTLMv1 is not used.",
       },
       relay_denied: {
         title: 'The server does not relay mail',

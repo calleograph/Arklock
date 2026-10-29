@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from './stores/auth';
 import { useWorkspaceStore } from './stores/workspace';
 import WhatsNewDialog from './components/WhatsNewDialog.vue';
+import ErrorBoundary from './components/ErrorBoundary.vue';
 import { cmpVersion, openWhatsNew, whatsNew } from './services/releases';
 import { applyTheme, DEFAULT_THEME, storedTheme, toTheme } from './services/theme';
 import Icon from './components/Icon.vue';
@@ -368,7 +369,9 @@ const initial = () =>
       </div>
     </div>
     <main id="main" class="mx-auto max-w-screen-2xl px-3 py-3 sm:px-5 sm:py-4">
-      <RouterView />
+      <ErrorBoundary :reset-key="route.fullPath">
+        <RouterView />
+      </ErrorBoundary>
     </main>
     <WhatsNewDialog v-if="whatsNew" :from="whatsNew.from" @close="whatsNew = null" />
   </div>

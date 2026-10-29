@@ -18,6 +18,22 @@ const ru = flat(i18n.global.getLocaleMessage('ru') as unknown as Tree);
 const en = flat(i18n.global.getLocaleMessage('en') as unknown as Tree);
 
 describe('единый словарь терминов', () => {
+  it('каждое сообщение компилируется: «@», «|» и «{» в тексте не ломают отрисовку', () => {
+    // «логин@домен» без экранирования vue-i18n читает как связанное сообщение и падает при отрисовке
+    const bad: string[] = [];
+    for (const [loc, dict] of [
+      ['ru', ru],
+      ['en', en],
+    ] as const)
+      for (const k of Object.keys(dict))
+        try {
+          i18n.global.t(k, {}, { locale: loc });
+        } catch (e) {
+          bad.push(`${loc} ${k}: ${(e as Error).message.split('\n')[0]}`);
+        }
+    expect(bad).toEqual([]);
+  });
+
   it('русский и английский словари содержат одни и те же ключи', () => {
     expect(Object.keys(en).filter((k) => !(k in ru))).toEqual([]);
     expect(Object.keys(ru).filter((k) => !(k in en))).toEqual([]);

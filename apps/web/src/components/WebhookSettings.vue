@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SwitchField from './SwitchField.vue';
+import UnsavedHint from './UnsavedHint.vue';
+import { useDirty } from '../services/dirty';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { i18n } from '../i18n';
@@ -131,7 +133,12 @@ async function load(): Promise<void> {
   }>('GET', '/admin/webhooks');
   hooks.value = r.hooks.map((h) => ({ ...h, prefixes: h.prefixes.join(', ') }));
 }
-onMounted(() => load().catch((e) => (error.value = errorMessage(e, gt))));
+const { dirty, clean } = useDirty(() => hooks.value);
+onMounted(() =>
+  load()
+    .then(clean)
+    .catch((e) => (error.value = errorMessage(e, gt))),
+);
 
 const add = () => void hooks.value.push({ name: '', url: 'https://', prefixes: '', enabled: true });
 
@@ -163,6 +170,7 @@ async function save(): Promise<void> {
         secret: r.issuedSecrets[h.id!]!,
       }));
     notice.value = gt('admin.saved');
+    clean();
   } catch (e) {
     error.value = errorMessage(e, gt);
   } finally {
@@ -315,6 +323,7 @@ X-Arklock-Signature: sha256=3f5c…
         <button type="submit" class="btn-primary" :disabled="busy" data-testid="webhook-save">
           {{ gt('common.save') }}
         </button>
+        <UnsavedHint :dirty="dirty" />
         <span v-if="hooks.length >= 10" class="text-xs text-slate-500">{{ t('limit') }}</span>
       </div>
     </form>
