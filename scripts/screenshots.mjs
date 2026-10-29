@@ -312,8 +312,8 @@ try {
   await page.evaluate(() => globalThis.scrollTo(0, 0));
   await shot(page, 'admin-settings-glass');
   await page.evaluate(() => {
-    history.pushState({}, '', '/admin/settings?section=security');
-    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+    globalThis.history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new globalThis.PopStateEvent('popstate'));
   });
   const recoveryPhrase = 'demonstration-offline-recovery-passphrase-1';
   await tid(page, 'recovery-new-phrase').fill(recoveryPhrase);
@@ -347,8 +347,8 @@ try {
   await tid(page, 'menu-full').click();
   await tid(page, 'admin-tab-settings').click();
   await page.evaluate(() => {
-    history.pushState({}, '', '/admin/settings?section=security');
-    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+    globalThis.history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new globalThis.PopStateEvent('popstate'));
   });
   await tid(page, 'recovery-import-file').setInputFiles(recoveryPath);
   await tid(page, 'recovery-import-phrase').fill(recoveryPhrase);
@@ -358,8 +358,8 @@ try {
   // Уход со вкладки уничтожает импортированные закрытые ключи.
   await tid(page, 'settings-tab-main').click();
   await page.evaluate(() => {
-    history.pushState({}, '', '/admin/settings?section=security');
-    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+    globalThis.history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new globalThis.PopStateEvent('popstate'));
   });
   assert.equal(await tid(page, 'recovery-claim-confirm').count(), 0);
   await tid(page, 'recovery-import-file').setInputFiles(recoveryPath);
@@ -382,8 +382,8 @@ try {
     .waitFor();
   await tid(page, 'settings-tab-main').click();
   await page.evaluate(() => {
-    history.pushState({}, '', '/admin/settings?section=security');
-    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+    globalThis.history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new globalThis.PopStateEvent('popstate'));
   });
   await shot(page, 'corporate-recovery-glass');
 
@@ -410,8 +410,8 @@ try {
   await tid(page, 'menu-full').click();
   await tid(page, 'admin-tab-settings').click();
   await page.evaluate(() => {
-    history.pushState({}, '', '/admin/settings?section=security');
-    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+    globalThis.history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new globalThis.PopStateEvent('popstate'));
   });
   await tid(page, 'replacement-complete').click();
   await tid(page, 'replacement-prepare').waitFor();
