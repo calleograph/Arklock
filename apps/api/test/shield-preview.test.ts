@@ -276,4 +276,18 @@ describe('admin routes', () => {
       })
     ).json().token as string;
   }
+
+  it('the events log shows a change at once, without waiting for the batched write', async () => {
+    const rule = await call(
+      chief,
+      'PUT',
+      '/admin/shield/rules/scan.sensitive-path',
+      { mode: 'protect' },
+      { 'x-reauth-token': await reauthToken() },
+    );
+    expect([200, 204]).toContain(rule.statusCode);
+    // сразу после изменения, не дожидаясь секунды записи пачкой
+    const log = (await call(chief, 'GET', '/admin/shield/events?period=all&pageSize=100')).json();
+    expect(log.items.some((e: { kind: string }) => e.kind === 'protection_changed')).toBe(true);
+  });
 });

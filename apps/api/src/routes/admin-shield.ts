@@ -70,6 +70,7 @@ export const registerAdminShieldRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   // ---------------------------------------------------------------- обзор
   app.get('/admin/shield/overview', async () => {
+    await ctx.securityLog.flush();
     const since = new Date(Date.now() - DAY);
     const unknown: string[] = [];
     const safe = async <T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -603,6 +604,8 @@ export const registerAdminShieldRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     pageSize: z.coerce.number().int().min(10).max(100).default(50),
   });
   app.get('/admin/shield/events', async (req) => {
+    // события пишутся пачками: администратор, только что изменивший защиту, должен увидеть свою запись сразу
+    await ctx.securityLog.flush();
     const q = parse(eventsQuery, req.query);
     const span = { hour: 3_600_000, day: DAY, week: 7 * DAY, month: 30 * DAY }[q.period as 'hour'];
     const cond = [
