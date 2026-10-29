@@ -9,8 +9,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../../scripts/lib/access.sh
 . "$ROOT/scripts/lib/access.sh"
 # цветовые коды отключены, чтобы сравнивать текст (используются подключёнными библиотеками)
-# shellcheck disable=SC2034
-C_RED=""; C_GRN=""; C_YEL=""; C_BLU=""; C_OFF=""
+export C_RED="" C_GRN="" C_YEL="" C_BLU="" C_OFF=""
 
 TMP="$(mktemp -d)"
 MOCK_PID=0

@@ -221,7 +221,7 @@ jobs:
           grep -q "http://127.0.0.1:" access.log
           grep -q "X-Forwarded-Proto" access.log
           test "$(sudo sed -n 's/^APP_PUBLIC_URL=//p' "$CFG/arklock.env")" = https://arklock.example.test
-          ls "/var/lib/arklock-ci/config-backups" | grep -q "arklock.env."
+          sudo ls "/var/lib/arklock-ci/config-backups" | grep -q "arklock.env."
           # внутренний адрес не разрешается в этой сети: это «не удалось проверить», а не ошибка настройки (код 2)
           rc=0; sudo ./scripts/access.sh check --env "$CFG/arklock.env" || rc=$?
           test "$rc" = 2
