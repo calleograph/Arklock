@@ -8,6 +8,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 . "$ROOT/scripts/lib/common.sh"
 # shellcheck source=../../scripts/lib/access.sh
 . "$ROOT/scripts/lib/access.sh"
+# цветовые коды отключены, чтобы сравнивать текст (используются подключёнными библиотеками)
+# shellcheck disable=SC2034
 C_RED=""; C_GRN=""; C_YEL=""; C_BLU=""; C_OFF=""
 
 TMP="$(mktemp -d)"
@@ -141,7 +143,7 @@ if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   need_root() { :; }
   # запуск в подоболочке: die завершает её, а не тест; код возврата — результат команды
   acc() { ( PATH="$TMP/bin:$PATH" main "$@" ) 2>&1; }
-  run() { ACC_OUT="$(acc "$@")"; ACC_RC=$?; } # run АРГУМЕНТЫ… — вывод в ACC_OUT, код в ACC_RC; без подоболочки для кода
+  run() { ACC_OUT="$(acc "$@" </dev/null)"; ACC_RC=$?; } # run АРГУМЕНТЫ… — вывод в ACC_OUT, код в ACC_RC; без подоболочки для кода
 
   run status --env "$AENV"
   check "status: локально, код 0" eq "$ACC_RC" 0; check "status: текст" has "$ACC_OUT" "ГОТОВ ЛОКАЛЬНО"; check "status: технически" has "$ACC_OUT" "Технически:           ГОТОВ"
@@ -161,15 +163,16 @@ if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   check "set proxy: данные и секреты на месте" eq "$(env_get "$AENV" BOOTSTRAP_TOKEN)" synthetic-token
   check "set proxy: подсказка для прокси" has "$ACC_OUT" "X-Forwarded-Proto"
   check "set proxy: перезапуск только приложения" has "$(cat "$TMP/docker.log")" "up -d --no-build --wait --wait-timeout 180 app"
-  check "set proxy: копия настроек" eq "$(ls "$TMP/data/config-backups" | grep -c '^arklock.env\.')" 1
-  check "set proxy: права копии" eq "$(stat -c '%a' "$TMP/data/config-backups/$(ls "$TMP/data/config-backups" | head -n 1)")" 600
+  set -- "$TMP"/data/config-backups/arklock.env.*
+  check "set proxy: копия настроек" eq "$#" 1
+  check "set proxy: права копии" eq "$(stat -c '%a' "$1")" 600
   : > "$TMP/docker.log"
   run set proxy --env "$AENV" --url https://arklock.example.com --yes
   check "повтор без изменений: перезапуска нет" eq "$(wc -c < "$TMP/docker.log" | tr -d ' ')" 0
   check "повтор: сообщение" has "$ACC_OUT" "перезапуск не нужен"
 
   # заданный адрес не заменяется молча
-  run set proxy --env "$AENV" --url https://other.example.com </dev/null
+  run set proxy --env "$AENV" --url https://other.example.com
   check "замена без подтверждения отклонена" eq "$ACC_RC" 1; check "замена: объяснение" has "$ACC_OUT" "уже задан"
   check "замена: адрес прежний" eq "$(env_get "$AENV" APP_PUBLIC_URL)" "https://arklock.example.com"
   # явное подтверждение заменяет адрес; «приложение» в тесте слушает только 127.0.0.1, поэтому --bind local
@@ -190,7 +193,7 @@ if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   check "set local: готов" has "$ACC_OUT" "ГОТОВ ЛОКАЛЬНО"
   run set proxy --env "$AENV" --url https://arklock.example.com --yes
   check "возврат к proxy" eq "$ACC_RC" 0
-  run set local --env "$AENV" </dev/null
+  run set local --env "$AENV"
   check "set local: публичный адрес без подтверждения не стирается" eq "$ACC_RC" 1
   run set local --env "$AENV" --yes
   check "set local --yes: адрес снят" eq "$(env_get "$AENV" APP_PUBLIC_URL)" ""
@@ -204,7 +207,7 @@ else
 fi
 
 # ---------------------------------------------------------------- параметры установщика (разбор до любых изменений)
-inst() { bash "$ROOT/install.sh" "$@" --dry-run 2>&1 >/dev/null; echo "rc=$?"; }
+inst() { bash "$ROOT/install.sh" "$@" --dry-run >/dev/null 2>"$TMP/inst.err"; local rc=$?; cat "$TMP/inst.err"; echo "rc=$rc"; }
 out="$(inst --access nope)"; check "access: неизвестный режим" has "$out" "rc=2"
 out="$(inst --access proxy)"; check "proxy без адреса" has "$out" "требует --url https://"
 out="$(inst --access proxy --url http://arklock.example.com)"; check "proxy с http" has "$out" "должен начинаться с https://"
