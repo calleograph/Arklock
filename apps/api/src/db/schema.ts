@@ -764,9 +764,19 @@ export const mailQueue = pgTable(
     profileId: text('profile_id').notNull(),
     to: text('recipient').notNull(),
     type: text('type', { enum: ['invitation', 'security', 'test'] }).notNull(),
-    status: text('status', { enum: ['queued', 'sending', 'sent', 'failed'] })
+    status: text('status', { enum: ['queued', 'sending', 'sent', 'failed', 'cancelled'] })
       .notNull()
       .default('queued'),
+    /** Тип уведомления в журнале (безопасность, приглашение, проверка…): по нему отбирают и ищут. */
+    category: text('category'),
+    /** Название профиля на момент отправки: журнал читается и после удаления профиля. */
+    profileName: text('profile_name'),
+    /** Message-ID письма и идентификатор, который назвал SMTP-сервер при приёме. */
+    messageId: text('message_id'),
+    smtpRef: text('smtp_ref'),
+    /** Этап и очищенный текст последней ошибки (без паролей и содержимого писем). */
+    lastStage: text('last_stage'),
+    lastText: text('last_text'),
     payloadCipher: text('payload_cipher').notNull(),
     attempts: integer('attempts').notNull().default(0),
     nextAttemptAt: ts('next_attempt_at').notNull().defaultNow(),

@@ -8,7 +8,7 @@ export const captchaBusy = ref(false);
 type Challenge = Omit<CaptchaSolution, 'number'>;
 
 /** Подбор числа в отдельном потоке (интерфейс не блокируется); без Worker — в основном потоке порциями. */
-async function findNumber(c: Challenge): Promise<number> {
+export async function findNumber(c: Pick<Challenge, 'salt' | 'bits'>): Promise<number> {
   if (typeof Worker !== 'undefined') {
     return new Promise<number>((resolve, reject) => {
       const w = new Worker(new URL('../workers/pow.worker.ts', import.meta.url), {

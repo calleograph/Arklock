@@ -311,7 +311,10 @@ try {
   await tid(page, 'settings-group-access').waitFor();
   await page.evaluate(() => globalThis.scrollTo(0, 0));
   await shot(page, 'admin-settings-glass');
-  await tid(page, 'settings-tab-security').click();
+  await page.evaluate(() => {
+    history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+  });
   const recoveryPhrase = 'demonstration-offline-recovery-passphrase-1';
   await tid(page, 'recovery-new-phrase').fill(recoveryPhrase);
   await tid(page, 'recovery-repeat-phrase').fill(recoveryPhrase);
@@ -343,7 +346,10 @@ try {
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-full').click();
   await tid(page, 'admin-tab-settings').click();
-  await tid(page, 'settings-tab-security').click();
+  await page.evaluate(() => {
+    history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+  });
   await tid(page, 'recovery-import-file').setInputFiles(recoveryPath);
   await tid(page, 'recovery-import-phrase').fill(recoveryPhrase);
   await tid(page, 'recovery-unlock-package').click();
@@ -351,7 +357,10 @@ try {
   await tid(page, 'recovery-claim-confirm').uncheck();
   // Уход со вкладки уничтожает импортированные закрытые ключи.
   await tid(page, 'settings-tab-main').click();
-  await tid(page, 'settings-tab-security').click();
+  await page.evaluate(() => {
+    history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+  });
   assert.equal(await tid(page, 'recovery-claim-confirm').count(), 0);
   await tid(page, 'recovery-import-file').setInputFiles(recoveryPath);
   await tid(page, 'recovery-import-phrase').fill(recoveryPhrase);
@@ -372,7 +381,10 @@ try {
     .filter({ hasText: /Права владельца|Owner/ })
     .waitFor();
   await tid(page, 'settings-tab-main').click();
-  await tid(page, 'settings-tab-security').click();
+  await page.evaluate(() => {
+    history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+  });
   await shot(page, 'corporate-recovery-glass');
 
   // замена офлайн-пакета: подготовка, переподключение сейфа, завершение
@@ -397,7 +409,10 @@ try {
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-full').click();
   await tid(page, 'admin-tab-settings').click();
-  await tid(page, 'settings-tab-security').click();
+  await page.evaluate(() => {
+    history.pushState({}, '', '/admin/settings?section=security');
+    globalThis.dispatchEvent(new PopStateEvent('popstate'));
+  });
   await tid(page, 'replacement-complete').click();
   await tid(page, 'replacement-prepare').waitFor();
   assert.notEqual(await tid(page, 'recovery-fingerprint').textContent(), oldFingerprint);

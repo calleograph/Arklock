@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { THEMES } from '../services/theme';
 import ShieldPanel from '../components/ShieldPanel.vue';
+import MailSettings from '../components/MailSettings.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -874,6 +875,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <RolesPanel v-else-if="tab === 'roles'" />
         <InvitationsPanel v-else-if="tab === 'invitations'" />
         <ShieldPanel v-else-if="tab === 'shield'" />
+        <MailSettings v-else-if="tab === 'smtp'" />
         <SyslogSettings v-else-if="tab === 'syslog'" />
         <UpdatesView v-else-if="tab === 'updates'" />
         <OrganizationPanel v-else-if="tab === 'organization'" />

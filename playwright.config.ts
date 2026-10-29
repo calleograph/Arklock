@@ -223,6 +223,8 @@ export default defineConfig({
         BOOTSTRAP_TOKEN: 'e2e-setup-code-e2e-setup-code-4',
         UPDATER_DIR: ADMIN_UPDATER_DIR,
         APP_PUBLIC_URL: `http://127.0.0.1:${PORT_ADMIN}`,
+        // тестовый приёмник почты слушает loopback
+        SMTP_ALLOW_LOOPBACK: 'on',
         BLOB_DIR: path.resolve('test-results', 'blobs-admin'),
       },
     },

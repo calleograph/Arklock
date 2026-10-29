@@ -25,7 +25,7 @@ export const ruShield = {
     overview: {
       loginProtection: 'Защита входа',
       loginActive: 'Активна: ограничения хранятся на сервере и не зависят от браузера',
-      captcha: 'Дополнительная проверка',
+      captcha: 'Дополнительная автоматическая проверка',
       captchaAdaptive: 'Адаптивная: после {n} ошибок входа',
       access: 'Ограничение по IP-адресам',
       accessOff: 'Выключено',
@@ -52,8 +52,8 @@ export const ruShield = {
     },
     login: {
       intro:
-        'После нескольких ошибок вход требует дополнительной проверки (подбор числа в браузере, без картинок и внешних сервисов). Она проверяется на сервере, одноразовая и не пропадает после F5 или очистки cookie. Учётная запись целиком не блокируется: подбор с чужих адресов не мешает владельцу, который заходит с привычного адреса.',
-      captchaAfter: 'Ошибок до дополнительной проверки',
+        'После нескольких ошибок вход требует дополнительной автоматической проверки: браузер решает вычислительное задание (подбор SHA-256), без картинок и внешних сервисов. Это не CAPTCHA и не проверка того, что за экраном человек: задание удорожает перебор паролей. Оно проверяется на сервере, одноразовое и не пропадает после F5 или очистки cookie. Учётная запись целиком не блокируется: подбор с чужих адресов не мешает владельцу, который заходит с привычного адреса.',
+      captchaAfter: 'Ошибок до дополнительной автоматической проверки',
       windowMinutes: 'Окно подсчёта ошибок, минут',
       blockMinutes: 'Первое временное ограничение, минут',
       blockHint:
@@ -62,6 +62,89 @@ export const ruShield = {
       how1: 'Считаются адрес, пара «адрес + учётная запись» и учётная запись по всем адресам.',
       how2: 'С одного адреса много ошибок — ограничивается адрес; много ошибок для одной записи с одного адреса — только эта пара.',
       how3: 'Много ошибок для одной записи с разных адресов — незнакомым адресам нужна проверка, владелец с привычного адреса входит как обычно.',
+      mechanism:
+        'Механизм: вычислительное задание в браузере (подбор SHA-256). Оно удорожает перебор паролей, но не отличает человека от программы и не заменяет ограничения по адресам. Внешних служб не использует.',
+      previewOpen: 'Проверить дополнительную защиту',
+      checkSettings: 'Проверить настройки',
+      apply: 'Применить',
+      revert: 'Отмена',
+      checkedOk: 'Настройки корректны. Проверьте предупреждения ниже и нажмите «Применить».',
+      checkedErr: 'Настройки нельзя применить:',
+      changedSince: 'Значения изменены после проверки: проверьте настройки ещё раз.',
+      ackWarnings: 'Понимаю риски и применяю',
+      summaryTitle: 'Что происходит при этих настройках',
+      sum: {
+        window: 'Ошибки считаются в окне {n} мин.',
+        captcha: 'После {n} ошибок в окне вход требует дополнительной автоматической проверки.',
+        bits: 'Задание сложностью {start} бит: примерно {fast} с на быстром компьютере и {slow} с на слабом телефоне (оценка, не измерение); при повторных ошибках растёт до {max} бит.',
+        pair: 'После {n} ошибок для пары «адрес + учётная запись» эта пара ограничивается.',
+        ip: 'После {n} ошибок с одного адреса ограничивается весь адрес.',
+        steps:
+          'Срок ограничения: {steps} мин (повторные нарушения за сутки удваивают срок, не больше {max} мин).',
+        covered:
+          'Охвачено: вход, восстановление доступа, вход через каталог. Коды второго фактора и ключи доступа ограничиваются отдельным счётчиком.',
+        always:
+          'Действует всегда и без этой политики: не более {n} запросов входа в минуту на сеанс или адрес, правила фильтрации запросов, серверная проверка прав.',
+      },
+      err: {
+        out_of_range: 'значение вне допустимых границ',
+        not_integer: 'нужно целое число',
+        required: 'укажите число',
+        inconsistent: 'порог проверки должен быть заметно ниже порогов блокировки',
+        block_over_max: 'первое ограничение не может превышать предел увеличения срока',
+        unknown: 'недопустимое значение',
+      },
+      field: {
+        captchaAfter: 'Ошибок до проверки',
+        windowMinutes: 'Окно подсчёта',
+        blockMinutes: 'Первое ограничение',
+        blockIpAfter: 'Порог адреса',
+        blockPairAfter: 'Порог пары',
+      },
+      warn: {
+        max_bits_raised:
+          'Предел сложности поднят до {bits} бит: он не может быть ниже начальной сложности.',
+        proxy_not_trusted:
+          'Запрос пришёл через прокси, а Arklock не доверяет прокси (число звеньев равно 0): все сотрудники выглядят как один адрес, и порог адреса заблокирует всех сразу. Сначала настройте доверенные прокси.',
+        ip_threshold_low:
+          'Порог адреса {n} низкий: за одним адресом обычно сидит целый офис, и несколько опечаток разных сотрудников ограничат всех.',
+        pair_threshold_low:
+          'Порог пары {n} низкий: сотрудника ограничат после нескольких опечаток в пароле.',
+        captcha_every_typo:
+          'Проверка начнётся уже со второй ошибки: каждая опечатка заставит браузер решать задание.',
+        captcha_after_pair_block:
+          'Порог проверки ({captcha}) не ниже порога пары ({pair}): пара будет ограничена раньше, чем появится проверка.',
+        long_block:
+          'Первое ограничение {minutes} мин: ошибившийся сотрудник будет ждать больше часа.',
+        long_window:
+          'Окно подсчёта {minutes} мин при невысоком пороге адреса: редкие опечатки в течение дня накопятся и ограничат адрес.',
+        slow_on_phones: 'Предел сложности даёт задание примерно на {seconds} с на слабом телефоне.',
+        weaker_than_current:
+          'Новые настройки слабее действующих: защита от подбора станет мягче. Изменение попадёт в журнал событий безопасности как критичное.',
+      },
+      preview: {
+        title: 'Пробная проверка входа',
+        intro:
+          'Так проверка выглядит для сотрудника. Это пробный просмотр: ошибки входа не создаются, счётчики и блокировки не меняются, ваша учётная запись не затрагивается.',
+        mechanism:
+          'Механизм: вычислительное задание (SHA-256), сложность {bits} бит. Срок действия задания 5 минут, использовать можно один раз.',
+        mobile: 'Вид на телефоне',
+        mockEmail: 'Электронная почта',
+        mockPassword: 'Мастер-пароль',
+        mockSubmit: 'Войти',
+        start: 'Пройти проверку',
+        error: 'Показать ошибку',
+        again: 'Повторить',
+        close: 'Закрыть',
+        idle: 'Нажмите «Пройти проверку»: задание будет получено с сервера и решено в браузере.',
+        working: 'Выполняется дополнительная автоматическая проверка… {s} с',
+        ok: 'Проверка пройдена за {s} с: сервер принял решение.',
+        rejected:
+          'Сервер не принял решение: оно неверно, просрочено или уже использовано. Сотрудник видит эту ошибку и может повторить вход.',
+        failed: 'Не удалось получить задание: {message}',
+        reproduce:
+          'Состояния в этом окне настоящие: задание выдаёт и проверяет сервер тем же кодом, что и вход.',
+      },
     },
     ips: {
       intro:
@@ -274,7 +357,7 @@ export const enShield = {
     overview: {
       loginProtection: 'Sign-in protection',
       loginActive: 'Active: limits are kept on the server and do not depend on the browser',
-      captcha: 'Additional verification',
+      captcha: 'Additional automatic check',
       captchaAdaptive: 'Adaptive: after {n} failed sign-ins',
       access: 'IP address restriction',
       accessOff: 'Off',
@@ -301,8 +384,8 @@ export const enShield = {
     },
     login: {
       intro:
-        'After a few failures, sign-in requires additional verification (a proof-of-work solved in the browser; no images or external services). It is checked on the server, single-use, and survives F5 or cookie clearing. An account is never locked as a whole: guessing from other addresses does not stop the owner signing in from a familiar address.',
-      captchaAfter: 'Failures before additional verification',
+        'After a few failures, sign-in requires an additional automatic check: the browser solves a computational task (SHA-256 proof of work), with no images or external services. It is not a CAPTCHA and does not prove a person is present: the task makes password guessing more expensive. It is checked on the server, single-use, and survives F5 or cookie clearing. An account is never locked as a whole: guessing from other addresses does not stop the owner signing in from a familiar address.',
+      captchaAfter: 'Failures before the additional automatic check',
       windowMinutes: 'Counting window, minutes',
       blockMinutes: 'First temporary restriction, minutes',
       blockHint:
@@ -311,6 +394,90 @@ export const enShield = {
       how1: 'The address, the pair “address + account” and the account across all addresses are counted.',
       how2: 'Many failures from one address restrict the address; many failures for one account from one address restrict only that pair.',
       how3: 'Many failures for one account from different addresses require verification from unfamiliar addresses; the owner signs in as usual from a familiar one.',
+      mechanism:
+        'Mechanism: a computational task in the browser (SHA-256 proof of work). It makes password guessing more expensive, but it cannot tell a person from a program and does not replace address restrictions. No external services.',
+      previewOpen: 'Check the additional protection',
+      checkSettings: 'Check settings',
+      apply: 'Apply',
+      revert: 'Cancel',
+      checkedOk: 'The settings are valid. Review the warnings below and press “Apply”.',
+      checkedErr: 'These settings cannot be applied:',
+      changedSince: 'The values changed after the check: check the settings again.',
+      ackWarnings: 'I understand the risks and apply',
+      summaryTitle: 'What happens with these settings',
+      sum: {
+        window: 'Failures are counted in a window of {n} min.',
+        captcha:
+          'After {n} failures in the window, sign-in requires the additional automatic check.',
+        bits: 'The task has {start} bits of difficulty: roughly {fast} s on a fast computer and {slow} s on a weak phone (an estimate, not a measurement); with repeated failures it grows to {max} bits.',
+        pair: 'After {n} failures for an “address + account” pair, that pair is restricted.',
+        ip: 'After {n} failures from one address, the whole address is restricted.',
+        steps:
+          'Restriction time: {steps} min (repeat violations within a day double it, up to {max} min).',
+        covered:
+          'Covers: sign-in, account recovery, directory sign-in. Second-factor codes and passkeys have a separate counter.',
+        always:
+          'Always on, even without this policy: at most {n} sign-in requests a minute per session or address, request filtering rules, server-side permission checks.',
+      },
+      err: {
+        out_of_range: 'the value is out of the allowed range',
+        not_integer: 'an integer is required',
+        required: 'enter a number',
+        inconsistent: 'the check threshold must be well below the blocking thresholds',
+        block_over_max: 'the first restriction cannot exceed the maximum growth limit',
+        unknown: 'invalid value',
+      },
+      field: {
+        captchaAfter: 'Failures before the check',
+        windowMinutes: 'Counting window',
+        blockMinutes: 'First restriction',
+        blockIpAfter: 'Address threshold',
+        blockPairAfter: 'Pair threshold',
+      },
+      warn: {
+        max_bits_raised:
+          'The maximum difficulty was raised to {bits} bits: it cannot be below the starting difficulty.',
+        proxy_not_trusted:
+          'This request came through a proxy, but Arklock does not trust proxies (hops is 0): every employee looks like one address and the address threshold would block everyone at once. Configure trusted proxies first.',
+        ip_threshold_low:
+          'The address threshold of {n} is low: an office usually sits behind one address, and a few typos by different employees would restrict everyone.',
+        pair_threshold_low:
+          'The pair threshold of {n} is low: an employee will be restricted after a few password typos.',
+        captcha_every_typo:
+          'The check starts at the second failure: every typo makes the browser solve a task.',
+        captcha_after_pair_block:
+          'The check threshold ({captcha}) is not below the pair threshold ({pair}): the pair is restricted before the check appears.',
+        long_block:
+          'The first restriction is {minutes} min: an employee who made a mistake waits over an hour.',
+        long_window:
+          'A window of {minutes} min with a low address threshold: rare typos over a day add up and restrict the address.',
+        slow_on_phones: 'The maximum difficulty means about {seconds} s on a weak phone.',
+        weaker_than_current:
+          'The new settings are weaker than the current ones: protection against guessing gets softer. The change is logged as critical.',
+      },
+      preview: {
+        title: 'Sign-in check preview',
+        intro:
+          'This is what the check looks like to an employee. It is a preview: no sign-in failures are created, counters and blocks do not change, and your own account is not affected.',
+        mechanism:
+          'Mechanism: a computational task (SHA-256), difficulty {bits} bits. The task is valid for 5 minutes and can be used once.',
+        mobile: 'Phone view',
+        mockEmail: 'Email',
+        mockPassword: 'Master password',
+        mockSubmit: 'Sign in',
+        start: 'Run the check',
+        error: 'Show an error',
+        again: 'Try again',
+        close: 'Close',
+        idle: 'Press “Run the check”: the task is fetched from the server and solved in the browser.',
+        working: 'Running the additional automatic check… {s} s',
+        ok: 'Check passed in {s} s: the server accepted the answer.',
+        rejected:
+          'The server did not accept the answer: it is wrong, expired or already used. An employee sees this error and can try again.',
+        failed: 'Could not get the task: {message}',
+        reproduce:
+          'The states here are real: the server issues and verifies the task with the same code as sign-in.',
+      },
     },
     ips: {
       intro:

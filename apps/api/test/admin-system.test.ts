@@ -96,8 +96,11 @@ describe('access to every administration route', () => {
     const routes = app.routeTable.filter((r) => r.url.startsWith('/api/v1/admin'));
     expect(routes.length).toBeGreaterThan(20);
     const uuid = crypto.randomUUID();
+    let checked = 0;
     for (const r of routes) {
       if (r.method === 'HEAD' || r.method === 'OPTIONS') continue;
+      // сотрудник, получающий сотни отказов по объектам за минуты, ограничивается защитой от перебора: каждые 100 запросов — новый сеанс
+      if (++checked % 100 === 0) await bob.login();
       const url = r.url.replace(/:[A-Za-z]+/g, uuid);
       const anon = await app.inject({ method: r.method as 'GET', url });
       expect(anon.statusCode, `${r.method} ${url} anonymous`).toBe(401);
@@ -209,7 +212,7 @@ describe('mail (SMTP)', () => {
     try {
       expect((await admin.req('GET', '/admin/smtp')).json()).toEqual({ configured: false });
       expect((await admin.req('POST', '/admin/smtp/test')).statusCode).toBe(409);
-      const put = await admin.req('PUT', '/admin/smtp', {
+      const put = await admin.reqStep('PUT', '/admin/smtp', {
         host: '127.0.0.1',
         port: smtp.port,
         security: 'none',
@@ -246,7 +249,7 @@ describe('mail (SMTP)', () => {
       expect(smtp.received[0]!.data).toContain('Subject:');
 
       // сохранение без пароля оставляет прежний; неверный пароль даёт понятный отказ
-      await admin.req('PUT', '/admin/smtp', {
+      await admin.reqStep('PUT', '/admin/smtp', {
         host: '127.0.0.1',
         port: smtp.port,
         security: 'none',
@@ -254,7 +257,7 @@ describe('mail (SMTP)', () => {
         from: 'arklock@example.com',
       });
       expect((await admin.req('POST', '/admin/smtp/test')).json().ok).toBe(true);
-      await admin.req('PUT', '/admin/smtp', {
+      await admin.reqStep('PUT', '/admin/smtp', {
         host: '127.0.0.1',
         port: smtp.port,
         security: 'none',
@@ -266,7 +269,7 @@ describe('mail (SMTP)', () => {
       expect(bad.ok).toBe(false);
       expect(bad.message).toContain('AUTH');
       // внедрение команд через адрес получателя невозможно
-      await admin.req('PUT', '/admin/smtp', {
+      await admin.reqStep('PUT', '/admin/smtp', {
         host: '127.0.0.1',
         port: smtp.port,
         security: 'none',
@@ -287,7 +290,7 @@ describe('mail (SMTP)', () => {
   });
 
   it('an unreachable server is reported, not thrown', async () => {
-    await admin.req('PUT', '/admin/smtp', {
+    await admin.reqStep('PUT', '/admin/smtp', {
       host: '127.0.0.1',
       port: 1,
       security: 'none',

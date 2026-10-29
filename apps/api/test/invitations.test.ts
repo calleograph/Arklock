@@ -277,7 +277,7 @@ describe('mail: invitation delivery and security notices', () => {
       sendEmail: true,
     });
     expect(r.json().emailed).toBe(false);
-    await admin.req('PUT', '/admin/smtp', {
+    await admin.reqStep('PUT', '/admin/smtp', {
       host: '127.0.0.1',
       port: smtpPort,
       security: 'none',

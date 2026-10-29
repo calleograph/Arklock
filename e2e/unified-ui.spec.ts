@@ -840,3 +840,95 @@ test('модальные окна одинаково оформлены во в�
   });
   await chief.setViewportSize({ width: 1366, height: 768 });
 });
+
+test('защита входа: проверка настроек до применения, пробная проверка, применение и отмена', async () => {
+  await chief.setViewportSize({ width: 1366, height: 768 });
+  await chief.goto('/admin/shield');
+  await chief.getByTestId('shield-tab-login').click();
+  await expect(chief.getByTestId('shield-login')).toBeVisible();
+  // названия: вычислительное задание не выдаётся за CAPTCHA
+  await expect(chief.getByTestId('login-mechanism')).toContainText(
+    /вычислительное задание|computational task/,
+  );
+  await expect(chief.getByTestId('shield-login')).not.toContainText(/CAPTCHA\s+включ/i);
+  await expect(chief.getByTestId('policy-summary')).toContainText(/\d+ (ошибок|failures)/);
+
+  // «Применить» недоступно, пока настройки не проверены
+  await expect(chief.getByTestId('shield-save-login')).toBeDisabled();
+  await chief.getByTestId('set-captcha-after').fill('0');
+  await chief.getByTestId('shield-check-login').click();
+  await expect(chief.getByTestId('policy-errors')).toContainText(
+    /вне допустимых границ|out of the allowed range/,
+  );
+  await expect(chief.getByTestId('shield-save-login')).toBeDisabled();
+
+  // рискованные, но допустимые значения: предупреждение, применить можно только после подтверждения
+  await chief.getByTestId('set-captcha-after').fill('2');
+  await chief.getByTestId('shield-check-login').click();
+  await expect(chief.getByTestId('policy-ok')).toBeVisible();
+  await expect(chief.getByTestId('policy-warnings')).toContainText(/второй ошибки|second failure/);
+  await expect(chief.getByTestId('shield-save-login')).toBeDisabled();
+  await chief.getByTestId('policy-ack').check();
+  await expect(chief.getByTestId('shield-save-login')).toBeEnabled();
+  // после правки значения прежняя проверка недействительна
+  await chief.getByTestId('set-captcha-after').fill('3');
+  await expect(chief.getByTestId('policy-stale')).toBeVisible();
+  await expect(chief.getByTestId('shield-save-login')).toBeDisabled();
+  // отмена возвращает действующие значения
+  await chief.getByTestId('shield-revert-login').click();
+  await expect(chief.getByTestId('set-captcha-after')).toHaveValue('5');
+  await expect(chief.getByTestId('policy-check')).toHaveCount(0);
+
+  // пробная проверка: настоящее задание, успех, ошибка, телефон
+  await chief.getByTestId('shield-preview-open').click();
+  await expect(chief.getByTestId('login-preview')).toBeVisible();
+  await expect(chief.getByTestId('preview-idle')).toBeVisible();
+  await chief.getByTestId('preview-start').click();
+  await expect(chief.getByTestId('preview-ok')).toBeVisible({ timeout: 60_000 });
+  await chief.getByTestId('preview-wrong').click();
+  await expect(chief.getByTestId('preview-error')).toBeVisible({ timeout: 30_000 });
+  await chief.getByTestId('preview-phone').check();
+  const width = await chief
+    .getByTestId('preview-form')
+    .evaluate((el) => el.getBoundingClientRect().width);
+  expect(width).toBeLessThanOrEqual(352);
+  await chief.screenshot({ path: 'docs/screenshots/shield-login-preview.png' });
+  // телефонный экран: окно не шире экрана, кнопки доступны
+  await chief.setViewportSize({ width: 390, height: 844 });
+  const box = await chief.getByTestId('login-preview').locator('.modal').boundingBox();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  await expect(chief.getByTestId('preview-close')).toBeInViewport();
+  await chief.setViewportSize({ width: 1366, height: 768 });
+  await chief.getByTestId('preview-close').click();
+  await expect(chief.getByTestId('login-preview')).toHaveCount(0);
+
+  // применение: проверка, подтверждение паролем, действующее значение сохранено и видно после F5
+  await chief.getByTestId('set-captcha-after').fill('6');
+  await chief.getByTestId('shield-check-login').click();
+  await expect(chief.getByTestId('policy-ok')).toBeVisible();
+  // 6 мягче действующих 5: система предупреждает об ослаблении и просит подтверждение
+  await expect(chief.getByTestId('policy-warnings')).toContainText(
+    /слабее действующих|weaker than the current/,
+  );
+  await chief.getByTestId('policy-ack').check();
+  await chief.getByTestId('shield-save-login').click();
+  await chief.getByTestId('shield-password').fill(CHIEF.password);
+  await chief.getByTestId('shield-reauth-ok').click();
+  await expect(chief.getByTestId('shield-notice')).toBeVisible();
+  await chief.reload();
+  await chief.getByTestId('shield-tab-login').click();
+  await expect(chief.getByTestId('set-captcha-after')).toHaveValue('6');
+  await expect(chief.getByTestId('policy-summary')).toContainText('6');
+  // возвращаем значение по умолчанию
+  await chief.getByTestId('set-captcha-after').fill('5');
+  await chief.getByTestId('shield-check-login').click();
+  await expect(chief.getByTestId('policy-ok')).toBeVisible();
+  await expect(chief.getByTestId('policy-warnings')).toHaveCount(0); // ужесточение не требует подтверждения
+  await chief.getByTestId('shield-save-login').click();
+  // подтверждение паролем хранится только в памяти вкладки и после F5 запрашивается снова
+  await chief.getByTestId('shield-password').fill(CHIEF.password);
+  await chief.getByTestId('shield-reauth-ok').click();
+  await expect(chief.getByTestId('shield-notice')).toBeVisible();
+  await expect(chief.getByTestId('set-captcha-after')).toHaveValue('5');
+});

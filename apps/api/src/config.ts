@@ -30,6 +30,11 @@ const schema = z.object({
   WEB_DIST: z.string().default(''),
   /** Сколько прокси стоит перед приложением (для корректного IP клиента). */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
+  /** Разрешить почтовые профили на адреса этого же хоста (127.0.0.1): только для приёмника почты на самом сервере; выключено. */
+  SMTP_ALLOW_LOOPBACK: z.enum(['on', 'off']).default('off'),
+  /** Тестовых писем и проверок почты за 10 минут на администратора (защита почтового сервера от случайной рассылки). */
+  SMTP_TEST_MAILS_PER_10MIN: z.coerce.number().int().min(1).max(1000).default(5),
+  SMTP_CHECKS_PER_10MIN: z.coerce.number().int().min(1).max(1000).default(10),
   SESSION_IDLE_HOURS: z.coerce.number().positive().default(12),
   SESSION_MAX_DAYS: z.coerce.number().positive().default(7),
   LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(10),

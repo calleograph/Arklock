@@ -4,8 +4,15 @@ import { email } from '@arklock/contracts';
 import type { AppContext } from '../context.js';
 import { mailQueue, settings, users } from '../db/schema.js';
 import { openSetting, sealSetting } from '../secretbox.js';
-import { activeSmtpId, loadSmtpProfile, toSmtpConfig } from './profiles.js';
-import { smtpSession, SmtpError } from './smtp.js';
+import {
+  allStoredSmtp,
+  loadSmtpProfile,
+  profileIdFor,
+  recordSmtpStatus,
+  toSmtpConfig,
+  type StoredSmtp,
+} from './profiles.js';
+import { serverText, smtpSession, SmtpError } from './smtp.js';
 import {
   mailCategory,
   mailCategoryEnabled,
@@ -22,7 +29,7 @@ export {
 } from './profiles.js';
 
 export const MAIL_MAX_ATTEMPTS = 5;
-export const MAIL_MAX_ROWS = 1000;
+export const MAIL_MAX_ROWS = 5000;
 const LEASE_MS = 5 * 60_000;
 const PAYLOAD_TTL_MS = 24 * 3_600_000;
 const payloadSchema = z.object({
@@ -36,22 +43,55 @@ const payloadSchema = z.object({
 });
 const purpose = (id: string) => `mail-queue:${id}`;
 
+/** Причины, при которых повтор имеет смысл: сервер временно занят или недоступен. Остальное исправляет администратор. */
+export const RETRYABLE = new Set([
+  'temporary',
+  'limit',
+  'connect',
+  'timeout',
+  'closed',
+  'aborted',
+  'dns',
+]);
+/** Сбои соединения: тут помогает резервный профиль. */
+const CONNECTION = new Set(['connect', 'timeout', 'closed', 'dns']);
+/** Причины, которые говорят о самом профиле (а не об одном адресате). */
+const PROFILE_LEVEL = new Set([
+  'dns',
+  'connect',
+  'timeout',
+  'closed',
+  'tls',
+  'certificate',
+  'starttls',
+  'auth_failed',
+  'auth_unsupported',
+  'auth_ntlm',
+  'protocol',
+  'sender_rejected',
+  'relay_denied',
+  'forbidden_target',
+  'forbidden_port',
+]);
+
 export function mailFailure(error: unknown) {
   if (!(error instanceof SmtpError))
     return {
       code: 'error',
-      smtpStatus: null,
+      smtpStatus: null as number | null,
       retry: false,
       message: 'Mail configuration or delivery failed',
+      stage: null as string | null,
+      text: null as string | null,
     };
   const smtpStatus = error.smtpStatus ?? null;
   return {
     code: error.code,
     smtpStatus,
-    retry: smtpStatus
-      ? smtpStatus >= 400 && smtpStatus < 500
-      : ['connect', 'closed', 'timeout', 'aborted'].includes(error.code),
+    retry: RETRYABLE.has(error.code),
     message: error.message,
+    stage: error.stage ?? null,
+    text: error.serverText ?? null,
   };
 }
 
@@ -64,12 +104,15 @@ export async function enqueueMail(
   type: MailType = 'security',
   selectedProfile?: string,
   category: MailCategory = type,
+  /** Срок, после которого письмо бессмысленно (ссылка приглашения, код): позже оно не отправляется и не повторяется. */
+  validUntil?: Date,
 ) {
   const payload = payloadSchema.safeParse({ to, subject, text, category });
   if (!payload.success) return null;
   if (!(await mailCategoryEnabled(ctx, category))) return null;
-  const profileId = selectedProfile ?? (await activeSmtpId(ctx));
-  if (!profileId || !(await loadSmtpProfile(ctx, profileId))) return null;
+  const profileId = selectedProfile ?? (await profileIdFor(ctx, type));
+  const stored = profileId ? await loadSmtpProfile(ctx, profileId) : null;
+  if (!profileId || !stored) return null;
   const now = new Date();
   const id = crypto.randomUUID();
   return ctx.db.transaction(async (tx) => {
@@ -93,10 +136,14 @@ export async function enqueueMail(
     await tx.insert(mailQueue).values({
       id,
       profileId,
+      profileName: stored.name ?? null,
+      category,
       to: payload.data.to,
       type,
       payloadCipher: sealSetting(ctx.config.APP_SECRET, purpose(id), JSON.stringify(payload.data)),
-      expiresAt: new Date(now.getTime() + PAYLOAD_TTL_MS),
+      expiresAt: new Date(
+        Math.min(now.getTime() + PAYLOAD_TTL_MS, validUntil?.getTime() ?? Infinity),
+      ),
       nextAttemptAt: now,
     });
     return id;
@@ -140,6 +187,11 @@ async function deliverOne(ctx: AppContext, now: Date, onlyId?: string, signal?: 
   });
   if (!claimed) return false;
   let outcome: ReturnType<typeof mailFailure> | null = null;
+  let used: { id: string; name: string | null } = {
+    id: claimed.profileId,
+    name: claimed.profileName,
+  };
+  let accepted: { ref: string | null; messageId: string } | null = null;
   try {
     if (claimed.expiresAt <= now) throw new SmtpError('Message expired', 'expired');
     const profile = await loadSmtpProfile(ctx, claimed.profileId);
@@ -149,10 +201,36 @@ async function deliverOne(ctx: AppContext, now: Date, onlyId?: string, signal?: 
     );
     if (!(await mailCategoryEnabled(ctx, payload.category)))
       throw new SmtpError('This mail category is disabled', 'disabled');
-    // shortcut: SMTP cannot atomically commit delivery and this DB row, a crash may resend the same Message-ID.
-    await smtpSession(toSmtpConfig(ctx, profile), { ...payload, id: claimed.id }, 15_000, signal);
+    const attempt = (p: StoredSmtp) =>
+      toSmtpConfig(ctx, p).then((cfg) =>
+        smtpSession(cfg, { ...payload, id: claimed.id }, { signal }),
+      );
+    used = { id: claimed.profileId, name: profile.name ?? null };
+    let result;
+    try {
+      // shortcut: SMTP cannot atomically commit delivery and this DB row, a crash may resend the same Message-ID.
+      result = await attempt(profile);
+    } catch (error) {
+      // сбой соединения с основным профилем: один раз пробуем резервный, в журнале остаётся тот, что принял письмо
+      const backup =
+        error instanceof SmtpError && CONNECTION.has(error.code)
+          ? (await allStoredSmtp(ctx)).find((p) => p.fallback && p.profileId !== claimed.profileId)
+          : undefined;
+      if (!backup) throw error;
+      await recordSmtpStatus(ctx, claimed.profileId, {
+        ok: false,
+        stage: (error as SmtpError).stage,
+        code: (error as SmtpError).code,
+      });
+      result = await attempt(backup);
+      used = { id: backup.profileId!, name: backup.name ?? null };
+    }
+    accepted = { ref: result.accepted?.ref ?? null, messageId: result.accepted?.messageId ?? '' };
+    await recordSmtpStatus(ctx, used.id, { ok: true });
   } catch (error) {
     outcome = mailFailure(error);
+    if (PROFILE_LEVEL.has(outcome.code))
+      await recordSmtpStatus(ctx, used.id, { ok: false, stage: outcome.stage, code: outcome.code });
   }
   const retry = !!outcome?.retry && claimed.attempts < MAIL_MAX_ATTEMPTS && claimed.expiresAt > now;
   const finishedAt = new Date();
@@ -160,12 +238,18 @@ async function deliverOne(ctx: AppContext, now: Date, onlyId?: string, signal?: 
     .update(mailQueue)
     .set({
       status: outcome ? (retry ? 'queued' : 'failed') : 'sent',
+      profileId: used.id,
+      profileName: used.name,
       payloadCipher:
         !outcome || ['expired', 'disabled', 'profile_removed'].includes(outcome.code)
           ? ''
           : claimed.payloadCipher,
       lastCode: outcome?.code ?? null,
       lastSmtpStatus: outcome?.smtpStatus ?? null,
+      lastStage: outcome?.stage ?? null,
+      lastText: outcome ? serverText(outcome.text ?? outcome.message, '', 300) : null,
+      messageId: accepted?.messageId || claimed.messageId,
+      smtpRef: accepted?.ref ?? null,
       nextAttemptAt: retry
         ? new Date(
             finishedAt.getTime() + Math.min(15 * 60_000, 60_000 * 2 ** (claimed.attempts - 1)),
@@ -214,9 +298,10 @@ export async function sendMail(
   text: string,
   type: MailType = 'security',
   category: MailCategory = type,
+  validUntil?: Date,
 ): Promise<boolean> {
   try {
-    const id = await enqueueMail(ctx, to, subject, text, type, undefined, category);
+    const id = await enqueueMail(ctx, to, subject, text, type, undefined, category, validUntil);
     if (!id) return false;
     const row = await sendQueuedMail(ctx, id);
     return row?.status === 'sent';
@@ -233,6 +318,13 @@ export async function sendQueuedMail(ctx: AppContext, id: string) {
       status: mailQueue.status,
       lastCode: mailQueue.lastCode,
       smtpStatus: mailQueue.lastSmtpStatus,
+      stage: mailQueue.lastStage,
+      text: mailQueue.lastText,
+      messageId: mailQueue.messageId,
+      smtpRef: mailQueue.smtpRef,
+      profileId: mailQueue.profileId,
+      profileName: mailQueue.profileName,
+      attempts: mailQueue.attempts,
     })
     .from(mailQueue)
     .where(eq(mailQueue.id, id));

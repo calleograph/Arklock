@@ -120,7 +120,16 @@ export const registerInvitationRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
         link,
         days: String(body.expiresInDays),
       });
-      emailed = await sendMail(ctx, body.email, rendered.subject, rendered.text, 'invitation');
+      // письмо с ссылкой не отправляется и не повторяется после того, как приглашение перестало действовать
+      emailed = await sendMail(
+        ctx,
+        body.email,
+        rendered.subject,
+        rendered.text,
+        'invitation',
+        'invitation',
+        new Date(Date.now() + body.expiresInDays * 86_400_000),
+      );
     }
     await audit(db, `user:${user.id}`, 'admin.invitation.create', `invitation:${id}`, { emailed });
     return reply.status(201).send({ id, code: token, link, emailed });

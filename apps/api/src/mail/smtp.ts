@@ -1,16 +1,64 @@
+import { createHmac } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
+import {
+  isNtlmV2Authenticate,
+  ntlmAuthenticate,
+  ntlmNegotiate,
+  ntlmType,
+  NtlmError,
+} from './ntlm.js';
+import { resolveSmtpTarget, TargetError } from './target.js';
 
 export interface SmtpConfig {
   host: string;
   port: number;
-  /** none — без шифрования (только для доверенной сети), starttls — повышение на порту 587, tls — сразу TLS (порт 465). */
+  /** none — без шифрования (выбирает главный администратор), starttls — повышение на порту 587, tls — сразу TLS (порт 465). */
   security: 'none' | 'starttls' | 'tls';
+  /** none — relay без входа, password — SMTP AUTH (PLAIN, LOGIN, CRAM-MD5), ntlm — Windows NTLM (Exchange). */
+  auth: 'none' | 'password' | 'ntlm';
   user: string;
   password: string;
   from: string;
-  /** Не проверять сертификат сервера (только для тестового стенда). */
-  allowSelfSigned?: boolean;
+  fromName?: string;
+  /** Таймаут каждого этапа, мс. */
+  timeoutMs?: number;
+  /** Проверка сертификата сервера; по умолчанию включена. Выключается только главным администратором. */
+  verifyCert?: boolean;
+  /** Дополнительные доверенные центры сертификации (PEM): к системным, не вместо них. */
+  ca?: string[];
+  /** Только тестовый стенд: разрешить loopback. */
+  allowLoopback?: boolean;
+}
+
+/** Этапы проверки соединения в порядке выполнения. */
+export const SMTP_STAGES = [
+  'dns',
+  'tcp',
+  'greeting',
+  'ehlo',
+  'tls',
+  'certificate',
+  'methods',
+  'auth',
+  'sender',
+  'recipient',
+  'data',
+] as const;
+export type SmtpStage = (typeof SMTP_STAGES)[number];
+
+export interface StageResult {
+  stage: SmtpStage;
+  ok: boolean;
+  /** Этап не нужен при этих настройках (например, TLS при «без шифрования»). */
+  skipped?: boolean;
+  /** Выполнен, но небезопасно (проверка сертификата отключена). */
+  warn?: boolean;
+  code?: string;
+  smtpStatus?: number;
+  /** Ответ сервера: очищен от управляющих символов, секретов и ограничен по длине. */
+  serverText?: string;
+  info?: Record<string, string | number | boolean | string[]>;
 }
 
 export class SmtpError extends Error {
@@ -18,6 +66,9 @@ export class SmtpError extends Error {
     message: string,
     readonly code: string,
     readonly smtpStatus?: number,
+    readonly stage?: SmtpStage,
+    readonly serverText?: string,
+    readonly detail?: StageResult['info'],
   ) {
     super(message);
   }
@@ -31,6 +82,7 @@ class Reader {
   private waiters: ((r: { code: number; text: string }) => void)[] = [];
   private lines: string[] = [];
   private failure: Error | null = null;
+  private pending: { code: number; text: string }[] = [];
 
   constructor(private sock: Sock) {
     this.attach(sock);
@@ -73,8 +125,6 @@ class Reader {
     else this.pending.push({ code, text });
   }
 
-  private pending: { code: number; text: string }[] = [];
-
   next(): Promise<{ code: number; text: string }> {
     const p = this.pending.shift();
     if (p) return Promise.resolve(p);
@@ -82,14 +132,6 @@ class Reader {
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 }
-
-const withTimeout = <T>(p: Promise<T>, ms: number, what: string): Promise<T> =>
-  Promise.race([
-    p,
-    new Promise<T>((_, rej) =>
-      setTimeout(() => rej(new SmtpError(`Timed out: ${what}`, 'timeout')), ms).unref(),
-    ),
-  ]);
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
@@ -107,119 +149,419 @@ export interface Mail {
 }
 
 /**
- * Минимальный клиент SMTP: соединение, STARTTLS/TLS, AUTH PLAIN/LOGIN, отправка одного письма.
- * mail === null — только проверка соединения и входа (письмо не отправляется).
+ * Ответ сервера в безопасном для показа виде: управляющие символы убраны, пробелы свёрнуты, длина ограничена,
+ * пароль подключения (если сервер повторил его) вырезан, данные обмена AUTH не выводятся.
+ */
+export function serverText(raw: string | undefined, password = '', limit = 300): string {
+  let text = (raw ?? '')
+    // eslint-disable-next-line no-control-regex -- именно управляющие символы здесь и убираются
+    .replace(/[\x00-\x1f\x7f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (password.length >= 4) text = text.split(password).join('***');
+  text = text.replace(/\b[A-Za-z0-9+/]{40,}={0,2}/g, '***');
+  return text.slice(0, limit);
+}
+
+/** Куда относить отказ сервера на этапе: понятный код для подсказки и решения о повторе. */
+export function classifyReply(stage: SmtpStage, status: number, text: string): string {
+  const t = text.toLowerCase();
+  if (status === 421 || status === 450 || status === 451 || status === 454 || status === 455) {
+    if (/too many|rate|limit|throttl|exceed|quota/.test(t)) return 'limit';
+    return stage === 'auth' && status === 454 ? 'auth_failed' : 'temporary';
+  }
+  if (status === 452 || status === 552 || /too many|rate limit|quota exceeded|exceeds/.test(t))
+    return /size|large|exceed/.test(t) && status === 552 ? 'data' : 'limit';
+  if (status >= 400 && status < 500) return 'temporary';
+  if (stage === 'auth')
+    return status === 504 || status === 538 ? 'auth_unsupported' : 'auth_failed';
+  if (/relay|not permitted|unable to relay|not allowed to send|access denied/.test(t))
+    return stage === 'sender' ? 'sender_rejected' : 'relay_denied';
+  if (stage === 'sender') return 'sender_rejected';
+  if (stage === 'recipient') return 'recipient_rejected';
+  if (stage === 'tls') return 'starttls';
+  if (stage === 'greeting' || stage === 'ehlo') return 'protocol';
+  return 'data';
+}
+
+const CERT_REASONS: Record<string, string> = {
+  CERT_HAS_EXPIRED: 'expired',
+  CERT_NOT_YET_VALID: 'not_yet_valid',
+  ERR_TLS_CERT_ALTNAME_INVALID: 'hostname',
+  DEPTH_ZERO_SELF_SIGNED_CERT: 'self_signed',
+  SELF_SIGNED_CERT_IN_CHAIN: 'untrusted',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'untrusted',
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'untrusted',
+  UNABLE_TO_GET_ISSUER_CERT: 'untrusted',
+  CERT_UNTRUSTED: 'untrusted',
+  CERT_REVOKED: 'revoked',
+};
+
+function certInfo(sock: tls.TLSSocket): StageResult['info'] {
+  const c = sock.getPeerCertificate();
+  if (!c || !('subject' in c)) return {};
+  const cn = (o: unknown) => {
+    const v = o as { CN?: string | string[]; O?: string } | undefined;
+    const x = Array.isArray(v?.CN) ? v.CN[0] : v?.CN;
+    return x ?? v?.O ?? '';
+  };
+  return {
+    subject: cn(c.subject),
+    issuer: cn(c.issuer),
+    validTo: c.valid_to ? new Date(c.valid_to).toISOString() : '',
+    fingerprint256: c.fingerprint256 ?? '',
+  };
+}
+
+export interface SessionOptions {
+  signal?: AbortSignal;
+  /** Результат каждого этапа сразу по готовности (для проверки соединения). */
+  onStage?: (s: StageResult) => void;
+  /** Проверка: при ошибке сертификата показать, какой сертификат предъявил сервер (без отправки учётных данных). */
+  probeCertificate?: boolean;
+}
+
+export interface SessionResult {
+  banner: string;
+  features: string[];
+  /** Способы входа, объявленные сервером до и после перехода на TLS. */
+  methods: { before: string[]; after: string[] };
+  /** Ответ сервера на конец письма и идентификатор, который он назвал (если назвал). */
+  accepted?: { reply: string; ref: string | null; messageId: string };
+}
+
+const authList = (caps: string): string[] =>
+  caps
+    .split('\n')
+    .map((l) => /^250[ -]AUTH[ =](.*)$/i.exec(l)?.[1])
+    .filter((x): x is string => !!x)
+    .flatMap((x) => x.trim().toUpperCase().split(/\s+/));
+
+function fail(
+  stage: SmtpStage,
+  code: string,
+  message: string,
+  extra: { status?: number; text?: string; info?: StageResult['info'] } = {},
+): SmtpError {
+  const { status, text, info } = extra;
+  return new SmtpError(message, code, status, stage, text, info);
+}
+
+/**
+ * Клиент SMTP: DNS (адрес проверяется и закрепляется), TCP, приветствие, EHLO, STARTTLS/TLS с проверкой сертификата,
+ * способы входа, вход (PLAIN, LOGIN, CRAM-MD5, NTLMv2) и, если передано письмо, его отправка. mail === null —
+ * проверка соединения: письмо не отправляется. Каждый этап сообщается через onStage; при отказе бросается SmtpError
+ * с этапом, кодом причины и очищенным ответом сервера.
  */
 export async function smtpSession(
   cfg: SmtpConfig,
   mail: Mail | null,
-  timeoutMs = 15_000,
-  signal?: AbortSignal,
-): Promise<{ banner: string; features: string[] }> {
+  opts: SessionOptions = {},
+): Promise<SessionResult> {
+  const { signal, onStage } = opts;
+  const timeoutMs = cfg.timeoutMs ?? 15_000;
+  const verify = cfg.verifyCert !== false;
   if (signal?.aborted) throw new SmtpError('Mail delivery stopped', 'aborted');
   if (mail) {
     clean(mail.to);
     clean(mail.subject);
   }
-  const tlsOpts = {
-    host: cfg.host,
-    port: cfg.port,
-    servername: cfg.host,
-    rejectUnauthorized: !cfg.allowSelfSigned,
+  clean(cfg.from);
+  clean(cfg.fromName ?? '');
+  if (cfg.auth === 'ntlm' && cfg.security === 'none')
+    throw new SmtpError('NTLM is only used over a protected connection', 'invalid');
+  const report = (s: StageResult) => onStage?.(s);
+  const withTimeout = <T>(p: Promise<T>, stage: SmtpStage): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, rej) => {
+        setTimeout(
+          () => rej(fail(stage, 'timeout', `Timed out at stage ${stage}`)),
+          timeoutMs,
+        ).unref();
+      }),
+    ]);
+
+  // 1. DNS: адрес разрешается и проверяется, дальше соединение идёт по нему
+  let addresses: string[];
+  try {
+    addresses = (await withTimeout(resolveSmtpTarget(cfg.host, cfg.port, cfg.allowLoopback), 'dns'))
+      .addresses;
+    report({ stage: 'dns', ok: true, info: { addresses } });
+  } catch (error) {
+    const code =
+      error instanceof TargetError ? error.code : error instanceof SmtpError ? error.code : 'dns';
+    const err = fail('dns', code, error instanceof Error ? error.message : 'DNS failed');
+    report({ stage: 'dns', ok: false, code });
+    throw err;
+  }
+
+  const named = net.isIP(cfg.host) === 0;
+  const tlsBase = {
+    // имя сервера для SNI и проверки сертификата — настроенное, а не IP, по которому идёт соединение
+    ...(named ? { servername: cfg.host } : {}),
+    ca: cfg.ca?.length ? [...tls.rootCertificates, ...cfg.ca] : undefined,
+    rejectUnauthorized: verify,
+    minVersion: 'TLSv1.2' as const,
   };
+
   let pendingSocket: Sock | undefined;
   const abort = () => pendingSocket?.destroy(new SmtpError('Mail delivery stopped', 'aborted'));
   signal?.addEventListener('abort', abort, { once: true });
-  let sock: Sock;
-  try {
-    sock = await withTimeout(
-      new Promise<Sock>((resolve, reject) => {
-        const s: Sock =
-          cfg.security === 'tls'
-            ? tls.connect(tlsOpts, () => resolve(s))
-            : net.connect({ host: cfg.host, port: cfg.port }, () => resolve(s));
-        pendingSocket = s;
-        s.once('error', (e) =>
-          reject(new SmtpError(`Cannot connect: ${(e as Error).message}`, 'connect')),
+
+  const handshake = async (s: net.Socket | null, address: string): Promise<tls.TLSSocket> =>
+    withTimeout(
+      new Promise<tls.TLSSocket>((resolve, reject) => {
+        const t: tls.TLSSocket = tls.connect(
+          s ? { ...tlsBase, socket: s } : { ...tlsBase, host: address, port: cfg.port },
+          () => resolve(t),
         );
+        pendingSocket = t;
+        t.once('error', reject);
       }),
-      timeoutMs,
-      'connect',
+      'tls',
     );
-  } catch (error) {
-    pendingSocket?.destroy();
-    signal?.removeEventListener('abort', abort);
-    throw error;
+
+  const tlsFailure = (e: unknown): SmtpError => {
+    const code = (e as { code?: string }).code ?? '';
+    const reason = CERT_REASONS[code];
+    if (reason)
+      return fail('certificate', 'certificate', 'The server certificate was not verified', {
+        info: { reason },
+      });
+    if (e instanceof SmtpError) return e;
+    return fail('tls', 'tls', `TLS failed: ${(e as Error).message.slice(0, 120)}`);
+  };
+
+  // 2. TCP (+ неявный TLS)
+  let sock: Sock | undefined;
+  let connected = addresses[0]!;
+  let lastError: unknown;
+  for (const address of addresses) {
+    connected = address;
+    try {
+      if (cfg.security === 'tls') {
+        sock = await handshake(null, address);
+        report({ stage: 'tcp', ok: true, info: { address } });
+      } else {
+        sock = await withTimeout(
+          new Promise<Sock>((resolve, reject) => {
+            const s: Sock = net.connect({ host: address, port: cfg.port }, () => resolve(s));
+            pendingSocket = s;
+            s.once('error', reject);
+          }),
+          'tcp',
+        );
+        report({ stage: 'tcp', ok: true, info: { address } });
+      }
+      break;
+    } catch (error) {
+      pendingSocket?.destroy();
+      lastError = error;
+    }
   }
+  if (!sock) {
+    signal?.removeEventListener('abort', abort);
+    const e = lastError as { code?: string; message?: string };
+    const tlsLike =
+      !!CERT_REASONS[e.code ?? ''] ||
+      /^ERR_(SSL|TLS)|ssl|tls|handshake/i.test(`${e.code ?? ''} ${e.message ?? ''}`);
+    if (cfg.security === 'tls' && tlsLike) {
+      const err = tlsFailure(e);
+      let info = err.detail;
+      if (opts.probeCertificate && err.code === 'certificate')
+        info = { ...info, ...(await probeCertificate(cfg, connected).catch(() => ({}))) };
+      report({ stage: err.stage ?? 'tls', ok: false, code: err.code, info });
+      throw new SmtpError(err.message, err.code, undefined, err.stage, undefined, info);
+    }
+    const code = e instanceof SmtpError ? e.code : e.code === 'ETIMEDOUT' ? 'timeout' : 'connect';
+    const err = new SmtpError(
+      `Cannot connect to ${cfg.host}:${cfg.port}`,
+      code,
+      undefined,
+      'tcp',
+      undefined,
+      e.code ? { reason: e.code } : undefined,
+    );
+    report({ stage: 'tcp', ok: false, code, info: err.detail });
+    throw err;
+  }
+  if (cfg.security === 'tls')
+    report({
+      stage: 'tls',
+      ok: true,
+      warn: !verify,
+      info: { protocol: (sock as tls.TLSSocket).getProtocol() ?? '' },
+    });
+
   const reader = new Reader(sock);
-  const send = (line: string) => sock.write(line + '\r\n');
-  const expect = async (ok: number[], what: string) => {
-    const r = await withTimeout(reader.next(), timeoutMs, what);
-    if (!ok.includes(r.code))
-      throw new SmtpError(
-        `${what} failed${r.code > 0 ? ` (SMTP ${r.code})` : ''}`,
-        signal?.aborted ? 'aborted' : r.code < 0 ? 'closed' : 'protocol',
-        r.code > 0 ? r.code : undefined,
-      );
+  const send = (line: string) => sock!.write(line + '\r\n');
+  let stage: SmtpStage = 'greeting';
+  const expect = async (ok: number[], st: SmtpStage, what: string) => {
+    stage = st;
+    const r = await withTimeout(reader.next(), st);
+    if (!ok.includes(r.code)) {
+      if (r.code < 0) {
+        throw signal?.aborted
+          ? new SmtpError('Mail delivery stopped', 'aborted')
+          : fail(st, 'closed', `${what}: the server closed the connection`);
+      }
+      throw fail(st, classifyReply(st, r.code, r.text), `${what} failed (SMTP ${r.code})`, {
+        status: r.code,
+        text: serverText(r.text, cfg.password),
+      });
+    }
     return r;
   };
+  const needTls = cfg.security !== 'none';
+  let methodsBefore: string[] = [];
+  let methodsAfter: string[] = [];
+  let probed = false;
   try {
-    const banner = (await expect([220], 'greeting')).text;
-    send(`EHLO arklock.local`);
-    let caps = (await expect([250], 'EHLO')).text;
+    const banner = (await expect([220], 'greeting', 'Greeting')).text;
+    report({ stage: 'greeting', ok: true, info: { banner: serverText(banner, '', 120) } });
+    send('EHLO arklock.local');
+    let caps = (await expect([250], 'ehlo', 'EHLO')).text;
+    methodsBefore = authList(caps);
+    report({
+      stage: 'ehlo',
+      ok: true,
+      info: {
+        features: caps
+          .split('\n')
+          .slice(1)
+          .map((l) => l.slice(4))
+          .slice(0, 20),
+      },
+    });
+
     if (cfg.security === 'starttls') {
-      if (!/STARTTLS/i.test(caps))
-        throw new SmtpError('The server does not offer STARTTLS', 'starttls');
+      if (!/STARTTLS/i.test(caps)) {
+        throw fail('tls', 'starttls', 'The server does not offer STARTTLS');
+      }
       send('STARTTLS');
-      await expect([220], 'STARTTLS');
-      const upgraded = tls.connect({ ...tlsOpts, socket: sock as net.Socket });
-      await withTimeout(
-        new Promise<void>((res, rej) => {
-          upgraded.once('secureConnect', () => res());
-          upgraded.once('error', (e) => rej(new SmtpError(`TLS failed: ${e.message}`, 'tls')));
-        }),
-        timeoutMs,
-        'TLS',
-      );
-      sock = upgraded;
-      pendingSocket = upgraded;
-      reader.attach(upgraded);
-      send(`EHLO arklock.local`);
-      caps = (await expect([250], 'EHLO')).text;
-    }
+      await expect([220], 'tls', 'STARTTLS');
+      try {
+        const upgraded = await handshake(sock as net.Socket, cfg.host);
+        sock = upgraded;
+        pendingSocket = upgraded;
+        reader.attach(upgraded);
+      } catch (error) {
+        const err = tlsFailure(error);
+        let info = err.detail;
+        if (opts.probeCertificate && err.code === 'certificate' && !probed) {
+          probed = true;
+          info = { ...info, ...(await probeCertificate(cfg, connected).catch(() => ({}))) };
+        }
+        throw new SmtpError(err.message, err.code, undefined, err.stage, undefined, info);
+      }
+      report({
+        stage: 'tls',
+        ok: true,
+        warn: !verify,
+        info: { protocol: (sock as tls.TLSSocket).getProtocol() ?? '' },
+      });
+      send('EHLO arklock.local');
+      caps = (await expect([250], 'ehlo', 'EHLO')).text;
+    } else if (cfg.security === 'none') report({ stage: 'tls', ok: true, skipped: true });
+    methodsAfter = authList(caps);
+    if (needTls) {
+      const info = certInfo(sock as tls.TLSSocket);
+      report({
+        stage: 'certificate',
+        ok: true,
+        warn: !verify,
+        info: { ...info, verified: verify },
+      });
+    } else report({ stage: 'certificate', ok: true, skipped: true });
+
     const features = caps
       .split('\n')
       .slice(1)
       .map((l) => l.slice(4));
-    if (cfg.user) {
-      if (cfg.security === 'none') {
-        // пароль в открытом виде по сети — только по явному выбору администратора
-      }
-      if (/AUTH[^\n]*PLAIN/i.test(caps)) {
+    report({ stage: 'methods', ok: true, info: { before: methodsBefore, after: methodsAfter } });
+
+    // 3. Вход
+    if (cfg.auth === 'none') report({ stage: 'auth', ok: true, skipped: true });
+    else {
+      stage = 'auth';
+      if (!cfg.user) throw fail('auth', 'auth_failed', 'The account is not set');
+      if (cfg.auth === 'ntlm') {
+        if (!methodsAfter.includes('NTLM'))
+          throw fail('methods', 'auth_unsupported', 'The server does not offer NTLM', {
+            info: { before: methodsBefore, after: methodsAfter },
+          });
+        send('AUTH NTLM');
+        await expect([334], 'auth', 'AUTH NTLM');
+        const negotiate = ntlmNegotiate();
+        send(negotiate.toString('base64'));
+        const c = await expect([334], 'auth', 'NTLM Negotiate');
+        const challenge = Buffer.from(c.text.replace(/^334\s*/, '').trim(), 'base64');
+        if (ntlmType(challenge) !== 2)
+          throw fail(
+            'auth',
+            'auth_ntlm',
+            'The server sent something that is not an NTLM challenge',
+          );
+        let type3: Buffer;
+        try {
+          type3 = ntlmAuthenticate(negotiate, challenge, cfg.user, cfg.password);
+        } catch (error) {
+          throw fail(
+            'auth',
+            'auth_ntlm',
+            error instanceof NtlmError ? error.message : 'NTLM failed',
+            {
+              info: { reason: error instanceof NtlmError ? error.code : 'ntlm' },
+            },
+          );
+        }
+        if (!isNtlmV2Authenticate(type3))
+          throw fail('auth', 'auth_ntlm', 'The NTLM response is not NTLMv2');
+        send(type3.toString('base64'));
+        await expect([235], 'auth', 'NTLM Authenticate');
+      } else if (methodsAfter.includes('PLAIN')) {
         send(`AUTH PLAIN ${b64(`\0${cfg.user}\0${cfg.password}`)}`);
-        await expect([235], 'AUTH');
-      } else if (/AUTH[^\n]*LOGIN/i.test(caps)) {
+        await expect([235], 'auth', 'AUTH');
+      } else if (methodsAfter.includes('LOGIN')) {
         send('AUTH LOGIN');
-        await expect([334], 'AUTH');
+        await expect([334], 'auth', 'AUTH');
         send(b64(cfg.user));
-        await expect([334], 'AUTH');
+        await expect([334], 'auth', 'AUTH');
         send(b64(cfg.password));
-        await expect([235], 'AUTH');
-      } else throw new SmtpError('The server offers no supported AUTH method', 'auth');
+        await expect([235], 'auth', 'AUTH');
+      } else if (methodsAfter.includes('CRAM-MD5')) {
+        send('AUTH CRAM-MD5');
+        const c = await expect([334], 'auth', 'AUTH');
+        const challenge = Buffer.from(c.text.replace(/^334\s*/, '').trim(), 'base64');
+        const digest = createHmac('md5', cfg.password).update(challenge).digest('hex');
+        send(b64(`${cfg.user} ${digest}`));
+        await expect([235], 'auth', 'AUTH');
+      } else {
+        throw fail('methods', 'auth_unsupported', 'The server offers no supported AUTH method', {
+          info: { before: methodsBefore, after: methodsAfter },
+        });
+      }
+      report({ stage: 'auth', ok: true });
     }
+
+    let accepted: SessionResult['accepted'];
     if (mail) {
-      send(`MAIL FROM:<${clean(cfg.from)}>`);
-      await expect([250], 'MAIL FROM');
+      const domain = cfg.from.split('@')[1] ?? 'arklock.local';
+      const messageId = `${mail.id ?? crypto.randomUUID()}@${domain}`;
+      send(`MAIL FROM:<${cfg.from}>`);
+      await expect([250], 'sender', 'MAIL FROM');
       send(`RCPT TO:<${clean(mail.to)}>`);
-      await expect([250, 251], 'RCPT TO');
+      await expect([250, 251], 'recipient', 'RCPT TO');
       send('DATA');
-      await expect([354], 'DATA');
+      await expect([354], 'data', 'DATA');
+      const from = cfg.fromName ? `=?UTF-8?B?${b64(cfg.fromName)}?= <${cfg.from}>` : cfg.from;
       const body = [
-        `From: ${clean(cfg.from)}`,
+        `From: ${from}`,
         `To: ${clean(mail.to)}`,
         `Subject: =?UTF-8?B?${b64(clean(mail.subject))}?=`,
         `Date: ${new Date().toUTCString()}`,
-        ...(mail.id ? [`Message-ID: <${clean(mail.id)}@arklock.local>`] : []),
+        `Message-ID: <${messageId}>`,
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=utf-8',
         'Content-Transfer-Encoding: base64',
@@ -229,12 +571,83 @@ export async function smtpSession(
           .match(/.{1,76}/g) ?? ['']),
       ].join('\r\n');
       send(body + '\r\n.');
-      await expect([250], 'message');
+      const done = await expect([250], 'data', 'message');
+      const reply = serverText(done.text.replace(/^250[ -]?/gm, ''), cfg.password, 200);
+      const ref =
+        /(?:queued as|id=|Message accepted for delivery as)\s*([A-Za-z0-9._@<>:=-]{3,80})/i.exec(
+          reply,
+        )?.[1] ?? null;
+      accepted = { reply, ref, messageId };
+      report({ stage: 'sender', ok: true });
+      report({ stage: 'recipient', ok: true });
+      report({ stage: 'data', ok: true, info: { reply } });
     }
     send('QUIT');
-    return { banner, features };
+    return { banner, features, methods: { before: methodsBefore, after: methodsAfter }, accepted };
+  } catch (error) {
+    const err =
+      error instanceof SmtpError
+        ? error
+        : fail(stage, 'closed', (error as Error).message ?? 'Connection failed');
+    if (err.stage)
+      report({
+        stage: err.stage,
+        ok: false,
+        code: err.code,
+        smtpStatus: err.smtpStatus,
+        serverText: err.serverText,
+        info: err.detail,
+      });
+    throw err;
   } finally {
     signal?.removeEventListener('abort', abort);
     sock.destroy();
   }
+}
+
+/**
+ * Какой сертификат предъявляет сервер, когда проверка не прошла: соединение без проверки, ничего не отправляется
+ * и вход не выполняется. Нужно только для подсказки администратору (кто выдал, до какого срока, отпечаток).
+ */
+export async function probeCertificate(
+  cfg: SmtpConfig,
+  address: string,
+): Promise<StageResult['info']> {
+  const opts = {
+    ...(net.isIP(cfg.host) === 0 ? { servername: cfg.host } : {}),
+    rejectUnauthorized: false,
+    minVersion: 'TLSv1.2' as const,
+  };
+  const timeout = cfg.timeoutMs ?? 15_000;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), timeout).unref();
+    const done = (t: tls.TLSSocket) => {
+      clearTimeout(timer);
+      const c = t.getPeerCertificate(true);
+      const info = { ...certInfo(t), selfSigned: !!c && c.issuerCertificate === c };
+      t.destroy();
+      resolve(info as StageResult['info']);
+    };
+    if (cfg.security === 'tls') {
+      const t = tls.connect({ ...opts, host: address, port: cfg.port }, () => done(t));
+      t.once('error', reject);
+      return;
+    }
+    const s = net.connect({ host: address, port: cfg.port });
+    s.once('error', reject);
+    const r = new Reader(s);
+    void (async () => {
+      try {
+        await r.next();
+        s.write('EHLO arklock.local\r\n');
+        await r.next();
+        s.write('STARTTLS\r\n');
+        await r.next();
+        const t = tls.connect({ ...opts, socket: s }, () => done(t));
+        t.once('error', reject);
+      } catch (e) {
+        reject(e);
+      }
+    })();
+  });
 }

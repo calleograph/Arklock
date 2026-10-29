@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
+import LoginCheckPreview from './LoginCheckPreview.vue';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { errorMessage, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
@@ -106,6 +107,24 @@ interface Settings {
   alertMinutes: number;
   alertMail: boolean;
   defaults: Omit<Settings, 'defaults'>;
+  summary?: PolicySummary;
+}
+interface PolicySummary {
+  windowMinutes: number;
+  captchaAfter: number;
+  blockPairAfter: number;
+  blockIpAfter: number;
+  blockSteps: number[];
+  blockMaxMinutes: number;
+  bits: { start: number; max: number };
+  solveSeconds: { fast: number; slow: number; maxFast: number; maxSlow: number };
+  alwaysOn: { authRatePerMinute: number };
+}
+interface PolicyCheck {
+  ok: boolean;
+  errors: { field: string; code: string }[];
+  warnings: { code: string; data?: Record<string, number | string> }[];
+  summary: PolicySummary | null;
 }
 interface Who {
   ip: string;
@@ -222,8 +241,10 @@ async function loadOverview(): Promise<void> {
 }
 async function loadSettings(): Promise<void> {
   settings.value = await api<Settings>('GET', '/admin/shield/settings');
-  const { defaults: _d, ...rest } = settings.value;
+  const { defaults: _d, summary: _s, ...rest } = settings.value;
   draft.value = { ...rest };
+  policyCheck.value = null;
+  ackWarnings.value = false;
 }
 async function loadAccess(): Promise<void> {
   [who.value, access.value] = await Promise.all([
@@ -309,6 +330,46 @@ onMounted(loadTab);
 watch(() => route.fullPath, loadTab);
 
 // ---- защита входа и дополнительные настройки ----
+// проверка до применения: сервер разбирает значения, называет ошибки и риски и описывает итоговое поведение
+const LOGIN_FIELDS = ['captchaAfter', 'windowMinutes', 'blockMinutes'] as const;
+const previewOpen = ref(false);
+const policyCheck = ref<PolicyCheck | null>(null);
+const checkedKey = ref('');
+const ackWarnings = ref(false);
+const loginBody = () => Object.fromEntries(LOGIN_FIELDS.map((f) => [f, draft.value?.[f]]));
+const loginKey = computed(() => JSON.stringify(loginBody()));
+const staleCheck = computed(() => !!policyCheck.value && checkedKey.value !== loginKey.value);
+const canApply = computed(
+  () =>
+    !!policyCheck.value?.ok &&
+    !staleCheck.value &&
+    (!policyCheck.value.warnings.length || ackWarnings.value),
+);
+const shownSummary = computed(() =>
+  policyCheck.value?.ok && !staleCheck.value ? policyCheck.value.summary : settings.value?.summary,
+);
+async function checkPolicy(): Promise<void> {
+  error.value = '';
+  try {
+    policyCheck.value = await api<PolicyCheck>('POST', '/admin/shield/settings/check', loginBody());
+    checkedKey.value = loginKey.value;
+    ackWarnings.value = false;
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  }
+}
+function revertPolicy(): void {
+  if (settings.value) draft.value = { ...settings.value };
+  policyCheck.value = null;
+  ackWarnings.value = false;
+}
+async function applyPolicy(): Promise<void> {
+  await saveSettings([...LOGIN_FIELDS]);
+  if (!error.value && !pending.value) policyCheck.value = null;
+}
+const warnText = (w: { code: string; data?: Record<string, number | string> }) =>
+  t(`shield.login.warn.${w.code}`, w.data ?? {});
+
 async function saveSettings(fields: (keyof Omit<Settings, 'defaults'>)[]): Promise<void> {
   const body = Object.fromEntries(fields.map((f) => [f, draft.value![f]]));
   await guarded(async (headers) => {
@@ -721,36 +782,139 @@ const KIND_OPTIONS = [
     <!-- 2. Защита входа -->
     <div v-else-if="tab === 'login'" class="space-y-3" data-testid="shield-login">
       <p class="max-w-3xl text-sm">{{ t('shield.login.intro') }}</p>
+      <p class="max-w-3xl text-xs text-slate-500" data-testid="login-mechanism">
+        {{ t('shield.login.mechanism') }}
+      </p>
       <form
         v-if="draft"
         class="card grid gap-3 p-4 text-sm sm:grid-cols-3"
-        @submit.prevent="saveSettings(['captchaAfter', 'windowMinutes', 'blockMinutes'])"
+        data-testid="login-form"
+        @submit.prevent="checkPolicy"
       >
         <label
           ><span class="field-label">{{ t('shield.login.captchaAfter') }}</span>
           <input
             v-model.number="draft.captchaAfter"
             type="number"
-            min="2"
-            max="20"
             class="input"
             data-testid="set-captcha-after"
         /></label>
         <label
           ><span class="field-label">{{ t('shield.login.windowMinutes') }}</span>
-          <input v-model.number="draft.windowMinutes" type="number" min="1" max="240" class="input"
+          <input
+            v-model.number="draft.windowMinutes"
+            type="number"
+            class="input"
+            data-testid="set-window-minutes"
         /></label>
         <label
           ><span class="field-label">{{ t('shield.login.blockMinutes') }}</span>
-          <input v-model.number="draft.blockMinutes" type="number" min="1" max="1440" class="input"
+          <input
+            v-model.number="draft.blockMinutes"
+            type="number"
+            class="input"
+            data-testid="set-block-minutes"
         /></label>
         <p class="text-xs text-slate-500 sm:col-span-3">{{ t('shield.login.blockHint') }}</p>
-        <div class="sm:col-span-3">
-          <button type="submit" class="btn-primary" data-testid="shield-save-login">
-            {{ t('shield.save') }}
+
+        <div v-if="policyCheck" class="space-y-2 sm:col-span-3" data-testid="policy-check">
+          <p v-if="staleCheck" class="notice notice-warn" data-testid="policy-stale">
+            {{ t('shield.login.changedSince') }}
+          </p>
+          <template v-else>
+            <div
+              v-if="!policyCheck.ok"
+              class="notice notice-error"
+              role="alert"
+              data-testid="policy-errors"
+            >
+              {{ t('shield.login.checkedErr') }}
+              <ul class="mt-1 list-disc pl-5">
+                <li v-for="e in policyCheck.errors" :key="e.field + e.code">
+                  {{ t(`shield.login.field.${e.field}`) }}: {{ t(`shield.login.err.${e.code}`) }}
+                </li>
+              </ul>
+            </div>
+            <template v-else>
+              <p class="notice notice-ok" role="status" data-testid="policy-ok">
+                {{ t('shield.login.checkedOk') }}
+              </p>
+              <ul
+                v-if="policyCheck.warnings.length"
+                class="space-y-1"
+                data-testid="policy-warnings"
+              >
+                <li v-for="w in policyCheck.warnings" :key="w.code" class="notice notice-warn">
+                  {{ warnText(w) }}
+                </li>
+              </ul>
+              <label v-if="policyCheck.warnings.length" class="flex items-center gap-2">
+                <input v-model="ackWarnings" type="checkbox" data-testid="policy-ack" />
+                {{ t('shield.login.ackWarnings') }}
+              </label>
+            </template>
+          </template>
+        </div>
+
+        <div class="flex flex-wrap gap-2 sm:col-span-3">
+          <button type="submit" class="btn" data-testid="shield-check-login">
+            {{ t('shield.login.checkSettings') }}
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="!canApply"
+            data-testid="shield-save-login"
+            @click="applyPolicy"
+          >
+            {{ t('shield.login.apply') }}
+          </button>
+          <button type="button" class="btn" data-testid="shield-revert-login" @click="revertPolicy">
+            {{ t('shield.login.revert') }}
+          </button>
+          <button
+            type="button"
+            class="btn ml-auto"
+            data-testid="shield-preview-open"
+            @click="previewOpen = true"
+          >
+            {{ t('shield.login.previewOpen') }}
           </button>
         </div>
       </form>
+
+      <div v-if="shownSummary" class="card p-4 text-sm" data-testid="policy-summary">
+        <h3 class="mb-1">{{ t('shield.login.summaryTitle') }}</h3>
+        <ul class="list-disc space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+          <li>{{ t('shield.login.sum.window', { n: shownSummary.windowMinutes }) }}</li>
+          <li>{{ t('shield.login.sum.captcha', { n: shownSummary.captchaAfter }) }}</li>
+          <li>
+            {{
+              t('shield.login.sum.bits', {
+                start: shownSummary.bits.start,
+                max: shownSummary.bits.max,
+                fast: shownSummary.solveSeconds.fast,
+                slow: shownSummary.solveSeconds.slow,
+              })
+            }}
+          </li>
+          <li>{{ t('shield.login.sum.pair', { n: shownSummary.blockPairAfter }) }}</li>
+          <li>{{ t('shield.login.sum.ip', { n: shownSummary.blockIpAfter }) }}</li>
+          <li>
+            {{
+              t('shield.login.sum.steps', {
+                steps: shownSummary.blockSteps.join(' → '),
+                max: shownSummary.blockMaxMinutes,
+              })
+            }}
+          </li>
+          <li>{{ t('shield.login.sum.covered') }}</li>
+          <li>
+            {{ t('shield.login.sum.always', { n: shownSummary.alwaysOn.authRatePerMinute }) }}
+          </li>
+        </ul>
+      </div>
+      <LoginCheckPreview v-if="previewOpen" @close="previewOpen = false" />
       <div class="card p-4 text-sm">
         <h3 class="mb-1">{{ t('shield.login.how') }}</h3>
         <ul class="list-disc space-y-1 pl-5 text-slate-600 dark:text-slate-300">

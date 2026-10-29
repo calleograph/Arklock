@@ -110,7 +110,6 @@ async function load(): Promise<void> {
   try {
     const res = await api<Json>('GET', PATHS[section]);
     if (section === props.section) data.value = res;
-    if (section === 'smtp' && res.configured) smtp.value = { ...smtp.value, ...res, password: '' };
     error.value = '';
   } catch (e) {
     error.value = failMessage(e);
@@ -334,52 +333,6 @@ const reconcile = async (apply: boolean) => {
       ? t('sys.storage.removed', { n: r.removed.orphans + r.removed.pending })
       : t('sys.storage.report', { o: r.before.orphans, m: r.before.missing });
     await load();
-  } catch (e) {
-    error.value = failMessage(e);
-  } finally {
-    busy.value = false;
-  }
-};
-
-// ---- почта
-const smtp = ref({
-  host: '',
-  port: 587,
-  security: 'starttls',
-  user: '',
-  password: '',
-  from: '',
-  hasPassword: false,
-});
-const mailTo = ref('');
-const smtpResult = ref('');
-const saveSmtp = async () => {
-  busy.value = true;
-  error.value = '';
-  try {
-    await api('PUT', '/admin/smtp', {
-      host: smtp.value.host,
-      port: Number(smtp.value.port),
-      security: smtp.value.security,
-      user: smtp.value.user,
-      from: smtp.value.from,
-      password: smtp.value.password === '' ? undefined : smtp.value.password,
-    });
-    notice.value = t('admin.saved');
-    await load();
-  } catch (e) {
-    error.value = failMessage(e);
-  } finally {
-    busy.value = false;
-  }
-};
-const smtpAction = async (path: string, body?: object) => {
-  busy.value = true;
-  error.value = '';
-  smtpResult.value = '';
-  try {
-    const r = await api<{ ok: boolean; message?: string }>('POST', path, body ?? {});
-    smtpResult.value = r.ok ? t('sys.smtp.ok') : `${t('sys.smtp.fail')}: ${r.message ?? ''}`;
   } catch (e) {
     error.value = failMessage(e);
   } finally {
@@ -1123,90 +1076,6 @@ const DIAG_LINK: Record<string, string> = {
         </dl>
         <p class="mt-2 text-xs text-slate-500">{{ t('sys.certs.chainHelp') }}</p>
       </details>
-    </div>
-
-    <!-- Почта -->
-    <div v-else-if="section === 'smtp'" class="space-y-3">
-      <form class="card max-w-xl space-y-2 p-4 text-sm" @submit.prevent="saveSmtp">
-        <label class="block"
-          >{{ t('sys.smtp.host')
-          }}<input v-model="smtp.host" required class="input" data-testid="smtp-host"
-        /></label>
-        <div class="flex gap-2">
-          <label class="flex-1"
-            >{{ t('sys.smtp.port')
-            }}<input
-              v-model.number="smtp.port"
-              type="number"
-              min="1"
-              max="65535"
-              required
-              class="input"
-              data-testid="smtp-port"
-          /></label>
-          <label class="flex-1"
-            ><span class="inline-flex items-center gap-1"
-              >{{ t('sys.smtp.security') }}<InfoHint :text="t('hint.smtpSecurity.text')" /></span
-            ><select v-model="smtp.security" class="input" data-testid="smtp-security">
-              <option value="starttls">STARTTLS</option>
-              <option value="tls">TLS</option>
-              <option value="none">{{ t('sys.smtp.none') }}</option>
-            </select></label
-          >
-        </div>
-        <p v-if="smtp.security === 'none'" class="text-xs text-amber-700">
-          {{ t('sys.smtp.noneWarn') }}
-        </p>
-        <label class="block"
-          >{{ t('sys.smtp.user')
-          }}<input v-model="smtp.user" class="input" autocomplete="off" data-testid="smtp-user"
-        /></label>
-        <label class="block"
-          >{{ t('sys.smtp.password')
-          }}<input
-            v-model="smtp.password"
-            type="password"
-            class="input"
-            autocomplete="new-password"
-            :placeholder="smtp.hasPassword ? t('sys.smtp.keepPassword') : ''"
-            data-testid="smtp-password"
-        /></label>
-        <label class="block"
-          >{{ t('sys.smtp.from')
-          }}<input v-model="smtp.from" type="email" required class="input" data-testid="smtp-from"
-        /></label>
-        <button type="submit" class="btn-primary" :disabled="busy" data-testid="smtp-save">
-          {{ t('common.save') }}
-        </button>
-      </form>
-      <div v-if="data.configured" class="card max-w-xl space-y-2 p-4 text-sm">
-        <button
-          type="button"
-          class="btn"
-          :disabled="busy"
-          data-testid="smtp-test"
-          @click="smtpAction('/admin/smtp/test')"
-        >
-          {{ t('sys.smtp.test') }}
-        </button>
-        <form
-          class="flex gap-2"
-          @submit.prevent="smtpAction('/admin/smtp/send-test', { to: mailTo })"
-        >
-          <input
-            v-model="mailTo"
-            type="email"
-            required
-            class="input"
-            :placeholder="t('sys.smtp.to')"
-            data-testid="smtp-to"
-          />
-          <button type="submit" class="btn" :disabled="busy" data-testid="smtp-send">
-            {{ t('sys.smtp.send') }}
-          </button>
-        </form>
-        <p v-if="smtpResult" data-testid="smtp-result">{{ smtpResult }}</p>
-      </div>
     </div>
   </div>
 </template>

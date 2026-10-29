@@ -15,7 +15,7 @@
   <a href="LICENSE"><img alt="Лицензия AGPL-3.0-only" src="https://img.shields.io/badge/license-AGPL--3.0--only-1676c5"></a>
 </p>
 
-![Рабочее пространство: список записей и карточка с паролем, одноразовым кодом и вкладками](docs/screenshots/vault-corporate.png)
+![Рабочее пространство: список записей и карточка с паролем, одноразовым кодом и вкладками](docs/screenshots/vault-glass.png)
 
 ## Что это простыми словами
 
@@ -61,8 +61,8 @@ curl -fsSL https://github.com/calleograph/Arklock/releases/latest/download/insta
 Для доступа с других компьютеров браузеру нужен HTTPS. Режимы HTTPS и работа рядом с другими приложениями описаны в [инструкции по установке](docs/INSTALL.md).
 
 <p align="center">
-  <img src="docs/screenshots/login-corporate.png" width="49%" alt="Экран входа: знак продукта и три факта о модели защиты">
-  <img src="docs/screenshots/entry-access-corporate.png" width="49%" alt="Вкладка «Доступ»: фактические права, их источники и состояние ключа">
+  <img src="docs/screenshots/login-glass.png" width="49%" alt="Экран входа: знак продукта и три факта о модели защиты">
+  <img src="docs/screenshots/entry-access-glass.png" width="49%" alt="Вкладка «Доступ»: фактические права, их источники и состояние ключа">
 </p>
 
 ## Что внутри
@@ -90,24 +90,24 @@ curl -fsSL https://github.com/calleograph/Arklock/releases/latest/download/insta
 - **Эксплуатация в браузере.** Обзор ресурсов, службы и журналы, резервные копии (в том числе на S3 и SMB) с пробным восстановлением во временную базу, обновления с откатом и списком фактических версий компонентов, SBOM к каждому выпуску, сертификаты, SMTP-профили, публичный адрес без перезапуска, диагностика со ссылками на нужную настройку.
 - **Импорт и экспорт** (только для главного администратора) в разделе «Сейфы и пространства» администрирования: CSV (заголовки определяются сами), JSON, KeePass XML, Bitwarden, Passwork; выгрузка одного сейфа, пространства или всего доступного в JSON, CSV или зашифрованный архив с автоматически созданным паролем из 30 знаков. Подробнее — [инструкция](docs/IMPORT_EXPORT.md).
 
-| Администрирование | Корпоративное восстановление |
+| Администрирование | Почта и проверка соединения |
 | --- | --- |
-| ![Настройки организации с подсказками](docs/screenshots/admin-settings-corporate.png) | ![Офлайн-пакет восстановления и подключённые сейфы](docs/screenshots/corporate-recovery-corporate.png) |
+| ![Настройки организации с подсказками](docs/screenshots/admin-settings-glass.png) | ![Почта: профиль SMTP и проверка соединения по этапам](docs/screenshots/mail-profile-check.png) |
 
 ## Четыре темы и телефон
 
 Одна система оформления в четырёх темах: «Современный и лёгкий» (по умолчанию), «Тёмный профессиональный», «Корпоративный минимализм» и «Современный градиентный». Тема хранится в профиле и следует за сотрудником на другие устройства. На телефоне те же возможности, что и на компьютере.
 
 <p align="center">
-  <img src="docs/screenshots/vault-dark.png" width="32.5%" alt="Тёмная тема">
-  <img src="docs/screenshots/vault-forest.png" width="32.5%" alt="Тёмно-зелёная тема">
-  <img src="docs/screenshots/vault-sunset.png" width="32.5%" alt="Закатная тема">
+  <img src="docs/screenshots/vault-night.png" width="32.5%" alt="Тёмный профессиональный">
+  <img src="docs/screenshots/vault-grove.png" width="32.5%" alt="Корпоративный минимализм">
+  <img src="docs/screenshots/vault-aurora.png" width="32.5%" alt="Современный градиентный">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/mobile-vault-corporate.png" width="24%" alt="Список записей на телефоне">
-  <img src="docs/screenshots/mobile-entry-corporate.png" width="24%" alt="Карточка записи на телефоне">
-  <img src="docs/screenshots/mobile-entry-forest.png" width="24%" alt="Карточка записи на телефоне, тёмно-зелёная тема">
+  <img src="docs/screenshots/daily-phone-list.png" width="24%" alt="Список записей на телефоне">
+  <img src="docs/screenshots/daily-phone-entry.png" width="24%" alt="Карточка записи на телефоне">
+  <img src="docs/screenshots/ui-explorer-390.png" width="24%" alt="Проводник папок на телефоне">
 </p>
 
 ## Модель защиты

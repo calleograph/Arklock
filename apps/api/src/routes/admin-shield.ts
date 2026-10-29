@@ -11,7 +11,9 @@ import { ipRules, securityBlocks, securityEvents, settings, users } from '../db/
 import { AppError, notFound, parse } from '../errors.js';
 import { ACCESS_KEY, CONFIRM_SECONDS, PROXIES_KEY, type AccessState } from '../shield/access.js';
 import { CidrSet, normalizeIp, parseCidr } from '../shield/ip.js';
+import { issueChallenge, verifySolution } from '../shield/captcha.js';
 import { SHIELD_KEY, shieldPolicy } from '../shield/policy.js';
+import { checkPolicy, describePolicy } from '../shield/preview.js';
 import {
   DEFAULT_LIMITS,
   LIMITS_KEY,
@@ -198,10 +200,58 @@ export const registerAdminShieldRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     const [row] = await db.select().from(settings).where(eq(settings.key, SHIELD_KEY));
     return settingsSchema.parse(row?.value ?? {});
   };
-  app.get('/admin/shield/settings', async () => ({
-    ...(await loadSettings()),
-    defaults: settingsSchema.parse({}),
-  }));
+  const policyEnv = (req: FastifyRequest) => ({
+    hops: ctx.config.TRUSTED_PROXY_HOPS,
+    forwarded: !!req.headers['x-forwarded-for'],
+    authRatePerMinute: ctx.requests.limits.auth,
+  });
+  app.get('/admin/shield/settings', async (req) => {
+    const current = await loadSettings();
+    return {
+      ...current,
+      defaults: settingsSchema.parse({}),
+      summary: describePolicy(current, policyEnv(req)),
+    };
+  });
+  // проверка параметров до применения: ничего не сохраняет и не трогает счётчики
+  app.post('/admin/shield/settings/check', async (req) =>
+    checkPolicy(req.body ?? {}, await loadSettings(), policyEnv(req)),
+  );
+  // пробная проверка: то же задание и тот же способ проверки, что у входа, но привязано к сеансу администратора,
+  // не создаёт ошибок входа, не меняет счётчики и не блокирует адрес и учётную запись
+  const previewScope = (req: FastifyRequest) => `preview|${authOf(req).session.id}`;
+  app.get('/admin/shield/login/preview', async (req) => {
+    const p = await loadSettings();
+    return {
+      challenge: issueChallenge(ctx.config.APP_SECRET, previewScope(req), p.captchaBits),
+      bits: p.captchaBits,
+      ttlSeconds: 300,
+    };
+  });
+  app.post('/admin/shield/login/preview/verify', async (req) => {
+    const body = parse(
+      z.object({
+        solution: z.object({
+          id: z.string().max(100),
+          salt: z.string().max(100),
+          bits: z.number(),
+          exp: z.number(),
+          sig: z.string().max(200),
+          number: z.number(),
+        }),
+      }),
+      req.body,
+    );
+    const p = await loadSettings();
+    const ok = await verifySolution(
+      db,
+      ctx.config.APP_SECRET,
+      previewScope(req),
+      body.solution,
+      p.captchaBits,
+    );
+    return { ok };
+  });
   app.put('/admin/shield/settings', async (req) => {
     requireReauth(ctx, req);
     const before = await loadSettings();

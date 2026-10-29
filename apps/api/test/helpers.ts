@@ -242,6 +242,25 @@ export class TestClient {
     return body;
   }
 
+  /** Подтверждение мастер-паролем (повторный ввод) и запрос с ним: для действий, которые требуют X-Reauth-Token. */
+  async reqStep(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    url: string,
+    payload?: unknown,
+  ) {
+    const token = (
+      await this.req('POST', '/admin/reauth', {
+        authKey: toBase64Url((await this.derive()).keys.authKey),
+      })
+    ).json().token as string;
+    return this.app.inject({
+      method,
+      url: '/api/v1' + url,
+      headers: { ...this.authHeader(), 'x-reauth-token': token },
+      payload: payload as never,
+    });
+  }
+
   async req(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: unknown) {
     return this.app.inject({
       method,

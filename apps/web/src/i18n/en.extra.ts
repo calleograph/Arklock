@@ -247,7 +247,8 @@ export default {
     selected: 'Selected',
   },
   auth: {
-    verifying: 'Extra verification after several failed attempts… this takes a few seconds',
+    verifying:
+      'Running the additional automatic check after several failed attempts… this takes a few seconds',
   },
   whatsnew: {
     menu: 'What’s new',

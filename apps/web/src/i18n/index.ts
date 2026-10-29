@@ -7,6 +7,7 @@ import { ruCorporate, enCorporate } from './corporate';
 import { ruHelp, enHelp } from './help';
 import { ruGuides, enGuides } from './guides';
 import { ruShield, enShield } from './shield';
+import { ruMail, enMail } from './mail';
 
 type Tree = { [k: string]: string | Tree };
 /** Глубокое слияние словарей: дополнительные разделы переопределяют и расширяют базовые. */
@@ -37,12 +38,18 @@ export const i18n = createI18n({
   fallbackLocale: 'en',
   messages: {
     ru: merge(
-      merge(merge(merge(merge(ru as Tree, ruExtra as Tree), ruCorporate), ruHelp), ruGuides),
-      ruShield as Tree,
+      merge(
+        merge(merge(merge(merge(ru as Tree, ruExtra as Tree), ruCorporate), ruHelp), ruGuides),
+        ruShield as Tree,
+      ),
+      ruMail as Tree,
     ),
     en: merge(
-      merge(merge(merge(merge(en as Tree, enExtra as Tree), enCorporate), enHelp), enGuides),
-      enShield as Tree,
+      merge(
+        merge(merge(merge(merge(en as Tree, enExtra as Tree), enCorporate), enHelp), enGuides),
+        enShield as Tree,
+      ),
+      enMail as Tree,
     ),
   },
 });

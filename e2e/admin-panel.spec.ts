@@ -209,27 +209,57 @@ test('administration sections show real data and perform real operations', async
   await tab(page, 'certificates');
   await expect(page.getByTestId('certs-empty')).toBeVisible();
 
-  // почта: настройка, проверка соединения, тестовое письмо
+  // почта: профиль без шифрования (главный администратор, подтверждение паролем), проверка по этапам, тестовое письмо
   await tab(page, 'smtp');
+  await expect(page.getByTestId('mail-empty')).toBeVisible();
+  await page.getByTestId('smtp-add').click();
+  await page.getByTestId('smtp-name').fill('Тестовый relay');
   await page.getByTestId('smtp-host').fill('127.0.0.1');
-  await page.getByTestId('smtp-port').fill(String(smtpPort));
   await page.getByTestId('smtp-security').selectOption('none');
+  await expect(page.getByTestId('smtp-port')).toHaveValue('25'); // порт подставляется сам
+  await expect(page.getByTestId('smtp-none-warn')).toBeVisible();
+  await page.getByTestId('smtp-port').fill(String(smtpPort));
+  await page.getByTestId('smtp-auth').selectOption('password');
   await page.getByTestId('smtp-user').fill('mailer');
   await page.getByTestId('smtp-password').fill('smtp-secret-for-e2e');
   await page.getByTestId('smtp-from').fill('arklock@example.com');
   await page.getByTestId('smtp-save').click();
-  await expect(page.getByTestId('smtp-test')).toBeVisible();
-  await page.getByTestId('smtp-test').click();
-  await expect(page.getByTestId('smtp-result')).toContainText(/Успешно|Success/);
-  await page.getByTestId('smtp-to').fill('boss@example.com');
-  await page.getByTestId('smtp-send').click();
+  // небезопасный режим просит мастер-пароль (если подтверждение сеанса уже действует, вопрос не задаётся)
+  const asked = await page
+    .getByTestId('mail-reauth-password')
+    .waitFor({ timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (asked) {
+    await page.getByTestId('mail-reauth-password').fill(ADMIN.password);
+    await page.getByTestId('mail-reauth-ok').click();
+  }
+  await expect(page.getByTestId('mail-notice')).toBeVisible();
+  const card = page.locator('[data-profile]').first();
+  await card.locator('[data-action="check"]').click();
+  await expect(card.getByTestId('smtp-result')).toContainText(/Проверка пройдена|Check passed/);
+  for (const stage of ['dns', 'tcp', 'greeting', 'ehlo', 'tls', 'certificate', 'methods', 'auth'])
+    await expect(card.locator(`[data-stage="${stage}"]`)).toBeVisible();
+  await card.locator('input[type="email"]').fill('boss@example.com');
+  await card.getByRole('button', { name: /Отправить тестовое письмо|Send test mail/ }).click();
   await expect.poll(() => mails.length, { timeout: 15_000 }).toBe(1);
   expect(mails[0]).toContain('To: boss@example.com');
+  await expect(
+    card.getByText(/не подтверждение доставки|not a confirmation of delivery/),
+  ).toBeVisible();
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'docs/screenshots/mail-profile-check.png' });
+  // журнал отправки: письмо принято сервером
+  await page.getByTestId('mail-tab-log').click();
+  await expect(page.getByTestId('mail-st-accepted')).toBeVisible();
+  await expect(page.getByTestId('mail-log-row').first()).toContainText('boss@example.com');
+  await page.screenshot({ path: 'docs/screenshots/mail-delivery-log.png' });
   // пароль после сохранения в форму не возвращается
   await page.reload();
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await tab(page, 'smtp');
+  await page.locator('[data-profile] [data-action="edit"]').first().click();
   await expect(page.getByTestId('smtp-host')).toHaveValue('127.0.0.1', { timeout: 60_000 });
   await expect(page.getByTestId('smtp-password')).toHaveValue('');
 
