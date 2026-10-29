@@ -239,10 +239,23 @@ async function loadOverview(): Promise<void> {
     error.value = errorMessage(e, t);
   }
 }
-async function loadSettings(): Promise<void> {
-  settings.value = await api<Settings>('GET', '/admin/shield/settings');
-  const { defaults: _d, summary: _s, ...rest } = settings.value;
-  draft.value = { ...rest };
+const savedDraft = (x: Settings) => {
+  const { defaults: _d, summary: _s, ...rest } = x;
+  return rest;
+};
+/**
+ * Повторная загрузка (переход по вкладкам) не затирает то, что администратор уже начал менять: поздний ответ сервера
+ * перезаписал бы введённое значение. После «Применить», «Отмена» и сброса форма перечитывается полностью (force).
+ */
+async function loadSettings(force = false): Promise<void> {
+  const fresh = await api<Settings>('GET', '/admin/shield/settings');
+  const edited =
+    !!draft.value &&
+    !!settings.value &&
+    JSON.stringify(draft.value) !== JSON.stringify(savedDraft(settings.value));
+  settings.value = fresh;
+  if (edited && !force) return;
+  draft.value = { ...savedDraft(fresh) };
   policyCheck.value = null;
   ackWarnings.value = false;
 }
@@ -359,7 +372,7 @@ async function checkPolicy(): Promise<void> {
   }
 }
 function revertPolicy(): void {
-  if (settings.value) draft.value = { ...settings.value };
+  if (settings.value) draft.value = { ...savedDraft(settings.value) };
   policyCheck.value = null;
   ackWarnings.value = false;
 }
@@ -375,7 +388,7 @@ async function saveSettings(fields: (keyof Omit<Settings, 'defaults'>)[]): Promi
   await guarded(async (headers) => {
     await api('PUT', '/admin/shield/settings', body, { headers });
     notice.value = t('shield.saved');
-    await loadSettings();
+    await loadSettings(true);
   });
 }
 async function restoreDefaults(): Promise<void> {
@@ -384,7 +397,7 @@ async function restoreDefaults(): Promise<void> {
   await guarded(async (headers) => {
     await api('PUT', '/admin/shield/settings', defaults, { headers });
     notice.value = t('shield.saved');
-    await loadSettings();
+    await loadSettings(true);
   });
 }
 
