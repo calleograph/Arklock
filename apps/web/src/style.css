@@ -74,7 +74,8 @@
   --header-bg: rgb(255 255 255 / 0.62);
   --glass-bg: rgb(255 255 255 / 0.62);
   --glass-border: rgb(255 255 255 / 0.85);
-  --dialog-bg: #ffffff;
+  --dialog-bg: #f8fbff;
+  --scrim: rgb(24 52 100 / 0.26);
   --decor: url('/bg/glass.svg');
   --page-glow: radial-gradient(
     ellipse 60rem 30rem at 85% -8rem,
@@ -107,6 +108,7 @@
   --glass-bg: rgb(27 30 63 / 0.62);
   --glass-border: rgb(130 120 230 / 0.28);
   --dialog-bg: #1b1e3f;
+  --scrim: rgb(4 6 22 / 0.6);
   --decor: url('/bg/night.svg');
   --page-glow: radial-gradient(
     ellipse 60rem 28rem at 80% -8rem,
@@ -139,6 +141,7 @@
   --glass-bg: rgb(255 255 255 / 0.94);
   --glass-border: var(--color-slate-200);
   --dialog-bg: #ffffff;
+  --scrim: rgb(22 40 28 / 0.28);
   --decor: url('/bg/grove.svg');
   --page-glow: none;
   color-scheme: light;
@@ -167,6 +170,7 @@
   --glass-bg: rgb(10 32 64 / 0.6);
   --glass-border: rgb(60 190 230 / 0.28);
   --dialog-bg: #0a2040;
+  --scrim: rgb(2 10 26 / 0.6);
   --decor: url('/bg/aurora.svg');
   --page-glow: radial-gradient(
     ellipse 64rem 30rem at 15% -8rem,
@@ -258,11 +262,6 @@ body {
   border-color: var(--glass-border);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
-}
-:root:is([data-theme='glass'], [data-theme='night'], [data-theme='grove'], [data-theme='aurora'])
-  dialog {
-  background: var(--dialog-bg);
-  border-color: var(--glass-border);
 }
 :root:is([data-theme='glass'], [data-theme='night'], [data-theme='grove'], [data-theme='aurora'])
   .btn-primary {
@@ -383,14 +382,55 @@ code,
   overflow-wrap: anywhere;
 }
 
+/*
+ * Модальные окна: одно оформление для всех. Подложка (.modal-scrim) и окно (.modal) берут цвета только из токенов
+ * темы (--scrim, --dialog-bg, --glass-border, --surface-shadow): новое окно с этими классами или тегом <dialog>
+ * само получает любую из четырёх тем. Окно непрозрачное: стекло под ним не просвечивает и не серит светлую тему.
+ */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.modal,
+dialog {
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-modal);
+  background: var(--dialog-bg);
+  color: var(--color-slate-900);
+  box-shadow:
+    inset 0 1px 0 var(--glass-border),
+    0 24px 60px -20px color-mix(in srgb, var(--shade) 55%, transparent),
+    0 2px 6px color-mix(in srgb, var(--shade) 12%, transparent);
+}
+:root.dark .modal,
+:root.dark dialog {
+  color: var(--color-slate-100);
+}
 /* сброс Tailwind обнуляет margin, а модальный dialog центрируется именно им */
 dialog {
   margin: auto;
-  @apply rounded-(--radius-modal) border border-slate-200 bg-white p-0 text-slate-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100;
+  padding: 0;
 }
 dialog::backdrop {
-  background: rgb(10 15 25 / 0.5);
-  backdrop-filter: blur(2px);
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+/*
+ * Слой карточек. Стеклянная карточка (backdrop-filter) образует свой контекст наложения, и следующая карточка
+ * в потоке закрывала бы подсказку или меню, открытые в предыдущей. Карточка с открытым элементом поднимается над соседями.
+ */
+.card:not(.absolute, .fixed, .sticky):is(
+    :focus-within,
+    :has([aria-describedby], [aria-expanded='true'])
+  ) {
+  position: relative;
+  z-index: 20;
 }
 
 @media (prefers-reduced-motion: reduce) {

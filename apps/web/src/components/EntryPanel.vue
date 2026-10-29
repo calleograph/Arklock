@@ -714,7 +714,7 @@ const fmt = (iso: string) => when(iso);
     <section
       :class="
         editing
-          ? 'modal-fade fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-8'
+          ? 'modal-fade modal-scrim flex items-start justify-center overflow-y-auto p-3 sm:p-8'
           : 'card p-4'
       "
       :role="editing ? 'dialog' : undefined"
@@ -723,7 +723,7 @@ const fmt = (iso: string) => when(iso);
       data-testid="entry-panel"
       @keydown.esc.stop.prevent="cancelEditing"
     >
-      <div :class="editing ? 'card w-full max-w-2xl p-4 shadow-xl' : 'contents'">
+      <div :class="editing ? 'modal w-full max-w-2xl p-4' : 'contents'">
         <!-- Просмотр -->
         <template v-if="item && !editing">
           <div class="mb-4 flex items-start gap-2">
@@ -1565,9 +1565,7 @@ const fmt = (iso: string) => when(iso);
           <p v-if="error" class="text-sm text-red-600" role="alert" data-testid="form-error">
             {{ error }}
           </p>
-          <div
-            class="sticky bottom-0 -mx-1 flex gap-2 bg-white/95 px-1 py-2 backdrop-blur dark:bg-slate-900/95"
-          >
+          <div class="sticky bottom-0 -mx-1 flex gap-2 bg-(--dialog-bg)/95 px-1 py-2 backdrop-blur">
             <button type="submit" class="btn-primary" :disabled="busy" data-testid="f-save">
               {{ t('common.save') }}
             </button>

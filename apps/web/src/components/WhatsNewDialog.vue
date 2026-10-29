@@ -37,14 +37,14 @@ onMounted(async () => {
 
 <template>
   <div
-    class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+    class="modal-scrim flex items-center justify-center p-4"
     role="dialog"
     aria-modal="true"
     :aria-label="t('whatsnew.title', { v: current })"
     @keydown.esc="emit('close')"
   >
     <div
-      class="card flex max-h-[90vh] w-full max-w-2xl flex-col text-sm"
+      class="modal flex max-h-[90vh] w-full max-w-2xl flex-col text-sm"
       data-testid="whatsnew-dialog"
     >
       <header

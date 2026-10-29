@@ -1437,14 +1437,14 @@ void router;
     <!-- Значок папки -->
     <div
       v-if="iconBranch"
-      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      class="modal-scrim flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       :aria-label="t('icons.folderTitle', { name: iconBranch.name })"
       @click.self="iconBranch = null"
       @keydown.esc="iconBranch = null"
     >
-      <div class="card w-full max-w-sm space-y-3 p-4" data-testid="folder-icon-dialog">
+      <div class="modal w-full max-w-sm space-y-3 p-4" data-testid="folder-icon-dialog">
         <h2 class="font-semibold">{{ t('icons.folderTitle', { name: iconBranch.name }) }}</h2>
         <IconPicker v-model="iconDraft" kind="folder" :label="iconBranch.name" />
         <div class="flex gap-2">
@@ -1467,12 +1467,12 @@ void router;
     <!-- Меню папки -->
     <div
       v-if="menuBranch"
-      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      class="modal-scrim flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       @click.self="menuBranch = null"
     >
-      <div class="card w-full max-w-sm space-y-3 p-4" data-testid="folder-menu">
+      <div class="modal w-full max-w-sm space-y-3 p-4" data-testid="folder-menu">
         <h2 class="flex items-center gap-2 font-semibold">
           <ObjectIcon :icon="menuBranch.icon" kind="folder" variant="inline" />
           {{ menuBranch.name }}
@@ -1587,12 +1587,12 @@ void router;
     <!-- Диалог ввода названия -->
     <div
       v-if="dialog"
-      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      class="modal-scrim flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
     >
       <form
-        class="card w-full max-w-sm space-y-3 p-4"
+        class="modal w-full max-w-sm space-y-3 p-4"
         data-testid="name-dialog"
         @submit.prevent="submitDialog"
       >

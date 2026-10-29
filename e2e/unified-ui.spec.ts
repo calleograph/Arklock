@@ -764,3 +764,79 @@ test('чистая установка: «Современный и лёгкий�
   expect(errors).toEqual([]);
   await ctx.close();
 });
+
+test('модальные окна одинаково оформлены во всех четырёх темах: светлая подложка, непрозрачное окно, подсказки поверх', async () => {
+  await chief.goto('/');
+  await expect(chief.getByTestId('add-entry')).toBeVisible({ timeout: 60_000 });
+  const themes = ['glass', 'night', 'grove', 'aurora'];
+  const rgba = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number);
+  for (const [w, h] of [
+    [1280, 800],
+    [1366, 768],
+  ] as const) {
+    await chief.setViewportSize({ width: w, height: h });
+    for (const theme of themes) {
+      await chief.evaluate((id) => {
+        document.documentElement.dataset.theme = id;
+        document.documentElement.classList.toggle('dark', ['night', 'aurora'].includes(id));
+      }, theme);
+      await chief.getByTestId('add-entry').click();
+      const dialog = chief.getByTestId('entry-panel');
+      await expect(dialog).toHaveAttribute('role', 'dialog');
+      const look = await chief.evaluate(() => {
+        const panel = document.querySelector('[data-testid="entry-panel"]') as HTMLElement;
+        const modal = panel.querySelector('.modal') as HTMLElement;
+        const cs = getComputedStyle(modal);
+        const root = getComputedStyle(document.documentElement);
+        return {
+          scrim: getComputedStyle(panel).backgroundColor,
+          bg: cs.backgroundColor,
+          dialogBg: root.getPropertyValue('--dialog-bg').trim(),
+          radius: cs.borderTopLeftRadius,
+          shadow: cs.boxShadow !== 'none',
+          inputBg: getComputedStyle(modal.querySelector('input.input') as HTMLElement)
+            .backgroundColor,
+        };
+      });
+      const light = theme === 'glass' || theme === 'grove';
+      const [, , , a] = rgba(look.scrim);
+      // подложка полупрозрачная и не мрачная: в светлых темах её плотность заметно ниже прежних 60 %
+      expect(a, `${theme} подложка`).toBeLessThanOrEqual(light ? 0.3 : 0.65);
+      // окно непрозрачное и берёт цвет токена темы, а не серый «стеклянный»
+      expect(
+        rgba(look.bg).length === 3 || rgba(look.bg)[3] === 1,
+        `${theme} окно непрозрачно`,
+      ).toBe(true);
+      expect(look.shadow).toBe(true);
+      expect(look.radius).not.toBe('0px');
+      // в «Корпоративном минимализме» окно и поля белые по замыслу и отделены рамкой
+      if (theme !== 'grove') expect(look.inputBg, `${theme} поле`).not.toBe(look.bg);
+      if (theme === 'glass') expect(look.bg).toBe('rgb(248, 251, 255)');
+      await chief.screenshot({ path: `docs/screenshots/ui-modal-${theme}-${w}.png` });
+      // подсказка внутри окна открывается поверх него и не обрезается
+      const hint = dialog.getByTestId('info-hint').first();
+      if (await hint.count()) {
+        await hint.hover();
+        const shown = await chief.evaluate(() => {
+          const trigger = document.querySelector('[data-testid="info-hint"][aria-describedby]');
+          const tip = trigger && document.getElementById(trigger.getAttribute('aria-describedby')!);
+          if (!tip) return false;
+          const r = tip.getBoundingClientRect();
+          const top = document.elementFromPoint(r.left + 8, r.top + 8);
+          return (
+            r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && tip.contains(top)
+          );
+        });
+        expect(shown, `${theme} подсказка`).toBe(true);
+        await chief.mouse.move(0, 0);
+      }
+      await chief.keyboard.press('Escape');
+      await expect(dialog).toHaveCount(0);
+    }
+  }
+  await chief.evaluate(() => {
+    document.documentElement.dataset.theme = 'glass';
+    document.documentElement.classList.remove('dark');
+  });
+  await chief.setViewportSize({ width: 1366, height: 768 });
+});

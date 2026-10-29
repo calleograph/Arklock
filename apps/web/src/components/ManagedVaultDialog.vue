@@ -36,13 +36,13 @@ async function create(): Promise<void> {
 
 <template>
   <div
-    class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+    class="modal-scrim flex items-center justify-center p-4"
     role="dialog"
     aria-modal="true"
     :aria-label="t('managed.title')"
   >
     <div
-      class="card max-h-[90vh] w-full max-w-lg space-y-3 overflow-auto p-4 text-sm"
+      class="modal max-h-[90vh] w-full max-w-lg space-y-3 overflow-auto p-4 text-sm"
       data-testid="managed-dialog"
     >
       <h2 class="font-semibold">{{ t('managed.title') }}</h2>

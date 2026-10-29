@@ -416,14 +416,11 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 
     <div
       v-if="askPassword"
-      class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+      class="modal-scrim flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
     >
-      <form
-        class="w-full max-w-sm space-y-3 rounded-lg bg-white p-5 shadow-lg dark:bg-slate-900"
-        @submit.prevent="confirmPassword"
-      >
+      <form class="modal w-full max-w-sm space-y-3 p-5" @submit.prevent="confirmPassword">
         <h2 class="font-semibold">{{ t('updates.confirmTitle') }}</h2>
         <p class="text-sm text-slate-500">{{ t('updates.confirmHint') }}</p>
         <input
