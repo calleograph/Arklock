@@ -8,6 +8,7 @@ import { ruHelp, enHelp } from './help';
 import { ruGuides, enGuides } from './guides';
 import { ruShield, enShield } from './shield';
 import { ruMail, enMail } from './mail';
+import { ruAccess, enAccess } from './access';
 
 type Tree = { [k: string]: string | Tree };
 /** Глубокое слияние словарей: дополнительные разделы переопределяют и расширяют базовые. */
@@ -42,14 +43,14 @@ export const i18n = createI18n({
         merge(merge(merge(merge(ru as Tree, ruExtra as Tree), ruCorporate), ruHelp), ruGuides),
         ruShield as Tree,
       ),
-      ruMail as Tree,
+      merge(ruMail as Tree, ruAccess as Tree),
     ),
     en: merge(
       merge(
         merge(merge(merge(merge(en as Tree, enExtra as Tree), enCorporate), enHelp), enGuides),
         enShield as Tree,
       ),
-      enMail as Tree,
+      merge(enMail as Tree, enAccess as Tree),
     ),
   },
 });

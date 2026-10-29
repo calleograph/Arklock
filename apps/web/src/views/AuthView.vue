@@ -210,6 +210,21 @@ async function submitPin(): Promise<void> {
     busy.value = false;
   }
 }
+// небезопасный адрес: узнаём у сервера публичный HTTPS-адрес, если администратор его задал
+const secureUrl = ref('');
+const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+const tunnelUrl = `http://localhost:${port}`;
+const tunnelCommand = `ssh -L ${port}:127.0.0.1:${port} <пользователь>@${location.hostname}`;
+onMounted(async () => {
+  if (hasWebCrypto()) return;
+  try {
+    const r = await api<{ publicUrl: string | null }>('GET', '/access');
+    if (r.publicUrl?.startsWith('https://') && !location.href.startsWith(r.publicUrl))
+      secureUrl.value = r.publicUrl;
+  } catch {
+    /* подсказка без публичного адреса остаётся полезной */
+  }
+});
 async function submit(): Promise<void> {
   error.value = '';
   if (!hasWebCrypto()) {
@@ -463,14 +478,32 @@ async function copyRecovery(): Promise<void> {
       <form v-else class="card space-y-4 p-6 sm:p-7" @submit.prevent="submit">
         <h1 class="text-xl font-semibold">{{ mfaStep ? t('mfa.title') : title }}</h1>
         <!-- до ввода пароля: на небезопасном адресе (http по IP) вход невозможен, и причину видно сразу -->
-        <p
+        <div
           v-if="!hasWebCrypto()"
-          class="notice notice-warn"
+          class="notice notice-warn text-sm"
           role="alert"
           data-testid="insecure-context"
         >
-          {{ t('error.insecure') }}
-        </p>
+          <div class="min-w-0 space-y-2">
+            <p class="font-medium">{{ t('access.title') }}</p>
+            <p>{{ t('access.why') }}</p>
+            <p v-if="secureUrl" data-testid="insecure-public">
+              {{ t('access.publicHint', { url: secureUrl }) }}
+              <a :href="secureUrl" class="btn mt-2 inline-flex" data-testid="insecure-open">{{
+                t('access.openPublic')
+              }}</a>
+            </p>
+            <div data-testid="insecure-tunnel">
+              <p>{{ t('access.tunnel') }}</p>
+              <code
+                class="mt-1 block break-all rounded bg-white/60 px-2 py-1 text-xs dark:bg-black/30"
+                >{{ tunnelCommand }}</code
+              >
+              <p class="mt-1">{{ t('access.tunnelThen', { url: tunnelUrl }) }}</p>
+            </div>
+            <p class="text-xs">{{ t('access.admin') }}</p>
+          </div>
+        </div>
         <p v-if="mode === 'unlock'" class="text-sm text-slate-500 dark:text-slate-400">
           {{ t('auth.unlockHint') }}
         </p>

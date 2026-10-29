@@ -11,6 +11,13 @@ echo "Версия в каталоге:   $(app_version) ($(git_commit | cut -c1
 v="$(curl -fsS --max-time 4 "$(app_url_local)/api/v1/version" 2>/dev/null || true)"
 echo "Работающая версия:   ${v:-приложение не отвечает}"
 echo "Адрес:               ${APP_PUBLIC_URL:-$(app_url_local)}"
+# shellcheck source=lib/access.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/access.sh"
+case "$(acc_state "$ENV_FILE")" in
+  https) echo "Первый вход:         готов (HTTPS: ${APP_PUBLIC_URL}); проверка: scripts/access.sh check" ;;
+  local) echo "Первый вход:         готов локально (на сервере или через SSH-туннель): scripts/access.sh status" ;;
+  *) echo "Первый вход:         НЕ готов (нет HTTPS): scripts/access.sh status" ;;
+esac
 echo
 echo "== Контейнеры"
 dc ps --format 'table {{.Service}}\t{{.Image}}\t{{.State}}\t{{.Status}}' 2>/dev/null || warn "Не удалось получить состояние контейнеров"

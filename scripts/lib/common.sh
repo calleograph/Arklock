@@ -52,6 +52,17 @@ env_set() {
   mv -f "$tmp" "$file"
 }
 
+# Удаляет параметр из файла окружения (если его нет — ничего не делает), атомарно, права 600.
+env_unset() { # env_unset FILE KEY
+  local file="$1" key="$2" tmp
+  [[ "$key" =~ ^[A-Za-z][A-Za-z0-9_]*$ ]] || die "Недопустимое имя параметра: $key"
+  [ -f "$file" ] && grep -q -E "^${key}=" "$file" || return 0
+  tmp="$(mktemp "${file}.XXXXXX")"
+  chmod 600 "$tmp"
+  grep -v -E "^${key}=" "$file" > "$tmp" || true
+  mv -f "$tmp" "$file"
+}
+
 env_get() { # env_get FILE KEY
   [ -f "$1" ] || return 0
   sed -n "s/^$2=//p" "$1" | tail -n 1

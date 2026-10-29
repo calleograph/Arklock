@@ -932,3 +932,53 @@ test('защита входа: проверка настроек до приме
   await expect(chief.getByTestId('shield-notice')).toBeVisible();
   await expect(chief.getByTestId('set-captcha-after')).toHaveValue('5');
 });
+
+test('адрес без защищённого контекста: страница входа объясняет причину, предлагает безопасный адрес и SSH-туннель', async ({
+  browser,
+  baseURL,
+}) => {
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 }, locale: 'ru-RU' });
+  // имитация http по IP: Web Crypto недоступен
+  await ctx.addInitScript(() =>
+    Object.defineProperty(globalThis, 'isSecureContext', { value: false }),
+  );
+  const page = await ctx.newPage();
+  await page.goto(`${baseURL}/login`);
+  const hint = page.getByTestId('insecure-context');
+  await expect(hint).toBeVisible();
+  await expect(hint).toContainText('HTTPS');
+  await expect(hint).toContainText('localhost');
+  // без публичного HTTPS-адреса остаётся путь через SSH-туннель
+  await expect(page.getByTestId('insecure-tunnel')).toContainText(/ssh -L \d+:127\.0\.0\.1:\d+/);
+  await expect(page.getByTestId('insecure-public')).toHaveCount(0);
+  await page.screenshot({ path: 'docs/screenshots/ui-insecure-context.png' });
+
+  // публичный адрес задан администратором: подсказка ведёт на него
+  await page.route('**/api/v1/access', (route) =>
+    route.fulfill({
+      json: {
+        protocol: 'http',
+        secure: false,
+        host: 'x',
+        publicUrl: 'https://arklock.example.com',
+        publicMatches: false,
+        forwardedProto: null,
+        trustedProxyHops: 1,
+        firstUser: true,
+      },
+    }),
+  );
+  await page.reload();
+  await expect(page.getByTestId('insecure-open')).toHaveAttribute(
+    'href',
+    'https://arklock.example.com',
+  );
+  // телефон: подсказка не шире экрана
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'docs/screenshots/ui-insecure-context-390.png' });
+  const over = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(over).toBeLessThanOrEqual(0);
+  await ctx.close();
+});

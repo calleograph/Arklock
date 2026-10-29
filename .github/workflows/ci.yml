@@ -165,9 +165,11 @@ jobs:
             bash -n "$f" || rc=1
           done
           exit $rc
-      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh
+      - run: shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh tests/install/*.sh
       - name: Migration of a hand-edited publish address (1.0.x compose.yaml → APP_BIND)
         run: bash tests/update/instance-config.test.sh
+      - name: Access modes and first-login readiness (states, proxy hints, checks against a controlled HTTPS server, installer flags)
+        run: bash tests/install/access.test.sh
 
   installer:
     name: installer, backup and restore on a clean Ubuntu 24.04 runner
@@ -184,15 +186,22 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build -w @arklock/crypto
-      - name: Dry run changes nothing
+      - name: Dry run changes nothing and names the access mode
         run: |
-          sudo ./install.sh --dry-run --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
+          sudo ./install.sh --dry-run --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA" | tee dry.log
+          grep -q "доступ:" dry.log
           test ! -e "$CFG/arklock.env"
+          sudo ./install.sh --dry-run --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA" --access proxy --url https://arklock.example.com --bind lan | grep -q "публичный адрес=https://arklock.example.com"
+          if sudo ./install.sh --dry-run --yes --access proxy --project "$PROJ" --config "$CFG" --data "$DATA"; then echo "proxy without an address was accepted"; exit 1; fi
       - name: Install (standalone)
         run: sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA" 2>&1 | tee install.log
       - name: Install output has the setup instructions and no secrets other than the setup code
         run: |
           grep -q "УСТАНОВКА ЗАВЕРШЕНА" install.log
+          # технически готово и готовность к первому входу названы отдельно: по умолчанию — локальный доступ
+          grep -q "Технически:       ГОТОВ" install.log
+          grep -q "Первый вход:      ГОТОВ ЛОКАЛЬНО" install.log
+          grep -q "ssh -L" install.log
           pw="$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' "$CFG/arklock.env")"
           sec="$(sudo sed -n 's/^APP_SECRET=//p' "$CFG/arklock.env")"
           if grep -qF -- "$pw" install.log || grep -qF -- "$sec" install.log; then echo "secret printed by installer"; exit 1; fi
@@ -204,6 +213,20 @@ jobs:
           sudo ./install.sh --yes --profile standalone --project "$PROJ" --config "$CFG" --data "$DATA"
           after="$(sudo sha256sum "$CFG/arklock.env" "$CFG/backup.key")"
           test "$before" = "$after"
+      - name: Access changes without reinstalling (proxy, check, local) keep the data
+        run: |
+          sudo ./scripts/access.sh status --env "$CFG/arklock.env" | grep -q "ГОТОВ ЛОКАЛЬНО"
+          if sudo ./scripts/access.sh set proxy --env "$CFG/arklock.env" --url http://arklock.example.com --yes; then echo "http address accepted"; exit 1; fi
+          sudo ./scripts/access.sh set proxy --env "$CFG/arklock.env" --url https://arklock.example.test --yes | tee access.log
+          grep -q "http://127.0.0.1:" access.log
+          grep -q "X-Forwarded-Proto" access.log
+          test "$(sudo sed -n 's/^APP_PUBLIC_URL=//p' "$CFG/arklock.env")" = https://arklock.example.test
+          ls "/var/lib/arklock-ci/config-backups" | grep -q "arklock.env."
+          # внутренний адрес не разрешается в этой сети: это «не удалось проверить», а не ошибка настройки (код 2)
+          rc=0; sudo ./scripts/access.sh check --env "$CFG/arklock.env" || rc=$?
+          test "$rc" = 2
+          sudo ./scripts/access.sh set local --env "$CFG/arklock.env" --yes
+          sudo ./scripts/access.sh status --env "$CFG/arklock.env" | grep -q "ГОТОВ ЛОКАЛЬНО"
       - name: Load instance settings
         run: |
           echo "PORT=$(sudo sed -n 's/^APP_PORT=//p' "$CFG/arklock.env")" >> "$GITHUB_ENV"
@@ -411,7 +434,7 @@ jobs:
       - name: Scripts pass shellcheck and syntax checks with the Debian 12 shell
         run: |
           for f in install.sh scripts/*.sh scripts/lib/*.sh; do bash -n "$f"; done
-          shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh
+          shellcheck -x -S warning install.sh scripts/*.sh scripts/lib/*.sh tests/update/*.sh tests/updater/*.sh tests/install/*.sh
       - name: Remote storage client against a signature-checking S3 server (Debian bash, curl, openssl)
         run: npx vitest run --project remote
       - name: Nginx configuration is generated for Debian's Nginx 1.22 syntax

@@ -18,6 +18,12 @@
 #   --bind local|lan|all|АДРЕС   где слушать: local — 127.0.0.1 (по умолчанию, для reverse proxy на этом же сервере),
 #                     lan — IP сервера в локальной сети, all — все адреса, либо конкретный адрес сервера.
 #                     Без --yes адрес выбирается в диалоге. Значение сохраняется при повторной установке.
+#   --access РЕЖИМ    как пользователи будут открывать Arklock (браузер шифрует только по HTTPS или на localhost):
+#                       https — HTTPS на этом сервере (Nginx и сертификат; нужен --domain, см. --https),
+#                       proxy — внешний reverse proxy или WAF (нужен --url https://…; где он стоит — --bind),
+#                       local — только этот сервер (127.0.0.1): первый вход на сервере или через SSH-туннель.
+#                     Без --access режим выводится из остальных параметров; без параметров и без терминала — local.
+#                     Позже режим меняется без переустановки: scripts/access.sh set local|proxy|https
 #   --url АДРЕС       публичный адрес (https://…), по которому пользователи откроют Arklock
 #   --https РЕЖИМ     автоматическая настройка Nginx и HTTPS: letsencrypt | self-signed | existing (нужен --domain);
 #                     в профиле shared-host Nginx не меняется — создаётся только пример конфигурации
@@ -36,10 +42,10 @@ set -euo pipefail
 
 REPO_URL_DEFAULT="https://github.com/calleograph/arklock.git"
 PROFILE=""; INSTALL_DIR=""; DATA_ROOT=""; CONFIG_DIR="/etc/arklock"; PROJECT="arklock"; PORT=""; PUBLIC_URL=""
-HTTPS_MODE=""; DOMAIN=""; ACME_EMAIL=""; TLS_CERT=""; TLS_KEY=""
+HTTPS_MODE=""; DOMAIN=""; ACME_EMAIL=""; TLS_CERT=""; TLS_KEY=""; ACCESS=""
 REF=""; REPO_URL="$REPO_URL_DEFAULT"; ALLOW_UNRELEASED=0; YES=0; DRY=0; BOOTSTRAPPED=0; BIND=""
 
-usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -51,6 +57,7 @@ while [ $# -gt 0 ]; do
     --port) PORT="${2:-}"; shift 2 ;;
     --bind) BIND="${2:-}"; shift 2 ;;
     --url) PUBLIC_URL="${2:-}"; shift 2 ;;
+    --access) ACCESS="${2:-}"; shift 2 ;;
     --https) HTTPS_MODE="${2:-}"; shift 2 ;;
     --domain) DOMAIN="${2:-}"; shift 2 ;;
     --email) ACME_EMAIL="${2:-}"; shift 2 ;;
@@ -84,6 +91,38 @@ case "$HTTPS_MODE" in
   *) echo "--https: letsencrypt, self-signed или existing" >&2; exit 2 ;;
 esac
 if [ -n "$HTTPS_MODE" ] && [ -z "$DOMAIN" ]; then echo "--https требует --domain" >&2; exit 2; fi
+
+# Способ доступа: проверяется сразу, до любых изменений, и объясняет, чего не хватает.
+case "$ACCESS" in
+  ''|local|proxy|https) ;;
+  *) echo "--access: local, proxy или https" >&2; exit 2 ;;
+esac
+if [ -n "$PUBLIC_URL" ]; then
+  case "$PUBLIC_URL" in
+    https://*) ;;
+    http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
+    *) echo "--url: адрес должен начинаться с https:// (браузер не разрешает шифрование по http, кроме localhost); получено: $PUBLIC_URL" >&2; exit 2 ;;
+  esac
+fi
+case "$ACCESS" in
+  local)
+    conflict=0
+    [ -z "$HTTPS_MODE$DOMAIN" ] || conflict=1
+    case "$PUBLIC_URL" in ''|http://localhost*|http://127.0.0.1*) ;; *) conflict=1 ;; esac
+    [ "$conflict" -eq 0 ] || { echo "--access local не использует публичный адрес и HTTPS на сервере: уберите --url/--https/--domain либо выберите --access proxy или https" >&2; exit 2; } ;;
+  proxy)
+    [ -n "$PUBLIC_URL" ] && [ "${PUBLIC_URL#https://}" != "$PUBLIC_URL" ] || { echo "--access proxy требует --url https://ИМЯ (публичный адрес за прокси или WAF)" >&2; exit 2; }
+    [ -z "$HTTPS_MODE" ] || { echo "--access proxy не настраивает HTTPS на этом сервере: уберите --https либо выберите --access https" >&2; exit 2; } ;;
+  https)
+    [ -n "$DOMAIN" ] || { echo "--access https требует --domain ИМЯ" >&2; exit 2; }
+    HTTPS_MODE="${HTTPS_MODE:-letsencrypt}" ;;
+esac
+# режим выводится из явно заданных параметров
+if [ -z "$ACCESS" ]; then
+  if [ -n "$HTTPS_MODE" ]; then ACCESS=https
+  elif [ "${PUBLIC_URL#https://}" != "$PUBLIC_URL" ] && [ -n "$PUBLIC_URL" ]; then ACCESS=proxy
+  fi
+fi
 
 say()  { printf '[..] %s\n' "$*"; }
 okk()  { printf '[ok] %s\n' "$*"; }
@@ -169,6 +208,7 @@ if [ ! -f "$HERE/scripts/lib/common.sh" ] || [ ! -f "$HERE/compose.yaml" ]; then
     --project "$PROJECT" --port "${PORT:-}" --url "${PUBLIC_URL:-}" --repo "$REPO_URL")
   # все параметры передаются дальше: иначе переустановка из клона их бы не учла
   [ -z "$BIND" ] || args+=(--bind "$BIND")
+  [ -z "$ACCESS" ] || args+=(--access "$ACCESS")
   [ -z "$HTTPS_MODE" ] || args+=(--https "$HTTPS_MODE" --domain "$DOMAIN")
   [ -z "$ACME_EMAIL" ] || args+=(--email "$ACME_EMAIL")
   [ -z "$TLS_CERT" ] || args+=(--tls-cert "$TLS_CERT" --tls-key "$TLS_KEY")
@@ -282,25 +322,45 @@ lan_ip() { # адрес основного сетевого интерфейса
   [ -n "$dev" ] || return 1
   ip -4 -o addr show dev "$dev" 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }'
 }
+# Главный вопрос установки: как пользователи будут открывать Arklock. Браузер шифрует мастер-пароль только по HTTPS
+# или на localhost, поэтому без ответа на него создать первую учётную запись нельзя. Вопрос задаётся один раз
+# (не при повторном запуске и не при заданных параметрах), а выбор позже меняется командой scripts/access.sh.
+ask_access() {
+  echo "Как пользователи будут открывать Arklock?"
+  echo "  Браузер шифрует мастер-пароль только по HTTPS или на localhost: без этого первую учётную запись не создать."
+  echo "  1) HTTPS на этом сервере — установщик настроит Nginx и сертификат (нужно имя сервера)"
+  echo "  2) За внешним reverse proxy или WAF — HTTPS уже есть или будет настроен вами (нужен публичный адрес)"
+  echo "  3) Только этот сервер — для проверки: первый вход на сервере или через SSH-туннель, домен не нужен [по умолчанию]"
+  ask "Выберите 1–3 [3]: "
+  case "${ANSWER:-3}" in
+    1)
+      ACCESS=https
+      ask "Имя сервера для HTTPS (например, arklock.example.com): "; DOMAIN="$ANSWER"
+      [ -n "$DOMAIN" ] || bail "Имя сервера не указано"
+      echo "  Сертификат: 1) Let's Encrypt (публичное имя, открытые порты 80 и 443)  2) самоподписанный (закрытая сеть, браузер предупредит)  3) свой файл"
+      ask "Выберите 1–3 [1]: "
+      case "${ANSWER:-1}" in
+        2) HTTPS_MODE=self-signed ;;
+        3) HTTPS_MODE=existing; ask "Файл сертификата: "; TLS_CERT="$ANSWER"; ask "Файл ключа: "; TLS_KEY="$ANSWER" ;;
+        *) HTTPS_MODE=letsencrypt; ask "Почта для уведомлений Let's Encrypt (можно пусто): "; ACME_EMAIL="$ANSWER" ;;
+      esac
+      BIND=local ;;
+    2)
+      ACCESS=proxy
+      ask "Публичный HTTPS-адрес (например, https://arklock.example.com): "; PUBLIC_URL="${ANSWER%/}"
+      case "$PUBLIC_URL" in https://?*) ;; *) bail "Адрес должен начинаться с https://" ;; esac
+      echo "Где работает прокси:"
+      echo "  1) на этом же сервере — приложение слушает только 127.0.0.1 [по умолчанию]"
+      echo "  2) на другом сервере локальной сети — приложение слушает адрес $(lan_ip || true)"
+      echo "  3) прокси в Docker на этом сервере — приложение слушает все адреса (закройте порт фаерволом)"
+      ask "Выберите 1–3 [1]: "
+      case "${ANSWER:-1}" in 2) BIND=lan ;; 3) BIND=all ;; *) BIND=local ;; esac ;;
+    *) ACCESS=local; BIND=local ;;
+  esac
+}
+if [ -z "$ACCESS$BIND" ] && [ -z "$EXISTING_BIND" ] && [ "$YES" -eq 0 ] && tty_ok; then ask_access; fi
 if [ -z "$BIND" ]; then
-  if [ -n "$EXISTING_BIND" ]; then
-    BIND="$EXISTING_BIND"
-  elif [ "$YES" -eq 0 ] && tty_ok; then
-    echo "Откуда будут открывать Arklock:"
-    echo "  1) только с этого сервера (127.0.0.1) — за reverse proxy на этом же сервере [по умолчанию]"
-    echo "  2) из локальной сети по адресу $(lan_ip || true) — браузер потребует HTTPS"
-    echo "  3) со всех адресов сервера (0.0.0.0) — например, Nginx Proxy Manager в Docker"
-    echo "  4) по другому адресу этого сервера"
-    ask "Выберите 1–4 [1]: "
-    case "${ANSWER:-1}" in
-      2) BIND=lan ;;
-      3) BIND=all ;;
-      4) ask "Адрес сервера: "; BIND="$ANSWER" ;;
-      *) BIND=local ;;
-    esac
-  else
-    BIND=local
-  fi
+  if [ -n "$EXISTING_BIND" ]; then BIND="$EXISTING_BIND"; else BIND=local; fi
 fi
 case "$BIND" in
   local) BIND=127.0.0.1 ;;
@@ -333,7 +393,10 @@ run chmod 1777 "$DATA_ROOT/updater"
 # Вложения пишет непривилегированный пользователь контейнера (node, uid 1000).
 run chown 1000:1000 "$DATA_ROOT/blobs"
 
+# в профиле shared-host Nginx не меняется, но приложению всё равно нужен публичный адрес: по нему оно проверяет доступ
+if [ "$ACCESS" = https ] && [ "$PROFILE" = shared-host ] && [ -z "$PUBLIC_URL" ]; then PUBLIC_URL="https://$DOMAIN"; fi
 if [ "$DRY" -eq 1 ]; then
+  say "[dry-run] доступ: режим=${ACCESS:-как в существующей установке или local}, прослушивание=$BIND:$PORT, публичный адрес=${PUBLIC_URL:-нет}${HTTPS_MODE:+, HTTPS на сервере=$HTTPS_MODE ($DOMAIN)}"
   say "[dry-run] создание $ENV_FILE, ключа резервного шифрования, запуск контейнеров и проверок"
   exit 0
 fi
@@ -417,27 +480,63 @@ if [ -n "$HTTPS_MODE" ]; then
 fi
 
 # ------------------------------------------------------------------ 9. Итог
-URL="${APP_PUBLIC_URL:-$(app_url_local)}"
+# Технически установка завершена, когда контейнеры работают и проверки пройдены. Но готовность к первому входу — другое:
+# браузер не даст создать учётную запись по http://адрес без HTTPS. Итог называет оба состояния отдельно.
+APP_PUBLIC_URL="$(env_get "$ENV_FILE" APP_PUBLIC_URL)"
+# shellcheck source=scripts/lib/access.sh
+. "$REPO_ROOT/scripts/lib/access.sh"
+ACCESS_STATE="$(acc_state "$ENV_FILE")"
 TOKEN="$(env_get "$ENV_FILE" BOOTSTRAP_TOKEN)"
+case "$ACCESS_STATE" in
+  https) FIRST_URL="$APP_PUBLIC_URL" ;;
+  local) FIRST_URL="http://localhost:$PORT" ;;
+  *) FIRST_URL="" ;;
+esac
 cat <<EOF
 
 ================ УСТАНОВКА ЗАВЕРШЕНА ================
+ Технически:       ГОТОВ — контейнеры запущены, проверка установки пройдена
  Профиль:          $PROFILE
  Версия:           $(app_version) ($(git_commit | cut -c1-12))
  Адрес (локально): $(app_url_local)
- Адрес (для пользователей): ${APP_PUBLIC_URL:-$(app_url_local) — за reverse proxy с HTTPS укажите его адрес: --url https://…}
  Помощник обновлений: $HELPER_STATE
  HTTPS / Nginx:    $PROXY_STATE
  Конфигурация:     $ENV_FILE
  Данные:           $DATA_ROOT
+EOF
+FIRST_OK=0
+acc_first_login "$ENV_FILE" "$(hostname -f 2>/dev/null || hostname)" || FIRST_OK=1
+if [ "$ACCESS_STATE" = https ]; then
+  echo
+  echo " Проверки доступа по $APP_PUBLIC_URL:"
+  acc_check_public "$ENV_FILE" | sed 's/^/   /' || true
+  if [ "$ACCESS" = proxy ]; then
+    echo
+    echo " Что настроить на стороне прокси или WAF:"
+    acc_proxy_help "$ENV_FILE" "$(lan_ip || true)"
+  fi
+fi
+if [ "$FIRST_OK" -eq 0 ]; then
+  cat <<EOF
 
- Первый вход:
-   1. Откройте $URL
-   2. Создайте первую учётную запись — она станет администратором.
+ Первая учётная запись:
+   1. Откройте $FIRST_URL
+   2. Создайте учётную запись — она станет главным администратором.
    3. Введите одноразовый код настройки: $TOKEN
       (код хранится в $ENV_FILE и нужен только для первой записи)
    4. Сохраните показанный ключ восстановления.
+EOF
+else
+  cat <<EOF
 
+ Первая учётная запись создаётся после выбора способа доступа (см. выше).
+ Одноразовый код настройки понадобится при создании: $TOKEN
+ (код хранится в $ENV_FILE и нужен только для первой записи)
+EOF
+fi
+cat <<EOF
+
+ Доступ можно изменить в любой момент без переустановки и потери данных: scripts/access.sh status | check | set …
  Обслуживание:  scripts/status.sh   scripts/backup.sh   scripts/diag.sh   scripts/logs.sh
 EOF
 if [ "$warn_key" -eq 1 ]; then

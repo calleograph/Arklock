@@ -125,6 +125,14 @@ export function buildOpenApi(version: string): Record<string, unknown> {
           responses: { '200': { description: 'версия', content: json({ type: 'object' }) } },
         },
       },
+      '/access': {
+        get: {
+          summary:
+            'Как приложение видит соединение: протокол, защищённый ли контекст, публичный адрес',
+          security: [],
+          responses: { '200': { description: 'сведения', content: json({ type: 'object' }) } },
+        },
+      },
       '/auth/me': {
         get: {
           summary: 'Владелец токена: профиль и зашифрованные ключи аккаунта',

@@ -25,6 +25,7 @@ import type {
   UserBundle,
 } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { publicUrlOf } from '../public-url.js';
 import { adminPermsOf } from '../auth/adminperm.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { notifySecurity } from '../mail/send.js';
@@ -393,6 +394,43 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       body.phase === 'begin' ? undefined : { format: body.format ?? null, count: body.count },
     );
     return reply.status(204).send();
+  });
+
+  /**
+   * Как приложение видит это соединение: нужен установщику и интерфейсу, чтобы отличить «контейнеры работают» от «можно
+   * войти». Ничего секретного: протокол и узел из самого запроса (с учётом доверенных прокси) и публичный адрес из настроек.
+   * Адрес клиента не возвращается.
+   */
+  app.get('/access', async (req) => {
+    const configured = publicUrlOf(ctx) ?? null;
+    const protocol = req.protocol;
+    const host = req.hostname;
+    let publicMatches: boolean | null = null;
+    if (configured) {
+      try {
+        const u = new URL(configured);
+        publicMatches = u.protocol === `${protocol}:` && u.host === host;
+      } catch {
+        publicMatches = false;
+      }
+    }
+    const [{ n } = { n: 0 }] = await db.select({ n: count() }).from(users);
+    return {
+      // защищённый ли контекст для браузера: HTTPS по заголовкам доверенного прокси либо localhost
+      protocol,
+      secure:
+        protocol === 'https' ||
+        ['localhost', '127.0.0.1', '[::1]'].includes(host.replace(/:\d+$/, '')),
+      host,
+      publicUrl: configured,
+      publicMatches,
+      forwardedProto:
+        typeof req.headers['x-forwarded-proto'] === 'string'
+          ? req.headers['x-forwarded-proto'].slice(0, 20)
+          : null,
+      trustedProxyHops: config.TRUSTED_PROXY_HOPS,
+      firstUser: n === 0,
+    };
   });
 
   app.get('/auth/registration', async (): Promise<RegistrationStatus> => {

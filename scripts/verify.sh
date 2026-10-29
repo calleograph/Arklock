@@ -42,6 +42,16 @@ if [ -n "$ver_json" ]; then
 else bad "API: /version не отвечает"; fi
 if curl -fsS --max-time 5 "$base/" 2>/dev/null | grep -q '<div id="app">'; then pass "Веб-интерфейс отдаётся"; else bad "Веб-интерфейс не отдаётся"; fi
 
+# --- доступ для первого входа: контейнеры могут работать, а создать учётную запись без HTTPS нельзя
+# shellcheck source=lib/access.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/access.sh"
+case "$(acc_state "$ENV_FILE")" in
+  https) pass "Доступ: публичный адрес ${APP_PUBLIC_URL} (HTTPS); проверить прокси и сертификат: scripts/access.sh check" ;;
+  local) pass "Доступ: только этот сервер (127.0.0.1); первый вход — на сервере или через SSH-туннель (scripts/access.sh status)" ;;
+  incomplete) note "Первый вход не готов: приложение доступно по сети без HTTPS, браузер не даст создать учётную запись. Выберите способ: scripts/access.sh status" ;;
+  *) note "Публичный адрес ${APP_PUBLIC_URL:-?} задан без HTTPS: scripts/access.sh set proxy --url https://ИМЯ" ;;
+esac
+
 # --- миграции: число применённых = числу в журнале миграций кода
 expected="$(grep -c '"tag"' "$REPO_ROOT/apps/api/drizzle/meta/_journal.json" 2>/dev/null || echo 0)"
 applied="$(dc exec -T db psql -U arklock -d arklock -tAc 'select count(*) from drizzle.__drizzle_migrations' 2>/dev/null | tr -d '[:space:]')"

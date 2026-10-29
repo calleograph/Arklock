@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-29. Версия в VERSION и пакетах: **1.83.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
+Последнее обновление: 2026-10-29. Версия в VERSION и пакетах: **1.84.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
 
 ## Назначение и архитектура
 
@@ -77,3 +77,4 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 ## Следующий блок
 
 Следующие приоритеты — в разделе «Что остаётся» документа docs/REQUIREMENTS_ACCEPTANCE.md: несколько профилей хранилищ, отчёт о здоровье паролей по почте, проверки на реальных стендах. Пользовательская инструкция: docs/administration/corporate-access.md.
+- Доступ и первый вход (1.84.0): `install.sh --access`, `scripts/access.sh`, `GET /api/v1/access`, `tests/install/access.test.sh`.
