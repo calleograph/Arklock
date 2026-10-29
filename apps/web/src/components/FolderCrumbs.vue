@@ -28,7 +28,7 @@ const parent = computed(() => props.trail[props.trail.length - 2]?.id ?? null);
     <button
       v-if="trail.length"
       type="button"
-      class="btn !min-h-0 shrink-0 !p-1"
+      class="btn shrink-0 !px-2"
       :title="t('ws.upLevel')"
       :aria-label="t('ws.upLevel')"
       data-testid="crumb-up"

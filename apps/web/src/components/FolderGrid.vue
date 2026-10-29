@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { BranchItem } from '../services/model';
 import Icon from './Icon.vue';
@@ -28,13 +28,13 @@ const emit = defineEmits<{
   drop: [id: string];
 }>();
 const { t } = useI18n();
-const PAGE = 12;
+/** Свёрнутый раздел занимает три строки: список записей остаётся на экране ноутбука при любом числе папок. */
+const COMPACT_FROM = 4;
 const all = ref(false);
 watch(
   () => props.where,
   () => (all.value = false),
 );
-const visible = computed(() => (all.value ? props.folders : props.folders.slice(0, PAGE)));
 </script>
 
 <template>
@@ -50,7 +50,7 @@ const visible = computed(() => (all.value ? props.folders : props.folders.slice(
       <button
         v-if="canCreate"
         type="button"
-        class="btn !min-h-0 !px-2 !py-1 text-xs"
+        class="btn"
         :title="createLabel"
         data-testid="btn-create-folder"
         @click="emit('create')"
@@ -64,10 +64,11 @@ const visible = computed(() => (all.value ? props.folders : props.folders.slice(
     <ul
       v-else
       class="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-1 gap-y-0.5"
+      :class="all || folders.length < COMPACT_FROM ? '' : 'max-h-[6.5rem] overflow-y-auto'"
       data-testid="folder-tiles"
     >
       <li
-        v-for="b in visible"
+        v-for="b in folders"
         :key="b.id"
         class="group relative flex items-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
         data-testid="folder-tile"
@@ -125,7 +126,7 @@ const visible = computed(() => (all.value ? props.folders : props.folders.slice(
       </li>
     </ul>
     <button
-      v-if="folders.length > PAGE"
+      v-if="folders.length >= COMPACT_FROM"
       type="button"
       class="mt-1 px-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
       data-testid="folders-toggle"

@@ -673,6 +673,27 @@ test('проводник: без горизонтальной прокрутки
     await expect(chief.getByTestId('folder-tile').first()).toBeVisible();
     await chief.screenshot({ path: `docs/screenshots/${name}.png` });
   }
+  // много папок в одном месте: список записей всё равно виден на ноутбуке при масштабе 100, 125 и 150 %
+  for (let i = 1; i <= 10; i++) await createFolderHere(chief, `Раздел ${i}`);
+  await chief.getByTestId('add-entry').click();
+  await chief.getByTestId('f-title').fill('Запись корня раздела');
+  await chief.getByTestId('f-save').click();
+  await expect(chief.getByTestId('view-title')).toHaveText('Запись корня раздела');
+  for (const [w, h] of [
+    [1366, 768],
+    [1093, 614],
+    [911, 512],
+  ] as const) {
+    await chief.setViewportSize({ width: w, height: h });
+    await chief.waitForTimeout(300);
+    const m = await chief.evaluate(() => {
+      const r = document.querySelector('[data-testid="entry-row"]')!.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, h: innerHeight };
+    });
+    expect(m.top, `${w}×${h}`).toBeGreaterThanOrEqual(0);
+    expect(m.bottom, `${w}×${h}`).toBeLessThanOrEqual(m.h);
+  }
+  await chief.setViewportSize({ width: 1366, height: 768 });
   await openTile(chief, 'Серверы');
   await openTile(chief, 'Linux');
   await openTile(chief, 'Production');
