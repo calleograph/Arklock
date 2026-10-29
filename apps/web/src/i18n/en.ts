@@ -141,6 +141,8 @@ export default {
       restarting:
         'The application is restarting: this page waits for it and continues by itself. No action needed.',
       back: 'Arklock is answering again. Installed version: {v}.',
+      waitBusy:
+        'The update helper is finishing another operation. The action starts as soon as it is done.',
     },
     rollback: 'Roll back',
     withRestore: 'restore the database from the backup',

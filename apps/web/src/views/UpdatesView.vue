@@ -103,6 +103,8 @@ const backVersion = ref('');
 let transientSince = 0;
 
 async function load(): Promise<void> {
+  // вызывается и по таймеру, и после действий: прежний таймер снимается, чтобы не было двух цепочек опроса
+  if (timer) clearTimeout(timer);
   try {
     const before = data.value?.installed.version;
     data.value = await api<UpdatesOverview>('GET', '/admin/updates');
@@ -141,15 +143,35 @@ function message(e: unknown): string {
   return errorMessage(e, t);
 }
 
-async function send(payload: object, needsReauth: boolean): Promise<void> {
+/** Помощник занят другой операцией (например, плановой проверкой): обновление ставится после неё, а не отклоняется. */
+const waitingBusy = ref(false);
+async function untilIdle(limitMs = 3 * 60_000): Promise<boolean> {
+  const end = Date.now() + limitMs;
+  while (alive && Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 2000));
+    await load();
+    if (!running.value && !restarting.value) return true;
+  }
+  return false;
+}
+
+async function send(payload: object, needsReauth: boolean, retry = true): Promise<void> {
   error.value = '';
   busy.value = true;
+  const action = (payload as { action: string }).action;
   try {
     const headers: Record<string, string> = (needsReauth && stepUpHeaders()) || {};
     const res = await api<{ requestId: string }>('POST', '/admin/updates', payload, { headers });
-    if ((payload as { action: string }).action !== 'check') activeRequest.value = res.requestId;
+    if (action !== 'check') activeRequest.value = res.requestId;
     await load();
   } catch (e) {
+    if (retry && action !== 'check' && e instanceof ApiError && e.code === 'update_in_progress') {
+      waitingBusy.value = true;
+      const idle = await untilIdle();
+      waitingBusy.value = false;
+      busy.value = false;
+      if (idle) return send(payload, needsReauth, false);
+    }
     error.value = message(e);
   } finally {
     busy.value = false;
@@ -211,6 +233,14 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
       data-testid="updates-restarting"
     >
       {{ t('updates.state.restarting') }}
+    </p>
+    <p
+      v-else-if="waitingBusy"
+      class="notice notice-warn"
+      role="status"
+      data-testid="updates-waiting"
+    >
+      {{ t('updates.state.waitBusy') }}
     </p>
     <p v-else-if="backVersion" class="notice notice-ok" role="status" data-testid="updates-back">
       {{ t('updates.state.back', { v: backVersion }) }}

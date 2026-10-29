@@ -88,8 +88,25 @@ test('administrator checks for updates and applies one from the browser', async 
   await expect(page.getByTestId('btn-update')).toHaveText(/9\.9\.9/);
   await expect(page.getByTestId('btn-update')).toBeEnabled();
 
+  // Помощник ещё занят другой операцией (например, плановой проверкой): первая заявка получает «занято».
+  // Страница не показывает ошибку, а дожидается окончания и запускает обновление сама.
+  let busyOnce = true;
+  await page.route('**/api/v1/admin/updates', async (route) => {
+    if (route.request().method() === 'POST' && busyOnce) {
+      busyOnce = false;
+      return route.fulfill({
+        status: 409,
+        json: {
+          error: { code: 'update_in_progress', message: 'Another operation is in progress' },
+        },
+      });
+    }
+    return route.continue();
+  });
   // Штатное обновление выполняется по действующему сеансу администратора: окна мастер-пароля нет.
   await page.getByTestId('btn-update').click();
+  await expect(page.getByTestId('updates-waiting')).toBeVisible();
+  await expect(page.getByTestId('updates-error')).toHaveCount(0);
   await expect(page.getByTestId('reauth-password')).toHaveCount(0);
 
   // Ход выполнения виден по этапам, затем успех и запись в истории.
@@ -97,6 +114,7 @@ test('administrator checks for updates and applies one from the browser', async 
   await expect(page.getByTestId('progress-state')).toHaveText('running');
   await expect(page.getByTestId('progress-state')).toHaveText('success', { timeout: 30_000 });
   await expect(page.getByTestId('history')).toContainText(/update|обновление/i);
+  await page.unroute('**/api/v1/admin/updates');
 
   // Откат может вернуть старую версию и данные — он требует повышенного подтверждения; неверный пароль отклоняется.
   await page.getByTestId('btn-rollback').click();
