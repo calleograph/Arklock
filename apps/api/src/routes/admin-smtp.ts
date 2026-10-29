@@ -36,6 +36,7 @@ import {
   SMTP_CA_KEY,
   smtpPasswordPurpose,
   smtpProfileId,
+  pinnedCert,
   smtpProfileKey,
   smtpProfiles,
   smtpPut,
@@ -43,8 +44,8 @@ import {
   type StoredSmtp,
 } from '../mail/profiles.js';
 import { enqueueMail, mailFailure, sendQueuedMail } from '../mail/send.js';
-import { serverText, smtpSession, type StageResult } from '../mail/smtp.js';
-import { isForbiddenSmtpAddress } from '../mail/target.js';
+import { probeCertificate, serverText, smtpSession, type StageResult } from '../mail/smtp.js';
+import { isForbiddenSmtpAddress, resolveSmtpTarget, TargetError } from '../mail/target.js';
 import net from 'node:net';
 import {
   loadMailTemplates,
@@ -180,6 +181,11 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
       purposes: body.purposes,
       fallback: body.fallback,
       plainAuth,
+      // доверие к сертификату относится к конкретному серверу: при смене адреса или порта оно снимается
+      pinnedCert:
+        previous && previous.host === body.host && previous.port === body.port
+          ? previous.pinnedCert
+          : undefined,
       name: body.name ?? previous?.name ?? 'Default',
       passwordCipher:
         auth === 'none'
@@ -386,6 +392,76 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
           }
         });
       });
+    /**
+     * «Доверять этому сертификату»: сервер снова подключается, получает сертификат, который предъявляет почтовый сервер,
+     * и закрепляет его отпечаток, если он совпадает с тем, что видел администратор. Пароль не отправляется.
+     */
+    app.post(`${base}/trust-certificate`, async (req) => {
+      const { user } = authOf(req);
+      const profile = await profileOf(req);
+      const body = parse(
+        z.object({ fingerprint256: pinnedCert.shape.fingerprint256 }).strict(),
+        req.body,
+      );
+      if (profile.security === 'none')
+        throw new AppError(
+          400,
+          'smtp_no_tls',
+          'The connection has no TLS: there is no certificate',
+        );
+      throttle(user.id, 'check');
+      const config = await toSmtpConfig(ctx, profile);
+      let seen: Awaited<ReturnType<typeof probeCertificate>>;
+      try {
+        const target = await resolveSmtpTarget(config.host, config.port, config.allowLoopback);
+        seen = await probeCertificate(config, target.addresses[0]!);
+      } catch (e) {
+        throw new AppError(502, 'smtp_cert_unavailable', 'Could not read the server certificate', {
+          reason: e instanceof TargetError ? e.code : 'connect',
+        });
+      }
+      if (!seen?.fingerprint256 || seen.fingerprint256 !== body.fingerprint256)
+        throw new AppError(
+          409,
+          'smtp_cert_changed',
+          'The server now presents a different certificate: run the check again',
+        );
+      const pin = {
+        fingerprint256: String(seen.fingerprint256),
+        subject: String(seen.subject ?? '').slice(0, 500),
+        issuer: String(seen.issuer ?? '').slice(0, 500),
+        validTo: String(seen.validTo ?? '').slice(0, 40),
+        pinnedAt: new Date().toISOString(),
+      };
+      const { profileId, ...rest } = profile;
+      const value: StoredSmtp = { ...rest, pinnedCert: pin };
+      await db
+        .insert(settings)
+        .values({ key: smtpProfileKey(profileId!), value, updatedBy: user.id })
+        .onConflictDoUpdate({
+          target: settings.key,
+          set: { value, updatedBy: user.id, updatedAt: new Date() },
+        });
+      await audit(db, `user:${user.id}`, 'admin.smtp.cert.trust', `smtp:${profileId}`, {
+        fingerprint256: pin.fingerprint256,
+        subject: pin.subject,
+      });
+      return { ok: true, pinnedCert: pin };
+    });
+    app.delete(`${base}/trust-certificate`, async (req, reply) => {
+      const { user } = authOf(req);
+      const profile = await profileOf(req);
+      const { profileId, pinnedCert: _old, ...rest } = profile;
+      void _old;
+      const value: StoredSmtp = rest;
+      await db
+        .update(settings)
+        .set({ value, updatedBy: user.id, updatedAt: new Date() })
+        .where(eq(settings.key, smtpProfileKey(profileId!)));
+      await audit(db, `user:${user.id}`, 'admin.smtp.cert.untrust', `smtp:${profileId}`);
+      return reply.status(204).send();
+    });
+
     // тестовое письмо: через очередь, как и все письма; «принято сервером» не равно «доставлено в ящик»
     app.post(`${base}/send-test`, async (req) => {
       const { user } = authOf(req);

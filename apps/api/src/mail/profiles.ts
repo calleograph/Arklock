@@ -56,9 +56,22 @@ export const smtpPut = z.object({
    */
   plainAuth: z.boolean().optional(),
 });
-const storedSmtp = smtpPut
-  .omit({ password: true })
-  .extend({ passwordCipher: z.string().max(2000), name: z.string().max(100).optional() });
+/**
+ * Сертификат, которому администратор доверил этот профиль по отпечатку (например, самоподписанный сертификат
+ * Exchange, выданный на внутреннее имя): соединение принимается, если сервер предъявляет именно его.
+ */
+export const pinnedCert = z.object({
+  fingerprint256: z.string().regex(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/),
+  subject: z.string().max(500),
+  issuer: z.string().max(500),
+  validTo: z.string().max(40),
+  pinnedAt: z.string().max(40),
+});
+const storedSmtp = smtpPut.omit({ password: true }).extend({
+  passwordCipher: z.string().max(2000),
+  name: z.string().max(100).optional(),
+  pinnedCert: pinnedCert.optional(),
+});
 export type StoredSmtp = z.infer<typeof storedSmtp> & { profileId?: string };
 export const smtpProfileKey = (id: string) => (id === 'default' ? SMTP_KEY : `smtp.profile.${id}`);
 export const smtpPasswordPurpose = (id: string) =>
@@ -202,6 +215,8 @@ export function publicSmtp(s: StoredSmtp) {
     caId: s.caId,
     purposes: s.purposes,
     fallback: s.fallback,
+    plainAuth: s.plainAuth ?? (s.security === 'none' && authOf(s) === 'password'),
+    pinnedCert: s.pinnedCert ?? null,
     hasPassword: !!s.passwordCipher,
   };
 }
@@ -249,5 +264,6 @@ export async function toSmtpConfig(ctx: AppContext, s: StoredSmtp): Promise<Smtp
       : '',
     allowLoopback: loopbackAllowed(ctx),
     plainAuth: s.plainAuth ?? true,
+    pinnedFingerprint: s.pinnedCert?.fingerprint256,
   };
 }

@@ -130,8 +130,24 @@ export const ruMail = {
       hostname: 'имя в профиле не совпадает с именем в сертификате: используйте имя из сертификата',
       expired: 'срок действия сертификата истёк: замените сертификат на сервере',
       not_yet_valid: 'сертификат ещё не действует: проверьте дату на сервере',
-      self_signed: 'сертификат самоподписанный: добавьте его в «Доверенные сертификаты»',
+      self_signed:
+        'сертификат самоподписанный: если это сертификат вашего сервера, нажмите «Доверять этому сертификату» ниже',
       revoked: 'сертификат отозван',
+      pin_mismatch:
+        'сервер предъявил не тот сертификат, которому вы доверили профиль: его заменили или соединение перехвачено. Если сертификат на сервере обновляли, проверьте отпечаток и доверьтесь новому',
+    },
+    trust: {
+      button: 'Доверять этому сертификату',
+      confirm:
+        'Доверять сертификату «{subject}»?\n\nОтпечаток SHA-256:\n{fingerprint}\n\nСверьте отпечаток с сертификатом на почтовом сервере. Профиль будет принимать только этот сертификат — даже если он самоподписанный или выдан на другое имя. Другой сертификат будет отклонён.',
+      hint: 'Если это сертификат вашего почтового сервера, ему можно доверять по отпечатку: Arklock будет принимать только его.',
+      done: 'Сертификат «{subject}» принят как доверенный для этого профиля.',
+      pinned: 'Доверенный сертификат: «{subject}», до {validTo}, отпечаток {fingerprint}',
+      remove: 'Перестать доверять',
+      removeConfirm:
+        'Перестать доверять этому сертификату? Проверка снова будет требовать доверенный центр сертификации.',
+      changed:
+        'Сервер уже предъявляет другой сертификат: выполните проверку ещё раз и сверьте новый отпечаток.',
     },
     err: {
       dns: {
@@ -427,8 +443,24 @@ export const enMail = {
         'the name in the profile does not match the name in the certificate: use the name from the certificate',
       expired: 'the certificate has expired: replace it on the server',
       not_yet_valid: 'the certificate is not valid yet: check the date on the server',
-      self_signed: 'the certificate is self-signed: add it under “Trusted certificates”',
+      self_signed:
+        'the certificate is self-signed: if it is your server’s certificate, press “Trust this certificate” below',
       revoked: 'the certificate was revoked',
+      pin_mismatch:
+        'the server presented a different certificate than the one this profile trusts: it was replaced or the connection is intercepted. If the server certificate was renewed, check the fingerprint and trust the new one',
+    },
+    trust: {
+      button: 'Trust this certificate',
+      confirm:
+        'Trust the certificate “{subject}”?\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare the fingerprint with the certificate on the mail server. The profile will accept only this certificate — even if it is self-signed or issued for another name. Any other certificate is refused.',
+      hint: 'If this is your mail server’s certificate, it can be trusted by fingerprint: Arklock will accept only it.',
+      done: 'The certificate “{subject}” is trusted for this profile.',
+      pinned: 'Trusted certificate: “{subject}”, until {validTo}, fingerprint {fingerprint}',
+      remove: 'Stop trusting',
+      removeConfirm:
+        'Stop trusting this certificate? The check will again require a trusted certificate authority.',
+      changed:
+        'The server already presents a different certificate: run the check again and compare the new fingerprint.',
     },
     err: {
       dns: {

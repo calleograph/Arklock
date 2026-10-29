@@ -46,6 +46,7 @@ interface Profile {
   purposes: string[];
   fallback: boolean;
   plainAuth?: boolean;
+  pinnedCert?: { fingerprint256: string; subject: string; issuer: string; validTo: string } | null;
   hasPassword: boolean;
   status: {
     checkedAt: string | null;
@@ -368,6 +369,49 @@ function certProbe(c: Check): string {
     validTo: i.validTo ? when(text(i.validTo)).slice(0, 10) : '',
     fingerprint: text(i.fingerprint256),
   });
+}
+/** Сертификат, который предъявил сервер при отказе проверки: его можно принять как доверенный по отпечатку. */
+function presentedCert(c: Check): { subject: string; fingerprint256: string } | null {
+  const i = c.stages.find((x) => x.stage === 'certificate' && !x.ok)?.info;
+  if (
+    !i?.fingerprint256 ||
+    i.reason === 'expired' ||
+    i.reason === 'not_yet_valid' ||
+    i.reason === 'revoked'
+  )
+    return null;
+  return { subject: text(i.subject), fingerprint256: text(i.fingerprint256) };
+}
+async function trustCert(
+  p: Profile,
+  c: { subject: string; fingerprint256: string },
+): Promise<void> {
+  if (!window.confirm(t('mail.trust.confirm', c))) return;
+  error.value = '';
+  try {
+    await api('POST', `/admin/smtp/profiles/${p.id}/trust-certificate`, {
+      fingerprint256: c.fingerprint256,
+    });
+    notice.value = t('mail.trust.done', { subject: c.subject });
+    await check(p);
+  } catch (e) {
+    error.value =
+      e instanceof ApiError && e.code === 'smtp_cert_changed'
+        ? t('mail.trust.changed')
+        : errorMessage(e, t);
+  }
+}
+async function untrustCert(p: Profile): Promise<void> {
+  if (!window.confirm(t('mail.trust.removeConfirm'))) return;
+  error.value = '';
+  try {
+    await api('DELETE', `/admin/smtp/profiles/${p.id}/trust-certificate`);
+    const { [p.id]: _, ...rest } = checks.value;
+    checks.value = rest;
+    await load();
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  }
 }
 function failReason(c: Check): unknown {
   return c.stages.find((x) => !x.ok && x.info?.reason)?.info?.reason;
@@ -834,6 +878,27 @@ const typeLabel = (r: Row) =>
           }}<template v-if="p.auth !== 'none'"> ({{ p.user }})</template> · {{ p.from
           }}<template v-if="p.caName"> · {{ p.caName }}</template>
         </p>
+        <p
+          v-if="p.pinnedCert"
+          class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500"
+          :data-testid="`smtp-pinned-${p.id}`"
+        >
+          <span class="break-all">{{
+            t('mail.trust.pinned', {
+              subject: p.pinnedCert.subject,
+              validTo: p.pinnedCert.validTo ? when(p.pinnedCert.validTo).slice(0, 10) : '—',
+              fingerprint: p.pinnedCert.fingerprint256,
+            })
+          }}</span>
+          <button
+            type="button"
+            class="btn-ghost text-xs"
+            :data-testid="`smtp-untrust-${p.id}`"
+            @click="untrustCert(p)"
+          >
+            {{ t('mail.trust.remove') }}
+          </button>
+        </p>
         <p class="text-xs" data-testid="smtp-status">
           <template v-if="p.status.ok === null">{{ t('mail.status.never') }}</template>
           <template v-else-if="p.status.ok"
@@ -929,6 +994,21 @@ const typeLabel = (r: Row) =>
             <p v-if="certProbe(checks[p.id] as Check)" class="break-all text-xs text-slate-500">
               {{ certProbe(checks[p.id] as Check) }}
             </p>
+            <div
+              v-if="presentedCert(checks[p.id] as Check)"
+              class="flex flex-wrap items-center gap-2 pt-1"
+              data-testid="smtp-trust"
+            >
+              <button
+                type="button"
+                class="btn"
+                :data-testid="`smtp-trust-${p.id}`"
+                @click="trustCert(p, presentedCert(checks[p.id] as Check)!)"
+              >
+                <Icon name="shield" class="size-4" />{{ t('mail.trust.button') }}
+              </button>
+              <span class="text-xs text-slate-500">{{ t('mail.trust.hint') }}</span>
+            </div>
           </div>
         </div>
 

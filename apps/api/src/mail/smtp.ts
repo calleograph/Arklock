@@ -31,6 +31,11 @@ export interface SmtpConfig {
   allowLoopback?: boolean;
   /** Согласие отправлять пароль по соединению без шифрования; без него вход по паролю при security: none не выполняется. */
   plainAuth?: boolean;
+  /**
+   * Отпечаток SHA-256 сертификата, которому доверил администратор. Соединение принимается, если сертификат прошёл
+   * обычную проверку (цепочка и имя) или совпадает с этим отпечатком; любой другой сертификат отклоняется.
+   */
+  pinnedFingerprint?: string;
 }
 
 /** Этапы проверки соединения в порядке выполнения. */
@@ -197,6 +202,7 @@ const CERT_REASONS: Record<string, string> = {
   UNABLE_TO_GET_ISSUER_CERT: 'untrusted',
   CERT_UNTRUSTED: 'untrusted',
   CERT_REVOKED: 'revoked',
+  PIN_MISMATCH: 'pin_mismatch',
 };
 
 function certInfo(sock: tls.TLSSocket): StageResult['info'] {
@@ -305,7 +311,8 @@ export async function smtpSession(
     // имя сервера для SNI и проверки сертификата — настроенное, а не IP, по которому идёт соединение
     ...(named ? { servername: cfg.host } : {}),
     ca: cfg.ca?.length ? [...tls.rootCertificates, ...cfg.ca] : undefined,
-    rejectUnauthorized: verify,
+    // с закреплённым сертификатом решение принимается после рукопожатия (см. handshake)
+    rejectUnauthorized: verify && !cfg.pinnedFingerprint,
     minVersion: 'TLSv1.2' as const,
   };
 
@@ -318,7 +325,18 @@ export async function smtpSession(
       new Promise<tls.TLSSocket>((resolve, reject) => {
         const t: tls.TLSSocket = tls.connect(
           s ? { ...tlsBase, socket: s } : { ...tlsBase, host: address, port: cfg.port },
-          () => resolve(t),
+          () => {
+            if (verify && cfg.pinnedFingerprint && !t.authorized) {
+              // не прошёл обычную проверку: принимается только сертификат с закреплённым отпечатком
+              if (t.getPeerCertificate().fingerprint256 !== cfg.pinnedFingerprint) {
+                t.destroy();
+                return reject(
+                  Object.assign(new Error('Pinned certificate mismatch'), { code: 'PIN_MISMATCH' }),
+                );
+              }
+            }
+            resolve(t);
+          },
         );
         pendingSocket = t;
         t.once('error', reject);
@@ -471,11 +489,12 @@ export async function smtpSession(
     methodsAfter = authList(caps);
     if (needTls) {
       const info = certInfo(sock as tls.TLSSocket);
+      const pinned = !!cfg.pinnedFingerprint && !(sock as tls.TLSSocket).authorized;
       report({
         stage: 'certificate',
         ok: true,
         warn: !verify,
-        info: { ...info, verified: verify },
+        info: { ...info, verified: verify, pinned },
       });
     } else report({ stage: 'certificate', ok: true, skipped: true });
 

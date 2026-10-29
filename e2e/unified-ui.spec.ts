@@ -1411,3 +1411,49 @@ test('«Обновления»: перезапуск приложения (502 �
   await expect(chief.getByTestId('updates-error')).toHaveCount(0);
   await chief.unroute('**/api/v1/admin/updates');
 });
+
+test('почта: сертификат, который предъявил сервер, принимается как доверенный одной кнопкой, и проверка проходит', async () => {
+  const { webcrypto } = await import('node:crypto');
+  const x509 = await import('@peculiar/x509');
+  const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' } as const;
+  const keys = (await webcrypto.subtle.generateKey(alg, true, [
+    'sign',
+    'verify',
+  ])) as unknown as CryptoKeyPair;
+  // самоподписанный сертификат на внутреннее имя, подключение идёт по адресу 127.0.0.1 — имя не совпадает
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: '3b',
+    name: 'CN=mail01',
+    notBefore: new Date(Date.now() - 86_400_000),
+    notAfter: new Date(Date.now() + 365 * 86_400_000),
+    signingAlgorithm: alg,
+    keys,
+    extensions: [new x509.BasicConstraintsExtension(false)],
+  });
+  const der = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', keys.privateKey));
+  const label = ['PRIVATE', 'KEY'].join(' ');
+  const key = `-----BEGIN ${label}-----\n${der.toString('base64')}\n-----END ${label}-----\n`;
+  const fake = await fakeSmtp({ tls: { mode: 'starttls', key, cert: cert.toString('pem') } });
+  try {
+    await chief.goto('/admin/smtp');
+    await chief.getByTestId('smtp-add').click();
+    await chief.getByTestId('smtp-name').fill('Самоподписанный');
+    await chief.getByTestId('smtp-host').fill('127.0.0.1');
+    await chief.getByTestId('smtp-port').fill(String(fake.port));
+    await chief.getByTestId('smtp-from').fill('arklock@example.com');
+    await chief.getByTestId('smtp-save').click();
+    await expect(chief.getByTestId('mail-notice')).toBeVisible();
+    const card = chief.locator('[data-profile]', { hasText: 'Самоподписанный' });
+    await card.locator('[data-action="check"]').click();
+    await expect(card.getByTestId('smtp-trust')).toBeVisible();
+    chief.once('dialog', (d) => void d.accept());
+    await card.getByTestId('smtp-trust').getByRole('button').click();
+    await expect(card.getByTestId('smtp-result')).toContainText(/Проверка пройдена|Check passed/);
+    await expect(card.locator('[data-testid^="smtp-pinned-"]')).toContainText('mail01');
+    chief.once('dialog', (d) => void d.accept());
+    await card.locator('[data-testid^="smtp-untrust-"]').click();
+    await expect(card.locator('[data-testid^="smtp-pinned-"]')).toHaveCount(0);
+  } finally {
+    await fake.close();
+  }
+});

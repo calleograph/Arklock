@@ -717,3 +717,130 @@ describe('access', () => {
       expect((await member.req(m, u)).statusCode, u).toBe(403);
   });
 });
+
+describe('trusting the certificate the server presents', () => {
+  /** Самоподписанный сертификат сервера, выданный на внутреннее имя (не на то, по которому идёт подключение). */
+  async function selfSigned(cn: string) {
+    const { webcrypto } = await import('node:crypto');
+    const x509 = await import('@peculiar/x509');
+    const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' } as const;
+    const keys = (await webcrypto.subtle.generateKey(alg, true, [
+      'sign',
+      'verify',
+    ])) as unknown as CryptoKeyPair;
+    const cert = await x509.X509CertificateGenerator.createSelfSigned({
+      serialNumber: '2a',
+      name: `CN=${cn}`,
+      notBefore: new Date(Date.now() - 86_400_000),
+      notAfter: new Date(Date.now() + 365 * 86_400_000),
+      signingAlgorithm: alg,
+      keys,
+      extensions: [new x509.BasicConstraintsExtension(false)],
+    });
+    const der = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', keys.privateKey));
+    const label = ['PRIVATE', 'KEY'].join(' ');
+    return {
+      cert: cert.toString('pem'),
+      key: `-----BEGIN ${label}-----\n${der.toString('base64')}\n-----END ${label}-----\n`,
+    };
+  }
+  const certStage = (c: {
+    stages: { stage: string; ok: boolean; info?: Record<string, unknown> }[];
+  }) => c.stages.find((s) => s.stage === 'certificate');
+
+  it('the presented certificate is pinned by fingerprint; only it is accepted; changing the server or untrusting removes the trust', async () => {
+    const own = await selfSigned('mail01');
+    const s = await start({ tls: { mode: 'starttls', ...own } });
+    const { id } = await create(profile(s.port, { security: 'starttls', auth: 'none' }));
+    const before = await check(id);
+    expect(before.ok).toBe(false);
+    const seenStage = certStage(before)!;
+    expect(seenStage).toMatchObject({ ok: false, info: { reason: 'self_signed' } });
+    const { info: seenInfo } = seenStage;
+    const fingerprint = seenInfo!.fingerprint256 as string;
+    expect(fingerprint).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+
+    // отпечаток не тот, что предъявляет сервер, — отказ (сертификат подменили или сменили)
+    const wrong = await admin.req('POST', `/admin/smtp/profiles/${id}/trust-certificate`, {
+      fingerprint256: fingerprint.replace(/^../, fingerprint.startsWith('00') ? '11' : '00'),
+    });
+    expect(wrong.statusCode).toBe(409);
+    expect(wrong.json().error.code).toBe('smtp_cert_changed');
+
+    const trusted = await admin.req('POST', `/admin/smtp/profiles/${id}/trust-certificate`, {
+      fingerprint256: fingerprint,
+    });
+    expect(trusted.statusCode).toBe(200);
+    expect(trusted.json().pinnedCert).toMatchObject({
+      fingerprint256: fingerprint,
+      subject: 'mail01',
+    });
+    const listed = (await admin.req('GET', '/admin/smtp/profiles'))
+      .json()
+      .profiles.find((p: { id: string }) => p.id === id);
+    expect(listed.pinnedCert.fingerprint256).toBe(fingerprint);
+
+    const after = await check(id);
+    expect(after.ok).toBe(true);
+    expect(certStage(after)).toMatchObject({ ok: true, info: { pinned: true, verified: true } });
+    const ledger = JSON.stringify(
+      (await admin.req('GET', '/admin/ledger?q=admin.smtp.cert.trust')).json(),
+    );
+    expect(ledger).toContain('admin.smtp.cert.trust');
+
+    // другой сервер с другим сертификатом: доверие не переносится
+    const other = await selfSigned('mail02');
+    const s2 = await start({ tls: { mode: 'starttls', ...other } });
+    expect(
+      (
+        await admin.req(
+          'PUT',
+          `/admin/smtp/profiles/${id}`,
+          profile(s2.port, { security: 'starttls', auth: 'none' }),
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect((await check(id)).ok).toBe(false);
+    expect(
+      (
+        await admin.req(
+          'PUT',
+          `/admin/smtp/profiles/${id}`,
+          profile(s.port, { security: 'starttls', auth: 'none' }),
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect((await check(id)).ok).toBe(false);
+
+    // снова доверяем и снимаем доверие
+    await admin.req('POST', `/admin/smtp/profiles/${id}/trust-certificate`, {
+      fingerprint256: fingerprint,
+    });
+    expect((await check(id)).ok).toBe(true);
+    expect(
+      (await admin.req('DELETE', `/admin/smtp/profiles/${id}/trust-certificate`)).statusCode,
+    ).toBe(204);
+    expect((await check(id)).ok).toBe(false);
+  });
+
+  it('a pinned fingerprint does not let a different certificate through', async () => {
+    const { smtpSession } = await import('../src/mail/smtp.js');
+    const own = await selfSigned('mail01');
+    const s = await start({ tls: { mode: 'starttls', ...own } });
+    const err = await smtpSession(
+      {
+        host: '127.0.0.1',
+        port: s.port,
+        security: 'starttls',
+        auth: 'none',
+        user: '',
+        password: '',
+        from: 'arklock@example.com',
+        allowLoopback: true,
+        pinnedFingerprint: Array(32).fill('AB').join(':'),
+      },
+      null,
+    ).catch((e: unknown) => e as { code: string; detail?: { reason?: string } });
+    expect(err).toMatchObject({ code: 'certificate', detail: { reason: 'pin_mismatch' } });
+  });
+});
