@@ -531,3 +531,192 @@ test('после нескольких ошибок вход требует пр�
   await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 120_000 });
   await ctx.close();
 });
+
+/** Создаёт папку кнопкой «Создать папку» в центре и ждёт её в списке папок текущего расположения. */
+async function createFolderHere(page: Page, name: string): Promise<void> {
+  await page.getByTestId('btn-create-folder').click();
+  await page.getByTestId('name-input').fill(name);
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId(`tile-open-${name}`)).toBeVisible();
+}
+const openTile = (page: Page, name: string) => page.getByTestId(`tile-open-${name}`).click();
+const current = (page: Page) => page.getByTestId('crumb-current');
+const activeRow = (page: Page) => page.locator('[data-testid="branch-row"].nav-link-active');
+
+test('проводник сейфа: папки и записи в центре, путь, синхронизация с деревом, F5', async () => {
+  await chief.setViewportSize({ width: 1366, height: 768 });
+  await chief.goto('/');
+  await expect(chief.getByTestId('add-entry')).toBeVisible({ timeout: 60_000 });
+  await expect(chief.getByTestId('crumb-up')).toHaveCount(0); // в корне подняться некуда
+
+  // сценарий 1: структура создаётся там, где пользователь находится
+  await createFolderHere(chief, 'Инфраструктура');
+  await openTile(chief, 'Инфраструктура');
+  await expect(current(chief)).toHaveText('Инфраструктура');
+  await expect(activeRow(chief)).toContainText('Инфраструктура'); // слева выделена та же папка
+  await expect(chief).toHaveURL(/folder=/);
+  await createFolderHere(chief, 'Серверы');
+  await openTile(chief, 'Серверы');
+  await createFolderHere(chief, 'Linux');
+  await openTile(chief, 'Linux');
+  await createFolderHere(chief, 'Production');
+  await openTile(chief, 'Production');
+  await expect(current(chief)).toHaveText('Production');
+  // длинный путь свёрнут: корень, «…» и три последних уровня
+  await expect(chief.getByTestId('crumb-more')).toBeVisible();
+  await chief.getByTestId('add-entry').click();
+  await chief.getByTestId('f-title').fill('root-вход Production');
+  await chief.getByTestId('f-save').click();
+  await expect(chief.getByTestId('view-title')).toHaveText('root-вход Production');
+  const row = chief.getByTestId('entry-row').filter({ hasText: 'root-вход Production' });
+  await expect(row).toContainText('Инфраструктура / Серверы / Linux / Production');
+
+  // сценарий 2: подъём «наверх» и по свёрнутому пути; запись видна только в своей папке
+  await chief.getByTestId('crumb-up').click();
+  await expect(current(chief)).toHaveText('Linux');
+  await expect(row).toHaveCount(0);
+  await openTile(chief, 'Production');
+  await chief.getByTestId('crumb-more').click();
+  await chief.getByTestId('breadcrumbs').getByRole('button', { name: 'Инфраструктура' }).click();
+  await expect(current(chief)).toHaveText('Инфраструктура');
+  await openTile(chief, 'Серверы');
+  await openTile(chief, 'Linux');
+  await reloadKeeps(chief, 'Linux');
+  // другая папка слева: центр следует за деревом
+  await createFolderHere(chief, 'Production 2');
+  await chief.getByTestId('crumb-root').click();
+  await expect(current(chief)).toHaveCount(0);
+  await chief
+    .getByTestId('branch-row')
+    .getByRole('button', { name: 'Инфраструктура', exact: true })
+    .click();
+  await expect(current(chief)).toHaveText('Инфраструктура');
+  await expect(chief.getByTestId('tile-open-Серверы')).toBeVisible();
+  await chief.goBack(); // «Назад» возвращает на предыдущую папку
+  await expect(chief.getByTestId('crumb-current')).toHaveCount(0);
+
+  // сценарий 3: действия над папкой из центра
+  await createFolderHere(chief, 'Бухгалтерия');
+  await chief.getByTestId('tile-menu-Бухгалтерия').click();
+  await chief.getByTestId('folder-rename').click();
+  await chief.getByTestId('name-input').fill('Финансы');
+  await chief.getByTestId('name-ok').click();
+  await expect(chief.getByTestId('tile-open-Финансы')).toBeVisible();
+  await chief.getByTestId('tile-menu-Финансы').click();
+  await chief.getByTestId('folder-move').selectOption({ label: 'Инфраструктура' });
+  await expect(chief.getByTestId('tile-open-Финансы')).toHaveCount(0);
+  await openTile(chief, 'Инфраструктура');
+  await expect(chief.getByTestId('tile-open-Финансы')).toBeVisible();
+  await chief.getByTestId('tile-menu-Финансы').click();
+  await chief.getByTestId('folder-pin').click();
+  await chief.getByTestId('scope-favorites').click();
+  await expect(chief.getByTestId('favorite-folder-Финансы')).toBeVisible();
+  await expect(chief.getByTestId('folder-section')).toHaveCount(0); // «Избранное» — не просмотр папки
+  await expect(chief.getByTestId('breadcrumbs')).toHaveCount(0);
+  await chief.getByTestId('scope-all').click();
+  await chief
+    .getByTestId('branch-row')
+    .getByRole('button', { name: 'Инфраструктура', exact: true })
+    .click();
+  await chief.getByTestId('tile-menu-Финансы').click();
+  chief.once('dialog', (d) => void d.accept());
+  await chief.getByTestId('folder-delete').click();
+  await expect(chief.getByTestId('tile-open-Финансы')).toHaveCount(0);
+  await chief.getByTestId('scope-trash').click();
+  await chief.getByTestId('restore-branch').click();
+  await chief.getByTestId('scope-all').click();
+  await chief
+    .getByTestId('branch-row')
+    .getByRole('button', { name: 'Инфраструктура', exact: true })
+    .click();
+  await expect(chief.getByTestId('tile-open-Финансы')).toBeVisible();
+
+  // поиск — отдельный режим: папки скрыты, записи ищутся и во вложенных папках
+  await chief.getByTestId('search').fill('root-вход');
+  await expect(chief.getByTestId('folder-section')).toHaveCount(0);
+  await expect(
+    chief.getByTestId('entry-row').filter({ hasText: 'root-вход Production' }),
+  ).toBeVisible();
+  await chief.getByTestId('search').fill('');
+  await expect(chief.getByTestId('folder-section')).toBeVisible();
+
+  // чужой сотрудник по прямой ссылке на папку ничего не получает
+  const folder = new URL(chief.url()).searchParams.get('folder');
+  expect(folder).toBeTruthy();
+  await member.goto(`/?folder=${folder}`);
+  await expect(member.getByTestId('vault-select')).toBeVisible({ timeout: 60_000 });
+  await expect(member.getByTestId('crumb-current')).toHaveCount(0);
+  await expect(member.getByTestId('tile-open-Серверы')).toHaveCount(0);
+});
+
+/** F5 на странице папки: путь, дерево и адрес сохраняются. */
+async function reloadKeeps(page: Page, name: string): Promise<void> {
+  await page.reload();
+  await expect(page.getByTestId('crumb-current')).toHaveText(name, { timeout: 60_000 });
+  await expect(activeRow(page)).toContainText(name);
+  await expect(page).toHaveURL(/folder=/);
+}
+
+test('проводник: без горизонтальной прокрутки на ноутбуках и телефоне, во всех темах', async () => {
+  await chief.goto('/');
+  await expect(chief.getByTestId('add-entry')).toBeVisible({ timeout: 60_000 });
+  await chief
+    .getByTestId('branch-row')
+    .getByRole('button', { name: 'Инфраструктура', exact: true })
+    .click();
+  // снимки для документации: уровень с вложенными папками
+  for (const [w, h, name] of [
+    [1366, 768, 'ui-explorer-1366'],
+    [390, 844, 'ui-explorer-390'],
+  ] as const) {
+    await chief.setViewportSize({ width: w, height: h });
+    await expect(chief.getByTestId('folder-tile').first()).toBeVisible();
+    await chief.screenshot({ path: `docs/screenshots/${name}.png` });
+  }
+  await openTile(chief, 'Серверы');
+  await openTile(chief, 'Linux');
+  await openTile(chief, 'Production');
+  for (const [w, h] of [
+    [1280, 800],
+    [1366, 768],
+    [1440, 900],
+    [1512, 982],
+    [1920, 1080],
+    [390, 844],
+  ] as const) {
+    await chief.setViewportSize({ width: w, height: h });
+    await expect(chief.getByTestId('breadcrumbs')).toBeVisible();
+    const over = await chief.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(over, `${w}×${h}`).toBeLessThanOrEqual(0);
+  }
+  await chief.setViewportSize({ width: 1366, height: 768 });
+  for (const theme of [
+    'glass',
+    'night',
+    'grove',
+    'aurora',
+    'corporate',
+    'light',
+    'dark',
+    'forest',
+    'emerald',
+    'sunset',
+  ]) {
+    await chief.evaluate((id) => {
+      document.documentElement.dataset.theme = id;
+      document.documentElement.classList.toggle(
+        'dark',
+        ['dark', 'forest', 'night', 'aurora'].includes(id),
+      );
+    }, theme);
+    await expect(chief.getByTestId('breadcrumbs')).toBeVisible();
+    const crumb = await chief.getByTestId('crumb-current').evaluate((el) => {
+      const c = getComputedStyle(el);
+      const bg = getComputedStyle(document.body).backgroundColor;
+      return { color: c.color, bg };
+    });
+    expect(crumb.color, theme).not.toBe(crumb.bg);
+  }
+});

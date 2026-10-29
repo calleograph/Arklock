@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-27. Версия в VERSION и пакетах: **1.80.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
+Последнее обновление: 2026-10-29. Версия в VERSION и пакетах: **1.81.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
 
 ## Назначение и архитектура
 

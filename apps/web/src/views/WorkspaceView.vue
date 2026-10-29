@@ -10,6 +10,9 @@ import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
 import EntryPanel from '../components/EntryPanel.vue';
 import VaultOverview from '../components/VaultOverview.vue';
 import FolderPanel from '../components/FolderPanel.vue';
+import FolderCrumbs from '../components/FolderCrumbs.vue';
+import FolderGrid from '../components/FolderGrid.vue';
+import { childIndex, trailOf } from '../services/explorer';
 import SpacesPanel from '../components/SpacesPanel.vue';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -142,6 +145,7 @@ onMounted(async () => {
     await ws.loadVaults();
     await ws.loadTree();
     ready = true;
+    restoreFolder();
     await openFromRoute();
     if (auth.user?.role !== 'admin') {
       const s = await api<Record<string, unknown>>('GET', '/auth/policy').catch(
@@ -192,6 +196,57 @@ watch(branchSel, () => {
   creating.value = false;
   mobileView.value = 'list';
 });
+// папка — единое состояние навигации: адрес (?folder=), левое дерево и центральная область читают одно значение
+const folderParam = (): string | null => {
+  const f = route.query.folder;
+  return typeof f === 'string' && ws.branches.some((b) => b.id === f) ? f : null;
+};
+function restoreFolder(): void {
+  const id = folderParam();
+  if (id) {
+    scope.value = 'all';
+    branchSel.value = id;
+  }
+}
+watch(branchSel, async (id) => {
+  if (ready && (typeof route.query.folder === 'string' ? route.query.folder : null) !== id) {
+    const q = { ...route.query };
+    if (id) q.folder = id;
+    else delete q.folder;
+    delete q.entry; // иначе ссылка на запись снова откроет её и сбросит папку
+    void router.push({ query: q });
+  }
+  // открытая в центре папка видна в дереве: родители раскрываются, строка прокручивается в поле зрения
+  const parents = trailOf(ws.branches, id).slice(0, -1);
+  if (parents.some((b) => collapsed.value.delete(b.id))) collapsed.value = new Set(collapsed.value);
+  await nextTick();
+  document
+    .querySelector('[data-testid="tree"] .nav-link-active')
+    ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+});
+// «Назад» и «Вперёд» в браузере ходят по папкам
+watch(
+  () => route.query.folder,
+  () => {
+    if (!ready) return;
+    const id = folderParam();
+    if (id !== branchSel.value) {
+      scope.value = 'all';
+      branchSel.value = id;
+    }
+  },
+);
+// «Избранное», «Архив» и «Корзина» — не просмотр папки: выбранная папка сбрасывается
+watch(scope, (s) => {
+  if (s !== 'all') branchSel.value = null;
+});
+// папка удалена (здесь или на другом устройстве) вместе с родителем — остаёмся в корне
+watch(
+  () => ws.branches,
+  (bs) => {
+    if (branchSel.value && !bs.some((b) => b.id === branchSel.value)) branchSel.value = null;
+  },
+);
 
 const vault = computed(() => ws.current);
 const canWrite = computed(
@@ -229,6 +284,13 @@ const counts = computed(() => {
   return m;
 });
 const allTags = computed(() => [...new Set(ws.entries.flatMap((e) => e.data.tags))].sort());
+/** Поиск и фильтры работают поверх списка записей, а не проводника: папки в центре скрываются. */
+const filtering = computed(
+  () => !!(query.value.trim() || kindFilter.value || tagFilter.value || issueFilter.value),
+);
+const folderIndex = computed(() => childIndex(ws.branches));
+const trail = computed(() => trailOf(ws.branches, branchSel.value));
+const currentFolders = computed(() => folderIndex.value.get(branchSel.value) ?? []);
 
 function pathOf(id: string | null): string {
   const out: string[] = [];
@@ -274,7 +336,8 @@ const list = computed<EntryItem[]>(() => {
   else if (scope.value === 'favorites')
     base = ws.entries.filter((e) => e.pinned && !e.data.archived);
   else if (branchSel.value) {
-    const ids = descendants(branchSel.value);
+    // как в проводнике: без поиска и фильтров — записи самой папки, с ними — вместе с вложенными
+    const ids = filtering.value ? descendants(branchSel.value) : new Set([branchSel.value]);
     base = ws.entries.filter((e) => !e.data.archived && e.branchId && ids.has(e.branchId));
   } else base = ws.entries.filter((e) => !e.data.archived);
   const q = query.value.trim().toLowerCase();
@@ -619,7 +682,28 @@ const newFolderLabel = computed(() =>
     ? t('ws.newFolderIn', { name: selectedBranch.value.name })
     : t('ws.newFolderRoot'),
 );
-const newFolder = () => ask(newFolderLabel.value, '', (v) => ws.createBranch(v, branchSel.value));
+/** Родитель запоминается при открытии окна: папка создаётся там, где пользователь нажал, даже если вид успел смениться. */
+function newFolder(): void {
+  const parent = selectedBranch.value;
+  ask(newFolderLabel.value, '', async (v) => {
+    await ws.createBranch(v, parent?.id ?? null);
+    if (parent && collapsed.value.delete(parent.id)) collapsed.value = new Set(collapsed.value);
+  });
+}
+const canCreateFolder = computed(
+  () => canWrite.value && (!selectedBranch.value || selectedBranch.value.access !== 'reader'),
+);
+function openFolder(id: string | null): void {
+  scope.value = 'all';
+  branchSel.value = id;
+  openId.value = null;
+}
+async function openFolderAccess(b: BranchItem): Promise<void> {
+  menuBranch.value = null;
+  openFolder(b.id);
+  await nextTick();
+  showDetails();
+}
 const newSubfolder = (parent: BranchItem) => {
   menuBranch.value = null;
   ask(t('ws.newFolderIn', { name: parent.name }), '', async (v) => {
@@ -640,7 +724,8 @@ async function moveFolder(b: BranchItem, to: string): Promise<void> {
 async function removeFolder(b: BranchItem): Promise<void> {
   if (!confirmBox(t('vault.confirmFolderDelete'))) return;
   await run(() => ws.deleteBranch(b));
-  if (branchSel.value === b.id) branchSel.value = null;
+  if (branchSel.value === b.id)
+    branchSel.value = b.parentId && branchById.value.has(b.parentId) ? b.parentId : null;
   menuBranch.value = null;
 }
 
@@ -887,7 +972,7 @@ void router;
             :depth="0"
             :counts="counts"
             :collapsed="collapsed"
-            @select="(id) => ((scope = 'all'), (branchSel = id), (openId = null))"
+            @select="openFolder"
             @toggle="
               (id) => (
                 collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id),
@@ -920,6 +1005,12 @@ void router;
 
       <!-- Список -->
       <div class="min-w-0 space-y-2" :class="mobileView === 'list' ? '' : 'hidden lg:block'">
+        <FolderCrumbs
+          v-if="scope === 'all'"
+          :root-label="vaultLabel(vault, t)"
+          :trail="trail"
+          @open="openFolder"
+        />
         <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-wrap">
           <select
             v-model="kindFilter"
@@ -1059,6 +1150,20 @@ void router;
           </button>
         </div>
 
+        <FolderGrid
+          v-if="scope === 'all' && !filtering"
+          :folders="currentFolders"
+          :counts="counts"
+          :kids="folderIndex"
+          :can-create="canCreateFolder"
+          :create-label="newFolderLabel"
+          :where="branchSel"
+          @open="openFolder"
+          @create="newFolder"
+          @menu="(b) => (menuBranch = b)"
+          @drop="(id) => dropOn(id, dragId)"
+        />
+
         <div class="card">
           <div
             v-if="list.length"
@@ -1071,7 +1176,11 @@ void router;
               data-testid="select-all"
               @change="toggleAll"
             />
-            {{ t('vault.selectAll') }} · {{ list.length }}
+            {{ t('vault.selectAll') }}
+            <span class="ml-auto font-medium uppercase" data-testid="entries-title"
+              >{{ scope === 'all' && branchSel ? t('ws.entries') : t('vault.all') }} ·
+              {{ list.length }}</span
+            >
           </div>
           <ul class="divide-y divide-slate-200 dark:divide-slate-800" data-testid="entry-list">
             <li v-if="ws.loading" class="space-y-2 px-4 py-4" aria-busy="true">
@@ -1406,6 +1515,15 @@ void router;
             {{ t('icons.change') }}
           </button>
         </template>
+        <button
+          v-if="menuBranch.access === 'manager'"
+          type="button"
+          class="btn w-full"
+          data-testid="folder-access"
+          @click="openFolderAccess(menuBranch!)"
+        >
+          <Icon name="users" /> {{ t('ws.folderAccess') }}
+        </button>
         <button
           type="button"
           class="btn w-full"
