@@ -878,13 +878,14 @@ test('SAML: provider metadata, first sign-in creates the account, later ones unl
   }
 });
 
-test('themes: all six apply to the whole interface, are saved in the profile and follow the user to another browser', async ({
+test('themes: all four apply to the whole interface, are saved in the profile and follow the user to another browser', async ({
   page,
   browser,
 }) => {
   await page.goto('/login');
-  // до входа действует тема по умолчанию — корпоративная голубая
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'corporate');
+  // до входа действует тема по умолчанию — «Современный и лёгкий»; цветных кружков выбора в шапке нет
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'glass');
+  await expect(page.getByRole('group', { name: /^(Theme|Тема)$/ })).toHaveCount(0);
   await page.getByTestId('email').fill(ADMIN.email);
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
@@ -892,33 +893,35 @@ test('themes: all six apply to the whole interface, are saved in the profile and
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-settings').click();
 
-  const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  // фон страницы задаёт <html>: у стеклянных тем <body> прозрачный
+  const bodyBg = () =>
+    page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
   const seen = new Set<string>();
-  for (const id of ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']) {
+  for (const id of ['glass', 'night', 'grove', 'aurora']) {
     await page.getByTestId(`theme-${id}`).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', id);
-    const dark = id === 'dark' || id === 'forest';
+    const dark = id === 'night' || id === 'aurora';
     await expect(page.locator('html')).toHaveClass(dark ? /dark/ : /^(?!.*\bdark\b)/);
     await expect(page.getByTestId('theme-notice')).toBeVisible();
     await page.waitForTimeout(350); // завершение плавной смены цвета
     seen.add(await bodyBg());
   }
-  expect(seen.size).toBe(6); // у каждой темы свой фон страницы
+  expect(seen.size).toBe(4); // у каждой темы свой фон страницы
 
   // выбор сохранён в профиле: другой браузер без локальных настроек получает его после входа
-  await page.getByTestId('theme-forest').click();
+  await page.getByTestId('theme-night').click();
   await expect(page.getByTestId('theme-notice')).toBeVisible();
   const other = await (await browser.newContext()).newPage();
   await other.goto('/login');
-  await expect(other.locator('html')).toHaveAttribute('data-theme', 'corporate');
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'glass');
   await other.getByTestId('email').fill(ADMIN.email);
   await other.getByTestId('password').fill(ADMIN.password);
   await other.getByTestId('submit').click();
   await expect(other.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await expect(other.locator('html')).toHaveAttribute('data-theme', 'forest');
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'night');
   // перезагрузка не даёт вспышки: тема читается до отрисовки
   await other.reload();
-  await expect(other.locator('html')).toHaveAttribute('data-theme', 'forest');
+  await expect(other.locator('html')).toHaveAttribute('data-theme', 'night');
 });
 
 test('the chief administrator sees the organization, edits a card and hands the role to a successor who confirms it', async ({

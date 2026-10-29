@@ -191,9 +191,9 @@ describe('corporate spaces', () => {
     expect((await pref({ homeSpace: 'elsewhere' })).statusCode).toBe(400);
     expect((await pref({})).statusCode).toBe(400);
     // тема по-прежнему сохраняется отдельно
-    expect((await pref({ theme: 'dark' })).statusCode).toBe(204);
+    expect((await pref({ theme: 'night' })).statusCode).toBe(204);
     expect((await bob.req('GET', '/auth/me')).json().user).toMatchObject({
-      theme: 'dark',
+      theme: 'night',
       homeSpace: null,
     });
   });

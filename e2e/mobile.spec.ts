@@ -197,7 +197,7 @@ test('every main screen fits a phone without sideways scrolling', async ({ page 
 
   // планшет и все темы: ни одна из основных страниц не шире экрана
   await page.setViewportSize({ width: 820, height: 1100 });
-  for (const theme of ['light', 'dark', 'forest', 'emerald', 'sunset', 'corporate']) {
+  for (const theme of ['glass', 'night', 'grove', 'aurora']) {
     await page.evaluate((th) => (document.documentElement.dataset.theme = th), theme);
     for (const path of ['/help', '/admin/settings', '/settings']) {
       await page.evaluate((p) => {

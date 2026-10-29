@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { THEME_IDS } from '@arklock/contracts';
-import { DARK_THEMES, GLASS_THEMES, PREVIEW, THEMES } from '../src/services/theme';
+import { DEFAULT_THEME, LEGACY_THEMES, normalizeTheme, THEME_IDS } from '@arklock/contracts';
+import { DARK_THEMES, PREVIEW, THEMES, toTheme } from '../src/services/theme';
 
 const root = path.resolve(__dirname, '..');
 const read = (f: string) => readFileSync(path.join(root, f), 'utf8');
@@ -31,13 +31,13 @@ describe('themes', () => {
       expect(init, id).toContain(id);
       expect(ru, id).toContain(`    ${id}: '`);
       expect(en, id).toContain(`    ${id}: '`);
-      if (id !== 'corporate') expect(html, id).toContain(`html[data-theme='${id}']`);
+      if (id !== DEFAULT_THEME) expect(html, id).toContain(`html[data-theme='${id}']`);
     }
     expect(THEMES).toEqual(THEME_IDS);
   });
 
   it('glass themes ship local backgrounds and nothing is fetched from outside', () => {
-    for (const id of GLASS_THEMES) {
+    for (const id of THEME_IDS) {
       const svg = read(`public/bg/${id}.svg`);
       expect(svg.length, id).toBeLessThan(4000);
       expect(svg, id).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
@@ -49,7 +49,7 @@ describe('themes', () => {
   it('text and accent buttons keep AA contrast on every glass theme', () => {
     const block = (id: string) =>
       css.slice(css.indexOf(`:root[data-theme='${id}'] {`)).split('}')[0] ?? '';
-    for (const id of GLASS_THEMES) {
+    for (const id of THEME_IDS) {
       const b = block(id);
       const v = (name: string) => b.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`))?.[1] ?? '';
       const dark = DARK_THEMES.includes(id);
@@ -63,5 +63,41 @@ describe('themes', () => {
         4.5,
       );
     }
+  });
+
+  it('exactly four themes, «Современный и лёгкий» by default, no retired scheme left in the interface', () => {
+    expect([...THEME_IDS]).toEqual(['glass', 'night', 'grove', 'aurora']);
+    expect(DEFAULT_THEME).toBe('glass');
+    const retired = Object.keys(LEGACY_THEMES);
+    expect(retired.sort()).toEqual(['corporate', 'dark', 'emerald', 'forest', 'light', 'sunset']);
+    const html = read('index.html');
+    const init = read('public/theme-init.js');
+    for (const id of retired) {
+      expect(css, id).not.toContain(`[data-theme='${id}']`);
+      expect(html, id).not.toContain(`[data-theme='${id}']`);
+      expect(read('src/i18n/ru.extra.ts'), id).not.toMatch(new RegExp(`^    ${id}: '`, 'm'));
+    }
+    expect(html).toContain(`data-theme="${DEFAULT_THEME}"`);
+    expect(init).toContain("var t = 'glass'");
+    // прежние цветные кружки в верхней панели убраны: тема выбирается только в «Настройках»
+    const app = read('src/App.vue');
+    expect(app).not.toContain('PREVIEW[id].accent');
+    expect(app).not.toMatch(/v-for="id in THEMES"/);
+    expect(read('src/views/SettingsView.vue')).not.toContain('CLASSIC_THEMES');
+  });
+
+  it('every earlier value maps to one of the four themes, in the app and in the pre-paint script', () => {
+    const init = read('public/theme-init.js');
+    for (const [from, to] of Object.entries(LEGACY_THEMES)) {
+      expect(normalizeTheme(from), from).toBe(to);
+      expect(toTheme(from), from).toBe(to);
+      expect(init, from).toContain(`${from}: '${to}'`);
+    }
+    for (const id of THEME_IDS) expect(normalizeTheme(id)).toBe(id);
+    expect(normalizeTheme('neon')).toBeNull();
+    expect(normalizeTheme(null)).toBeNull();
+    expect(toTheme('neon')).toBe(DEFAULT_THEME);
+    expect(THEMES).toEqual(THEME_IDS);
+    expect(DARK_THEMES).toEqual(['night', 'aurora']);
   });
 });

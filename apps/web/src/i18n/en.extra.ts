@@ -282,13 +282,6 @@ export default {
     aurora: 'Modern gradient',
     auroraHint: 'Deep blue background, teal accents and gradient waves.',
     selected: 'Selected',
-    classic: 'Earlier schemes',
-    corporate: 'Corporate blue',
-    light: 'Light',
-    dark: 'Dark',
-    forest: 'Dark green',
-    emerald: 'Emerald',
-    sunset: 'Sunset',
   },
   menu: {
     open: 'Open menu',

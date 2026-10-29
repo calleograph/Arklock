@@ -15,7 +15,7 @@ import {
 } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { circleWrite, THEME_IDS, uuid } from '@arklock/contracts';
+import { circleWrite, DEFAULT_THEME, THEME_IDS, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
 import { notifyUsers } from '../notifications.js';
@@ -95,7 +95,7 @@ const SETTINGS: Record<string, z.ZodType> = {
     .regex(/^[\x21-\x7e]*$/),
 };
 export const SETTING_DEFAULTS: Record<string, unknown> = {
-  'appearance.defaultTheme': 'corporate',
+  'appearance.defaultTheme': DEFAULT_THEME,
   'registration.mode': 'closed',
   'vaults.creators': 'admins',
   'vaults.personalLockers': false,

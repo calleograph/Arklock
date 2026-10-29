@@ -21,7 +21,7 @@ const USER = {
   name: 'Анна Смирнова',
   password: 'screenshots-master-password-1',
 };
-const THEMES = ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset'];
+const THEMES = ['glass', 'night', 'grove', 'aurora'];
 mkdirSync(OUT, { recursive: true });
 mkdirSync('test-results', { recursive: true });
 const BLOB_DIR = mkdtempSync(path.resolve('test-results/screenshots-blobs-'));
@@ -91,7 +91,7 @@ async function shot(page, name) {
 async function setTheme(page, id) {
   await page.evaluate((t) => {
     document.documentElement.dataset.theme = t;
-    document.documentElement.classList.toggle('dark', t === 'dark' || t === 'forest');
+    document.documentElement.classList.toggle('dark', t === 'night' || t === 'aurora');
   }, id);
 }
 
@@ -108,7 +108,7 @@ try {
   // вход (до регистрации)
   await page.goto(BASE + '/');
   await page.getByTestId('name').waitFor();
-  await shot(page, 'login-corporate');
+  await shot(page, 'login-glass');
 
   await tid(page, 'email').fill(USER.email);
   await tid(page, 'name').fill(USER.name);
@@ -125,7 +125,7 @@ try {
   );
   assert.equal(await tid(page, 'vault-select').locator('option').count(), 1);
   await tid(page, 'vault-overview').waitFor();
-  await shot(page, 'home-corporate');
+  await shot(page, 'home-glass');
 
   await folder(page, 'Инфраструктура');
   await folder(page, 'Финансы');
@@ -257,48 +257,48 @@ try {
   // рабочая область во всех темах
   await tid(page, 'entry-row').first().click();
   await tid(page, 'btn-reveal').click();
-  const themes = QUICK ? ['corporate', 'dark'] : THEMES;
+  const themes = QUICK ? ['glass', 'night'] : THEMES;
   for (const t of themes) {
     await setTheme(page, t);
     await shot(page, `vault-${t}`);
   }
-  await setTheme(page, 'corporate');
+  await setTheme(page, 'glass');
 
   // Новые вкладки содержат реальные данные; журнал отличается от истории версий.
   await tid(page, 'tab-access').click();
   await tid(page, 'entry-access').waitFor();
   await page.getByText(USER.name, { exact: false }).first().waitFor();
-  await shot(page, 'entry-access-corporate');
+  await shot(page, 'entry-access-glass');
   await tid(page, 'tab-journal').click();
   await tid(page, 'entry-journal').waitFor();
-  await shot(page, 'entry-journal-corporate');
+  await shot(page, 'entry-journal-glass');
   await tid(page, 'tab-settings').click();
   await tid(page, 'entry-settings').waitFor();
-  await shot(page, 'entry-settings-corporate');
+  await shot(page, 'entry-settings-glass');
   await tid(page, 'tab-details').click();
 
   await page.getByTestId('branch-row').filter({ hasText: 'Инфраструктура' }).first().click();
   await tid(page, 'folder-panel').waitFor();
-  await shot(page, 'folder-access-corporate');
+  await shot(page, 'folder-access-glass');
   await tid(page, 'scope-all').click();
   await tid(page, 'vault-overview').waitFor();
-  await shot(page, 'home-corporate');
+  await shot(page, 'home-glass');
 
   // настройки внешнего вида
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-settings').click();
-  await tid(page, 'theme-sunset').waitFor();
-  for (const t of QUICK ? ['corporate'] : ['corporate', 'forest']) {
+  await tid(page, 'theme-aurora').waitFor();
+  for (const t of QUICK ? ['glass'] : ['glass', 'aurora']) {
     await setTheme(page, t);
     await shot(page, `settings-${t}`);
   }
-  await setTheme(page, 'corporate');
+  await setTheme(page, 'glass');
 
   // безопасность
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-security').click();
   await page.getByTestId('sessions').waitFor();
-  await shot(page, 'security-corporate');
+  await shot(page, 'security-glass');
 
   // администрирование
   await tid(page, 'menu-toggle').click();
@@ -306,11 +306,11 @@ try {
   await tid(page, 'admin-tab-overview').waitFor();
   await tid(page, 'admin-tab-overview').click();
   await page.waitForTimeout(800);
-  await shot(page, 'admin-overview-corporate');
+  await shot(page, 'admin-overview-glass');
   await tid(page, 'admin-tab-settings').click();
   await tid(page, 'settings-group-access').waitFor();
   await page.evaluate(() => globalThis.scrollTo(0, 0));
-  await shot(page, 'admin-settings-corporate');
+  await shot(page, 'admin-settings-glass');
   await tid(page, 'settings-tab-security').click();
   const recoveryPhrase = 'demonstration-offline-recovery-passphrase-1';
   await tid(page, 'recovery-new-phrase').fill(recoveryPhrase);
@@ -339,7 +339,7 @@ try {
   await tid(page, 'vault-recovery-status')
     .filter({ hasText: /ключ актуален|current/ })
     .waitFor();
-  await shot(page, 'vault-recovery-corporate');
+  await shot(page, 'vault-recovery-glass');
   await tid(page, 'menu-toggle').click();
   await tid(page, 'menu-full').click();
   await tid(page, 'admin-tab-settings').click();
@@ -373,7 +373,7 @@ try {
     .waitFor();
   await tid(page, 'settings-tab-main').click();
   await tid(page, 'settings-tab-security').click();
-  await shot(page, 'corporate-recovery-corporate');
+  await shot(page, 'corporate-recovery-glass');
 
   // замена офлайн-пакета: подготовка, переподключение сейфа, завершение
   const oldFingerprint = await tid(page, 'recovery-fingerprint').textContent();
@@ -407,11 +407,11 @@ try {
   );
   await tid(page, 'admin-tab-users').click();
   await page.waitForTimeout(500);
-  await shot(page, 'admin-users-corporate');
+  await shot(page, 'admin-users-glass');
   if (!QUICK) {
-    await setTheme(page, 'dark');
-    await shot(page, 'admin-users-dark');
-    await setTheme(page, 'corporate');
+    await setTheme(page, 'night');
+    await shot(page, 'admin-users-night');
+    await setTheme(page, 'glass');
   }
 
   // телефон
@@ -428,7 +428,7 @@ try {
   await tid(mp, 'password').fill(USER.password);
   await tid(mp, 'submit').click();
   await tid(mp, 'add-entry').waitFor({ timeout: 90_000 });
-  await shot(mp, 'mobile-vault-corporate');
+  await shot(mp, 'mobile-vault-glass');
   await tid(mp, 'entry-row').first().click();
   await tid(mp, 'view-title').waitFor();
   const entryBounds = await tid(mp, 'view-title').boundingBox();
@@ -440,10 +440,10 @@ try {
     await mp.evaluate(() => document.documentElement.scrollWidth <= globalThis.innerWidth),
     'mobile page must not overflow horizontally',
   );
-  await shot(mp, 'mobile-entry-corporate');
+  await shot(mp, 'mobile-entry-glass');
   if (!QUICK) {
-    await setTheme(mp, 'forest');
-    await shot(mp, 'mobile-entry-forest');
+    await setTheme(mp, 'aurora');
+    await shot(mp, 'mobile-entry-aurora');
   }
   await browser.close();
 } finally {

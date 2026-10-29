@@ -1199,15 +1199,15 @@ test('визуальный аудит: экраны администрирова
   }
   expect(wide, wide.join('\n')).toEqual([]);
 
-  // шесть тем: страницы остаются читаемыми и не ломают раскладку
+  // четыре темы: страницы остаются читаемыми и не ломают раскладку
   await page.setViewportSize({ width: 1366, height: 768 });
   const broken: string[] = [];
-  for (const theme of ['corporate', 'light', 'dark', 'forest', 'emerald', 'sunset']) {
+  for (const theme of ['glass', 'night', 'grove', 'aurora']) {
     for (const url of ['/admin/overview', '/admin/transfer?tab=export', '/help']) {
       await page.goto(url);
       await page.evaluate((id) => {
         document.documentElement.dataset.theme = id;
-        document.documentElement.classList.toggle('dark', ['dark', 'forest'].includes(id));
+        document.documentElement.classList.toggle('dark', ['night', 'aurora'].includes(id));
       }, theme);
       const over = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

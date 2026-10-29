@@ -60,20 +60,30 @@ export const registerRequest = z.object({
 });
 export type RegisterRequest = z.infer<typeof registerRequest>;
 
-/** Цветовые темы интерфейса: первые четыре — многослойные оформления со стеклом и фоновой графикой. */
-export const THEME_IDS = [
-  'glass',
-  'night',
-  'grove',
-  'aurora',
-  'corporate',
-  'light',
-  'dark',
-  'forest',
-  'emerald',
-  'sunset',
-] as const;
+/** Оформления интерфейса: ровно четыре, «Современный и лёгкий» (glass) — единственная тема по умолчанию. */
+export const THEME_IDS = ['glass', 'night', 'grove', 'aurora'] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
+export const DEFAULT_THEME: ThemeId = 'glass';
+
+/**
+ * Прежние схемы (до четырёх оформлений) → ближайшее новое: голубая и закатная → «Современный и лёгкий»,
+ * светлая и изумрудная → «Корпоративный минимализм», тёмная и тёмно-зелёная → «Тёмный профессиональный».
+ * Старые значения остаются только во входных данных миграции: через API их принять нельзя.
+ */
+export const LEGACY_THEMES: Record<string, ThemeId> = {
+  corporate: 'glass',
+  sunset: 'glass',
+  light: 'grove',
+  emerald: 'grove',
+  dark: 'night',
+  forest: 'night',
+};
+
+/** Сохранённое значение темы → одна из четырёх (неизвестное и пустое — null: вызывающий берёт тему по умолчанию). */
+export function normalizeTheme(v: unknown): ThemeId | null {
+  if (typeof v !== 'string') return null;
+  return (THEME_IDS as readonly string[]).includes(v) ? (v as ThemeId) : (LEGACY_THEMES[v] ?? null);
+}
 
 export const userBundle = z.object({
   id: uuid,

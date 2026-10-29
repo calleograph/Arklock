@@ -6,14 +6,7 @@ import NotificationPreferences from '../components/NotificationPreferences.vue';
 import PinSettings from '../components/PinSettings.vue';
 import PersonalVaultErase from '../components/PersonalVaultErase.vue';
 import { useWorkspaceStore } from '../stores/workspace';
-import {
-  CLASSIC_THEMES,
-  DEFAULT_THEME,
-  GLASS_THEMES,
-  isTheme,
-  PREVIEW,
-  type ThemeId,
-} from '../services/theme';
+import { PREVIEW, THEMES, toTheme, type ThemeId } from '../services/theme';
 import { errorMessage, spaceLabel } from '../services/helpers';
 import {
   AUTO_LOCK_OPTIONS,
@@ -36,8 +29,7 @@ function chooseLock(minutes: AutoLockMinutes): void {
   setAutoLockMinutes(minutes);
 }
 
-const current = (): ThemeId =>
-  isTheme(auth.user?.theme) ? (auth.user!.theme as ThemeId) : DEFAULT_THEME;
+const current = (): ThemeId => toTheme(auth.user?.theme);
 
 async function choose(id: ThemeId): Promise<void> {
   error.value = '';
@@ -100,7 +92,7 @@ function setLocale(value: 'ru' | 'en'): void {
         data-testid="theme-featured"
       >
         <button
-          v-for="id in GLASS_THEMES"
+          v-for="id in THEMES"
           :key="id"
           type="button"
           role="radio"
@@ -144,49 +136,6 @@ function setLocale(value: 'ru' | 'en'): void {
             <span v-if="current() === id" class="badge-brand shrink-0" data-testid="theme-selected"
               >✔ {{ t('theme.selected') }}</span
             >
-          </span>
-        </button>
-      </div>
-      <h3 class="mb-2 mt-5 text-xs font-medium text-slate-500">{{ t('theme.classic') }}</h3>
-      <div
-        class="grid grid-cols-2 gap-3 sm:grid-cols-3"
-        role="radiogroup"
-        :aria-label="t('theme.classic')"
-      >
-        <button
-          v-for="id in CLASSIC_THEMES"
-          :key="id"
-          type="button"
-          role="radio"
-          :aria-checked="current() === id"
-          :data-testid="`theme-${id}`"
-          class="group rounded-xl border p-3 text-left transition-shadow hover:shadow-md"
-          :class="
-            current() === id
-              ? 'border-brand-500 ring-2 ring-brand-500'
-              : 'border-slate-200 dark:border-slate-700'
-          "
-          :style="{ background: PREVIEW[id].bg }"
-          @click="choose(id)"
-        >
-          <span class="mb-2 flex items-center gap-2">
-            <span class="size-3 rounded-full" :style="{ background: PREVIEW[id].accent }" />
-            <span class="text-xs font-semibold" :style="{ color: PREVIEW[id].text }">{{
-              t(`theme.${id}`)
-            }}</span>
-            <span
-              v-if="current() === id"
-              class="ml-auto text-xs"
-              :style="{ color: PREVIEW[id].accent }"
-              >✔</span
-            >
-          </span>
-          <span class="block space-y-1.5 rounded-lg p-2" :style="{ background: PREVIEW[id].card }">
-            <span
-              class="block h-1.5 w-3/4 rounded"
-              :style="{ background: PREVIEW[id].text, opacity: 0.25 }"
-            />
-            <span class="block h-3 w-1/2 rounded" :style="{ background: PREVIEW[id].accent }" />
           </span>
         </button>
       </div>

@@ -6,7 +6,7 @@ import { useAuthStore } from './stores/auth';
 import { useWorkspaceStore } from './stores/workspace';
 import WhatsNewDialog from './components/WhatsNewDialog.vue';
 import { cmpVersion, openWhatsNew, whatsNew } from './services/releases';
-import { applyTheme, DEFAULT_THEME, isTheme, PREVIEW, storedTheme, THEMES } from './services/theme';
+import { applyTheme, DEFAULT_THEME, storedTheme, toTheme } from './services/theme';
 import Icon from './components/Icon.vue';
 import GlobalSearchResults from './components/GlobalSearchResults.vue';
 import NotificationBell from './components/NotificationBell.vue';
@@ -77,7 +77,7 @@ function setLocale(value: 'ru' | 'en'): void {
 watch(
   () => auth.user?.theme,
   (id) => {
-    if (isTheme(id)) applyTheme(id);
+    if (id) applyTheme(toTheme(id));
   },
   { immediate: true },
 );
@@ -170,24 +170,6 @@ const initial = () =>
         <div v-else class="flex-1" />
 
         <div class="flex shrink-0 items-center gap-1.5 text-sm">
-          <!-- до входа тему можно выбрать здесь, после входа — в «Настройках» -->
-          <div
-            v-if="!auth.isSignedIn"
-            class="mr-1 flex items-center gap-1"
-            role="group"
-            :aria-label="t('ui.theme')"
-          >
-            <button
-              v-for="id in THEMES"
-              :key="id"
-              type="button"
-              class="size-4 rounded-full ring-1 ring-slate-300 transition-transform hover:scale-125 dark:ring-slate-600"
-              :style="{ background: PREVIEW[id].accent }"
-              :title="t(`theme.${id}`)"
-              :aria-label="t(`theme.${id}`)"
-              @click="applyTheme(id)"
-            />
-          </div>
           <div
             class="flex overflow-hidden rounded-lg border border-slate-300 dark:border-slate-700"
             :class="auth.isSignedIn && auth.unlocked ? 'max-sm:hidden' : ''"

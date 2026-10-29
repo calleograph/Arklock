@@ -12,6 +12,8 @@ import {
   registerRequest,
   uuid,
   THEME_IDS,
+  DEFAULT_THEME,
+  normalizeTheme,
 } from '@arklock/contracts';
 import type {
   RegisterRequest,
@@ -163,7 +165,7 @@ async function insertLocker(
 /** Тема по умолчанию для сотрудников, не выбравших свою (настройка администратора). */
 async function defaultTheme(db: AppContext['db']): Promise<string> {
   const [row] = await db.select().from(settings).where(eq(settings.key, 'appearance.defaultTheme'));
-  return THEME_IDS.find((id) => id === row?.value) ?? 'corporate';
+  return normalizeTheme(row?.value) ?? DEFAULT_THEME;
 }
 
 export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Promise<UserBundle> {
@@ -175,7 +177,7 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     delegated: u.role !== 'admin' && (await adminPermsOf(ctx, u)).size > 0,
     chief: u.chief,
     // пока сотрудник не выбрал тему сам, действует тема по умолчанию, заданная администратором
-    theme: u.theme ?? (await defaultTheme(ctx.db)),
+    theme: normalizeTheme(u.theme) ?? (await defaultTheme(ctx.db)),
     seenRelease: u.seenRelease,
     homeSpace: u.homeSpace,
     publicKey: u.publicKey,

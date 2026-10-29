@@ -305,19 +305,8 @@ test('hints are not clipped by their containers', async () => {
   expect(clipped, clipped.join('\n')).toEqual([]);
 });
 
-test('laptop sizes and all ten themes keep the admin layout usable', async () => {
-  const themes = [
-    'glass',
-    'night',
-    'grove',
-    'aurora',
-    'corporate',
-    'light',
-    'dark',
-    'forest',
-    'emerald',
-    'sunset',
-  ];
+test('laptop sizes and all four themes keep the admin layout usable', async () => {
+  const themes = ['glass', 'night', 'grove', 'aurora'];
   for (const [w, h] of [
     [1280, 800],
     [1366, 768],
@@ -345,10 +334,7 @@ test('laptop sizes and all ten themes keep the admin layout usable', async () =>
     await chief.goto('/admin/transfer');
     await chief.evaluate((id) => {
       document.documentElement.dataset.theme = id;
-      document.documentElement.classList.toggle(
-        'dark',
-        ['dark', 'forest', 'night', 'aurora'].includes(id),
-      );
+      document.documentElement.classList.toggle('dark', ['night', 'aurora'].includes(id));
     }, theme);
     await expect(chief.getByTestId('admin-nav')).toBeVisible();
     await expect(chief.getByTestId('transfer-page')).toBeVisible();
@@ -713,24 +699,10 @@ test('проводник: без горизонтальной прокрутки
     expect(over, `${w}×${h}`).toBeLessThanOrEqual(0);
   }
   await chief.setViewportSize({ width: 1366, height: 768 });
-  for (const theme of [
-    'glass',
-    'night',
-    'grove',
-    'aurora',
-    'corporate',
-    'light',
-    'dark',
-    'forest',
-    'emerald',
-    'sunset',
-  ]) {
+  for (const theme of ['glass', 'night', 'grove', 'aurora']) {
     await chief.evaluate((id) => {
       document.documentElement.dataset.theme = id;
-      document.documentElement.classList.toggle(
-        'dark',
-        ['dark', 'forest', 'night', 'aurora'].includes(id),
-      );
+      document.documentElement.classList.toggle('dark', ['night', 'aurora'].includes(id));
     }, theme);
     await expect(chief.getByTestId('breadcrumbs')).toBeVisible();
     const crumb = await chief.getByTestId('crumb-current').evaluate((el) => {
@@ -740,4 +712,55 @@ test('проводник: без горизонтальной прокрутки
     });
     expect(crumb.color, theme).not.toBe(crumb.bg);
   }
+});
+
+test('чистая установка: «Современный и лёгкий» на всех экранах до входа, без цветных кружков, прежние значения переносятся', async ({
+  browser,
+  baseURL,
+}) => {
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+  const page = await ctx.newPage();
+  const html = () =>
+    page.evaluate(() => [
+      document.documentElement.dataset.theme,
+      document.documentElement.className,
+    ]);
+  await page.goto(baseURL!);
+  await page.getByTestId('email').waitFor({ timeout: 60_000 });
+  expect(await html()).toEqual(['glass', '']);
+  // в шапке нет переключателя темы (раньше — ряд цветных кружков)
+  await expect(page.getByRole('group', { name: /^(Theme|Тема)$/ })).toHaveCount(0);
+  await expect(page.locator('header button.rounded-full')).toHaveCount(0);
+  // вход, справка, регистрация и восстановление — одна и та же тема
+  for (const path of ['/login', '/help']) {
+    await page.goto(baseURL! + path);
+    expect((await html())[0], path).toBe('glass');
+  }
+  // значения, сохранённые прежними версиями в браузере, переходят на ближайшую из четырёх тем без ошибок
+  const mapped = {
+    corporate: 'glass',
+    sunset: 'glass',
+    light: 'grove',
+    emerald: 'grove',
+    dark: 'night',
+    forest: 'night',
+  };
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  for (const [old, now] of Object.entries(mapped)) {
+    await page.evaluate((v) => localStorage.setItem('arklock.theme', v), old);
+    await page.reload();
+    const [theme, cls] = await html();
+    expect(theme, old).toBe(now);
+    expect(cls.includes('dark'), old).toBe(now === 'night');
+  }
+  await page.evaluate(() => localStorage.setItem('arklock.theme', 'neon'));
+  await page.reload();
+  expect((await html())[0]).toBe('glass');
+  // очистка кэша браузера: без сохранённого значения снова тема по умолчанию
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  expect((await html())[0]).toBe('glass');
+  expect(errors).toEqual([]);
+  await ctx.close();
 });
