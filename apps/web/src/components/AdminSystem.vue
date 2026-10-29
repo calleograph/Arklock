@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { when } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -75,9 +75,9 @@ function failMessage(e: unknown): string {
       confirmation_mismatch: t('sys.confirmMismatch'),
       smtp_not_configured: t('sys.smtpNotConfigured'),
     };
-    return m[e.code] ?? t('error.generic');
+    return m[e.code] ?? errorMessage(e, t);
   }
-  return t('error.generic');
+  return errorMessage(e, t);
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;

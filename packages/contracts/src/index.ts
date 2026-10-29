@@ -5,3 +5,4 @@ export * from './vaults.js';
 export * from './admin.js';
 export * from './corporate-recovery.js';
 export * from './spaces.js';
+export * from './directory.js';

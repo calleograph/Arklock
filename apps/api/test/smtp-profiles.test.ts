@@ -279,6 +279,34 @@ describe('connection check', () => {
     expect(JSON.stringify(cb)).not.toContain('wrong-pass-9');
   });
 
+  it('a password is never sent unencrypted by accident: explicit consent, confirmation only when protection is lowered', async () => {
+    const s = await start({ auth: ['PLAIN'], user: 'mailer', password: 'right-password-1' });
+    const body = profile(s.port, {
+      security: 'none',
+      auth: 'password',
+      user: 'mailer',
+      password: 'right-password-1',
+    });
+    const refused = await create(body, true);
+    expect(refused.r.statusCode).toBe(400);
+    expect(refused.r.json().error.details).toEqual([
+      { path: 'plainAuth', code: 'plain_auth_consent' },
+    ]);
+    // согласие есть, но защита снижается — без подтверждения паролем нельзя
+    expect((await create({ ...body, plainAuth: true })).r.json().error.code).toBe(
+      'reauth_required',
+    );
+    const { id } = await create({ ...body, plainAuth: true }, true);
+    expect((await check(id)).ok).toBe(true);
+    // повторное сохранение принятого решения (другое имя отправителя) не требует подтверждения
+    const resave = await admin.req('PUT', `/admin/smtp/profiles/${id}`, {
+      ...body,
+      plainAuth: true,
+      fromName: 'Arklock (почта)',
+    });
+    expect(resave.statusCode).toBe(200);
+  });
+
   it('a password echoed back by the server never reaches the response or the stored log text', async () => {
     const s = await start({
       auth: ['PLAIN'],
@@ -292,6 +320,7 @@ describe('connection check', () => {
         auth: 'password',
         user: 'mailer',
         password: 'echoed-secret-77',
+        plainAuth: true,
       }),
       true,
     );

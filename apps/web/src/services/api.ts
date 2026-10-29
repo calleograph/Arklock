@@ -40,6 +40,16 @@ export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
 }
 
+/**
+ * Код ошибки, когда ответ пришёл не от Arklock (страница прокси без JSON). 502–504 — приложение перезапускается или
+ * недоступно за прокси: это временное состояние, а не ошибка действия.
+ */
+export const statusCode = (status: number): string =>
+  status === 502 || status === 503 || status === 504 ? 'service_unavailable' : 'http_error';
+/** Временная недоступность: нет связи или приложение за прокси перезапускается. */
+export const isTransient = (e: unknown): boolean =>
+  e instanceof ApiError && (e.code === 'network_error' || e.code === 'service_unavailable');
+
 let onMfaRequired: (() => void) | null = null;
 export function setMfaRequiredHandler(fn: () => void): void {
   onMfaRequired = fn;
@@ -80,7 +90,7 @@ export async function api<T = unknown>(
     if (res.status === 403 && err?.code === 'mfa_enrollment_required') onMfaRequired?.();
     throw new ApiError(
       res.status,
-      err?.code ?? 'http_error',
+      err?.code ?? statusCode(res.status),
       err?.message ?? res.statusText,
       err?.details,
     );
@@ -117,7 +127,7 @@ export async function apiBinary(
     if (res.status === 401 && token && data?.error?.code === 'unauthorized') onUnauthorized?.();
     throw new ApiError(
       res.status,
-      data?.error?.code ?? 'http_error',
+      data?.error?.code ?? statusCode(res.status),
       data?.error?.message ?? res.statusText,
       data?.error?.details,
     );
@@ -145,7 +155,7 @@ export async function apiStream(
     if (res.status === 401 && token && data?.error?.code === 'unauthorized') onUnauthorized?.();
     throw new ApiError(
       res.status,
-      data?.error?.code ?? 'http_error',
+      data?.error?.code ?? statusCode(res.status),
       data?.error?.message ?? res.statusText,
     );
   }

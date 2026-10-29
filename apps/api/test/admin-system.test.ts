@@ -219,6 +219,8 @@ describe('mail (SMTP)', () => {
         user: 'mailer',
         password: 's3cret-smtp-pass',
         from: 'arklock@example.com',
+        // пароль по соединению без шифрования — только с явным согласием
+        plainAuth: true,
       });
       expect(put.statusCode).toBe(200);
       const got = (await admin.req('GET', '/admin/smtp')).json();
@@ -255,6 +257,7 @@ describe('mail (SMTP)', () => {
         security: 'none',
         user: 'mailer',
         from: 'arklock@example.com',
+        plainAuth: true,
       });
       expect((await admin.req('POST', '/admin/smtp/test')).json().ok).toBe(true);
       await admin.reqStep('PUT', '/admin/smtp', {
@@ -264,6 +267,7 @@ describe('mail (SMTP)', () => {
         user: 'mailer',
         password: 'wrong',
         from: 'arklock@example.com',
+        plainAuth: true,
       });
       const bad = (await admin.req('POST', '/admin/smtp/test')).json();
       expect(bad.ok).toBe(false);
@@ -276,6 +280,7 @@ describe('mail (SMTP)', () => {
         user: 'mailer',
         password: 's3cret-smtp-pass',
         from: 'arklock@example.com',
+        plainAuth: true,
       });
       const inj = (
         await admin.req('POST', '/admin/smtp/send-test', {

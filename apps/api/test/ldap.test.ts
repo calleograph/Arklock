@@ -241,10 +241,20 @@ describe('LDAP administration', () => {
       .where(eq(settings.key, 'registration.mode'));
 
     expect((await admin.req('GET', '/admin/ldap')).json()).toEqual({ configured: false });
-    const refused = await admin.req('PUT', '/admin/ldap', cfg({ allowPlaintext: false }));
+    const refused = await admin.reqStep('PUT', '/admin/ldap', cfg({ allowPlaintext: false }));
     expect(refused.statusCode).toBe(400);
-    expect(refused.json().error.code).toBe('insecure_ldap');
-    expect((await admin.req('PUT', '/admin/ldap', cfg())).statusCode).toBe(200);
+    // ошибка указывает поле и причину, а не общее «данные заполнены неверно»
+    expect(refused.json().error).toMatchObject({
+      code: 'validation_error',
+      details: [{ path: 'url', code: 'plaintext' }],
+    });
+    // передача паролей без шифрования — снижение защиты: только с подтверждением паролем
+    const unconfirmed = await admin.req('PUT', '/admin/ldap', cfg());
+    expect(unconfirmed.statusCode).toBe(403);
+    expect(unconfirmed.json().error.code).toBe('reauth_required');
+    expect((await admin.reqStep('PUT', '/admin/ldap', cfg())).statusCode).toBe(200);
+    // уже принятое решение не требует подтверждения при каждом сохранении
+    expect((await admin.req('PUT', '/admin/ldap', cfg({ name: 'LDAP' }))).statusCode).toBe(200);
     const got = (await admin.req('GET', '/admin/ldap')).json();
     expect(got).toMatchObject({ configured: true, hasBindPassword: true, baseDn: BASE });
     expect(JSON.stringify(got)).not.toContain('svc-password');
@@ -271,11 +281,15 @@ describe('LDAP administration', () => {
       (await admin.req('POST', '/admin/ldap/lookup', { username: 'x)(uid=*' })).json().found,
     ).toBe(false);
 
-    await admin.req('PUT', '/admin/ldap', cfg({ bindPassword: 'wrong' }));
+    await admin.reqStep('PUT', '/admin/ldap', cfg({ bindPassword: 'wrong' }));
     const bad = (await admin.req('POST', '/admin/ldap/test')).json();
     expect(bad.ok).toBe(false);
-    expect(bad.code).toBe('bind');
-    await admin.req('PUT', '/admin/ldap', cfg({ bindPassword: 'svc-password' }));
+    expect(bad.stages.at(-1)).toMatchObject({
+      stage: 'bind',
+      ok: false,
+      code: 'invalid_credentials',
+    });
+    await admin.reqStep('PUT', '/admin/ldap', cfg({ bindPassword: 'svc-password' }));
   });
 });
 
@@ -401,7 +415,9 @@ describe('sign-in through the directory', () => {
     person.title = saved;
     person.department = 'Research';
     // атрибут телефона перестали брать из каталога — после входа поле снова меняется в панели
-    expect((await admin.req('PUT', '/admin/ldap', cfg({ phoneAttr: '' }))).statusCode).toBe(200);
+    expect((await admin.reqStep('PUT', '/admin/ldap', cfg({ phoneAttr: '' }))).statusCode).toBe(
+      200,
+    );
     expect((await ldapLogin('alice', 'alice-ldap-pass')).statusCode).toBe(200);
     expect((await row()).profileSource).not.toHaveProperty('phone');
     expect(
@@ -411,7 +427,7 @@ describe('sign-in through the directory', () => {
         })
       ).statusCode,
     ).toBe(200);
-    expect((await admin.req('PUT', '/admin/ldap', cfg())).statusCode).toBe(200);
+    expect((await admin.reqStep('PUT', '/admin/ldap', cfg())).statusCode).toBe(200);
     const refused = await admin.req('PATCH', `/admin/users/${alice.userId}/profile`, {
       title: 'Manual',
     });
@@ -557,8 +573,13 @@ describe('multiple LDAP connections', () => {
       hasBindPassword: true,
     });
     expect(
-      (await admin.req('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Second directory' })))
-        .statusCode,
+      (
+        await admin.reqStep(
+          'PUT',
+          '/admin/ldap/profiles/secondary',
+          cfg({ name: 'Second directory' }),
+        )
+      ).statusCode,
     ).toBe(200);
     expect((await admin.req('POST', '/admin/ldap/test?profileId=secondary')).json().ok).toBe(true);
     await admin.req(
@@ -577,7 +598,7 @@ describe('multiple LDAP connections', () => {
       .where(eq(settings.key, 'ldap.profiles'));
     expect(JSON.stringify(stored)).not.toContain('svc-password');
     expect((await ldapLogin('alice', 'alice-ldap-pass', 'secondary')).statusCode).toBe(409);
-    await admin.req('PUT', '/admin/ldap/profiles/unused', cfg({ name: 'Unused' }));
+    await admin.reqStep('PUT', '/admin/ldap/profiles/unused', cfg({ name: 'Unused' }));
     expect((await admin.req('DELETE', '/admin/ldap/profiles/unused')).statusCode).toBe(204);
     expect((await admin.req('DELETE', '/admin/ldap/profiles/default')).statusCode).toBe(409);
   });
@@ -585,8 +606,8 @@ describe('multiple LDAP connections', () => {
   it('concurrent edits keep a disabled connection disabled while updating another profile', async () => {
     try {
       const responses = await Promise.all([
-        admin.req('PUT', '/admin/ldap/profiles/default', cfg({ enabled: false })),
-        admin.req('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Concurrent edit' })),
+        admin.reqStep('PUT', '/admin/ldap/profiles/default', cfg({ enabled: false })),
+        admin.reqStep('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Concurrent edit' })),
       ]);
       expect(responses.map((response) => response.statusCode)).toEqual([200, 200]);
       const { profiles } = (await admin.req('GET', '/admin/ldap/profiles')).json();
@@ -597,8 +618,8 @@ describe('multiple LDAP connections', () => {
         'Concurrent edit',
       );
     } finally {
-      await admin.req('PUT', '/admin/ldap/profiles/default', cfg());
-      await admin.req('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Renamed' }));
+      await admin.reqStep('PUT', '/admin/ldap/profiles/default', cfg());
+      await admin.reqStep('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Renamed' }));
     }
   });
 
@@ -650,7 +671,7 @@ describe('multiple LDAP connections', () => {
         })
       ).statusCode,
     ).toBe(403);
-    await admin.req('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Second' }));
+    await admin.reqStep('PUT', '/admin/ldap/profiles/secondary', cfg({ name: 'Second' }));
     const fresh = (await ldapLogin('dave', 'dave-ldap-pass', 'secondary')).json();
     const done = await app.inject({
       method: 'POST',

@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
 import InfoHint from './InfoHint.vue';
 import UnsavedHint from './UnsavedHint.vue';
+import SwitchField from './SwitchField.vue';
 import { useDirty } from '../services/dirty';
 
 interface Stage {
@@ -44,6 +45,7 @@ interface Profile {
   caName: string | null;
   purposes: string[];
   fallback: boolean;
+  plainAuth?: boolean;
   hasPassword: boolean;
   status: {
     checkedAt: string | null;
@@ -155,6 +157,7 @@ interface Form {
   caId: string | null;
   purposes: string[];
   fallback: boolean;
+  plainAuth: boolean;
 }
 const form = ref<Form | null>(null);
 const blank = (): Form => ({
@@ -174,16 +177,29 @@ const blank = (): Form => ({
   caId: null,
   purposes: [],
   fallback: false,
+  plainAuth: false,
 });
 const { dirty, clean, reset } = useDirty(() => form.value);
 function edit(p: Profile | null): void {
   notice.value = '';
   error.value = '';
-  form.value = p ? { ...p, id: p.id, password: '', purposes: [...p.purposes] } : blank();
+  form.value = p
+    ? {
+        ...p,
+        id: p.id,
+        password: '',
+        purposes: [...p.purposes],
+        plainAuth: p.plainAuth ?? (p.security === 'none' && p.auth === 'password'),
+      }
+    : blank();
   clean();
 }
 /** NTLM сервер принимает только по шифрованному соединению: без него форма не даёт сохранить и объясняет почему. */
 const ntlmNeedsTls = computed(() => form.value?.auth === 'ntlm' && form.value.security === 'none');
+/** Пароль по соединению без шифрования отправляется только с явным согласием (флажок под предупреждением). */
+const plainAuthAsked = computed(
+  () => form.value?.auth === 'password' && form.value.security === 'none',
+);
 function setSecurity(v: Form['security']): void {
   if (!form.value) return;
   form.value.security = v;
@@ -204,6 +220,7 @@ const body = (f: Form) => ({
   caId: f.caId,
   purposes: f.purposes,
   fallback: f.fallback,
+  plainAuth: f.security === 'none' && f.auth === 'password' ? f.plainAuth : false,
 });
 const saving = ref(false);
 async function afterSave(): Promise<void> {
@@ -358,16 +375,26 @@ function failReason(c: Check): unknown {
 
 // ——— доверенные сертификаты ———
 const caOpen = ref(false);
-const caForm = ref({ name: '', pem: '' });
+const caForm = ref({ name: '', pem: '', data: '', file: '' });
 async function addCa(): Promise<void> {
   error.value = '';
   try {
-    await api('POST', '/admin/smtp/cas', { name: caForm.value.name.trim(), pem: caForm.value.pem });
-    caForm.value = { name: '', pem: '' };
+    const f = caForm.value;
+    await api('POST', '/admin/smtp/cas', {
+      name: f.name.trim(),
+      ...(f.data ? { data: f.data } : { pem: f.pem }),
+    });
+    caForm.value = { name: '', pem: '', data: '', file: '' };
     await load();
   } catch (e) {
+    const problem =
+      (e instanceof ApiError && (e.details as { problem?: string } | undefined)?.problem) || '';
     error.value =
-      e instanceof ApiError && e.code === 'ca_invalid' ? t('mail.ca.invalid') : errorMessage(e, t);
+      e instanceof ApiError && e.code === 'ca_invalid'
+        ? problem
+          ? t(`dir.cert.problem.${problem}`)
+          : t('mail.ca.invalid')
+        : errorMessage(e, t);
   }
 }
 async function removeCa(c: Ca): Promise<void> {
@@ -380,9 +407,16 @@ async function removeCa(c: Ca): Promise<void> {
   }
 }
 async function pickFile(ev: Event): Promise<void> {
-  const file = (ev.target as HTMLInputElement).files?.[0];
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
   if (!file) return;
-  caForm.value.pem = await file.text();
+  // файл передаётся как есть (base64): сервер сам определяет PEM или DER
+  let bin = '';
+  for (const b of new Uint8Array(await file.arrayBuffer())) bin += String.fromCharCode(b);
+  caForm.value.data = btoa(bin);
+  caForm.value.file = file.name;
+  caForm.value.pem = '';
   if (!caForm.value.name) caForm.value.name = file.name.replace(/\.[^.]+$/, '');
 }
 
@@ -630,6 +664,12 @@ const typeLabel = (r: Row) =>
         <p v-if="form.security === 'none'" class="notice notice-warn" data-testid="smtp-none-warn">
           {{ t('mail.form.noneWarn') }}
         </p>
+        <SwitchField
+          v-if="plainAuthAsked"
+          v-model="form.plainAuth"
+          :label="t('mail.form.plainAuth')"
+          data-testid="smtp-plain-auth"
+        />
 
         <div class="form-grid">
           <label class="block sm:col-span-2">
@@ -740,7 +780,7 @@ const typeLabel = (r: Row) =>
           <button
             type="submit"
             class="btn-primary"
-            :disabled="saving || ntlmNeedsTls"
+            :disabled="saving || ntlmNeedsTls || (plainAuthAsked && !form.plainAuth)"
             data-testid="smtp-save"
           >
             {{ t('mail.form.save') }}
@@ -998,9 +1038,13 @@ const typeLabel = (r: Row) =>
               :aria-label="t('mail.ca.name')"
               data-testid="mail-ca-name"
             />
+            <p v-if="caForm.file" class="field-hint" data-testid="mail-ca-chosen">
+              {{ caForm.file }}
+            </p>
             <textarea
+              v-if="!caForm.file"
               v-model="caForm.pem"
-              required
+              :required="!caForm.data"
               rows="4"
               class="input font-mono text-xs"
               spellcheck="false"
@@ -1013,7 +1057,7 @@ const typeLabel = (r: Row) =>
                 {{ t('mail.ca.file') }}
                 <input
                   type="file"
-                  accept=".pem,.crt,.cer"
+                  accept=".cer,.crt,.pem,.der,application/x-x509-ca-cert,application/pkix-cert"
                   class="sr-only"
                   data-testid="mail-ca-file"
                   @change="pickFile"

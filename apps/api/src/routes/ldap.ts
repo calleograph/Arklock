@@ -1,8 +1,13 @@
-import { X509Certificate } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { captchaSolution, uuid } from '@arklock/contracts';
+import {
+  bindAccount,
+  captchaSolution,
+  ldapTransportProblem,
+  normalizeLdapUrl,
+  uuid,
+} from '@arklock/contracts';
 import type { MfaChallengeResponse, SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import {
@@ -11,8 +16,12 @@ import {
   ldapAuthenticate,
   ldapBrowse,
   ldapLookup,
-  ldapTest,
+  type LdapConfig,
 } from '../auth/ldap.js';
+import { ldapDiagnose } from '../auth/ldap-diagnose.js';
+import { requireReauth } from '../auth/reauth.js';
+import { CertError, certUploadBytes, parseCertificates } from '../net/certs.js';
+import { chiefRequired } from './chief.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
@@ -48,19 +57,17 @@ const putSchema = z.object({
   enabled: z.boolean(),
   name: z.string().trim().min(1).max(100).default('LDAP'),
   syncEnabled: z.boolean().default(false),
-  url: z
-    .string()
-    .trim()
-    .regex(/^ldaps?:\/\/[^\s/]+(:\d{1,5})?$/i, 'ldap://host:port or ldaps://host:port'),
+  // адрес проверяется отдельно (normalizeLdapUrl): ошибка указывает поле и причину, а «/» в конце убирается
+  url: z.string().max(300),
   startTls: z.boolean().default(false),
-  caPem: z.string().max(20_000).default(''),
+  caPem: z.string().max(200_000).default(''),
   insecureTls: z.boolean().default(false),
   /** Явное согласие передавать пароли без шифрования (только изолированная сеть). */
   allowPlaintext: z.boolean().default(false),
   bindDn: z.string().trim().max(500).default(''),
   /** Не передан — прежний пароль сохраняется; пустая строка — удаляется. */
   bindPassword: z.string().max(500).optional(),
-  baseDn: z.string().trim().min(1).max(500),
+  baseDn: z.string().trim().max(500),
   userFilter: z.string().trim().max(500).default(DEFAULT_USER_FILTER),
   emailAttr: z.string().trim().min(1).max(100).default('mail'),
   nameAttr: z.string().trim().min(1).max(100).default('cn'),
@@ -95,8 +102,72 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     parse(z.object({ profileId: profileId.default('default') }), req.query).profileId;
   const failure = (e: unknown) =>
     e instanceof LdapError
-      ? { ok: false as const, code: e.code, message: e.message }
-      : { ok: false as const, code: 'error', message: e instanceof Error ? e.message : String(e) };
+      ? { ok: false as const, code: e.code, reason: e.reason, detail: e.detail }
+      : { ok: false as const, code: 'error', reason: 'ldap_error', detail: '' };
+
+  /**
+   * Проверка формы подключения. Все ошибки собираются сразу и указывают поле и причину (интерфейс показывает их под полями);
+   * однозначные отклонения адреса исправляются. Возвращает нормализованные значения.
+   */
+  function checkForm(body: z.infer<typeof putSchema>, prev: LdapProfile | null) {
+    const issues: { path: string; code: string }[] = [];
+    const url = normalizeLdapUrl(body.url);
+    if (!url.ok) issues.push({ path: 'url', code: `url_${url.problem}` });
+    else {
+      const transport = ldapTransportProblem(url.value, body.startTls, body.allowPlaintext);
+      if (transport)
+        issues.push({ path: transport === 'plaintext' ? 'url' : 'startTls', code: transport });
+    }
+    if (!body.baseDn) issues.push({ path: 'baseDn', code: 'required' });
+    const account = bindAccount(body.bindDn, body.baseDn);
+    if (!account.ok) issues.push({ path: 'bindDn', code: `bind_${account.problem}` });
+    if (!body.userFilter.includes('{u}'))
+      issues.push({ path: 'userFilter', code: 'filter_placeholder' });
+    else if (!/^\(.*\)$/s.test(body.userFilter))
+      issues.push({ path: 'userFilter', code: 'filter_parens' });
+    let caPem = '';
+    if (body.caPem.trim()) {
+      try {
+        caPem = parseCertificates(Buffer.from(body.caPem, 'utf8')).pem;
+      } catch (e) {
+        issues.push({
+          path: 'caPem',
+          code: `cert_${e instanceof CertError ? e.problem : 'not_certificate'}`,
+        });
+      }
+    }
+    // сохранённый пароль не уходит на другой сервер: при смене адреса его нужно ввести заново
+    const prevUrl = prev ? normalizeLdapUrl(prev.url) : null;
+    const moved =
+      url.ok &&
+      prevUrl?.ok &&
+      (prevUrl.value.host !== url.value.host || prevUrl.value.port !== url.value.port);
+    if (
+      moved &&
+      prev?.bindPasswordCipher &&
+      body.bindPassword === undefined &&
+      account.ok &&
+      account.value
+    )
+      issues.push({ path: 'bindPassword', code: 'password_reentry' });
+    if (issues.length)
+      throw new AppError(400, 'validation_error', 'Check the highlighted fields', issues);
+    return { url: url.ok ? url.value.url : body.url, caPem };
+  }
+
+  /** Снижение защиты (без шифрования, без проверки сертификата) — только главный администратор с подтверждением. */
+  async function confirmLowering(
+    req: FastifyRequest,
+    body: z.infer<typeof putSchema>,
+    prev: LdapProfile | null,
+  ) {
+    const lowering =
+      (body.insecureTls && !prev?.insecureTls) || (body.allowPlaintext && !prev?.allowPlaintext);
+    if (!lowering) return false;
+    if (!authOf(req).user.chief) throw chiefRequired();
+    requireReauth(ctx, req);
+    return true;
+  }
 
   const adminOnly = [
     auth,
@@ -130,15 +201,9 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   async function saveProfile(req: FastifyRequest, id: string) {
     const { user } = authOf(req);
     const body = parse(putSchema, req.body);
-    if (!body.userFilter.includes('{u}'))
-      throw new AppError(400, 'validation_error', 'The user filter must contain {u}');
-    // пароли пользователей пойдут по сети открытым текстом: запрещено, если администратор явно не принял риск
-    if (/^ldap:\/\//i.test(body.url) && !body.startTls && !body.allowPlaintext)
-      throw new AppError(
-        400,
-        'insecure_ldap',
-        'Use ldaps:// or enable StartTLS: user passwords must not travel in clear',
-      );
+    const before = await stored(id);
+    const { url, caPem } = checkForm(body, before);
+    const lowered = await confirmLowering(req, body, before);
     const known = new Set((await db.select({ id: circles.id }).from(circles)).map((c) => c.id));
     for (const g of body.groups)
       if (!known.has(g.circleId))
@@ -161,7 +226,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             : sealSetting(config.APP_SECRET, ldapSecretPurpose(id), body.bindPassword);
       const { bindPassword: _omit, ...rest } = body;
       void _omit;
-      const value: LdapProfile = { ...rest, id, bindPasswordCipher: cipher };
+      const value: LdapProfile = { ...rest, url, caPem, id, bindPasswordCipher: cipher };
       const removedCircles = [...new Set((prev?.groups ?? []).map((g) => g.circleId))].filter(
         (cid) => !value.groups.some((g) => g.circleId === cid),
       );
@@ -205,11 +270,16 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       if (!value.enabled || (prev && (prev.url !== value.url || prev.baseDn !== value.baseDn)))
         await revokeLdapProfileSessions(tx, id);
       await audit(tx, `user:${user.id}`, 'admin.ldap.save', `ldap:${id}`, {
-        url: body.url,
+        url,
         enabled: body.enabled,
       });
+      if (lowered)
+        await audit(tx, `user:${user.id}`, 'admin.ldap.insecure', `ldap:${id}`, {
+          insecureTls: body.insecureTls,
+          allowPlaintext: body.allowPlaintext,
+        });
     });
-    return { ok: true };
+    return { ok: true, url };
   }
   app.put('/admin/ldap', { preHandler: adminOnly }, async (req) => saveProfile(req, 'default'));
   app.put('/admin/ldap/profiles/:id', { preHandler: adminOnly }, async (req) => {
@@ -246,42 +316,46 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   });
 
   /**
-   * Сведения о загруженном сертификате центра сертификации: издатель, срок, отпечаток. Только разбор текста PEM,
-   * ничего не сохраняется и в сеть не отправляется.
+   * Сертификат центра сертификации: файл .cer, .crt или .pem в кодировке PEM или DER (формат определяется по содержимому)
+   * либо вставленный текст. Ответ — сведения о каждом сертификате, проверка цепочки и нормализованный PEM для настройки.
+   * Ничего не сохраняется и в сеть не отправляется.
    */
   app.post('/admin/ldap/ca-info', { preHandler: adminOnly }, async (req) => {
-    const body = parse(z.object({ pem: z.string().max(200_000) }), req.body);
-    const blocks =
-      body.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
-    const certs = blocks.slice(0, 20).map((pem) => {
-      try {
-        const c = new X509Certificate(pem);
-        const to = Date.parse(c.validTo);
-        return {
-          ok: true as const,
-          subject: c.subject.replace(/\n/g, ', '),
-          issuer: c.issuer.replace(/\n/g, ', '),
-          validFrom: new Date(c.validFrom).toISOString(),
-          validTo: new Date(to).toISOString(),
-          daysLeft: Math.floor((to - Date.now()) / 86_400_000),
-          fingerprint256: c.fingerprint256,
-          isCa: c.ca,
-        };
-      } catch {
-        return { ok: false as const };
-      }
-    });
-    return { certs, empty: body.pem.trim() !== '' && certs.length === 0 };
+    const body = parse(
+      z.object({
+        data: z.string().max(400_000).optional(),
+        pem: z.string().max(400_000).optional(),
+      }),
+      req.body,
+    );
+    try {
+      return { ok: true as const, ...parseCertificates(certUploadBytes(body)) };
+    } catch (e) {
+      return {
+        ok: false as const,
+        problem: e instanceof CertError ? e.problem : 'not_certificate',
+      };
+    }
   });
 
+  /**
+   * Пошаговая проверка подключения. Без тела — сохранённые настройки; с телом — то, что сейчас в форме (до сохранения).
+   * Сохранённый пароль служебной записи используется только для того же сервера.
+   */
   app.post('/admin/ldap/test', { preHandler: adminOnly }, async (req) => {
-    const s = await stored(queryId(req));
-    if (!s) throw new AppError(409, 'ldap_not_configured', 'LDAP is not configured');
-    try {
-      return await ldapTest(s, bindSecret(s));
-    } catch (e) {
-      return failure(e);
+    const id = queryId(req);
+    const s = await stored(id);
+    if (req.body && typeof req.body === 'object' && 'url' in (req.body as object)) {
+      const body = parse(putSchema, req.body);
+      const { url, caPem } = checkForm(body, s);
+      // проверка без проверки сертификата отправила бы пароль на неподтверждённый сервер — те же условия, что и при сохранении
+      await confirmLowering(req, body, s);
+      const draft: LdapConfig = { ...body, url, caPem };
+      const secret = body.bindPassword ?? (s ? bindSecret(s) : '');
+      return ldapDiagnose(draft, secret);
     }
+    if (!s) throw new AppError(409, 'ldap_not_configured', 'LDAP is not configured');
+    return ldapDiagnose(s, bindSecret(s));
   });
 
   app.post('/admin/ldap/lookup', { preHandler: adminOnly }, async (req) => {

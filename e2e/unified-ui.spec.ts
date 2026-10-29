@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { createRequire } from 'node:module';
+import { X509Certificate } from 'node:crypto';
 import { fakeSmtp, makePki } from '../apps/api/test/smtp-fake.js';
+import { makeChain } from '../apps/api/test/pki.js';
 
 const SETUP = 'e2e-setup-code-e2e-setup-code-u1';
 const CHIEF = {
@@ -1271,4 +1274,140 @@ test('окно выше экрана (экранная клавиатура, а�
   expect(b.y + b.height).toBeLessThanOrEqual(180 + 1);
   await chief.keyboard.press('Escape');
   await chief.setViewportSize({ width: 1366, height: 768 });
+});
+
+// ---- 1.86.0: каталог LDAPS, сертификаты, понятные ошибки, обновление без ложных ошибок
+
+test('каталог LDAPS: адрес исправляется, ошибки под полями, сертификат .cer (DER), проверка до сохранения, сохранение без «не сохранено»', async () => {
+  // тестовый каталог по LDAPS со своим центром сертификации; имена и пароли вымышленные
+  const req = createRequire(import.meta.url);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ldap: any = req('ldapjs');
+  const chain = await makeChain();
+  const BASE = 'dc=example,dc=com';
+  const SVC = 'cn=svc-ldap,ou=service,dc=example,dc=com';
+  const server = ldap.createServer({ certificate: chain.leaf + chain.mid, key: chain.keyPem });
+  server.bind(
+    SVC,
+    (r: { credentials: string }, res: { end: () => void }, next: (e?: unknown) => void) => {
+      if (r.credentials !== 'Svc-ldap-Synthetic-1') return next(new ldap.InvalidCredentialsError());
+      res.end();
+      return next();
+    },
+  );
+  server.search(
+    BASE,
+    (
+      r: { scope: string },
+      res: { send: (e: object) => void; end: () => void },
+      next: () => void,
+    ) => {
+      if (r.scope === 'base') res.send({ dn: BASE, attributes: { objectClass: 'domain' } });
+      else
+        res.send({
+          dn: `cn=Alex Doe,${BASE}`,
+          attributes: { objectClass: 'person', cn: 'Alex Doe', mail: 'alex.doe@example.com' },
+        });
+      res.end();
+      return next();
+    },
+  );
+  const port: number = await new Promise((resolve) =>
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port)),
+  );
+  try {
+    await chief.goto('/admin/ldap');
+    // однозначное отклонение (завершающий «/») исправляется и называется
+    await chief.getByTestId('ldap-url').fill(`ldaps://127.0.0.1:${port}/`);
+    await chief.getByTestId('ldap-basedn').click();
+    await expect(chief.getByTestId('ldap-url')).toHaveValue(`ldaps://127.0.0.1:${port}`);
+    await expect(chief.getByTestId('ldap-url-fixed')).toBeVisible();
+    // неверный адрес: причина под полем, а не общее «данные неверны»
+    await chief.getByTestId('ldap-url').fill('ldaps://dc01.example.com/dc=example,dc=com');
+    await chief.getByTestId('ldap-basedn').click();
+    await expect(chief.getByTestId('ldap-url-error')).toContainText(/Base DN/);
+    await chief.getByTestId('ldap-url').fill(`ldaps://127.0.0.1:${port}`);
+    // учётная запись: короткое имя дополняется доменом из Base DN, и форма говорит, что будет использовано
+    await chief.getByTestId('ldap-basedn').fill(BASE);
+    await chief.getByTestId('ldap-binddn').fill('svc-ldap');
+    await expect(chief.getByTestId('ldap-binddn-hint')).toContainText('svc-ldap@example.com');
+    await chief.getByTestId('ldap-binddn').fill('svc ldap');
+    await chief.getByTestId('ldap-bindpw').click();
+    await expect(chief.getByTestId('ldap-binddn-error')).toBeVisible();
+    await chief.getByTestId('ldap-binddn').fill(SVC);
+    await chief.getByTestId('ldap-bindpw').fill('Svc-ldap-Synthetic-1');
+    // закрытый ключ вместо сертификата — конкретная причина
+    await chief.getByTestId('ldap-ca-file').setInputFiles({
+      name: 'server.pem',
+      mimeType: 'application/x-pem-file',
+      buffer: Buffer.from(chain.keyPem),
+    });
+    await expect(chief.getByTestId('ldap-ca-problem')).toContainText(/закрытый ключ|private key/);
+    // корпоративный .cer в DER: без ручной конвертации
+    const der = Buffer.from(new X509Certificate(chain.root).raw);
+    await chief
+      .getByTestId('ldap-ca-file')
+      .setInputFiles({ name: 'root-ca.cer', mimeType: 'application/pkix-cert', buffer: der });
+    await expect(chief.getByTestId('ldap-ca-info')).toContainText(/Корневой центр|Root authority/);
+    await expect(chief.getByTestId('ldap-ca-chain-ok')).toBeVisible();
+    await chief.getByTestId('ldap-enabled').check();
+    // проверка того, что в форме, до сохранения: все этапы пройдены
+    await chief.getByTestId('ldap-test').click();
+    await expect(chief.getByTestId('ldap-result')).toContainText(/работает|works/);
+    for (const stage of ['config', 'dns', 'tcp', 'tls', 'bind', 'base', 'filter', 'users'])
+      await expect(chief.locator(`[data-stage="${stage}"]`)).toHaveAttribute('data-ok', 'true');
+    // сохранение: подтверждение не нужно (LDAPS с проверкой), пометка «не сохранено» исчезает
+    await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+    await chief.getByTestId('ldap-save').click();
+    await expect(chief.getByTestId('ldap-notice')).toBeVisible();
+    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    await expect(chief.getByTestId('ldap-reauth')).toHaveCount(0);
+    await chief.screenshot({ path: 'docs/screenshots/ui-ldap-check.png', fullPage: true });
+    // повторное открытие: значения на месте, пароль не возвращается, сертификат описан
+    await chief.reload();
+    await expect(chief.getByTestId('ldap-url')).toHaveValue(`ldaps://127.0.0.1:${port}`);
+    await expect(chief.getByTestId('ldap-binddn')).toHaveValue(SVC);
+    await expect(chief.getByTestId('ldap-bindpw')).toHaveValue('');
+    await expect(chief.getByTestId('ldap-ca-info')).toBeVisible();
+    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    // правка другого поля сохраняет прежний пароль служебной записи
+    await chief.getByTestId('ldap-profile-name').fill('Каталог организации');
+    await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+    await chief.getByTestId('ldap-save').click();
+    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    await chief.getByTestId('ldap-test').click();
+    await expect(chief.getByTestId('ldap-result')).toContainText(/работает|works/);
+    // неверный пароль: этап входа и понятная причина
+    await chief.getByTestId('ldap-bindpw').fill('Wrong-Synthetic-1');
+    await chief.getByTestId('ldap-test').click();
+    await expect(chief.locator('[data-stage="bind"]')).toHaveAttribute('data-ok', 'false');
+    await expect(chief.locator('[data-stage="bind"]')).toContainText(/52e/);
+  } finally {
+    server.close();
+  }
+});
+
+test('«Обновления»: перезапуск приложения (502 от прокси, нет связи) не даёт ложной красной ошибки; страница сама восстанавливается', async () => {
+  let fail = 3;
+  await chief.route('**/api/v1/admin/updates', async (route) => {
+    if (route.request().method() === 'GET' && fail > 0) {
+      fail--;
+      // как прокси во время перезапуска: HTML вместо ответа приложения
+      return route.fulfill({
+        status: 502,
+        contentType: 'text/html',
+        body: '<html><body>502 Bad Gateway</body></html>',
+      });
+    }
+    return route.continue();
+  });
+  await chief.goto('/admin/updates');
+  await expect(chief.getByTestId('updates-restarting')).toBeVisible();
+  await expect(chief.getByTestId('updates-error')).toHaveCount(0);
+  await expect(chief.getByText('http_error')).toHaveCount(0);
+  // сервер вернулся: сообщение о перезапуске исчезает, версия видна, красной ошибки нет
+  await expect(chief.getByTestId('updates-restarting')).toBeHidden({ timeout: 15_000 });
+  await expect(chief.getByTestId('installed-version')).toBeVisible();
+  await expect(chief.getByTestId('updates-error')).toHaveCount(0);
+  await chief.unroute('**/api/v1/admin/updates');
 });

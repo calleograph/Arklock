@@ -30,7 +30,6 @@ import {
   loadStoredSmtp,
   loadTrustedCas,
   loopbackAllowed,
-  parseCaPem,
   publicSmtp,
   recordSmtpStatus,
   SMTP_ACTIVE_KEY,
@@ -61,6 +60,7 @@ import {
   validTemplate,
 } from '../mail/templates.js';
 import { chiefRequired } from './chief.js';
+import { CertError, certUploadBytes, parseCertificates } from '../net/certs.js';
 
 /** Скользящее окно по ключу: не больше `max` событий за `windowMs`. В памяти процесса. */
 class Window {
@@ -144,12 +144,27 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
         'smtp_ca_unknown',
         'The selected certificate authority does not exist',
       );
-    // небезопасные режимы — только главный администратор, с подтверждением паролем и записью в журнале
+    // небезопасные режимы меняет только главный администратор. Подтверждение паролем нужно, когда защита снижается
+    // (режим включается впервые); повторное сохранение уже принятого решения его не требует. Всё пишется в журнал.
     const plaintext = body.security === 'none';
     const unverified = body.verifyCert === false;
+    const plainAuth = plaintext && auth === 'password';
+    if (plainAuth && body.plainAuth !== true)
+      throw new AppError(400, 'validation_error', 'Confirm sending the password unencrypted', [
+        { path: 'plainAuth', code: 'plain_auth_consent' },
+      ]);
+    const prevPlainAuth =
+      !!previous &&
+      previous.security === 'none' &&
+      authMethodOf(previous) === 'password' &&
+      (previous.plainAuth ?? true);
+    const lowered =
+      (plaintext && previous?.security !== 'none') ||
+      (unverified && previous?.verifyCert !== false) ||
+      (plainAuth && !prevPlainAuth);
     if (plaintext || unverified) {
       if (!user.chief) throw chiefRequired();
-      requireReauth(ctx, req);
+      if (lowered) requireReauth(ctx, req);
     }
     const value: StoredSmtp = {
       host: body.host,
@@ -164,6 +179,7 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
       caId: body.caId,
       purposes: body.purposes,
       fallback: body.fallback,
+      plainAuth,
       name: body.name ?? previous?.name ?? 'Default',
       passwordCipher:
         auth === 'none'
@@ -213,10 +229,11 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
       plaintext,
       tlsVerificationOff: unverified,
     });
-    if (plaintext || unverified)
+    if (lowered)
       await audit(db, `user:${user.id}`, 'admin.smtp.insecure', `smtp:${id}`, {
         plaintext,
         tlsVerificationOff: unverified,
+        passwordUnencrypted: plainAuth,
       });
   }
 
@@ -423,16 +440,42 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
   app.post('/admin/smtp/cas', async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(
-      z.object({ name: z.string().trim().min(1).max(100), pem: z.string().max(200_000) }).strict(),
+      z
+        .object({
+          name: z.string().trim().min(1).max(100),
+          pem: z.string().max(400_000).optional(),
+          // файл .cer/.crt/.pem в base64: PEM или DER, формат определяется по содержимому
+          data: z.string().max(400_000).optional(),
+        })
+        .strict(),
       req.body,
     );
-    const found = parseCaPem(body.pem);
+    let found;
+    try {
+      const parsed = parseCertificates(certUploadBytes(body), { requireCa: true });
+      found = parsed.certs
+        .map((c, i) => ({
+          c,
+          pem: parsed.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g)![
+            i
+          ]!,
+        }))
+        .filter((x) => x.c.isCa && !x.c.expired)
+        .map((x) => ({
+          pem: x.pem,
+          subject: x.c.subject,
+          fingerprint256: x.c.fingerprint256,
+          validTo: x.c.validTo,
+        }));
+    } catch (e) {
+      throw new AppError(400, 'ca_invalid', 'No usable certificate authority certificate', {
+        problem: e instanceof CertError ? e.problem : 'not_certificate',
+      });
+    }
     if (!found.length)
-      throw new AppError(
-        400,
-        'ca_invalid',
-        'No certificate authority certificate was found in the text',
-      );
+      throw new AppError(400, 'ca_invalid', 'No usable certificate authority certificate', {
+        problem: 'not_ca',
+      });
     const existing = await loadTrustedCas(ctx);
     if (existing.length + found.length > 30)
       throw new AppError(409, 'ca_limit', 'Too many trusted certificate authorities');

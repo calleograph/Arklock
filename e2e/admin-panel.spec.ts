@@ -223,6 +223,9 @@ test('administration sections show real data and perform real operations', async
   await page.getByTestId('smtp-user').fill('mailer');
   await page.getByTestId('smtp-password').fill('smtp-secret-for-e2e');
   await page.getByTestId('smtp-from').fill('arklock@example.com');
+  // пароль по соединению без шифрования — только с явным согласием
+  await expect(page.getByTestId('smtp-save')).toBeDisabled();
+  await page.getByTestId('smtp-plain-auth').check();
   await page.getByTestId('smtp-save').click();
   // небезопасный режим просит мастер-пароль (если подтверждение сеанса уже действует, вопрос не задаётся)
   const asked = await page
@@ -459,6 +462,18 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await page.getByTestId('ldap-bindpw').fill('svc-e2e');
   await page.getByTestId('ldap-basedn').fill(BASE_DN);
   await page.getByTestId('ldap-save').click();
+  // передача паролей без шифрования — снижение защиты: сервер требует подтверждения паролем
+  // (если подтверждение в этом сеансе ещё действует — не спрашивается)
+  const ldapAsked = await page
+    .getByTestId('ldap-reauth-password')
+    .waitFor({ timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (ldapAsked) {
+    await page.getByTestId('ldap-reauth-password').fill(ADMIN.password);
+    await page.getByTestId('ldap-reauth-ok').click();
+  }
+  await expect(page.getByTestId('ldap-notice')).toBeVisible();
   await page.getByTestId('ldap-test').click();
   await expect(page.getByTestId('ldap-result')).toContainText(/работает|works/i);
   await page.getByTestId('ldap-lookup-name').fill('alice');

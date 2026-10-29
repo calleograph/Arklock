@@ -38,8 +38,10 @@ export const ruMail = {
       secNone: 'Без шифрования (порт 25, только внутри сети)',
       securityHint:
         'STARTTLS начинает обычное соединение и переводит его на TLS. SSL/TLS шифрует соединение с первого байта. Порт подставляется сам и меняется вручную.',
+      plainAuth:
+        'Разрешаю передавать пароль почтовой учётной записи без шифрования (только в изолированной сети)',
       noneWarn:
-        'Без шифрования письма и пароль идут открытым текстом. Режим доступен главному администратору и требует подтверждения паролем.',
+        'Без шифрования письма и пароль идут открытым текстом. Режим включает только главный администратор; при включении Arklock попросит пароль разблокировки сейфов, если он не вводился в последние 15 минут.',
       port: 'Порт',
       timeout: 'Таймаут, с',
       auth: 'Вход на сервере',
@@ -255,8 +257,8 @@ export const ruMail = {
       inUse: 'Сертификат выбран в профиле: сначала смените его там.',
     },
     reauth: {
-      title: 'Подтвердите мастер-паролем',
-      hint: 'Небезопасные режимы (без шифрования, без проверки сертификата) меняет только главный администратор после подтверждения.',
+      title: 'Подтвердите паролем разблокировки сейфов',
+      hint: 'Защита снижается (без шифрования, без проверки сертификата или пароль без шифрования): это может сделать только главный администратор с подтверждением. Подтверждение действует 15 минут; повторное сохранение уже принятого решения его не требует.',
       confirm: 'Подтвердить',
     },
     log: {
@@ -333,8 +335,9 @@ export const enMail = {
       secNone: 'No encryption (port 25, trusted network only)',
       securityHint:
         'STARTTLS starts a plain connection and upgrades it to TLS. SSL/TLS encrypts from the first byte. The port is filled in automatically and can be changed.',
+      plainAuth: 'I allow sending the mail account password unencrypted (isolated network only)',
       noneWarn:
-        'Without encryption, messages and the password travel in clear text. Only the chief administrator can choose this, after confirming with the password.',
+        'Without encryption, messages and the password travel in clear text. Only the chief administrator can turn this on; Arklock asks for the vault unlock password unless it was entered in the last 15 minutes.',
       port: 'Port',
       timeout: 'Timeout, s',
       auth: 'Server sign-in',
@@ -552,8 +555,8 @@ export const enMail = {
       inUse: 'The certificate is selected in a profile: change it there first.',
     },
     reauth: {
-      title: 'Confirm with your master password',
-      hint: 'Unsafe modes (no encryption, no certificate check) are changed only by the chief administrator after confirmation.',
+      title: 'Confirm with your vault unlock password',
+      hint: 'Protection is being lowered (no encryption, no certificate check or an unencrypted password): only the chief administrator can do this, with confirmation. The confirmation lasts 15 minutes; saving an already accepted choice again does not ask for it.',
       confirm: 'Confirm',
     },
     log: {

@@ -18,6 +18,18 @@ const ru = flat(i18n.global.getLocaleMessage('ru') as unknown as Tree);
 const en = flat(i18n.global.getLocaleMessage('en') as unknown as Tree);
 
 describe('единый словарь терминов', () => {
+  it('шаблон фильтра LDAP «{u}» и адреса «user@domain» в тексте экранированы и выводятся буквально', () => {
+    for (const [loc, dict] of [
+      ['ru', ru],
+      ['en', en],
+    ] as const)
+      for (const [k, v] of Object.entries(dict))
+        if (/\{'\{u\}'\}/.test(v))
+          expect(i18n.global.t(k, {}, { locale: loc }), `${loc} ${k}`).toContain('{u}');
+    expect(Object.entries(ru).filter(([, v]) => /(?<!')\{u\}(?!')/.test(v))).toEqual([]);
+    expect(Object.entries(en).filter(([, v]) => /(?<!')\{u\}(?!')/.test(v))).toEqual([]);
+  });
+
   it('каждое сообщение компилируется: «@», «|» и «{» в тексте не ломают отрисовку', () => {
     // «логин@домен» без экранирования vue-i18n читает как связанное сообщение и падает при отрисовке
     const bad: string[] = [];

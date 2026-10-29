@@ -138,6 +138,9 @@ export default {
       running: 'An operation is running. Wait for it to finish: a second one cannot start.',
       staleUi:
         'The server is already on version {v}, but this tab still runs the previous interface. Reload the page.',
+      restarting:
+        'The application is restarting: this page waits for it and continues by itself. No action needed.',
+      back: 'Arklock is answering again. Installed version: {v}.',
     },
     rollback: 'Roll back',
     withRestore: 'restore the database from the backup',

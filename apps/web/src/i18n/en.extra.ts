@@ -616,7 +616,7 @@ export default {
     bindDn: 'Service account (DN)',
     bindPassword: 'Service account password',
     baseDn: 'Search base DN',
-    userFilter: 'User filter ({u} is the typed name)',
+    userFilter: "User filter ({'{u}'} is the typed name)",
     emailAttr: 'E-mail attribute',
     nameAttr: 'Name attribute',
     cardAttrs: 'Employee card',

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { when } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { UpdatesOverview } from '@arklock/contracts';
-import { api, ApiError } from '../services/api';
+import { api, ApiError, isTransient } from '../services/api';
 import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
 import { openWhatsNew } from '../services/releases';
@@ -91,13 +91,35 @@ const progress = computed(() => {
   return s && s.stepTotal > 0 ? Math.round((s.stepNo / s.stepTotal) * 100) : 0;
 });
 
+/**
+ * Состояние связи с сервером. Во время обновления приложение перезапускается, и прокси несколько секунд отвечает
+ * страницей 502/503 или не отвечает вовсе: это штатно, страница ждёт и продолжает сама. Ошибкой это становится,
+ * только если сервер не вернулся за RESTART_LIMIT.
+ */
+const RESTART_LIMIT = 5 * 60_000;
+const restarting = ref(false);
+const loadError = ref('');
+const backVersion = ref('');
+let transientSince = 0;
+
 async function load(): Promise<void> {
   try {
+    const before = data.value?.installed.version;
     data.value = await api<UpdatesOverview>('GET', '/admin/updates');
+    if (restarting.value) backVersion.value = data.value.installed.version;
+    else if (before && before !== data.value.installed.version)
+      backVersion.value = data.value.installed.version;
+    restarting.value = false;
+    loadError.value = '';
+    transientSince = 0;
   } catch (e) {
-    error.value = e instanceof ApiError ? e.code : 'network_error';
+    if (isTransient(e)) {
+      transientSince ||= Date.now();
+      restarting.value = true;
+      if (Date.now() - transientSince > RESTART_LIMIT) loadError.value = t('error.unavailable');
+    } else loadError.value = errorMessage(e, t);
   }
-  if (alive) timer = setTimeout(load, running.value ? 1500 : 10_000);
+  if (alive) timer = setTimeout(load, restarting.value ? 2000 : running.value ? 1500 : 10_000);
 }
 
 onMounted(load);
@@ -114,9 +136,9 @@ function message(e: unknown): string {
       invalid_credentials: t('updates.errPassword'),
       too_many_attempts: t('auth.locked'),
     };
-    return map[e.code] ?? t('error.generic');
+    return map[e.code] ?? errorMessage(e, t);
   }
-  return t('error.generic');
+  return errorMessage(e, t);
 }
 
 async function send(payload: object, needsReauth: boolean): Promise<void> {
@@ -175,12 +197,23 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
   <section class="space-y-6">
     <h2>{{ t('updates.title') }}</h2>
     <p
-      v-if="error && !askPassword"
+      v-if="(error || loadError) && !askPassword"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
       role="alert"
       data-testid="updates-error"
     >
-      {{ error }}
+      {{ error || loadError }}
+    </p>
+    <p
+      v-if="restarting && !loadError"
+      class="notice notice-warn"
+      role="status"
+      data-testid="updates-restarting"
+    >
+      {{ t('updates.state.restarting') }}
+    </p>
+    <p v-else-if="backVersion" class="notice notice-ok" role="status" data-testid="updates-back">
+      {{ t('updates.state.back', { v: backVersion }) }}
     </p>
 
     <template v-if="data">

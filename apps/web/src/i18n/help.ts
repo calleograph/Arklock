@@ -250,7 +250,7 @@ export const ruHelp = {
       text: 'Служебная учётная запись только для чтения каталога: Arklock использует её, чтобы найти пользователя перед проверкой его пароля.',
     },
     ldapUserFilter: {
-      text: 'Как найти пользователя по введённому имени: {u} заменяется введённым логином или почтой. Менять нужно редко.',
+      text: "Как найти пользователя по введённому имени: {'{u}'} заменяется введённым логином или почтой. Менять нужно редко.",
     },
     ldapPlaintext: {
       text: 'Пароли сотрудников пойдут по сети без шифрования. Допустимо только в изолированной сети; лучше ldaps:// или StartTLS.',
@@ -264,6 +264,25 @@ export const ruHelp = {
       'У вас нет разрешения на это действие. Если оно вам нужно, обратитесь к администратору.',
     notFound: 'Объект не найден: возможно, его удалили или ваши права изменились.',
     validation: 'Проверьте введённые данные: часть полей заполнена неверно.',
+    validationFields: 'Исправьте поля: {fields}. Причина указана под каждым из них.',
+    unavailable:
+      'Сервер временно не отвечает: приложение перезапускается или недоступно за прокси. Повторите через минуту.',
+    field: {
+      url: 'Адрес сервера',
+      bindDn: 'Служебная учётная запись',
+      bindPassword: 'Пароль служебной учётной записи',
+      baseDn: 'Base DN',
+      userFilter: 'Фильтр пользователей',
+      caPem: 'Сертификат центра сертификации',
+      startTls: 'StartTLS',
+      plainAuth: 'Передача пароля без шифрования',
+      allowPlaintext: 'Способ защиты соединения',
+      host: 'Сервер',
+      port: 'Порт',
+      from: 'Адрес отправителя',
+      name: 'Название',
+      groups: 'Сопоставление групп',
+    },
     server:
       'Сервер сейчас не может выполнить действие. Повторите попытку позже; если ошибка повторяется, сообщите администратору.',
     reauth: 'Для этого действия подтвердите пароль разблокировки сейфов.',
@@ -1242,7 +1261,7 @@ export const enHelp = {
       text: 'A read-only service account for the directory: Arklock uses it to find a user before checking their password.',
     },
     ldapUserFilter: {
-      text: 'How to find a user from the typed name: {u} is replaced by the typed username or email. Rarely needs changing.',
+      text: "How to find a user from the typed name: {'{u}'} is replaced by the typed username or email. Rarely needs changing.",
     },
     ldapPlaintext: {
       text: 'Employee passwords will cross the network unencrypted. Acceptable only on an isolated network; prefer ldaps:// or StartTLS.',
@@ -1256,6 +1275,25 @@ export const enHelp = {
       'You do not have permission for this action. If you need it, contact your administrator.',
     notFound: 'Not found: it may have been deleted or your access may have changed.',
     validation: 'Check what you entered: some fields are not valid.',
+    validationFields: 'Fix these fields: {fields}. The reason is shown under each of them.',
+    unavailable:
+      'The server is not answering right now: the application is restarting or unreachable behind the proxy. Try again in a minute.',
+    field: {
+      url: 'Server address',
+      bindDn: 'Service account',
+      bindPassword: 'Service account password',
+      baseDn: 'Base DN',
+      userFilter: 'User filter',
+      caPem: 'Certificate authority certificate',
+      startTls: 'StartTLS',
+      plainAuth: 'Sending the password unencrypted',
+      allowPlaintext: 'Connection protection',
+      host: 'Server',
+      port: 'Port',
+      from: 'Sender address',
+      name: 'Name',
+      groups: 'Group mapping',
+    },
     server:
       'The server cannot do this right now. Try again later; if it keeps happening, tell an administrator.',
     reauth: 'Confirm your vault unlock password for this action.',

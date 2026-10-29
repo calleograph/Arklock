@@ -1,6 +1,6 @@
 # Arklock — текущее состояние проекта
 
-Последнее обновление: 2026-10-29. Версия в VERSION и пакетах: **1.85.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
+Последнее обновление: 2026-10-29. Версия в VERSION и пакетах: **1.86.0**. Состав выпуска — CHANGELOG; по каждой функции, версии и проверке — [docs/REQUIREMENTS_ACCEPTANCE.md](docs/REQUIREMENTS_ACCEPTANCE.md) (что просили и что готово) и [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) (границы функций).
 
 ## Назначение и архитектура
 
@@ -79,3 +79,4 @@ Node.js 24, TypeScript, npm workspaces; Fastify + Drizzle + PostgreSQL/PGlite; V
 Следующие приоритеты — в разделе «Что остаётся» документа docs/REQUIREMENTS_ACCEPTANCE.md: несколько профилей хранилищ, отчёт о здоровье паролей по почте, проверки на реальных стендах. Пользовательская инструкция: docs/administration/corporate-access.md.
 - Доступ и первый вход (1.84.0): `install.sh --access`, `scripts/access.sh`, `GET /api/v1/access`, `tests/install/access.test.sh`.
 - Формы, меню и адаптивность (1.85.0): общие стили форм и флажки (`style.css`), `ErrorBoundary`, `UnsavedHint`, `services/dirty.ts`, меню администрирования с одной раскрытой группой, исправление сбоя NTLM (экранирование «@» в словаре), `scripts/ui-audit.mjs`, `docs/UX_FORMS_AUDIT.md`.
+- Каталог LDAPS и подтверждения (1.86.0): `packages/contracts/src/directory.ts`, `apps/api/src/net/certs.ts`, `auth/ldap-diagnose.ts`, форма `LdapSettings.vue`, `docs/security/admin-confirmation.md`, тесты `directory-setup.test.ts`.

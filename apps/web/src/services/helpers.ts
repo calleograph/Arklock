@@ -72,8 +72,24 @@ export function errorMessage(e: unknown, t: T): string {
         return t('error.forbidden');
       case 'not_found':
         return t('error.notFound');
-      case 'validation_error':
-        return t('error.validation');
+      case 'validation_error': {
+        // сервер называет поля: перечисляем их, чтобы было видно, что исправить
+        const fields = [
+          ...new Set(
+            (Array.isArray(e.details) ? (e.details as { path?: unknown }[]) : [])
+              .map((d) => String(d?.path ?? '').split('.')[0]!)
+              .filter(Boolean)
+              .map((f) => (i18n.global.te(`error.field.${f}`) ? t(`error.field.${f}`) : f)),
+          ),
+        ];
+        return fields.length
+          ? t('error.validationFields', { fields: fields.join(', ') })
+          : t('error.validation');
+      }
+      case 'service_unavailable':
+        return t('error.unavailable');
+      case 'http_error':
+        return t('error.server');
       case 'reauth_required':
         return t('error.reauth');
       case 'personal_lockers_disabled':

@@ -29,6 +29,8 @@ export interface SmtpConfig {
   ca?: string[];
   /** Только тестовый стенд: разрешить loopback. */
   allowLoopback?: boolean;
+  /** Согласие отправлять пароль по соединению без шифрования; без него вход по паролю при security: none не выполняется. */
+  plainAuth?: boolean;
 }
 
 /** Этапы проверки соединения в порядке выполнения. */
@@ -270,6 +272,8 @@ export async function smtpSession(
   clean(cfg.fromName ?? '');
   if (cfg.auth === 'ntlm' && cfg.security === 'none')
     throw new SmtpError('NTLM is only used over a protected connection', 'invalid');
+  if (cfg.auth === 'password' && cfg.security === 'none' && cfg.plainAuth !== true)
+    throw new SmtpError('The password is not sent unencrypted without explicit consent', 'invalid');
   const report = (s: StageResult) => onStage?.(s);
   const withTimeout = <T>(p: Promise<T>, stage: SmtpStage): Promise<T> =>
     Promise.race([

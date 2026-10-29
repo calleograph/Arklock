@@ -1,4 +1,3 @@
-import { X509Certificate } from 'node:crypto';
 import { eq, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { email, uuid } from '@arklock/contracts';
@@ -50,6 +49,12 @@ export const smtpPut = z.object({
   purposes: z.array(mailType).max(8).default([]),
   /** Резервный: используется, когда активный недоступен по соединению. */
   fallback: z.boolean().default(false),
+  /**
+   * Явное согласие передавать пароль без шифрования (только для «без шифрования» и входа по паролю). Без него пароль
+   * по открытому соединению не отправляется. У профилей, сохранённых до этого правила, поля нет — их сохранял главный
+   * администратор с подтверждением, поэтому они продолжают работать.
+   */
+  plainAuth: z.boolean().optional(),
 });
 const storedSmtp = smtpPut
   .omit({ password: true })
@@ -217,32 +222,6 @@ export async function loadTrustedCas(ctx: AppContext): Promise<TrustedCa[]> {
   const parsed = z.array(trustedCa).safeParse(row?.value);
   return parsed.success ? parsed.data : [];
 }
-/** Разбор PEM: только сертификаты центра сертификации, до 10 на файл. */
-export function parseCaPem(pem: string): {
-  pem: string;
-  subject: string;
-  fingerprint256: string;
-  validTo: string;
-}[] {
-  const blocks = pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
-  return blocks.slice(0, 10).flatMap((block) => {
-    try {
-      const c = new X509Certificate(block);
-      if (!c.ca) return [];
-      return [
-        {
-          pem: block,
-          subject: c.subject.replace(/\n/g, ', ').slice(0, 500),
-          fingerprint256: c.fingerprint256,
-          validTo: new Date(c.validTo).toISOString(),
-        },
-      ];
-    } catch {
-      return [];
-    }
-  });
-}
-
 /** Адреса самого хоста допускаются только явной настройкой сервера (и в тестовом стенде). */
 export const loopbackAllowed = (ctx: AppContext): boolean =>
   ctx.config.NODE_ENV === 'test' || ctx.config.SMTP_ALLOW_LOOPBACK === 'on';
@@ -269,5 +248,6 @@ export async function toSmtpConfig(ctx: AppContext, s: StoredSmtp): Promise<Smtp
         )
       : '',
     allowLoopback: loopbackAllowed(ctx),
+    plainAuth: s.plainAuth ?? true,
   };
 }
