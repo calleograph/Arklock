@@ -455,9 +455,13 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await tab(page, 'ldap');
-  await page.getByTestId('ldap-enabled').check();
+  // тестовый каталог — обычный LDAP (не Active Directory)
+  await page.getByTestId('ldap-type').selectOption('ldap');
   await page.getByTestId('ldap-url').fill(`ldap://127.0.0.1:${ldapPort}`);
+  await page.getByTestId('ldap-special').locator('summary').click();
   await page.getByTestId('ldap-plaintext').check();
+  await page.getByTestId('ldap-enabled').check();
+  await page.getByTestId('ldap-access-all').check();
   await page.getByTestId('ldap-binddn').fill('cn=svc,dc=example,dc=com');
   await page.getByTestId('ldap-bindpw').fill('svc-e2e');
   await page.getByTestId('ldap-basedn').fill(BASE_DN);
@@ -474,8 +478,20 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
     await page.getByTestId('ldap-reauth-ok').click();
   }
   await expect(page.getByTestId('ldap-notice')).toBeVisible();
-  await page.getByTestId('ldap-test').click();
   await expect(page.getByTestId('ldap-result')).toContainText(/работает|works/i);
+  await expect(page.getByTestId('ldap-status')).toContainText(
+    /Подключение проверено|Connection verified/,
+  );
+  await expect(page.getByTestId('ldap-status')).toContainText(/не проверялся|not been checked/);
+  // проверка входа реального сотрудника: пароль проверяет каталог, учётная запись не создаётся
+  await page.getByTestId('ldap-login-user').fill('alice');
+  await page.getByTestId('ldap-login-password').fill(ALICE.password);
+  await page.getByTestId('ldap-login-run').click();
+  await expect(page.getByTestId('ldap-login-result')).toHaveAttribute('data-ok', 'true');
+  await expect(page.getByTestId('ldap-status')).toContainText(
+    /Вход сотрудника проверен|sign-in verified/,
+  );
+  await page.getByTestId('ldap-step-advanced').locator('summary').first().click();
   await page.getByTestId('ldap-lookup-name').fill('alice');
   await page.getByTestId('ldap-lookup').click();
   await expect(page.getByTestId('ldap-lookup-result')).toContainText('alice@example.com');

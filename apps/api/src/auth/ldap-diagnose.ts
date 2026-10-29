@@ -86,10 +86,11 @@ function probeTls(
 ): Promise<{ ok: boolean; reason: string; detail: string; params: Record<string, string> }> {
   return new Promise((resolve) => {
     const servername = net.isIP(host) ? undefined : host.replace(/^\[|\]$/g, '');
+    const ca = [cfg.caPem, cfg.pinnedPem].filter((x): x is string => !!x);
     const s = tls.connect({
       ...(socketOrNull ? { socket: socketOrNull } : { host, port }),
       servername,
-      ...(cfg.caPem ? { ca: [cfg.caPem] } : {}),
+      ...(ca.length ? { ca } : {}),
       rejectUnauthorized: false,
       timeout: TIMEOUT,
     });
@@ -104,7 +105,15 @@ function probeTls(
     };
     s.once('secureConnect', () => {
       const peer = s.getPeerCertificate(true);
+      const pem = peer?.raw
+        ? `-----BEGIN CERTIFICATE-----\n${peer.raw
+            .toString('base64')
+            .match(/.{1,64}/g)!
+            .join('\n')}\n-----END CERTIFICATE-----\n`
+        : '';
       const params: Record<string, string> = {
+        fingerprint256: peer?.fingerprint256 ?? '',
+        pem,
         protocol: s.getProtocol() ?? '',
         subject: [peer?.subject?.CN ?? ''].flat()[0] ?? '',
         issuer: [peer?.issuer?.CN ?? ''].flat()[0] ?? '',
@@ -122,6 +131,9 @@ function probeTls(
         .filter(Boolean)
         .join('; ');
       const code = String(s.authorizationError ?? '');
+      // администратор доверил именно этот сертификат: цепочка и имя не требуются
+      if (cfg.pinnedFingerprint && peer?.fingerprint256 === cfg.pinnedFingerprint)
+        return done({ ok: true, reason: 'pinned', detail, params });
       const nameError = peer && tls.checkServerIdentity(host.replace(/^\[|\]$/g, ''), peer);
       if (!s.authorized) {
         const c = classifyLdapError(Object.assign(new Error(code), { code }), 'tls');
@@ -245,7 +257,7 @@ export async function ldapDiagnose(
         stage: 'tls',
         ok: true,
         warn: !r.ok,
-        code: r.ok ? 'ok' : 'unverified',
+        code: r.ok ? (r.reason === 'pinned' ? 'pinned' : 'ok') : 'unverified',
         params: { ...r.params, host, customCa: !!cfg.caPem, problem: r.ok ? '' : r.reason },
         detail: r.detail,
         ms,
@@ -293,6 +305,10 @@ export async function ldapDiagnose(
       return stop();
     }
 
+    if (!cfg.baseDn) {
+      add({ stage: 'base', ok: false, code: 'required' });
+      return stop();
+    }
     try {
       const [, ms] = await timed(() =>
         client.search(cfg.baseDn, { scope: 'base', filter: '(objectClass=*)', attributes: ['dn'] }),

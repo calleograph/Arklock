@@ -74,6 +74,7 @@ function startLdaps(): Promise<void> {
 
 const profile = (extra: object = {}) => ({
   enabled: true,
+  access: 'all',
   name: 'Каталог',
   url: `ldaps://127.0.0.1:${port}`,
   caPem: chain.root,

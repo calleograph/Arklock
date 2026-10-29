@@ -15,7 +15,10 @@ import {
   LdapError,
   ldapAuthenticate,
   ldapBrowse,
+  accessAllowed,
+  ldapCheckLogin,
   ldapLookup,
+  ldapRootDse,
   type LdapConfig,
 } from '../auth/ldap.js';
 import { ldapDiagnose } from '../auth/ldap-diagnose.js';
@@ -79,6 +82,14 @@ const putSchema = z.object({
     .max(200)
     .default([]),
   autoProvision: z.boolean().default(true),
+  /** Вид каталога; без поля — прежнее поведение (обычный LDAP). */
+  directoryType: z.enum(['ad', 'ldap']).optional(),
+  /** Кто может входить; без поля у существующего подключения — как было (все найденные фильтром). */
+  access: z.enum(['all', 'groups']).optional(),
+  allowedGroups: z.array(z.string().trim().min(1).max(500)).max(100).default([]),
+  /** Сертификат контроллера домена, которому доверяет администратор (по отпечатку). */
+  pinnedPem: z.string().max(20_000).default(''),
+  pinnedFingerprint: z.string().max(200).default(''),
 });
 
 const loginSchema = z.object({
@@ -109,7 +120,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
    * Проверка формы подключения. Все ошибки собираются сразу и указывают поле и причину (интерфейс показывает их под полями);
    * однозначные отклонения адреса исправляются. Возвращает нормализованные значения.
    */
-  function checkForm(body: z.infer<typeof putSchema>, prev: LdapProfile | null) {
+  function checkForm(body: z.infer<typeof putSchema>, prev: LdapProfile | null, forTest = false) {
     const issues: { path: string; code: string }[] = [];
     const url = normalizeLdapUrl(body.url);
     if (!url.ok) issues.push({ path: 'url', code: `url_${url.problem}` });
@@ -118,7 +129,25 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       if (transport)
         issues.push({ path: transport === 'plaintext' ? 'url' : 'startTls', code: transport });
     }
-    if (!body.baseDn) issues.push({ path: 'baseDn', code: 'required' });
+    // при проверке пустой Base DN определяется по каталогу (RootDSE); сохранить без него нельзя
+    if (!body.baseDn && !forTest) issues.push({ path: 'baseDn', code: 'required' });
+    if (!forTest && body.enabled) {
+      // «все найденные фильтром» без явного выбора — только у подключения, которое уже работало так до этой версии
+      const access = body.access ?? prev?.access ?? (prev?.enabled ? 'all' : undefined);
+      // новое подключение не открывает вход всем молча: администратор выбирает, кто может входить
+      if (!access) issues.push({ path: 'access', code: 'access_required' });
+      if (access === 'groups' && !body.allowedGroups.length)
+        issues.push({ path: 'allowedGroups', code: 'groups_required' });
+    }
+    if (body.pinnedPem.trim()) {
+      try {
+        const pin = parseCertificates(Buffer.from(body.pinnedPem, 'utf8')).certs[0];
+        if (pin?.fingerprint256 !== body.pinnedFingerprint)
+          issues.push({ path: 'pinnedPem', code: 'pin_mismatch' });
+      } catch {
+        issues.push({ path: 'pinnedPem', code: 'cert_not_certificate' });
+      }
+    }
     const account = bindAccount(body.bindDn, body.baseDn);
     if (!account.ok) issues.push({ path: 'bindDn', code: `bind_${account.problem}` });
     if (!body.userFilter.includes('{u}'))
@@ -152,7 +181,32 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       issues.push({ path: 'bindPassword', code: 'password_reentry' });
     if (issues.length)
       throw new AppError(400, 'validation_error', 'Check the highlighted fields', issues);
-    return { url: url.ok ? url.value.url : body.url, caPem };
+    return {
+      url: url.ok ? url.value.url : body.url,
+      caPem,
+      access: body.access ?? prev?.access ?? (prev?.enabled ? 'all' : undefined),
+    };
+  }
+
+  // ——— состояние подключения: настроено, подключение проверено, вход проверен (отдельно от доп. возможностей)
+  const statusKey = (id: string) => `ldap.status.${id}`;
+  type Status = {
+    connection?: { ok: boolean; at: string; stage?: string; code?: string };
+    login?: { ok: boolean; at: string; reason?: string };
+  };
+  async function readStatus(id: string): Promise<Status> {
+    const [row] = await db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, statusKey(id)));
+    return (row?.value as Status | undefined) ?? {};
+  }
+  async function writeStatus(id: string, patch: Status | null) {
+    const value = patch === null ? {} : { ...(await readStatus(id)), ...patch };
+    await db
+      .insert(settings)
+      .values({ key: statusKey(id), value })
+      .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
   }
 
   /** Снижение защиты (без шифрования, без проверки сертификата) — только главный администратор с подтверждением. */
@@ -193,6 +247,9 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         ...profile,
         hasBindPassword: !!bindPasswordCipher,
         lastSync: syncs.find((r) => r.key === `ldap.sync.${profile.id}`)?.value ?? null,
+        status: syncs.find((r) => r.key === `ldap.status.${profile.id}`)?.value ?? {},
+        // «все» без явного выбора — только у подключения, которое уже было включено до этой версии
+        access: profile.access ?? (profile.enabled ? 'all' : null),
       })),
       circles: await db.select({ id: circles.id, name: circles.name }).from(circles),
     };
@@ -202,7 +259,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const { user } = authOf(req);
     const body = parse(putSchema, req.body);
     const before = await stored(id);
-    const { url, caPem } = checkForm(body, before);
+    const { url, caPem, access } = checkForm(body, before);
     const lowered = await confirmLowering(req, body, before);
     const known = new Set((await db.select({ id: circles.id }).from(circles)).map((c) => c.id));
     for (const g of body.groups)
@@ -226,7 +283,14 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             : sealSetting(config.APP_SECRET, ldapSecretPurpose(id), body.bindPassword);
       const { bindPassword: _omit, ...rest } = body;
       void _omit;
-      const value: LdapProfile = { ...rest, url, caPem, id, bindPasswordCipher: cipher };
+      const value: LdapProfile = {
+        ...rest,
+        url,
+        caPem,
+        ...(access ? { access } : {}),
+        id,
+        bindPasswordCipher: cipher,
+      };
       const removedCircles = [...new Set((prev?.groups ?? []).map((g) => g.circleId))].filter(
         (cid) => !value.groups.some((g) => g.circleId === cid),
       );
@@ -272,7 +336,26 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       await audit(tx, `user:${user.id}`, 'admin.ldap.save', `ldap:${id}`, {
         url,
         enabled: body.enabled,
+        access: access ?? 'all',
       });
+      // подключение изменилось по существу — прежние отметки «проверено» больше не относятся к нему
+      const essential = (p?: LdapProfile) =>
+        p &&
+        JSON.stringify([
+          p.url,
+          p.baseDn,
+          p.bindDn,
+          p.userFilter,
+          p.caPem,
+          p.pinnedFingerprint ?? '',
+          p.access ?? 'all',
+          p.allowedGroups ?? [],
+        ]);
+      if (!prev || essential(prev) !== essential(value) || body.bindPassword !== undefined)
+        await tx
+          .insert(settings)
+          .values({ key: statusKey(id), value: {} })
+          .onConflictDoUpdate({ target: settings.key, set: { value: {}, updatedAt: new Date() } });
       if (lowered)
         await audit(tx, `user:${user.id}`, 'admin.ldap.insecure', `ldap:${id}`, {
           insecureTls: body.insecureTls,
@@ -347,21 +430,106 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const s = await stored(id);
     if (req.body && typeof req.body === 'object' && 'url' in (req.body as object)) {
       const body = parse(putSchema, req.body);
-      const { url, caPem } = checkForm(body, s);
+      const { url, caPem } = checkForm(body, s, true);
       // проверка без проверки сертификата отправила бы пароль на неподтверждённый сервер — те же условия, что и при сохранении
       await confirmLowering(req, body, s);
       const draft: LdapConfig = { ...body, url, caPem };
       const secret = body.bindPassword ?? (s ? bindSecret(s) : '');
-      return ldapDiagnose(draft, secret);
+      // Base DN не задан: берётся из каталога (RootDSE), форма подставит его сама
+      let detected: Awaited<ReturnType<typeof ldapRootDse>> | null = null;
+      if (!draft.baseDn) {
+        detected = await ldapRootDse(draft, secret).catch(() => null);
+        if (detected?.baseDn) draft.baseDn = detected.baseDn;
+      }
+      return { ...(await ldapDiagnose(draft, secret)), detected };
     }
-    if (!s) throw new AppError(409, 'ldap_not_configured', 'LDAP is not configured');
-    return ldapDiagnose(s, bindSecret(s));
+    if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
+    const r = await ldapDiagnose(s, bindSecret(s));
+    const failed = r.stages.find((x) => !x.ok && !x.skipped);
+    await writeStatus(id, {
+      connection: {
+        ok: r.ok,
+        at: new Date().toISOString(),
+        stage: failed?.stage,
+        code: failed?.code,
+      },
+    });
+    return r;
+  });
+
+  // проверка входа сотрудника: пароль самого сотрудника проверяет каталог; ничего не создаётся и не сохраняется
+  const loginTests = new Map<string, number[]>();
+  app.post('/admin/ldap/login-test', { preHandler: adminOnly }, async (req) => {
+    const { user } = authOf(req);
+    const id = queryId(req);
+    const s = await stored(id);
+    if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
+    const body = parse(
+      z.object({
+        username: z.string().trim().min(1).max(256),
+        password: z.string().min(1).max(512),
+      }),
+      req.body,
+    );
+    const now = Date.now();
+    const recent = (loginTests.get(user.id) ?? []).filter((t) => now - t < 10 * 60_000);
+    if (recent.length >= 10)
+      throw new AppError(429, 'too_many_attempts', 'Too many sign-in checks, try again later');
+    loginTests.set(user.id, [...recent, now]);
+    const r = await ldapCheckLogin(s, bindSecret(s), body.username, body.password);
+    let account: 'new' | 'linked' | 'local_conflict' | 'blocked' | null = null;
+    if (r.ok) {
+      const [linked] = await db
+        .select({ id: users.id, disabledAt: users.disabledAt })
+        .from(users)
+        .where(
+          and(eq(users.authSource, 'ldap'), eq(users.externalId, ldapExternalId(s.id, r.user.dn))),
+        );
+      if (linked) account = linked.disabledAt ? 'blocked' : 'linked';
+      else {
+        const [clash] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, r.user.email));
+        account = clash ? 'local_conflict' : 'new';
+      }
+    }
+    const reason = !r.ok
+      ? r.reason
+      : !r.allowed
+        ? 'not_allowed'
+        : account === 'local_conflict'
+          ? 'local_exists'
+          : account === 'blocked'
+            ? 'blocked_in_arklock'
+            : account === 'new' && !s.autoProvision
+              ? 'not_provisioned'
+              : !s.enabled
+                ? 'login_disabled'
+                : 'ok';
+    const ok = reason === 'ok';
+    await writeStatus(id, { login: { ok, at: new Date().toISOString(), reason } });
+    await audit(db, `user:${user.id}`, 'admin.ldap.login_test', `ldap:${id}`, {
+      username: body.username.slice(0, 100),
+      ok,
+      reason,
+    });
+    const u = 'user' in r ? r.user : undefined;
+    return {
+      ok,
+      reason,
+      account,
+      detail: !r.ok ? (r.detail ?? '') : '',
+      user: u
+        ? { dn: u.dn, name: u.name, email: u.email, groups: u.groups.length, disabled: u.disabled }
+        : null,
+    };
   });
 
   app.post('/admin/ldap/lookup', { preHandler: adminOnly }, async (req) => {
     const body = parse(z.object({ username: z.string().trim().min(1).max(256) }), req.body);
     const s = await stored(queryId(req));
-    if (!s) throw new AppError(409, 'ldap_not_configured', 'LDAP is not configured');
+    if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
     try {
       const u = await ldapLookup(s, bindSecret(s), body.username);
       return u ? { ok: true as const, found: true, user: u } : { ok: true as const, found: false };
@@ -377,11 +545,13 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         baseDn: z.string().trim().max(500).optional(),
         q: z.string().trim().max(200).default(''),
         limit: z.number().int().min(1).max(500).default(100),
+        offset: z.number().int().min(0).max(500).default(0),
+        activeOnly: z.boolean().default(true),
       }),
       req.body,
     );
     const s = await stored(queryId(req));
-    if (!s) throw new AppError(409, 'ldap_not_configured', 'LDAP is not configured');
+    if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
     try {
       return { ok: true, ...(await ldapBrowse(s, bindSecret(s), body)) };
     } catch (e) {
@@ -392,7 +562,8 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   /** Предпросмотр сверки: что изменится, без записи. */
   app.post('/admin/ldap/sync/preview', { preHandler: adminOnly }, async (req) => {
     const s = await stored(queryId(req));
-    if (!s || !s.enabled) throw new AppError(409, 'ldap_not_configured', 'LDAP is not enabled');
+    if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
+    if (!s.enabled) throw new AppError(409, 'ldap_disabled', 'Directory sign-in is turned off');
     return previewLdapProfile(db, config.APP_SECRET, s);
   });
 
@@ -400,7 +571,8 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   app.post('/admin/ldap/sync', { preHandler: adminOnly }, async (req) => {
     const { user } = authOf(req);
     const s = await stored(queryId(req));
-    if (!s || !s.enabled) throw new AppError(409, 'ldap_not_configured', 'LDAP is not enabled');
+    if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
+    if (!s.enabled) throw new AppError(409, 'ldap_disabled', 'Directory sign-in is turned off');
     return syncLdapProfile(db, config.APP_SECRET, s, `user:${user.id}`);
   });
 
@@ -468,6 +640,15 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         throw new AppError(401, 'invalid_credentials', 'Invalid username or password');
       }
       ctx.shield.recordSuccess(req, 'directory', body.username);
+      // пароль верный, но администратор ограничил вход группами каталога
+      if (!accessAllowed(s, ident.groups)) {
+        await audit(db, 'anonymous', 'auth.ldap.not_allowed', null, { ip: ipOf(req) });
+        throw new AppError(
+          403,
+          'ldap_not_allowed',
+          'Directory sign-in is not allowed for this account',
+        );
+      }
       if (!ident.email)
         throw new AppError(403, 'ldap_no_email', 'The directory entry has no e-mail address');
 

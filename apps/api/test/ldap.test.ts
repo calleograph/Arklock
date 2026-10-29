@@ -183,6 +183,7 @@ function startDirectory(): Promise<void> {
 
 const cfg = (extra: object = {}) => ({
   enabled: true,
+  access: 'all',
   url: `ldap://127.0.0.1:${port}`,
   allowPlaintext: true,
   bindDn: SVC,

@@ -1,3 +1,4 @@
+import tls from 'node:tls';
 import { Client } from 'ldapts';
 import { bindAccount, ldapTransportProblem, normalizeLdapUrl } from '@arklock/contracts';
 
@@ -26,6 +27,41 @@ export interface LdapConfig {
   groups: { dn: string; circleId: string }[];
   /** Создавать учётную запись при первом входе пользователя каталога. */
   autoProvision: boolean;
+  /** Вид каталога: ad — Active Directory (вложенные группы, отключённые записи по userAccountControl), ldap — другой. */
+  directoryType?: 'ad' | 'ldap';
+  /**
+   * Кто может входить: all — все найденные фильтром действующие учётные записи (так работали подключения до 1.87.0),
+   * groups — только участники перечисленных групп каталога (с учётом вложенных групп в Active Directory).
+   */
+  access?: 'all' | 'groups';
+  allowedGroups?: string[];
+  /** Сертификат контроллера домена, которому администратор доверил подключение по отпечатку (PEM и SHA-256). */
+  pinnedPem?: string;
+  pinnedFingerprint?: string;
+}
+
+/** Фильтр по умолчанию для Active Directory: только действующие учётные записи людей (не компьютеры и не отключённые). */
+export const AD_USER_FILTER =
+  '(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(sAMAccountName={u})(userPrincipalName={u})(mail={u})))';
+/** Правило Active Directory «член группы с учётом вложенности» (LDAP_MATCHING_RULE_IN_CHAIN). */
+const IN_CHAIN = '1.2.840.113556.1.4.1941';
+
+/** Имя для входа: «ДОМЕН\\имя» → «имя» (ищется по sAMAccountName); user@domain и почта — как есть. */
+export const loginName = (raw: string): string => {
+  const v = raw.trim();
+  const i = v.indexOf('\\');
+  return i > 0 ? v.slice(i + 1) : v;
+};
+
+const normDn = (dn: string) => dn.toLowerCase().replace(/\s*,\s*/g, ',');
+/** Разрешён ли вход пользователю с такими группами (правило подключения «кто может входить»). */
+export function accessAllowed(
+  cfg: Pick<LdapConfig, 'access' | 'allowedGroups'>,
+  groups: string[],
+): boolean {
+  if ((cfg.access ?? 'all') === 'all') return true;
+  const have = new Set(groups.map(normDn));
+  return (cfg.allowedGroups ?? []).some((g) => have.has(normDn(g)));
 }
 
 export const DEFAULT_USER_FILTER =
@@ -170,12 +206,29 @@ const str = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : Str
 const list = (v: unknown): string[] =>
   Array.isArray(v) ? v.map((x) => String(x)) : v === undefined || v === null ? [] : [String(v)];
 
+/**
+ * Параметры TLS: загруженные центры и, если администратор доверил сертификат по отпечатку, сам этот сертификат;
+ * для него не требуется совпадение имени — принимается ровно этот сертификат.
+ */
+export function ldapTlsOptions(cfg: LdapConfig): tls.ConnectionOptions {
+  const ca = [cfg.caPem, cfg.pinnedPem].filter((x): x is string => !!x);
+  return {
+    ...(ca.length ? { ca } : {}),
+    rejectUnauthorized: !cfg.insecureTls,
+    ...(cfg.pinnedFingerprint
+      ? {
+          checkServerIdentity: (host: string, cert: tls.PeerCertificate) =>
+            cert.fingerprint256 === cfg.pinnedFingerprint
+              ? undefined
+              : tls.checkServerIdentity(host, cert),
+        }
+      : {}),
+  };
+}
+
 export function makeClient(cfg: LdapConfig): Client {
   const url = ldapUrlOf(cfg);
-  const tlsOptions = {
-    ...(cfg.caPem ? { ca: [cfg.caPem] } : {}),
-    rejectUnauthorized: !cfg.insecureTls,
-  };
+  const tlsOptions = ldapTlsOptions(cfg);
   // tlsOptions у ldapts включают TLS и для ldap://: задаём их только для ldaps:// (для StartTLS они передаются отдельно)
   const secure = url.secure;
   return new Client({
@@ -193,10 +246,7 @@ async function withClient<T>(cfg: LdapConfig, fn: (c: Client) => Promise<T>): Pr
   try {
     if (cfg.startTls && !ldapUrlOf(cfg).secure) {
       try {
-        await client.startTLS({
-          ...(cfg.caPem ? { ca: [cfg.caPem] } : {}),
-          rejectUnauthorized: !cfg.insecureTls,
-        });
+        await client.startTLS(ldapTlsOptions(cfg));
       } catch (e) {
         const c = classifyLdapError(e, 'tls');
         throw new LdapError(
@@ -246,7 +296,7 @@ async function findUser(
   try {
     res = await c.search(cfg.baseDn, {
       scope: 'sub',
-      filter: buildUserFilter(cfg.userFilter, username),
+      filter: buildUserFilter(cfg.userFilter, loginName(username)),
       attributes: attrs,
       // ldapts hides SizeLimitExceeded with a positive client limit; authoritative lookups must surface it.
       sizeLimit: 0,
@@ -278,7 +328,23 @@ async function findUser(
 
 /** Группы пользователя: атрибут memberOf или поиск групп, где он перечислен участником. */
 async function groupsOf(c: Client, cfg: LdapConfig, user: DirectoryUser): Promise<string[]> {
-  if (user.groups.length || !cfg.groups.length) return user.groups;
+  const needed = cfg.groups.length > 0 || cfg.access === 'groups';
+  if (cfg.directoryType === 'ad' && needed) {
+    // Active Directory: группы с учётом вложенности одним запросом; при отказе — прямые группы из memberOf
+    try {
+      const res = await c.search(cfg.baseDn, {
+        scope: 'sub',
+        filter: `(&(objectClass=group)(member:${IN_CHAIN}:=${escapeFilter(user.dn)}))`,
+        attributes: ['dn'],
+        sizeLimit: 0,
+        paged: { pageSize: 500 },
+      });
+      return [...new Set([...user.groups, ...res.searchEntries.map((e) => e.dn)])];
+    } catch {
+      /* каталог не поддерживает правило — остаются прямые группы */
+    }
+  }
+  if (user.groups.length || !needed) return user.groups;
   try {
     const dn = escapeFilter(user.dn);
     const res = await c.search(cfg.baseDn, {
@@ -312,16 +378,115 @@ export async function ldapLookup(
   });
 }
 
+/**
+ * Сведения каталога из RootDSE: Base DN домена (defaultNamingContext) и имя контроллера. Служат автоматическому
+ * заполнению: администратору не нужно вычислять «DC=…,DC=…» вручную.
+ */
+export async function ldapRootDse(
+  cfg: LdapConfig,
+  bindPassword: string,
+): Promise<{ baseDn: string; rootDn: string; host: string; isAd: boolean }> {
+  return withClient(cfg, async (c) => {
+    await serviceBind(c, cfg, bindPassword);
+    let entry: Record<string, unknown> | undefined;
+    try {
+      entry = (
+        await c.search('', {
+          scope: 'base',
+          filter: '(objectClass=*)',
+          // в нижнем регистре, как в findUser: часть каталогов иначе не возвращает значения
+          attributes: [
+            'defaultnamingcontext',
+            'rootdomainnamingcontext',
+            'dnshostname',
+            'namingcontexts',
+            'supportedcapabilities',
+          ],
+        })
+      ).searchEntries[0];
+    } catch (e) {
+      throw classifyLdapError(e, 'search');
+    }
+    const first = (k: string) => str(pick(entry ?? {}, k)).trim();
+    const contexts = list(pick(entry ?? {}, 'namingContexts'));
+    return {
+      baseDn:
+        first('defaultNamingContext') || contexts.find((x) => /^dc=/i.test(x)) || contexts[0] || '',
+      rootDn: first('rootDomainNamingContext'),
+      host: first('dnsHostName'),
+      // признак Active Directory: объявленная возможность LDAP_CAP_ACTIVE_DIRECTORY_OID
+      isAd:
+        list(pick(entry ?? {}, 'supportedCapabilities')).includes('1.2.840.113556.1.4.800') ||
+        !!first('defaultNamingContext'),
+    };
+  });
+}
+
+export type LoginCheck =
+  | { ok: true; user: DirectoryUser; allowed: boolean }
+  | { ok: false; reason: string; detail?: string; user?: DirectoryUser };
+
+/**
+ * Проверка входа сотрудника для администратора: поиск, состояние учётной записи, вход паролем самого сотрудника и
+ * правило «кто может входить». Учётная запись в Arklock не создаётся, сеанс не открывается, пароль не сохраняется.
+ */
+export async function ldapCheckLogin(
+  cfg: LdapConfig,
+  bindPassword: string,
+  username: string,
+  password: string,
+): Promise<LoginCheck> {
+  if (!password) return { ok: false, reason: 'password_missing' };
+  let found: DirectoryUser | null;
+  try {
+    found = await withClient(cfg, async (c) => {
+      await serviceBind(c, cfg, bindPassword);
+      const u = await findUser(c, cfg, username);
+      return u ? { ...u, groups: await groupsOf(c, cfg, u) } : null;
+    });
+  } catch (e) {
+    const c = classifyLdapError(e, 'search');
+    if (c.message.includes('ambiguous')) return { ok: false, reason: 'ambiguous_user' };
+    return {
+      ok: false,
+      reason: c.code === 'bind' ? `service_${c.reason}` : c.reason,
+      detail: c.detail,
+    };
+  }
+  if (!found) return { ok: false, reason: 'user_not_found' };
+  if (found.disabled) return { ok: false, reason: 'account_disabled', user: found };
+  try {
+    await withClient(cfg, async (c) => {
+      await c.bind(found!.dn, password);
+    });
+  } catch (e) {
+    const c = classifyLdapError(e, 'bind');
+    return { ok: false, reason: c.reason, detail: c.detail, user: found };
+  }
+  if (!found.email) return { ok: false, reason: 'no_email', user: found };
+  return { ok: true, user: found, allowed: accessAllowed(cfg, found.groups) };
+}
+
 /** Bounded administrative browsing; caller chooses a base/OU within the configured directory. */
 export async function ldapBrowse(
   cfg: LdapConfig,
   bindPassword: string,
-  query: { kind: 'users' | 'groups' | 'ous'; baseDn?: string; q?: string; limit: number },
+  query: {
+    kind: 'users' | 'groups' | 'ous';
+    baseDn?: string;
+    q?: string;
+    limit: number;
+    /** Сколько записей пропустить (постранично, не дальше 500-й записи). */
+    offset?: number;
+    /** Только действующие учётные записи людей (для Active Directory — без компьютеров и отключённых). */
+    activeOnly?: boolean;
+  },
 ): Promise<{
   entries: { dn: string; name: string; email: string; disabled: boolean }[];
   truncated: boolean;
 }> {
   const base = query.baseDn || cfg.baseDn;
+  const offset = Math.min(query.offset ?? 0, 500);
   // Escaped commas belong to an RDN value and cannot forge the configured ancestor DN.
   const parts = (dn: string) =>
     dn.match(/(?:\\.|[^,])+/g)?.map((rdn) => rdn.trim().toLowerCase()) ?? [];
@@ -332,15 +497,20 @@ export async function ldapBrowse(
     !parent.every((rdn, i) => rdn === requested[requested.length - parent.length + i])
   )
     throw new LdapError('Browse base must be within the configured Base DN', 'config');
+  const ad = cfg.directoryType === 'ad';
   const objectFilter =
     query.kind === 'users'
-      ? '(objectClass=person)'
+      ? ad && query.activeOnly !== false
+        ? '(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))'
+        : ad
+          ? '(&(objectCategory=person)(objectClass=user))'
+          : '(objectClass=person)'
       : query.kind === 'groups'
         ? '(|(objectClass=group)(objectClass=groupOfNames)(objectClass=groupOfUniqueNames)(objectClass=posixGroup))'
         : '(objectClass=organizationalUnit)';
   const term = escapeFilter(query.q ?? '');
   const filter = term
-    ? `(&${objectFilter}(|(cn=*${term}*)(ou=*${term}*)(mail=*${term}*)(uid=*${term}*)))`
+    ? `(&${objectFilter}(|(cn=*${term}*)(ou=*${term}*)(mail=*${term}*)(uid=*${term}*)${ad ? `(sAMAccountName=*${term}*)(displayName=*${term}*)(userPrincipalName=*${term}*)` : ''}))`
     : objectFilter;
   return withClient(cfg, async (c) => {
     await serviceBind(c, cfg, bindPassword);
@@ -353,20 +523,20 @@ export async function ldapBrowse(
         attributes: ['dn', cfg.nameAttr, cfg.emailAttr, 'ou', 'userAccountControl'].map((a) =>
           a.toLowerCase(),
         ),
-        sizeLimit: query.limit,
+        sizeLimit: Math.min(offset + query.limit + 1, 501),
         paged: false,
       });
       return {
-        entries: result.searchEntries.slice(0, query.limit).map((e) => ({
+        entries: result.searchEntries.slice(offset, offset + query.limit).map((e) => ({
           dn: e.dn,
           name: str(pick(e, cfg.nameAttr)) || str(pick(e, 'ou')),
           email: str(pick(e, cfg.emailAttr)),
           disabled: (Number(str(pick(e, 'userAccountControl')) || 0) & 2) === 2,
         })),
-        truncated: result.searchEntries.length >= query.limit,
+        truncated: result.searchEntries.length > offset + query.limit,
       };
     } catch (e) {
-      throw new LdapError(`Browse failed: ${(e as Error).message}`, 'search');
+      throw classifyLdapError(e, 'search');
     }
   });
 }

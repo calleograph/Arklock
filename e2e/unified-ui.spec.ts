@@ -410,7 +410,8 @@ test('«Что нового»: сообщение после обновлени�
   const dialog = member.getByTestId('whatsnew-dialog');
   await expect(dialog).toBeVisible();
   // сводка пропущенных версий: несколько выпусков, а не один
-  expect(await dialog.locator('[data-testid^="release-"]').count()).toBeGreaterThan(3);
+  // примечания подгружаются отдельно от окна: ждём их, а не считаем в момент открытия
+  await expect.poll(() => dialog.locator('[data-testid^="release-"]').count()).toBeGreaterThan(3);
   await expect(dialog.getByTestId('whatsnew-full')).toHaveAttribute('href', /releases\/tag\/v/);
   await member.getByTestId('whatsnew-close').click();
   await expect(member.getByTestId('updated-banner')).toHaveCount(0);
@@ -1351,16 +1352,17 @@ test('каталог LDAPS: адрес исправляется, ошибки п
     await expect(chief.getByTestId('ldap-ca-info')).toContainText(/Корневой центр|Root authority/);
     await expect(chief.getByTestId('ldap-ca-chain-ok')).toBeVisible();
     await chief.getByTestId('ldap-enabled').check();
+    await chief.getByTestId('ldap-access-all').check();
     // проверка того, что в форме, до сохранения: все этапы пройдены
     await chief.getByTestId('ldap-test').click();
     await expect(chief.getByTestId('ldap-result')).toContainText(/работает|works/);
     for (const stage of ['config', 'dns', 'tcp', 'tls', 'bind', 'base', 'filter', 'users'])
       await expect(chief.locator(`[data-stage="${stage}"]`)).toHaveAttribute('data-ok', 'true');
     // сохранение: подтверждение не нужно (LDAPS с проверкой), пометка «не сохранено» исчезает
-    await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+    await expect(chief.getByTestId('unsaved-hint').first()).toBeVisible();
     await chief.getByTestId('ldap-save').click();
     await expect(chief.getByTestId('ldap-notice')).toBeVisible();
-    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    await expect(chief.getByTestId('unsaved-hint').first()).toBeHidden();
     await expect(chief.getByTestId('ldap-reauth')).toHaveCount(0);
     await chief.screenshot({ path: 'docs/screenshots/ui-ldap-check.png', fullPage: true });
     // повторное открытие: значения на месте, пароль не возвращается, сертификат описан
@@ -1369,12 +1371,12 @@ test('каталог LDAPS: адрес исправляется, ошибки п
     await expect(chief.getByTestId('ldap-binddn')).toHaveValue(SVC);
     await expect(chief.getByTestId('ldap-bindpw')).toHaveValue('');
     await expect(chief.getByTestId('ldap-ca-info')).toBeVisible();
-    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    await expect(chief.getByTestId('unsaved-hint').first()).toBeHidden();
     // правка другого поля сохраняет прежний пароль служебной записи
     await chief.getByTestId('ldap-profile-name').fill('Каталог организации');
-    await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+    await expect(chief.getByTestId('unsaved-hint').first()).toBeVisible();
     await chief.getByTestId('ldap-save').click();
-    await expect(chief.getByTestId('unsaved-hint')).toBeHidden();
+    await expect(chief.getByTestId('unsaved-hint').first()).toBeHidden();
     await chief.getByTestId('ldap-test').click();
     await expect(chief.getByTestId('ldap-result')).toContainText(/работает|works/);
     // неверный пароль: этап входа и понятная причина

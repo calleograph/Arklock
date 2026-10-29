@@ -119,6 +119,8 @@ export const ruDirectory = {
       },
       tls: {
         ok: 'TLS {protocol}: сертификат «{subject}» (издатель «{issuer}») проверен.',
+        pinned:
+          'TLS {protocol}: сервер предъявил сертификат, которому вы доверяете (отпечаток совпал).',
         plaintext: 'Без шифрования: пароли передаются открыто.',
         unverified: 'Проверка сертификата отключена: подлинность сервера не подтверждена.',
         cert_untrusted:
@@ -190,6 +192,87 @@ export const ruDirectory = {
       ok: 'Подтвердить и сохранить',
     },
     saved: 'Настройки подключения сохранены.',
+    steps: {
+      connection: '1. Подключение к каталогу',
+      connectionHint:
+        'Адрес контроллера домена, сертификат (если нужен) и служебная учётная запись для поиска сотрудников. Проверьте и сохраните.',
+      login: '2. Вход сотрудников',
+      loginHint:
+        'Кто может входить доменной учётной записью. Затем проверьте вход реального сотрудника: это подтверждает, что вход готов.',
+      advanced: '3. Дополнительно',
+      advancedHint:
+        'Синхронизация, сопоставление групп, сведения о сотрудниках, фильтр поиска и просмотр каталога. Для входа не обязательны.',
+    },
+    type: { label: 'Каталог', ad: 'Active Directory', ldap: 'Другой LDAP-каталог' },
+    special: 'Особые случаи: StartTLS, без шифрования, без проверки сертификата',
+    baseDnAuto: 'Определяется по каталогу при проверке подключения (можно изменить).',
+    baseDnDetected: 'Определено по каталогу: {baseDn}',
+    saveConnection: 'Сохранить подключение',
+    status: {
+      notSaved: 'Подключение ещё не сохранено.',
+      connectionOk: 'Подключение проверено {at}.',
+      connectionFail: 'Последняя проверка подключения не прошла ({at}).',
+      connectionUnknown: 'Подключение сохранено, но не проверено.',
+      loginOff: 'Вход сотрудников выключен.',
+      loginOn: 'Вход сотрудников включён.',
+      loginOk: 'Вход сотрудника проверен {at}.',
+      loginUnchecked: 'Вход сотрудника ещё не проверялся: проверьте его на шаге 2.',
+      loginFail: 'Последняя проверка входа не прошла ({at}).',
+      extras: 'Дополнительно: групп Arklock сопоставлено {groups}, синхронизация {sync}.',
+      syncOn: 'включена',
+      syncOff: 'выключена',
+    },
+    enable: 'Разрешить вход доменным учётным записям',
+    access: {
+      label: 'Кто может входить',
+      all: 'Все действующие учётные записи каталога (найденные фильтром; отключённые не входят)',
+      groups:
+        'Только участники выбранных групп каталога (с учётом вложенных групп Active Directory)',
+      required: 'Выберите, кто может входить: доступ всем не открывается без вашего решения.',
+      groupsRequired: 'Добавьте хотя бы одну группу или выберите «Все действующие учётные записи».',
+      groupDn: 'DN группы, например CN=Сотрудники,OU=Группы,DC=example,DC=com',
+      addGroup: 'Добавить группу',
+      findGroup: 'Найти группу в каталоге',
+      legacy: 'Подключение работало так до версии 1.87.0: входят все, кого находит фильтр.',
+    },
+    provision: 'Создавать учётную запись Arklock при первом входе сотрудника',
+    provisionHint:
+      'При первом входе сотрудник сам задаёт пароль разблокировки сейфов: ключи шифрования создаются в его браузере. Доменный пароль только подтверждает личность и не сохраняется.',
+    loginTest: {
+      title: 'Проверить вход сотрудника',
+      username: "Учётная запись сотрудника (логин, DOMAIN\\логин или логин{'@'}домен)",
+      password: 'Пароль сотрудника в домене',
+      run: 'Проверить вход',
+      note: 'Пароль проверяет каталог; он не сохраняется и не записывается в журнал. Учётная запись в Arklock не создаётся.',
+      needSave: 'Сначала сохраните подключение.',
+      found: 'Найден: {name} <{email}>, групп: {groups}.',
+      reason: {
+        ok: 'Вход работает: сотрудник может войти в Arklock.',
+        not_allowed:
+          'Пароль верный, но учётная запись не входит в разрешённые группы: вход будет отклонён.',
+        local_exists:
+          'В Arklock уже есть локальная учётная запись с этим адресом: она не присоединяется автоматически.',
+        blocked_in_arklock: 'Учётная запись сотрудника заблокирована в Arklock.',
+        not_provisioned:
+          'Пароль верный, но создание учётных записей при первом входе выключено: сотрудник не сможет войти впервые.',
+        login_disabled: 'Пароль верный, но вход сотрудников выключен (флажок выше).',
+        user_not_found:
+          'Сотрудник не найден: проверьте логин, Base DN и фильтр. Отключённые учётные записи не находятся.',
+        ambiguous_user: 'Найдено несколько учётных записей: уточните логин или фильтр.',
+        account_disabled: 'Учётная запись отключена в каталоге.',
+        no_email: 'У учётной записи нет адреса почты в каталоге: Arklock не может её создать.',
+        password_missing: 'Введите пароль сотрудника.',
+      },
+    },
+    trust: {
+      button: 'Доверять этому сертификату',
+      confirm:
+        'Доверять сертификату «{subject}»?\n\nОтпечаток SHA-256:\n{fingerprint}\n\nСверьте отпечаток с сертификатом контроллера домена. Подключение будет принимать только этот сертификат — даже самоподписанный или выданный на другое имя.',
+      hint: 'Если это сертификат вашего контроллера домена, ему можно доверять по отпечатку.',
+      pinned: 'Доверенный сертификат сервера: отпечаток {fingerprint}',
+      remove: 'Перестать доверять',
+    },
+    browse: { activeOnly: 'Только действующие учётные записи', more: 'Показать ещё' },
   },
 };
 
@@ -312,6 +395,8 @@ export const enDirectory = {
       },
       tls: {
         ok: 'TLS {protocol}: the certificate “{subject}” (issuer “{issuer}”) is verified.',
+        pinned:
+          'TLS {protocol}: the server presented the certificate you trust (the fingerprint matches).',
         plaintext: 'No encryption: passwords travel in the clear.',
         unverified: 'Certificate verification is off: the server identity is not confirmed.',
         cert_untrusted:
@@ -384,5 +469,86 @@ export const enDirectory = {
       ok: 'Confirm and save',
     },
     saved: 'Connection settings saved.',
+    steps: {
+      connection: '1. Directory connection',
+      connectionHint:
+        'Domain controller address, certificate (if needed) and a service account to look up employees. Check and save.',
+      login: '2. Employee sign-in',
+      loginHint:
+        'Who may sign in with a domain account. Then check a real employee sign-in: it confirms that sign-in is ready.',
+      advanced: '3. Advanced',
+      advancedHint:
+        'Synchronisation, group mapping, employee details, the search filter and directory browsing. Not needed for sign-in.',
+    },
+    type: { label: 'Directory', ad: 'Active Directory', ldap: 'Other LDAP directory' },
+    special: 'Special cases: StartTLS, no encryption, no certificate check',
+    baseDnAuto: 'Detected from the directory during the connection check (can be changed).',
+    baseDnDetected: 'Detected from the directory: {baseDn}',
+    saveConnection: 'Save connection',
+    status: {
+      notSaved: 'The connection is not saved yet.',
+      connectionOk: 'Connection verified {at}.',
+      connectionFail: 'The last connection check failed ({at}).',
+      connectionUnknown: 'The connection is saved but not checked.',
+      loginOff: 'Employee sign-in is off.',
+      loginOn: 'Employee sign-in is on.',
+      loginOk: 'Employee sign-in verified {at}.',
+      loginUnchecked: 'Employee sign-in has not been checked yet: check it in step 2.',
+      loginFail: 'The last sign-in check failed ({at}).',
+      extras: 'Advanced: Arklock groups mapped {groups}, synchronisation {sync}.',
+      syncOn: 'on',
+      syncOff: 'off',
+    },
+    enable: 'Allow sign-in with domain accounts',
+    access: {
+      label: 'Who may sign in',
+      all: 'Every active directory account (found by the filter; disabled ones cannot sign in)',
+      groups: 'Only members of selected directory groups (nested Active Directory groups included)',
+      required: 'Choose who may sign in: access is not opened to everyone without your decision.',
+      groupsRequired: 'Add at least one group or choose “Every active directory account”.',
+      groupDn: 'Group DN, e.g. CN=Staff,OU=Groups,DC=example,DC=com',
+      addGroup: 'Add group',
+      findGroup: 'Find a group in the directory',
+      legacy:
+        'This connection worked like this before 1.87.0: everyone found by the filter signs in.',
+    },
+    provision: 'Create an Arklock account at the employee’s first sign-in',
+    provisionHint:
+      'At the first sign-in the employee sets the vault unlock password: encryption keys are created in their browser. The domain password only confirms identity and is never stored.',
+    loginTest: {
+      title: 'Check employee sign-in',
+      username: "Employee account (login, DOMAIN\\login or login{'@'}domain)",
+      password: 'Employee domain password',
+      run: 'Check sign-in',
+      note: 'The directory checks the password; it is not stored or logged. No Arklock account is created.',
+      needSave: 'Save the connection first.',
+      found: 'Found: {name} <{email}>, groups: {groups}.',
+      reason: {
+        ok: 'Sign-in works: the employee can sign in to Arklock.',
+        not_allowed:
+          'The password is right, but the account is not in an allowed group: sign-in will be refused.',
+        local_exists:
+          'Arklock already has a local account with this address: it is not joined automatically.',
+        blocked_in_arklock: 'The employee account is blocked in Arklock.',
+        not_provisioned:
+          'The password is right, but creating accounts at first sign-in is off: the employee cannot sign in the first time.',
+        login_disabled: 'The password is right, but employee sign-in is off (the checkbox above).',
+        user_not_found:
+          'The employee is not found: check the login, Base DN and filter. Disabled accounts are not found.',
+        ambiguous_user: 'Several accounts match: refine the login or the filter.',
+        account_disabled: 'The account is disabled in the directory.',
+        no_email: 'The account has no e-mail address in the directory: Arklock cannot create it.',
+        password_missing: 'Enter the employee password.',
+      },
+    },
+    trust: {
+      button: 'Trust this certificate',
+      confirm:
+        'Trust the certificate “{subject}”?\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare the fingerprint with the domain controller certificate. The connection will accept only this certificate — even a self-signed one or one issued for another name.',
+      hint: 'If this is your domain controller certificate, it can be trusted by fingerprint.',
+      pinned: 'Trusted server certificate: fingerprint {fingerprint}',
+      remove: 'Stop trusting',
+    },
+    browse: { activeOnly: 'Active accounts only', more: 'Show more' },
   },
 };
