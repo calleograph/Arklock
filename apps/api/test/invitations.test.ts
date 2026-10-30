@@ -282,6 +282,7 @@ describe('mail: invitation delivery and security notices', () => {
       port: smtpPort,
       security: 'none',
       from: 'arklock@example.com',
+      confirmInsecure: true,
     });
     const r2 = await admin.req('POST', '/admin/invitations', {
       email: 'mailed@example.com',

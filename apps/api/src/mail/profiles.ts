@@ -242,8 +242,9 @@ export const loopbackAllowed = (ctx: AppContext): boolean =>
   ctx.config.NODE_ENV === 'test' || ctx.config.SMTP_ALLOW_LOOPBACK === 'on';
 
 export async function toSmtpConfig(ctx: AppContext, s: StoredSmtp): Promise<SmtpConfig> {
-  const cas = s.caId ? await loadTrustedCas(ctx) : [];
-  const ca = cas.find((c) => c.id === s.caId);
+  // доверенные центры организации хранятся на сервере (в базе) и применяются ко всем профилям: выбирать их в профиле
+  // не нужно. Раньше центр действовал, только если был выбран в профиле, и добавление «молча» ничего не меняло.
+  const cas = s.security === 'none' ? [] : await loadTrustedCas(ctx);
   return {
     host: s.host,
     port: s.port,
@@ -254,7 +255,7 @@ export async function toSmtpConfig(ctx: AppContext, s: StoredSmtp): Promise<Smtp
     fromName: s.fromName || undefined,
     timeoutMs: s.timeoutSec * 1000,
     verifyCert: s.verifyCert,
-    ca: ca ? [ca.pem] : undefined,
+    ca: cas.length ? cas.map((c) => c.pem) : undefined,
     password: s.passwordCipher
       ? openSetting(
           ctx.config.APP_SECRET,

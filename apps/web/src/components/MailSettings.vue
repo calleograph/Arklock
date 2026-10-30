@@ -1,34 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
-import { confirmStepUp, stepUpHeaders } from '../services/stepup';
 import { errorMessage, when } from '../services/helpers';
-import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
 import InfoHint from './InfoHint.vue';
 import UnsavedHint from './UnsavedHint.vue';
 import SwitchField from './SwitchField.vue';
+import SmtpCheckView, { type SmtpCheck } from './SmtpCheckView.vue';
 import { useDirty } from '../services/dirty';
 
-interface Stage {
-  stage: string;
-  ok: boolean;
-  skipped?: boolean;
-  warn?: boolean;
-  code?: string;
-  smtpStatus?: number;
-  serverText?: string;
-  info?: Record<string, string | number | boolean | string[]>;
-}
-interface Check {
-  ok: boolean;
-  code?: string;
-  stage?: string | null;
-  smtpStatus?: number | null;
-  text?: string | null;
-  stages: Stage[];
-}
+type Check = SmtpCheck;
 interface Profile {
   id: string;
   name: string;
@@ -56,13 +38,20 @@ interface Profile {
     lastSuccessAt: string | null;
   };
 }
+/** Центр, как его хранит сервер (сведения читаются с сервера, а не берутся из того, что отправил браузер). */
 interface Ca {
   id: string;
   name: string;
   subject: string;
+  issuer: string;
   validTo: string;
   fingerprint256: string;
-  usedBy: string[];
+  kind: 'root' | 'intermediate' | 'leaf';
+  chainToRoot: boolean;
+  expired: boolean;
+  daysLeft: number;
+  stored: boolean;
+  appliesToAll: boolean;
 }
 interface Row {
   id: string;
@@ -86,7 +75,6 @@ interface Row {
 }
 
 const { t, te } = useI18n();
-const auth = useAuthStore();
 const TYPES = ['invitation', 'security', 'test'] as const;
 const PORTS = { starttls: 587, tls: 465, none: 25 } as const;
 const tab = ref<'profiles' | 'log'>('profiles');
@@ -110,34 +98,6 @@ async function load(): Promise<void> {
     error.value = errorMessage(e, t);
   }
   loaded.value = true;
-}
-
-/** Небезопасные режимы просят мастер-пароль: подтверждение действует 15 минут на все такие действия сеанса. */
-const pending = ref<((h: Record<string, string>) => Promise<unknown>) | null>(null);
-const password = ref('');
-async function withStep(action: (h: Record<string, string>) => Promise<unknown>): Promise<boolean> {
-  error.value = '';
-  try {
-    await action(stepUpHeaders() ?? {});
-    return true;
-  } catch (e) {
-    if (e instanceof ApiError && e.code === 'reauth_required') pending.value = action;
-    else error.value = errorMessage(e, t);
-    return false;
-  }
-}
-async function submitPassword(): Promise<void> {
-  const action = pending.value;
-  if (!action || !auth.user) return;
-  try {
-    const h = await confirmStepUp(auth.user, password.value);
-    password.value = '';
-    pending.value = null;
-    await action(h);
-    await afterSave();
-  } catch (e) {
-    error.value = errorMessage(e, t);
-  }
 }
 
 // ——— форма профиля ———
@@ -181,30 +141,103 @@ const blank = (): Form => ({
   plainAuth: false,
 });
 const { dirty, clean, reset } = useDirty(() => form.value);
+/** Сохранённый профиль, который сейчас правится: с ним сравниваются изменения и решение о снижении защиты. */
+const editing = computed(() => profiles.value.find((p) => p.id === form.value?.id) ?? null);
 function edit(p: Profile | null): void {
   notice.value = '';
   error.value = '';
+  formError.value = '';
+  fieldErrors.value = {};
+  draftCheck.value = null;
+  confirmInsecure.value = false;
+  // в форму попадают только поля формы: служебные сведения карточки (состояние, доверие) остаются в карточке
   form.value = p
     ? {
-        ...p,
+        ...blank(),
         id: p.id,
-        password: '',
+        name: p.name,
+        host: p.host,
+        port: p.port,
+        security: p.security,
+        auth: p.auth,
+        user: p.user,
+        hasPassword: p.hasPassword,
+        from: p.from,
+        fromName: p.fromName,
+        timeoutSec: p.timeoutSec,
+        verifyCert: p.verifyCert,
+        caId: p.caId,
         purposes: [...p.purposes],
+        fallback: p.fallback,
         plainAuth: p.plainAuth ?? (p.security === 'none' && p.auth === 'password'),
       }
     : blank();
   clean();
 }
+function cancelEdit(): void {
+  form.value = null;
+  reset();
+  formError.value = '';
+  fieldErrors.value = {};
+  draftCheck.value = null;
+}
+// ошибки сохранения и проверки — в форме, под полями; введённые значения не теряются
+const formError = ref('');
+const fieldErrors = ref<Record<string, string>>({});
+function showFailure(e: unknown): void {
+  fieldErrors.value = {};
+  if (e instanceof ApiError && e.code === 'validation_error' && Array.isArray(e.details)) {
+    for (const d of e.details as { path: string; code: string }[]) {
+      const f = String(d.path).split('.')[0]!;
+      fieldErrors.value[f] = te(`mail.field.${d.code}`)
+        ? t(`mail.field.${d.code}`)
+        : t('error.validation');
+    }
+  }
+  formError.value = errorMessage(e, t);
+}
+/**
+ * Снижение защиты по сравнению с сохранённым профилем (или новый профиль без защиты): главный администратор
+ * подтверждает это флажком в форме. Пароль разблокировки сейфов не нужен.
+ */
+const confirmInsecure = ref(false);
+const lowering = computed(() => {
+  const f = form.value;
+  if (!f) return false;
+  const was = editing.value;
+  const plaintext = f.security === 'none';
+  const unverified = !plaintext && !f.verifyCert;
+  const plainAuth = plaintext && f.auth === 'password';
+  const wasPlainAuth =
+    !!was && was.security === 'none' && was.auth === 'password' && (was.plainAuth ?? true);
+  return (
+    (plaintext && was?.security !== 'none') ||
+    (unverified && was?.verifyCert !== false) ||
+    (plainAuth && !wasPlainAuth)
+  );
+});
 /** NTLM сервер принимает только по шифрованному соединению: без него форма не даёт сохранить и объясняет почему. */
 const ntlmNeedsTls = computed(() => form.value?.auth === 'ntlm' && form.value.security === 'none');
 /** Пароль по соединению без шифрования отправляется только с явным согласием (флажок под предупреждением). */
 const plainAuthAsked = computed(
   () => form.value?.auth === 'password' && form.value.security === 'none',
 );
+/** Порт по умолчанию подставляется, только если стоял порт по умолчанию прежнего режима (свой порт не теряется). */
 function setSecurity(v: Form['security']): void {
   if (!form.value) return;
+  if (Object.values(PORTS).includes(Number(form.value.port) as 25 | 465 | 587))
+    form.value.port = PORTS[v];
   form.value.security = v;
-  form.value.port = PORTS[v];
+}
+/** Смена способа входа не оставляет в форме данные прежнего способа. */
+function setAuth(v: Form['auth']): void {
+  if (!form.value) return;
+  if (v === 'none') {
+    form.value.user = '';
+    form.value.password = '';
+  }
+  if (v !== 'password') form.value.plainAuth = false;
+  form.value.auth = v;
 }
 const body = (f: Form) => ({
   name: f.name.trim(),
@@ -217,16 +250,20 @@ const body = (f: Form) => ({
   from: f.from.trim(),
   fromName: f.fromName.trim(),
   timeoutSec: Number(f.timeoutSec),
-  verifyCert: f.verifyCert,
-  caId: f.caId,
+  // без шифрования проверять нечего: сертификат и центр не передаются как действующие
+  verifyCert: f.security === 'none' ? true : f.verifyCert,
+  // доверенные центры применяются ко всем профилям на сервере: в профиле их выбирать не нужно
+  caId: null,
   purposes: f.purposes,
   fallback: f.fallback,
   plainAuth: f.security === 'none' && f.auth === 'password' ? f.plainAuth : false,
+  ...(lowering.value ? { confirmInsecure: confirmInsecure.value } : {}),
 });
 const saving = ref(false);
 async function afterSave(): Promise<void> {
   form.value = null;
   reset();
+  draftCheck.value = null;
   notice.value = t('mail.form.saved');
   await load();
 }
@@ -234,13 +271,34 @@ async function save(): Promise<void> {
   const f = form.value;
   if (!f || saving.value) return;
   saving.value = true;
-  const ok = await withStep((h) =>
-    f.id
-      ? api('PUT', `/admin/smtp/profiles/${f.id}`, body(f), { headers: h })
-      : api('POST', `/admin/smtp/profiles`, body(f), { headers: h }),
-  );
-  saving.value = false;
-  if (ok) await afterSave();
+  formError.value = '';
+  error.value = '';
+  try {
+    if (f.id) await api('PUT', `/admin/smtp/profiles/${f.id}`, body(f));
+    else await api('POST', `/admin/smtp/profiles`, body(f));
+    await afterSave();
+  } catch (e) {
+    showFailure(e);
+  } finally {
+    saving.value = false;
+  }
+}
+/** Проверка того, что сейчас в форме, без сохранения. */
+const draftCheck = ref<SmtpCheck | 'run' | null>(null);
+async function checkDraft(): Promise<void> {
+  const f = form.value;
+  if (!f || draftCheck.value === 'run') return;
+  draftCheck.value = 'run';
+  formError.value = '';
+  try {
+    draftCheck.value = await api<SmtpCheck>('POST', '/admin/smtp/check-draft', {
+      ...body(f),
+      ...(f.id ? { id: f.id } : {}),
+    });
+  } catch (e) {
+    draftCheck.value = null;
+    showFailure(e);
+  }
 }
 async function activate(p: Profile): Promise<void> {
   try {
@@ -319,69 +377,6 @@ function errInfo(
   return { title: t(`${key}.title`), hint: [extra, t(`${key}.hint`)].filter(Boolean).join('. ') };
 }
 const text = (s: unknown) => (typeof s === 'string' ? s : s == null ? '' : String(s));
-function stageLine(s: Stage): string {
-  const i = s.info ?? {};
-  if (s.skipped) return t(s.stage === 'auth' ? 'mail.detail.authSkipped' : 'mail.detail.skipped');
-  switch (s.stage) {
-    case 'dns':
-      return t('mail.detail.dns', { addresses: text(i.addresses) });
-    case 'tcp':
-      return t('mail.detail.tcp', { address: text(i.address) });
-    case 'greeting':
-      return text(i.banner);
-    case 'ehlo':
-      return text(i.features);
-    case 'tls':
-      return t('mail.detail.tlsOk', { protocol: text(i.protocol) });
-    case 'certificate':
-      return s.ok
-        ? t(s.warn ? 'mail.detail.certUnverified' : 'mail.detail.certTrusted', {
-            subject: text(i.subject),
-            issuer: text(i.issuer),
-            validTo: i.validTo ? when(text(i.validTo)).slice(0, 10) : '',
-          })
-        : '';
-    case 'methods': {
-      const list = (v: unknown) =>
-        Array.isArray(v) && v.length ? v.join(', ') : t('mail.detail.methodsNone');
-      return t('mail.detail.methods', { before: list(i.before), after: list(i.after) });
-    }
-    case 'auth':
-      return s.ok ? t('mail.detail.authOk') : '';
-    default:
-      return '';
-  }
-}
-const STAGE_ORDER = ['dns', 'tcp', 'greeting', 'ehlo', 'tls', 'certificate', 'methods', 'auth'];
-/** Этапы по порядку; последний результат этапа (при отказе он идёт вторым), не дошедшие — «не выполнялось». */
-function stageRows(c: Check): { stage: string; s: Stage | null }[] {
-  const last = new Map<string, Stage>();
-  for (const s of c.stages) last.set(s.stage, s);
-  return STAGE_ORDER.map((stage) => ({ stage, s: last.get(stage) ?? null }));
-}
-function certProbe(c: Check): string {
-  const s = c.stages.find((x) => x.stage === 'certificate' && !x.ok);
-  const i = s?.info;
-  if (!i?.subject) return '';
-  return t('mail.detail.cert', {
-    subject: text(i.subject),
-    issuer: text(i.issuer),
-    validTo: i.validTo ? when(text(i.validTo)).slice(0, 10) : '',
-    fingerprint: text(i.fingerprint256),
-  });
-}
-/** Сертификат, который предъявил сервер при отказе проверки: его можно принять как доверенный по отпечатку. */
-function presentedCert(c: Check): { subject: string; fingerprint256: string } | null {
-  const i = c.stages.find((x) => x.stage === 'certificate' && !x.ok)?.info;
-  if (
-    !i?.fingerprint256 ||
-    i.reason === 'expired' ||
-    i.reason === 'not_yet_valid' ||
-    i.reason === 'revoked'
-  )
-    return null;
-  return { subject: text(i.subject), fingerprint256: text(i.fingerprint256) };
-}
 async function trustCert(
   p: Profile,
   c: { subject: string; fingerprint256: string },
@@ -413,23 +408,33 @@ async function untrustCert(p: Profile): Promise<void> {
     error.value = errorMessage(e, t);
   }
 }
-function failReason(c: Check): unknown {
-  return c.stages.find((x) => !x.ok && x.info?.reason)?.info?.reason;
-}
-
 // ——— доверенные сертификаты ———
 const caOpen = ref(false);
+/** Открыть блок «Доверенные сертификаты» и показать его (подсказка в результате проверки). */
+function openCas(): void {
+  caOpen.value = true;
+  void nextTick(() =>
+    document
+      .querySelector('[data-testid="mail-cas"]')
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+  );
+}
 const caForm = ref({ name: '', pem: '', data: '', file: '' });
 async function addCa(): Promise<void> {
   error.value = '';
   try {
     const f = caForm.value;
-    await api('POST', '/admin/smtp/cas', {
+    const r = await api<{ saved: Ca[]; alreadyStored: number }>('POST', '/admin/smtp/cas', {
       name: f.name.trim(),
       ...(f.data ? { data: f.data } : { pem: f.pem }),
     });
     caForm.value = { name: '', pem: '', data: '', file: '' };
     await load();
+    // сообщение строится по ответу сервера: что он реально сохранил и достаточно ли этого для проверки цепочки
+    const missing = r.saved.some((c) => c.kind === 'intermediate' && !c.chainToRoot);
+    notice.value = r.saved.length
+      ? `${t('mail.ca.savedOnServer', { n: r.saved.length })}${missing ? ' ' + t('mail.ca.needRoot') : ''}`
+      : t('mail.ca.alreadyStored');
   } catch (e) {
     const problem =
       (e instanceof ApiError && (e.details as { problem?: string } | undefined)?.problem) || '';
@@ -442,6 +447,7 @@ async function addCa(): Promise<void> {
   }
 }
 async function removeCa(c: Ca): Promise<void> {
+  if (!window.confirm(t('mail.ca.removeConfirm', { name: c.name }))) return;
   try {
     await api('DELETE', `/admin/smtp/cas/${c.id}`);
     await load();
@@ -584,31 +590,6 @@ const typeLabel = (r: Row) =>
       {{ notice }}
     </p>
 
-    <form
-      v-if="pending"
-      class="card flex flex-wrap items-end gap-2 p-3 text-sm"
-      data-testid="mail-reauth"
-      @submit.prevent="submitPassword"
-    >
-      <div class="w-full text-xs text-slate-500">
-        <strong class="text-slate-700 dark:text-slate-200">{{ t('mail.reauth.title') }}.</strong>
-        {{ t('mail.reauth.hint') }}
-      </div>
-      <input
-        v-model="password"
-        type="password"
-        autocomplete="current-password"
-        class="input min-w-64 flex-1"
-        :aria-label="t('mail.reauth.title')"
-        data-testid="mail-reauth-password"
-        required
-      />
-      <button type="submit" class="btn-primary" data-testid="mail-reauth-ok">
-        {{ t('mail.reauth.confirm') }}
-      </button>
-      <button type="button" class="btn" @click="pending = null">{{ t('mail.form.cancel') }}</button>
-    </form>
-
     <!-- Профили -->
     <div v-if="tab === 'profiles'" class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -634,152 +615,193 @@ const typeLabel = (r: Row) =>
 
       <form
         v-if="form"
-        class="card space-y-3 p-4 text-sm"
+        class="card space-y-4 p-4 text-sm"
+        novalidate
         data-testid="smtp-form"
         @submit.prevent="save"
       >
-        <h3 class="font-semibold">
-          {{ form.id ? t('mail.form.editTitle', { name: form.name }) : t('mail.form.newTitle') }}
-        </h3>
-        <div class="form-grid">
-          <label class="block sm:col-span-2">
-            <span class="field-label">{{ t('mail.form.name') }}</span>
-            <input
-              v-model="form.name"
-              required
-              maxlength="100"
-              class="input"
-              :placeholder="t('mail.form.namePh')"
-              data-testid="smtp-name"
-            />
-          </label>
-          <label class="block">
-            <span class="field-label">{{ t('mail.form.host') }}</span>
-            <input
-              v-model="form.host"
-              required
-              class="input"
-              autocomplete="off"
-              spellcheck="false"
-              :placeholder="t('mail.form.hostPh')"
-              data-testid="smtp-host"
-            />
-          </label>
-          <label class="block">
-            <span class="field-label"
-              >{{ t('mail.form.security') }}<InfoHint :text="t('mail.form.securityHint')"
-            /></span>
-            <select
-              :value="form.security"
-              class="input"
-              data-testid="smtp-security"
-              @change="setSecurity(($event.target as HTMLSelectElement).value as Form['security'])"
-            >
-              <option value="starttls">{{ t('mail.form.secStarttls') }}</option>
-              <option value="tls">{{ t('mail.form.secTls') }}</option>
-              <option value="none">{{ t('mail.form.secNone') }}</option>
-            </select>
-          </label>
-          <label class="block">
-            <span class="field-label">{{ t('mail.form.port') }}</span>
-            <input
-              v-model.number="form.port"
-              type="number"
-              min="1"
-              max="65535"
-              required
-              class="input"
-              data-testid="smtp-port"
-            />
-          </label>
-          <label class="block">
-            <span class="field-label">{{ t('mail.form.timeout') }}</span>
-            <input
-              v-model.number="form.timeoutSec"
-              type="number"
-              min="3"
-              max="120"
-              required
-              class="input"
-              data-testid="smtp-timeout"
-            />
-          </label>
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 class="font-semibold">
+            {{ form.id ? t('mail.form.editTitle', { name: form.name }) : t('mail.form.newTitle') }}
+          </h3>
+          <span v-if="form.id && dirty" class="text-xs text-amber-700 dark:text-amber-300">{{
+            t('mail.form.cardShowsSaved')
+          }}</span>
         </div>
-        <p v-if="form.security === 'none'" class="notice notice-warn" data-testid="smtp-none-warn">
-          {{ t('mail.form.noneWarn') }}
-        </p>
-        <SwitchField
-          v-if="plainAuthAsked"
-          v-model="form.plainAuth"
-          :label="t('mail.form.plainAuth')"
-          data-testid="smtp-plain-auth"
-        />
 
-        <div class="form-grid">
-          <label class="block sm:col-span-2">
-            <span class="field-label"
-              >{{ t('mail.form.auth')
-              }}<InfoHint v-if="form.auth === 'ntlm'" :text="t('mail.form.ntlmHint')"
-            /></span>
-            <select v-model="form.auth" class="input" data-testid="smtp-auth">
-              <option value="none">{{ t('mail.form.authNone') }}</option>
-              <option value="password">{{ t('mail.form.authPassword') }}</option>
-              <option value="ntlm">{{ t('mail.form.authNtlm') }}</option>
-            </select>
-            <p v-if="ntlmNeedsTls" class="field-error" role="alert" data-testid="smtp-ntlm-tls">
-              {{ t('mail.form.ntlmNeedsTls') }}
-            </p>
-          </label>
-          <template v-if="form.auth !== 'none'">
-            <label class="block">
-              <span class="field-label">{{ t('mail.form.user') }}</span>
+        <!-- сервер -->
+        <fieldset class="space-y-2">
+          <legend class="font-medium">{{ t('mail.form.secServer') }}</legend>
+          <div class="form-grid">
+            <label class="block sm:col-span-2">
+              <span class="field-label">{{ t('mail.form.name') }}</span>
               <input
-                v-model="form.user"
-                required
+                v-model="form.name"
+                maxlength="100"
+                class="input"
+                :placeholder="t('mail.form.namePh')"
+                data-testid="smtp-name"
+              />
+              <p v-if="fieldErrors.name" class="field-error">{{ fieldErrors.name }}</p>
+            </label>
+            <label class="block">
+              <span class="field-label">{{ t('mail.form.host') }}</span>
+              <input
+                v-model="form.host"
                 class="input"
                 autocomplete="off"
-                :placeholder="form.auth === 'ntlm' ? t('mail.form.userNtlm') : ''"
-                data-testid="smtp-user"
+                spellcheck="false"
+                :placeholder="t('mail.form.hostPh')"
+                data-testid="smtp-host"
               />
+              <p v-if="fieldErrors.host" class="field-error">{{ fieldErrors.host }}</p>
             </label>
             <label class="block">
               <span class="field-label"
-                >{{ t('mail.form.password') }}<InfoHint :text="t('mail.form.passwordHint')"
+                >{{ t('mail.form.security') }}<InfoHint :text="t('mail.form.securityHint')"
               /></span>
-              <input
-                v-model="form.password"
-                type="password"
+              <select
+                :value="form.security"
                 class="input"
-                autocomplete="new-password"
-                :placeholder="form.hasPassword ? t('mail.form.passwordSet') : ''"
-                data-testid="smtp-password"
+                data-testid="smtp-security"
+                @change="
+                  setSecurity(($event.target as HTMLSelectElement).value as Form['security'])
+                "
+              >
+                <option value="starttls">{{ t('mail.form.secStarttls') }}</option>
+                <option value="tls">{{ t('mail.form.secTls') }}</option>
+                <option value="none">{{ t('mail.form.secNone') }}</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="field-label">{{ t('mail.form.port') }}</span>
+              <input
+                v-model.number="form.port"
+                type="number"
+                min="1"
+                max="65535"
+                class="input"
+                data-testid="smtp-port"
+              />
+              <p v-if="fieldErrors.port" class="field-error">{{ fieldErrors.port }}</p>
+            </label>
+            <label class="block">
+              <span class="field-label">{{ t('mail.form.timeout') }}</span>
+              <input
+                v-model.number="form.timeoutSec"
+                type="number"
+                min="3"
+                max="120"
+                class="input"
+                data-testid="smtp-timeout"
               />
             </label>
-          </template>
-          <label class="block">
-            <span class="field-label"
-              >{{ t('mail.form.from') }}<InfoHint :text="t('mail.form.fromHint')"
-            /></span>
-            <input
-              v-model="form.from"
-              type="email"
-              required
-              class="input"
-              data-testid="smtp-from"
-            />
-          </label>
-          <label class="block">
-            <span class="field-label">{{ t('mail.form.fromName') }}</span>
-            <input
-              v-model="form.fromName"
-              maxlength="200"
-              class="input"
-              data-testid="smtp-from-name"
-            />
-          </label>
-        </div>
+          </div>
+          <p
+            v-if="form.security === 'none'"
+            class="notice notice-warn"
+            data-testid="smtp-none-warn"
+          >
+            {{ t('mail.form.noneWarn') }}
+          </p>
+        </fieldset>
 
-        <div class="space-y-2">
+        <!-- вход на сервере -->
+        <fieldset class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <legend class="sr-only">{{ t('mail.form.auth') }}</legend>
+          <div class="form-grid">
+            <label class="block sm:col-span-2">
+              <span class="field-label"
+                >{{ t('mail.form.auth')
+                }}<InfoHint v-if="form.auth === 'ntlm'" :text="t('mail.form.ntlmHint')"
+              /></span>
+              <select
+                :value="form.auth"
+                class="input"
+                data-testid="smtp-auth"
+                @change="setAuth(($event.target as HTMLSelectElement).value as Form['auth'])"
+              >
+                <option value="none">{{ t('mail.form.authNone') }}</option>
+                <option value="password">{{ t('mail.form.authPassword') }}</option>
+                <option value="ntlm">{{ t('mail.form.authNtlm') }}</option>
+              </select>
+              <p
+                v-if="ntlmNeedsTls || fieldErrors.auth"
+                class="field-error"
+                role="alert"
+                data-testid="smtp-ntlm-tls"
+              >
+                {{ t('mail.form.ntlmNeedsTls') }}
+              </p>
+            </label>
+            <template v-if="form.auth !== 'none'">
+              <label class="block">
+                <span class="field-label">{{ t('mail.form.user') }}</span>
+                <input
+                  v-model="form.user"
+                  class="input"
+                  autocomplete="off"
+                  :placeholder="form.auth === 'ntlm' ? t('mail.form.userNtlm') : ''"
+                  data-testid="smtp-user"
+                />
+                <p v-if="fieldErrors.user" class="field-error">{{ fieldErrors.user }}</p>
+              </label>
+              <label class="block">
+                <span class="field-label"
+                  >{{ t('mail.form.password') }}<InfoHint :text="t('mail.form.passwordHint')"
+                /></span>
+                <input
+                  v-model="form.password"
+                  type="password"
+                  class="input"
+                  autocomplete="new-password"
+                  :placeholder="form.hasPassword ? t('mail.form.passwordSet') : ''"
+                  data-testid="smtp-password"
+                />
+                <p v-if="fieldErrors.password" class="field-error">{{ fieldErrors.password }}</p>
+              </label>
+            </template>
+          </div>
+          <template v-if="plainAuthAsked">
+            <SwitchField
+              v-model="form.plainAuth"
+              :label="t('mail.form.plainAuth')"
+              data-testid="smtp-plain-auth"
+            />
+            <p v-if="fieldErrors.plainAuth" class="field-error pl-7">{{ fieldErrors.plainAuth }}</p>
+          </template>
+        </fieldset>
+
+        <!-- отправитель -->
+        <fieldset class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <legend class="sr-only">{{ t('mail.form.secSender') }}</legend>
+          <div class="form-grid">
+            <label class="block">
+              <span class="field-label"
+                >{{ t('mail.form.from') }}<InfoHint :text="t('mail.form.fromHint')"
+              /></span>
+              <input v-model="form.from" type="email" class="input" data-testid="smtp-from" />
+              <p v-if="fieldErrors.from" class="field-error">{{ fieldErrors.from }}</p>
+            </label>
+            <label class="block">
+              <span class="field-label">{{ t('mail.form.fromName') }}</span>
+              <input
+                v-model="form.fromName"
+                maxlength="200"
+                class="input"
+                data-testid="smtp-from-name"
+              />
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- проверка сертификата — только когда соединение шифруется -->
+        <fieldset
+          v-if="form.security !== 'none'"
+          class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
+          data-testid="smtp-cert-settings"
+        >
+          <legend class="sr-only">{{ t('mail.form.verify') }}</legend>
           <label class="check-row">
             <input v-model="form.verifyCert" type="checkbox" data-testid="smtp-verify" />
             <span class="check-text">
@@ -790,16 +812,13 @@ const typeLabel = (r: Row) =>
           <p v-if="!form.verifyCert" class="notice notice-warn" data-testid="smtp-verify-warn">
             {{ t('mail.form.verifyOff') }}
           </p>
-          <label v-if="form.verifyCert && form.security !== 'none'" class="block sm:max-w-md">
-            <span class="field-label">{{ t('mail.form.ca') }}</span>
-            <select v-model="form.caId" class="input" data-testid="smtp-ca">
-              <option :value="null">{{ t('mail.form.caNone') }}</option>
-              <option v-for="c in cas" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </select>
-          </label>
-        </div>
+          <p v-if="form.verifyCert" class="field-hint" data-testid="smtp-ca-note">
+            {{ cas.length ? t('mail.ca.appliesNote', { n: cas.length }) : t('mail.ca.noneNote') }}
+          </p>
+        </fieldset>
 
-        <fieldset class="space-y-1">
+        <!-- назначение -->
+        <fieldset class="space-y-1 border-t border-slate-200 pt-3 dark:border-slate-800">
           <legend class="field-label">
             {{ t('mail.form.routing') }}<InfoHint :text="t('mail.form.routingHint')" />
           </legend>
@@ -820,7 +839,24 @@ const typeLabel = (r: Row) =>
           </label>
         </fieldset>
 
-        <div class="flex flex-wrap items-center gap-2">
+        <!-- снижение защиты: явное подтверждение главного администратора, без пароля -->
+        <div v-if="lowering" class="space-y-1" data-testid="smtp-confirm-insecure">
+          <SwitchField
+            v-model="confirmInsecure"
+            :label="t('mail.form.confirmInsecure')"
+            data-testid="smtp-confirm-insecure-box"
+          />
+          <p v-if="fieldErrors.confirmInsecure" class="field-error pl-7">
+            {{ fieldErrors.confirmInsecure }}
+          </p>
+        </div>
+
+        <p v-if="formError" class="notice notice-error" role="alert" data-testid="smtp-form-error">
+          {{ formError }}
+        </p>
+        <div
+          class="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 dark:border-slate-800"
+        >
           <button
             type="submit"
             class="btn-primary"
@@ -832,15 +868,26 @@ const typeLabel = (r: Row) =>
           <button
             type="button"
             class="btn"
-            @click="
-              form = null;
-              reset();
-            "
+            :disabled="draftCheck === 'run' || ntlmNeedsTls"
+            data-testid="smtp-check-draft"
+            @click="checkDraft"
           >
+            {{ draftCheck === 'run' ? t('mail.actions.checking') : t('mail.form.checkDraft') }}
+          </button>
+          <button type="button" class="btn" data-testid="smtp-cancel" @click="cancelEdit">
             {{ t('mail.form.cancel') }}
           </button>
           <UnsavedHint :dirty="dirty" />
         </div>
+        <SmtpCheckView
+          v-if="draftCheck && draftCheck !== 'run'"
+          :check="draftCheck"
+          source="draft"
+          :auth-none="form.auth === 'none'"
+          :cas-count="cas.length"
+          testid="smtp-draft-result"
+          @open-cas="openCas"
+        />
       </form>
 
       <article
@@ -947,70 +994,18 @@ const typeLabel = (r: Row) =>
           </button>
         </div>
 
-        <!-- результат проверки по этапам -->
-        <div
+        <!-- результат проверки сохранённого профиля -->
+        <SmtpCheckView
           v-if="checks[p.id] && checks[p.id] !== 'run'"
-          class="space-y-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50"
-          :data-testid="`smtp-result-${p.id}`"
-          data-result
-        >
-          <ol class="space-y-1">
-            <li
-              v-for="r in stageRows(checks[p.id] as Check)"
-              :key="r.stage"
-              class="flex items-start gap-2"
-              :data-stage="r.stage"
-            >
-              <span class="mt-0.5 w-4 shrink-0 text-center" aria-hidden="true">{{
-                !r.s ? '·' : r.s.skipped ? '–' : r.s.ok ? (r.s.warn ? '!' : '✓') : '✗'
-              }}</span>
-              <span class="w-36 shrink-0 font-medium">{{ t(`mail.stage.${r.stage}`) }}</span>
-              <span class="min-w-0 break-words text-slate-600 dark:text-slate-300">
-                <template v-if="!r.s">{{ t('mail.detail.notReached') }}</template>
-                <template v-else-if="r.s.ok">{{ stageLine(r.s) }}</template>
-                <strong v-else class="text-red-700 dark:text-red-300">{{
-                  errInfo(r.s.code, r.s.info?.reason).title
-                }}</strong>
-              </span>
-            </li>
-          </ol>
-          <p
-            v-if="(checks[p.id] as Check).ok"
-            class="text-emerald-700 dark:text-emerald-300"
-            data-testid="smtp-result"
-          >
-            {{ p.auth === 'none' ? t('mail.result.okNoAuth') : t('mail.result.ok') }}
-          </p>
-          <div v-else class="space-y-1" data-testid="smtp-result">
-            <p class="font-medium text-red-700 dark:text-red-300">
-              {{ errInfo((checks[p.id] as Check).code, failReason(checks[p.id] as Check)).title }}
-            </p>
-            <p>
-              {{ errInfo((checks[p.id] as Check).code, failReason(checks[p.id] as Check)).hint }}
-            </p>
-            <p v-if="(checks[p.id] as Check).text" class="text-xs text-slate-500">
-              {{ t('mail.result.server', { text: (checks[p.id] as Check).text }) }}
-            </p>
-            <p v-if="certProbe(checks[p.id] as Check)" class="break-all text-xs text-slate-500">
-              {{ certProbe(checks[p.id] as Check) }}
-            </p>
-            <div
-              v-if="presentedCert(checks[p.id] as Check)"
-              class="flex flex-wrap items-center gap-2 pt-1"
-              data-testid="smtp-trust"
-            >
-              <button
-                type="button"
-                class="btn"
-                :data-testid="`smtp-trust-${p.id}`"
-                @click="trustCert(p, presentedCert(checks[p.id] as Check)!)"
-              >
-                <Icon name="shield" class="size-4" />{{ t('mail.trust.button') }}
-              </button>
-              <span class="text-xs text-slate-500">{{ t('mail.trust.hint') }}</span>
-            </div>
-          </div>
-        </div>
+          :check="checks[p.id] as SmtpCheck"
+          source="saved"
+          :auth-none="p.auth === 'none'"
+          can-trust
+          :cas-count="cas.length"
+          :testid="`smtp-result-${p.id}`"
+          @trust="(c) => trustCert(p, c)"
+          @open-cas="openCas"
+        />
 
         <form class="flex flex-wrap items-center gap-2" @submit.prevent="sendTest(p)">
           <input
@@ -1096,12 +1091,28 @@ const typeLabel = (r: Row) =>
             >
               <span class="min-w-0">
                 <span class="font-medium">{{ c.name }}</span>
+                <span class="badge ml-1" data-testid="mail-ca-stored">{{
+                  t('mail.ca.stored')
+                }}</span>
+                <span class="badge ml-1">{{ t(`dir.cert.kind.${c.kind}`) }}</span>
                 <span class="block break-all text-xs text-slate-500"
-                  >{{ c.subject }} · {{ t('mail.ca.until', { date: when(c.validTo).slice(0, 10) })
-                  }}<template v-if="c.usedBy.length">
-                    · {{ t('mail.ca.usedBy', { names: c.usedBy.join(', ') }) }}</template
-                  ></span
+                  >{{ c.subject }} ·
+                  {{
+                    c.expired
+                      ? t('mail.ca.expired')
+                      : t('mail.ca.until', { date: when(c.validTo).slice(0, 10) })
+                  }}
+                  · {{ t('mail.ca.applies') }}</span
                 >
+                <span
+                  v-if="c.kind === 'intermediate' && !c.chainToRoot"
+                  class="block text-xs text-amber-700 dark:text-amber-300"
+                  data-testid="mail-ca-chain-missing"
+                  >{{ t('mail.ca.needRoot') }}</span
+                >
+                <span v-if="c.expired" class="block text-xs text-red-700 dark:text-red-300">{{
+                  t('mail.ca.expiredHint')
+                }}</span>
               </span>
               <button type="button" class="btn" @click="removeCa(c)">
                 {{ t('mail.ca.remove') }}

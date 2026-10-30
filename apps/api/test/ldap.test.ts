@@ -184,6 +184,7 @@ function startDirectory(): Promise<void> {
 const cfg = (extra: object = {}) => ({
   enabled: true,
   access: 'all',
+  confirmInsecure: true,
   url: `ldap://127.0.0.1:${port}`,
   allowPlaintext: true,
   bindDn: SVC,
@@ -249,10 +250,12 @@ describe('LDAP administration', () => {
       code: 'validation_error',
       details: [{ path: 'url', code: 'plaintext' }],
     });
-    // передача паролей без шифрования — снижение защиты: только с подтверждением паролем
-    const unconfirmed = await admin.req('PUT', '/admin/ldap', cfg());
-    expect(unconfirmed.statusCode).toBe(403);
-    expect(unconfirmed.json().error.code).toBe('reauth_required');
+    // передача паролей без шифрования — снижение защиты: только с явным подтверждением главного администратора
+    const unconfirmed = await admin.req('PUT', '/admin/ldap', cfg({ confirmInsecure: false }));
+    expect(unconfirmed.statusCode).toBe(400);
+    expect(unconfirmed.json().error.details).toEqual([
+      { path: 'confirmInsecure', code: 'insecure_confirm' },
+    ]);
     expect((await admin.reqStep('PUT', '/admin/ldap', cfg())).statusCode).toBe(200);
     // уже принятое решение не требует подтверждения при каждом сохранении
     expect((await admin.req('PUT', '/admin/ldap', cfg({ name: 'LDAP' }))).statusCode).toBe(200);

@@ -17,7 +17,6 @@ import { z } from 'zod';
 import { email, uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { adminGate } from '../auth/adminperm.js';
-import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import { mailQueue, settings } from '../db/schema.js';
@@ -87,7 +86,9 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
   app.addHook('preHandler', requireAuth(ctx));
   app.addHook('preHandler', (req) => adminGate(ctx, req));
   const params = z.object({ id: smtpProfileId });
-  const profileWrite = smtpPut.extend({ name: z.string().trim().min(1).max(100) }).strict();
+  const profileWrite = smtpPut
+    .extend({ name: z.string().trim().min(1).max(100), confirmInsecure: z.boolean().optional() })
+    .strict();
 
   // тестовые письма и проверки: не чаще лимита на администратора и на сервер, одна проверка профиля за раз
   const limits = new Window();
@@ -117,43 +118,38 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
     }
   };
 
-  async function saveProfile(
-    id: string,
-    body: z.infer<typeof smtpPut> & { name?: string },
+  /**
+   * Подготовка профиля из формы — одна для сохранения и для проверки без сохранения. Значения приводятся к выбранному
+   * режиму (без шифрования — нет проверки сертификата и центра; без входа — нет логина и пароля), ошибки собираются
+   * все сразу и указывают поле. Снижение защиты — только главный администратор и только с явным подтверждением
+   * в форме (confirmInsecure); пароль разблокировки сейфов для этого не нужен.
+   */
+  async function prepareProfile(
+    id: string | null,
+    body: z.infer<typeof smtpPut> & { name?: string; confirmInsecure?: boolean },
     req: FastifyRequest,
   ) {
     const { user } = authOf(req);
-    const previous = await loadSmtpProfile(ctx, id);
+    const previous = id ? await loadSmtpProfile(ctx, id) : null;
     const auth = body.auth ?? authMethodOf({ auth: undefined, user: body.user });
-    if (auth !== 'none' && !body.user)
-      throw new AppError(
-        400,
-        'smtp_account_required',
-        'Specify the account for this sign-in method',
-      );
-    if (auth === 'ntlm' && body.security === 'none')
-      throw new AppError(400, 'smtp_ntlm_needs_tls', 'NTLM is only used over STARTTLS or SSL/TLS');
-    if (net.isIP(body.host) && isForbiddenSmtpAddress(body.host, loopbackAllowed(ctx)))
-      throw new AppError(
-        400,
-        'smtp_target_forbidden',
-        'This server address is not allowed for outgoing mail',
-      );
-    if (body.caId && !(await loadTrustedCas(ctx)).some((c) => c.id === body.caId))
-      throw new AppError(
-        400,
-        'smtp_ca_unknown',
-        'The selected certificate authority does not exist',
-      );
-    // небезопасные режимы меняет только главный администратор. Подтверждение паролем нужно, когда защита снижается
-    // (режим включается впервые); повторное сохранение уже принятого решения его не требует. Всё пишется в журнал.
     const plaintext = body.security === 'none';
-    const unverified = body.verifyCert === false;
+    const verifyCert = plaintext ? true : body.verifyCert;
+    const caId = plaintext ? null : body.caId;
+    const issues: { path: string; code: string }[] = [];
+    if (auth !== 'none' && !body.user) issues.push({ path: 'user', code: 'smtp_account_required' });
+    if (auth === 'ntlm' && plaintext) issues.push({ path: 'auth', code: 'smtp_ntlm_needs_tls' });
+    if (net.isIP(body.host) && isForbiddenSmtpAddress(body.host, loopbackAllowed(ctx)))
+      issues.push({ path: 'host', code: 'smtp_target_forbidden' });
+    if (caId && !(await loadTrustedCas(ctx)).some((c) => c.id === caId))
+      issues.push({ path: 'caId', code: 'smtp_ca_unknown' });
+    const unverified = !plaintext && verifyCert === false;
     const plainAuth = plaintext && auth === 'password';
     if (plainAuth && body.plainAuth !== true)
-      throw new AppError(400, 'validation_error', 'Confirm sending the password unencrypted', [
-        { path: 'plainAuth', code: 'plain_auth_consent' },
-      ]);
+      issues.push({ path: 'plainAuth', code: 'plain_auth_consent' });
+    // сохранённый пароль не уходит на другой сервер: при смене адреса или порта его нужно ввести заново
+    const moved = !!previous && (previous.host !== body.host || previous.port !== body.port);
+    if (moved && auth !== 'none' && previous.passwordCipher && body.password === undefined)
+      issues.push({ path: 'password', code: 'password_reentry' });
     const prevPlainAuth =
       !!previous &&
       previous.security === 'none' &&
@@ -163,10 +159,11 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
       (plaintext && previous?.security !== 'none') ||
       (unverified && previous?.verifyCert !== false) ||
       (plainAuth && !prevPlainAuth);
-    if (plaintext || unverified) {
-      if (!user.chief) throw chiefRequired();
-      if (lowered) requireReauth(ctx, req);
-    }
+    if ((plaintext || unverified) && !user.chief) throw chiefRequired();
+    if (lowered && body.confirmInsecure !== true)
+      issues.push({ path: 'confirmInsecure', code: 'insecure_confirm' });
+    if (issues.length)
+      throw new AppError(400, 'validation_error', 'Check the highlighted fields', issues);
     const value: StoredSmtp = {
       host: body.host,
       port: body.port,
@@ -176,16 +173,13 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
       from: body.from,
       fromName: body.fromName,
       timeoutSec: body.timeoutSec,
-      verifyCert: body.verifyCert,
-      caId: body.caId,
+      verifyCert,
+      caId,
       purposes: body.purposes,
       fallback: body.fallback,
       plainAuth,
       // доверие к сертификату относится к конкретному серверу: при смене адреса или порта оно снимается
-      pinnedCert:
-        previous && previous.host === body.host && previous.port === body.port
-          ? previous.pinnedCert
-          : undefined,
+      pinnedCert: previous && !moved && !plaintext ? previous.pinnedCert : undefined,
       name: body.name ?? previous?.name ?? 'Default',
       passwordCipher:
         auth === 'none'
@@ -193,9 +187,24 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
           : body.password === undefined
             ? (previous?.passwordCipher ?? '')
             : body.password
-              ? sealSetting(ctx.config.APP_SECRET, smtpPasswordPurpose(id), body.password)
+              ? sealSetting(
+                  ctx.config.APP_SECRET,
+                  smtpPasswordPurpose(id ?? 'draft'),
+                  body.password,
+                )
               : '',
     };
+    return { value, previous, auth, plaintext, unverified, plainAuth, lowered };
+  }
+
+  async function saveProfile(
+    id: string,
+    body: z.infer<typeof smtpPut> & { name?: string; confirmInsecure?: boolean },
+    req: FastifyRequest,
+  ) {
+    const { user } = authOf(req);
+    const { value, previous, auth, plaintext, unverified, plainAuth, lowered } =
+      await prepareProfile(id, body, req);
     await db
       .insert(settings)
       .values({ key: smtpProfileKey(id), value, updatedBy: user.id })
@@ -253,7 +262,7 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
   });
   app.put('/admin/smtp', async (req) => {
     const { user } = authOf(req);
-    const body = parse(smtpPut, req.body);
+    const body = parse(smtpPut.extend({ confirmInsecure: z.boolean().optional() }), req.body);
     const id = (await activeSmtpId(ctx)) ?? 'default';
     await saveProfile(id, body, req);
     await db
@@ -333,6 +342,52 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
     });
     await audit(db, `user:${user.id}`, 'admin.smtp.remove', `smtp:${id}`);
     return reply.status(204).send();
+  });
+
+  /**
+   * Проверка текущих значений формы без сохранения: те же правила, что при сохранении. Пароль из формы используется
+   * как есть; без него — сохранённый пароль профиля, и только для того же сервера и порта.
+   */
+  app.post('/admin/smtp/check-draft', async (req) => {
+    const { user } = authOf(req);
+    const body = parse(profileWrite.extend({ id: smtpProfileId.optional() }), req.body);
+    const { id = null, ...form } = body;
+    const { value } = await prepareProfile(id, form, req);
+    throttle(user.id, 'check');
+    return exclusive(`check:draft:${user.id}`, async () => {
+      const stages: StageResult[] = [];
+      const config = await toSmtpConfig(ctx, { ...value, profileId: id ?? 'draft' });
+      try {
+        const response = await smtpSession(config, null, {
+          probeCertificate: true,
+          onStage: (st) => stages.push(st),
+        });
+        await audit(db, `user:${user.id}`, 'admin.smtp.test', id ? `smtp:${id}` : null, {
+          ok: true,
+          draft: true,
+        });
+        return {
+          ok: true,
+          banner: response.banner.slice(0, 200),
+          stages,
+          methods: response.methods,
+        };
+      } catch (error) {
+        const failure = mailFailure(error);
+        await audit(db, `user:${user.id}`, 'admin.smtp.test', id ? `smtp:${id}` : null, {
+          ok: false,
+          draft: true,
+          code: failure.code,
+          stage: failure.stage,
+        });
+        return {
+          ok: false,
+          ...failure,
+          text: failure.text ? serverText(failure.text, config.password) : null,
+          stages,
+        };
+      }
+    });
   });
 
   /** Подбор профиля из маршрута: с идентификатором — он, без — активный. */
@@ -506,13 +561,37 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
   }
 
   // доверенные центры сертификации для проверки внутренних почтовых серверов
-  app.get('/admin/smtp/cas', async () => {
-    const [cas, profiles] = await Promise.all([loadTrustedCas(ctx), smtpProfiles(ctx)]);
-    return cas.map(({ pem: _pem, ...c }) => ({
-      ...c,
-      usedBy: profiles.profiles.filter((p) => p.caId === c.id).map((p) => p.name),
-    }));
-  });
+  /**
+   * Что сервер хранит и чем пользуется при проверке TLS: читается из базы каждый раз, цепочки оцениваются по всему
+   * набору (промежуточный центр без корневого помечается как неполная цепочка).
+   */
+  async function trustedList() {
+    const cas = await loadTrustedCas(ctx);
+    const now = Date.now();
+    let byPrint = new Map<string, ReturnType<typeof parseCertificates>['certs'][number]>();
+    try {
+      const all = parseCertificates(Buffer.from(cas.map((c) => c.pem).join('\n')), { now });
+      byPrint = new Map(all.certs.map((c) => [c.fingerprint256, c]));
+    } catch {
+      /* пустой или повреждённый набор: сведения о цепочке недоступны */
+    }
+    return cas.map(({ pem: _pem, ...c }) => {
+      const info = byPrint.get(c.fingerprint256);
+      return {
+        ...c,
+        stored: true,
+        expired: Date.parse(c.validTo) < now,
+        daysLeft: Math.floor((Date.parse(c.validTo) - now) / 86_400_000),
+        kind: info?.kind ?? 'root',
+        // для подтверждения нужна цепочка до корневого центра: если издатель не загружен, это сказано
+        chainToRoot: info?.chainToRoot ?? false,
+        issuer: info?.issuer ?? '',
+        // доверие применяется ко всем профилям с шифрованием
+        appliesToAll: true,
+      };
+    });
+  }
+  app.get('/admin/smtp/cas', async () => trustedList());
   app.post('/admin/smtp/cas', async (req, reply) => {
     const { user } = authOf(req);
     const body = parse(
@@ -576,15 +655,20 @@ export const registerAdminSmtpRoutes: FastifyPluginAsync<{ ctx: AppContext }> = 
       count: added.length,
       fingerprints: added.map((c) => c.fingerprint256).join(','),
     });
-    return reply.status(201).send({ ids: added.map((c) => c.id) });
+    // ответ строится из того, что сервер прочитал из базы после записи, а не из присланного
+    const stored = await trustedList();
+    const saved = stored.filter((c) => added.some((a) => a.id === c.id));
+    return reply.status(201).send({
+      ids: saved.map((c) => c.id),
+      saved,
+      alreadyStored: found.length - added.filter((c) => saved.some((s) => s.id === c.id)).length,
+    });
   });
   app.delete('/admin/smtp/cas/:id', async (req, reply) => {
     const { user } = authOf(req);
     const { id } = parse(z.object({ id: uuid }), req.params);
-    const [cas, profiles] = await Promise.all([loadTrustedCas(ctx), smtpProfiles(ctx)]);
+    const cas = await loadTrustedCas(ctx);
     if (!cas.some((c) => c.id === id)) throw notFound();
-    if (profiles.profiles.some((p) => p.caId === id))
-      throw new AppError(409, 'ca_in_use', 'This certificate authority is used by an SMTP profile');
     const next = cas.filter((c) => c.id !== id);
     await db
       .insert(settings)

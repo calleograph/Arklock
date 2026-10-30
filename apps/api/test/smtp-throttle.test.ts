@@ -20,6 +20,7 @@ beforeAll(async () => {
     port: relay.port,
     security: 'none',
     from: 'arklock@example.com',
+    confirmInsecure: true,
   });
   id = r.json().id;
 });

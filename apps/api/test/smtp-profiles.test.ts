@@ -22,8 +22,9 @@ const profile = (port: number, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 const create = async (body: Record<string, unknown>, step = false) => {
+  // снижение защиты подтверждается флажком в форме (confirmInsecure), без пароля
   const r = step
-    ? await admin.reqStep('POST', '/admin/smtp/profiles', body)
+    ? await admin.req('POST', '/admin/smtp/profiles', { ...body, confirmInsecure: true })
     : await admin.req('POST', '/admin/smtp/profiles', body);
   return { r, id: (r.json() as { id?: string }).id! };
 };
@@ -95,7 +96,7 @@ describe('profiles', () => {
     const audits = await fixture.database.db.select().from(ledger);
     expect(JSON.stringify(audits)).not.toContain(PASSWORD);
     // изменение профиля без нового пароля оставляет прежний
-    const put = await admin.reqStep(
+    const put = await admin.req(
       'PUT',
       `/admin/smtp/profiles/${id}`,
       profile(s.port, { auth: 'password', user: 'mailer', verifyCert: false, name: 'Renamed' }),
@@ -113,35 +114,40 @@ describe('profiles', () => {
         )
       ).statusCode,
     ).toBe(400);
-    expect((await post(profile(2525, { auth: 'password', user: '' }))).json().error.code).toBe(
-      'smtp_account_required',
-    );
+    // ошибки указывают поле: интерфейс показывает их под ним
+    expect(
+      (await post(profile(2525, { auth: 'password', user: '' }))).json().error.details,
+    ).toEqual([{ path: 'user', code: 'smtp_account_required' }]);
     expect((await post(profile(22))).statusCode).toBe(400); // порт SSH
     expect(
       (await post(profile(2525, { host: ['169', '254', '169', '254'].join('.') }))).json().error
-        .code,
-    ).toBe('smtp_target_forbidden');
-    expect((await post(profile(2525, { caId: crypto.randomUUID() }))).json().error.code).toBe(
-      'smtp_ca_unknown',
+        .details,
+    ).toEqual([{ path: 'host', code: 'smtp_target_forbidden' }]);
+    expect((await post(profile(2525, { caId: crypto.randomUUID() }))).json().error.details).toEqual(
+      [{ path: 'caId', code: 'smtp_ca_unknown' }],
     );
     expect((await post(profile(2525, { timeoutSec: 1 }))).statusCode).toBe(400);
   });
 
-  it('plaintext and switched-off certificate checks need the chief administrator, the master password and leave an audit record', async () => {
+  it('plaintext and switched-off certificate checks need the chief administrator, an explicit confirmation and leave an audit record', async () => {
     const s = await start();
     const bad = await admin.req(
       'POST',
       '/admin/smtp/profiles',
       profile(s.port, { security: 'none' }),
     );
-    expect(bad.statusCode).toBe(403);
-    expect(bad.json().error.code).toBe('reauth_required');
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.details).toEqual([
+      { path: 'confirmInsecure', code: 'insecure_confirm' },
+    ]);
     const off = await admin.req(
       'POST',
       '/admin/smtp/profiles',
       profile(s.port, { verifyCert: false }),
     );
-    expect(off.json().error.code).toBe('reauth_required');
+    expect(off.json().error.details).toEqual([
+      { path: 'confirmInsecure', code: 'insecure_confirm' },
+    ]);
     const { r, id } = await create(profile(s.port, { security: 'none' }), true);
     expect(r.statusCode).toBe(201);
     const trail = await fixture.database.db.select().from(ledger);
@@ -192,30 +198,28 @@ describe('connection check', () => {
     expect(
       ((st.certificate as { info?: Record<string, string> }).info ?? {}).fingerprint256,
     ).toBeTruthy();
-    // загрузка CA и выбор его для профиля
+    // загрузка центра: он хранится на сервере и сразу действует для всех профилей, выбирать его в профиле не нужно
     const added = await admin.req('POST', '/admin/smtp/cas', { name: 'Test CA', pem: pki.caPem });
     expect(added.statusCode).toBe(201);
     const caId = added.json().ids[0];
+    expect(added.json().saved[0]).toMatchObject({
+      stored: true,
+      kind: 'root',
+      chainToRoot: true,
+      appliesToAll: true,
+    });
     const cas = (await admin.req('GET', '/admin/smtp/cas')).json();
     expect(cas[0]).not.toHaveProperty('pem');
-    expect(
-      (
-        await admin.req(
-          'PUT',
-          `/admin/smtp/profiles/${id}`,
-          profile(s.port, { host: 'localhost', caId }),
-        )
-      ).statusCode,
-    ).toBe(200);
     const fixed = await check(id);
     expect(fixed.ok).toBe(true);
     expect(stagesOf(fixed).certificate).toMatchObject({
       ok: true,
-      info: { verified: true, issuer: 'Arklock Test CA' },
+      info: { verified: true, issuer: 'Arklock Test CA', anchor: 'Arklock Test CA' },
     });
     expect(stagesOf(fixed).tls!.ok).toBe(true);
-    // CA нельзя удалить, пока он выбран в профиле
-    expect((await admin.req('DELETE', `/admin/smtp/cas/${caId}`)).statusCode).toBe(409);
+    // удаление центра сразу снимает доверие: следующая проверка снова называет причину
+    expect((await admin.req('DELETE', `/admin/smtp/cas/${caId}`)).statusCode).toBe(204);
+    expect((await check(id)).ok).toBe(false);
   });
 
   it('implicit TLS and a server name that does not match the certificate', async () => {
@@ -292,10 +296,10 @@ describe('connection check', () => {
     expect(refused.r.json().error.details).toEqual([
       { path: 'plainAuth', code: 'plain_auth_consent' },
     ]);
-    // согласие есть, но защита снижается — без подтверждения паролем нельзя
-    expect((await create({ ...body, plainAuth: true })).r.json().error.code).toBe(
-      'reauth_required',
-    );
+    // согласие на пароль есть, но защита снижается — нужно явное подтверждение главного администратора
+    expect((await create({ ...body, plainAuth: true })).r.json().error.details).toEqual([
+      { path: 'confirmInsecure', code: 'insecure_confirm' },
+    ]);
     const { id } = await create({ ...body, plainAuth: true }, true);
     expect((await check(id)).ok).toBe(true);
     // повторное сохранение принятого решения (другое имя отправителя) не требует подтверждения
@@ -842,5 +846,275 @@ describe('trusting the certificate the server presents', () => {
       null,
     ).catch((e: unknown) => e as { code: string; detail?: { reason?: string } });
     expect(err).toMatchObject({ code: 'certificate', detail: { reason: 'pin_mismatch' } });
+  });
+});
+
+describe('changing an existing profile: from SSL/TLS with Windows NTLM to plain SMTP relay', () => {
+  it('saves exactly the new values, shows them, checks them without TLS and delivers a test mail through the relay', async () => {
+    const tlsServer = await start({
+      tls: { mode: 'tls', key: pki.keyPem, cert: pki.certPem },
+      authBefore: [],
+      auth: ['NTLM'],
+      ntlm: {
+        user: 'svc-mail',
+        domain: 'EXAMPLE',
+        password: 'N7lm-Synthetic-pw',
+        withTimestamp: true,
+      },
+    });
+    const { id } = await create(
+      profile(tlsServer.port, {
+        name: 'Corporate mail',
+        security: 'tls',
+        auth: 'ntlm',
+        user: 'EXAMPLE\\svc-mail',
+        password: 'N7lm-Synthetic-pw',
+        verifyCert: false,
+        purposes: ['invitation', 'security', 'test'],
+      }),
+      true,
+    );
+    // relay без входа на «порту 25» (в тесте — свой порт)
+    const relay = await start();
+    const relayProfile = profile(relay.port, {
+      name: 'Corporate mail',
+      security: 'none',
+      auth: 'none',
+      purposes: ['invitation', 'security', 'test'],
+    });
+    // сохранение снижает защиту: без подтверждения — понятная ошибка поля, профиль не меняется
+    const unconfirmed = await admin.req('PUT', `/admin/smtp/profiles/${id}`, relayProfile);
+    expect(unconfirmed.json().error.details).toEqual([
+      { path: 'confirmInsecure', code: 'insecure_confirm' },
+    ]);
+    const stillOld = (await admin.req('GET', '/admin/smtp/profiles'))
+      .json()
+      .profiles.find((p: { id: string }) => p.id === id);
+    expect(stillOld).toMatchObject({ security: 'tls', auth: 'ntlm', port: tlsServer.port });
+
+    // до сохранения можно проверить именно значения формы: TLS не применяется, вход не выполняется
+    const draft = (
+      await admin.req('POST', '/admin/smtp/check-draft', {
+        ...relayProfile,
+        id,
+        confirmInsecure: true,
+      })
+    ).json();
+    expect(draft.ok).toBe(true);
+    const draftStages = Object.fromEntries(
+      draft.stages.map((s: { stage: string }) => [s.stage, s]),
+    );
+    expect(draftStages.tls).toMatchObject({ ok: true, skipped: true });
+    expect(draftStages.auth).toMatchObject({ skipped: true });
+
+    const saved = await admin.req('PUT', `/admin/smtp/profiles/${id}`, {
+      ...relayProfile,
+      confirmInsecure: true,
+    });
+    expect(saved.statusCode).toBe(200);
+    const card = (await admin.req('GET', '/admin/smtp/profiles'))
+      .json()
+      .profiles.find((p: { id: string }) => p.id === id);
+    expect(card).toMatchObject({
+      port: relay.port,
+      security: 'none',
+      auth: 'none',
+      user: '',
+      hasPassword: false,
+      verifyCert: true,
+      pinnedCert: null,
+    });
+    // проверка сохранённого профиля — новые параметры: без TLS, без входа
+    const c = await check(id);
+    expect(c.ok).toBe(true);
+    expect(stagesOf(c).tls).toMatchObject({ skipped: true });
+    // тестовое письмо уходит через relay, старый сервер не используется
+    await admin.req('PUT', '/admin/smtp/active', { id });
+    const before = tlsServer.stats.connections;
+    const sent = (
+      await admin.req('POST', `/admin/smtp/profiles/${id}/send-test`, { to: 'boss@example.com' })
+    ).json();
+    expect(sent.ok).toBe(true);
+    await waitFor(async () => relay.received.length > 0);
+    expect(relay.received[0]!.auth).toBeUndefined();
+    expect(tlsServer.stats.connections).toBe(before);
+    // сохранённый ранее пароль NTLM удалён вместе со способом входа
+    const [row] = await fixture.database.db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, `smtp.profile.${id}`));
+    expect((row!.value as { passwordCipher: string }).passwordCipher).toBe('');
+  });
+
+  it('the draft check never sends a saved password to another server', async () => {
+    const s = await start({ auth: ['PLAIN'], user: 'mailer', password: 'right-password-1' });
+    const { id } = await create(
+      profile(s.port, {
+        auth: 'password',
+        user: 'mailer',
+        password: 'right-password-1',
+        security: 'none',
+        plainAuth: true,
+      }),
+      true,
+    );
+    const other = await start();
+    const r = await admin.req('POST', '/admin/smtp/check-draft', {
+      ...profile(other.port, {
+        auth: 'password',
+        user: 'mailer',
+        security: 'none',
+        plainAuth: true,
+      }),
+      id,
+      name: 'Test relay',
+      confirmInsecure: true,
+    });
+    expect(r.json().error.details).toEqual([{ path: 'password', code: 'password_reentry' }]);
+  });
+});
+
+describe('trusted certificate authorities live on the server and apply to every profile', () => {
+  it('an authority added to the store applies to every profile without being selected in it', async () => {
+    for (const c of (await admin.req('GET', '/admin/smtp/cas')).json())
+      await admin.req('DELETE', `/admin/smtp/cas/${c.id}`);
+    const s = await start({ tls: { mode: 'starttls', key: pki.keyPem, cert: pki.certPem } });
+    const { id } = await create(profile(s.port, { security: 'starttls', auth: 'none' }));
+    const before = await check(id);
+    expect(before.ok).toBe(false);
+    expect(stagesOf(before).certificate).toMatchObject({
+      ok: false,
+      info: { reason: 'untrusted' },
+    });
+    const add = await admin.req('POST', '/admin/smtp/cas', { name: 'Test CA', pem: pki.caPem });
+    expect(add.statusCode).toBe(201);
+    // профиль центр не выбирал: сервер доверяет загруженному центру (раньше проверка оставалась неуспешной)
+    const after = await check(id);
+    expect(after.ok).toBe(true);
+    expect(stagesOf(after).certificate).toMatchObject({
+      ok: true,
+      info: { verified: true, anchor: 'Arklock Test CA' },
+    });
+  });
+});
+
+describe('what the server really trusts: chain, restart, restore, and why a timeout is not a certificate problem', () => {
+  const trusted = async () =>
+    (await admin.req('GET', '/admin/smtp/cas')).json() as {
+      id: string;
+      name: string;
+      kind: string;
+      chainToRoot: boolean;
+      stored: boolean;
+      fingerprint256: string;
+    }[];
+  const clearCas = async () => {
+    for (const c of await trusted()) await admin.req('DELETE', `/admin/smtp/cas/${c.id}`);
+  };
+
+  it('a server certificate is refused as a trusted authority with a reason; an intermediate alone says the chain is incomplete until the root is added', async () => {
+    await clearCas();
+    const { makeChain } = await import('./pki.js');
+    const chain = await makeChain();
+    const leaf = await admin.req('POST', '/admin/smtp/cas', { name: 'Server', pem: chain.leaf });
+    expect(leaf.statusCode).toBe(400);
+    expect(leaf.json().error.details).toEqual({ problem: 'not_ca' });
+    const mid = await admin.req('POST', '/admin/smtp/cas', { name: 'Issuing CA', pem: chain.mid });
+    expect(mid.statusCode).toBe(201);
+    expect(mid.json().saved[0]).toMatchObject({
+      kind: 'intermediate',
+      chainToRoot: false,
+      stored: true,
+    });
+    const root = await admin.req('POST', '/admin/smtp/cas', { name: 'Root CA', pem: chain.root });
+    expect(root.json().saved[0]).toMatchObject({ kind: 'root', chainToRoot: true });
+    // после добавления корневого центра цепочка промежуточного замкнулась
+    expect((await trusted()).find((c) => c.kind === 'intermediate')!.chainToRoot).toBe(true);
+    // повторная загрузка того же файла не дублирует запись и говорит об этом
+    const again = await admin.req('POST', '/admin/smtp/cas', { name: 'Root CA', pem: chain.root });
+    expect(again.json()).toMatchObject({ saved: [], alreadyStored: 1 });
+    expect(await trusted()).toHaveLength(2);
+    await clearCas();
+  });
+
+  it('trust is kept in the database only: a second application instance on the same database uses it (restart/update), and a restored snapshot brings it back', async () => {
+    await clearCas();
+    const s = await start({ tls: { mode: 'starttls', key: pki.keyPem, cert: pki.certPem } });
+    const { id } = await create(profile(s.port, { security: 'starttls', auth: 'none' }));
+    expect((await check(id)).ok).toBe(false);
+    expect(
+      (await admin.req('POST', '/admin/smtp/cas', { name: 'Test CA', pem: pki.caPem })).statusCode,
+    ).toBe(201);
+    expect((await check(id)).ok).toBe(true);
+
+    // «перезапуск контейнера» и «обновление»: новый экземпляр приложения на той же базе (в памяти процесса доверие не хранится)
+    const { buildApp } = await import('../src/app.js');
+    const { loadConfig } = await import('../src/config.js');
+    const { APP_SECRET } = await import('./helpers.js');
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      DATABASE_URL: 'pglite:memory',
+      LOG_LEVEL: 'silent',
+      APP_SECRET,
+    });
+    const second = await buildApp({ config, database: fixture.database });
+    try {
+      const login = new TestClient(second, 'mail-admin@example.com', 'mail-admin-password-1');
+      await login.login();
+      const r = (await login.req('POST', `/admin/smtp/profiles/${id}/check`)).json();
+      expect(r.ok).toBe(true);
+      expect((await login.req('GET', '/admin/smtp/cas')).json()).toHaveLength(1);
+    } finally {
+      // базу закрывает основной экземпляр: общий PGlite второй экземпляр закрывать не должен
+    }
+
+    // «восстановление из копии»: данные настроек — в базе, а копия — полный дамп базы; возврат строки возвращает доверие
+    const [snap] = await fixture.database.db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, 'smtp.trustedCas'));
+    await clearCas();
+    expect((await check(id)).ok).toBe(false);
+    await fixture.database.db
+      .update(settings)
+      .set({ value: snap!.value })
+      .where(eq(settings.key, 'smtp.trustedCas'));
+    expect((await check(id)).ok).toBe(true);
+    await clearCas();
+  });
+
+  it('a timeout happens at the stage where it happened and is not mistaken for a certificate problem', async () => {
+    // порт принимает соединение, но TLS не отвечает: этап «защита» (tls), причина — тайм-аут; до проверки сертификата дело не доходит
+    const net = await import('node:net');
+    const silent = net.createServer((sock) => sock.on('error', () => undefined));
+    await new Promise<void>((r) => silent.listen(0, '127.0.0.1', r));
+    const port = (silent.address() as import('node:net').AddressInfo).port;
+    try {
+      const { id } = await create(profile(port, { security: 'tls', auth: 'none', timeoutSec: 3 }));
+      const t = await check(id);
+      expect(t, JSON.stringify(t)).toMatchObject({ ok: false });
+      expect(t.code).toBe('timeout');
+      expect(t.stage).toBe('tls');
+      const st = stagesOf(t);
+      expect(st.tcp).toMatchObject({ ok: true });
+      expect(st.tls).toMatchObject({ ok: false, code: 'timeout' });
+      expect(st.certificate).toBeUndefined();
+    } finally {
+      silent.close();
+    }
+    // порт закрыт: при SSL/TLS это этап «соединение» (раньше тайм-ауты и отказы могли приписываться защите)
+    const closedPort = await start();
+    const closed = closedPort.port;
+    await closedPort.close();
+    const idClosed = (await create(profile(closed, { security: 'tls', auth: 'none' }))).id;
+    const cc = await check(idClosed);
+    expect(cc.stage).toBe('tcp');
+    expect(stagesOf(cc).tls).toBeUndefined();
+    // и наоборот: недоверенный сертификат — это этап «сертификат», а не тайм-аут
+    const s = await start({ tls: { mode: 'tls', key: pki.keyPem, cert: pki.certPem } });
+    const { id } = await create(profile(s.port, { security: 'tls', auth: 'none' }));
+    const c = await check(id);
+    expect(c.code).toBe('certificate');
+    expect(stagesOf(c).certificate).toMatchObject({ ok: false, info: { reason: 'untrusted' } });
   });
 });

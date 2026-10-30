@@ -350,17 +350,20 @@ describe('saving a directory connection', () => {
     ]);
   });
 
-  it('disabling certificate checks needs the chief administrator and a fresh confirmation, and is recorded', async () => {
+  it('disabling certificate checks needs the chief administrator and an explicit confirmation, and is recorded', async () => {
     const plain = await admin.req('PUT', '/admin/ldap/profiles/default', {
       ...profile(),
       insecureTls: true,
     });
-    expect(plain.json().error.code).toBe('reauth_required');
+    expect(plain.json().error.details).toEqual([
+      { path: 'confirmInsecure', code: 'insecure_confirm' },
+    ]);
     expect(
       (
-        await admin.reqStep('PUT', '/admin/ldap/profiles/default', {
+        await admin.req('PUT', '/admin/ldap/profiles/default', {
           ...profile(),
           insecureTls: true,
+          confirmInsecure: true,
         })
       ).statusCode,
     ).toBe(200);

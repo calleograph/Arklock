@@ -22,7 +22,6 @@ import {
   type LdapConfig,
 } from '../auth/ldap.js';
 import { ldapDiagnose } from '../auth/ldap-diagnose.js';
-import { requireReauth } from '../auth/reauth.js';
 import { CertError, certUploadBytes, parseCertificates } from '../net/certs.js';
 import { chiefRequired } from './chief.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
@@ -90,6 +89,8 @@ const putSchema = z.object({
   /** Сертификат контроллера домена, которому доверяет администратор (по отпечатку). */
   pinnedPem: z.string().max(20_000).default(''),
   pinnedFingerprint: z.string().max(200).default(''),
+  /** Явное подтверждение главным администратором, что защита соединения снижается (без шифрования, без проверки). */
+  confirmInsecure: z.boolean().optional(),
 });
 
 const loginSchema = z.object({
@@ -209,7 +210,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
   }
 
-  /** Снижение защиты (без шифрования, без проверки сертификата) — только главный администратор с подтверждением. */
+  /** Снижение защиты (без шифрования, без проверки сертификата) — только главный администратор с явным подтверждением в форме. */
   async function confirmLowering(
     req: FastifyRequest,
     body: z.infer<typeof putSchema>,
@@ -219,7 +220,10 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       (body.insecureTls && !prev?.insecureTls) || (body.allowPlaintext && !prev?.allowPlaintext);
     if (!lowering) return false;
     if (!authOf(req).user.chief) throw chiefRequired();
-    requireReauth(ctx, req);
+    if (body.confirmInsecure !== true)
+      throw new AppError(400, 'validation_error', 'Confirm lowering the connection protection', [
+        { path: 'confirmInsecure', code: 'insecure_confirm' },
+      ]);
     return true;
   }
 
@@ -281,8 +285,9 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           : body.bindPassword === ''
             ? ''
             : sealSetting(config.APP_SECRET, ldapSecretPurpose(id), body.bindPassword);
-      const { bindPassword: _omit, ...rest } = body;
+      const { bindPassword: _omit, confirmInsecure: _ack, ...rest } = body;
       void _omit;
+      void _ack;
       const value: LdapProfile = {
         ...rest,
         url,

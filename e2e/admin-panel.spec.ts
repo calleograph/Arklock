@@ -226,21 +226,15 @@ test('administration sections show real data and perform real operations', async
   // пароль по соединению без шифрования — только с явным согласием
   await expect(page.getByTestId('smtp-save')).toBeDisabled();
   await page.getByTestId('smtp-plain-auth').check();
+  // снижение защиты — явное подтверждение главного администратора в форме, без пароля
+  await page.getByTestId('smtp-confirm-insecure-box').check();
   await page.getByTestId('smtp-save').click();
-  // небезопасный режим просит мастер-пароль (если подтверждение сеанса уже действует, вопрос не задаётся)
-  const asked = await page
-    .getByTestId('mail-reauth-password')
-    .waitFor({ timeout: 3000 })
-    .then(() => true)
-    .catch(() => false);
-  if (asked) {
-    await page.getByTestId('mail-reauth-password').fill(ADMIN.password);
-    await page.getByTestId('mail-reauth-ok').click();
-  }
   await expect(page.getByTestId('mail-notice')).toBeVisible();
   const card = page.locator('[data-profile]').first();
   await card.locator('[data-action="check"]').click();
   await expect(card.getByTestId('smtp-result')).toContainText(/Проверка пройдена|Check passed/);
+  // подробности по этапам — по запросу, а не постоянно
+  await card.getByTestId('smtp-stages').locator('summary').click();
   for (const stage of ['dns', 'tcp', 'greeting', 'ehlo', 'tls', 'certificate', 'methods', 'auth'])
     await expect(card.locator(`[data-stage="${stage}"]`)).toBeVisible();
   await card.locator('input[type="email"]').fill('boss@example.com');
@@ -465,18 +459,9 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await page.getByTestId('ldap-binddn').fill('cn=svc,dc=example,dc=com');
   await page.getByTestId('ldap-bindpw').fill('svc-e2e');
   await page.getByTestId('ldap-basedn').fill(BASE_DN);
+  // передача паролей без шифрования — снижение защиты: явное подтверждение главного администратора, без пароля
+  await page.getByTestId('ldap-confirm-insecure').check();
   await page.getByTestId('ldap-save').click();
-  // передача паролей без шифрования — снижение защиты: сервер требует подтверждения паролем
-  // (если подтверждение в этом сеансе ещё действует — не спрашивается)
-  const ldapAsked = await page
-    .getByTestId('ldap-reauth-password')
-    .waitFor({ timeout: 3000 })
-    .then(() => true)
-    .catch(() => false);
-  if (ldapAsked) {
-    await page.getByTestId('ldap-reauth-password').fill(ADMIN.password);
-    await page.getByTestId('ldap-reauth-ok').click();
-  }
   await expect(page.getByTestId('ldap-notice')).toBeVisible();
   await expect(page.getByTestId('ldap-result')).toContainText(/работает|works/i);
   await expect(page.getByTestId('ldap-status')).toContainText(

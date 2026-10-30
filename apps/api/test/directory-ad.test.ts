@@ -175,6 +175,7 @@ const connection = (extra: object = {}) => ({
   directoryType: 'ad',
   url: `ldap://127.0.0.1:${port}`,
   allowPlaintext: true,
+  confirmInsecure: true,
   bindDn: SVC,
   bindPassword: SVC_PASSWORD,
   baseDn: '',

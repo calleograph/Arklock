@@ -990,18 +990,6 @@ test('адрес без защищённого контекста: страни�
 
 // ---- 1.85.0: форма SMTP, ровные поля, флажки, меню, адаптивность
 
-/** Подтверждение мастер-паролем для небезопасных настроек почты (если вопрос задан). */
-async function reauthIfAsked(page: Page, password: string): Promise<void> {
-  const asked = await page
-    .getByTestId('mail-reauth-password')
-    .waitFor({ timeout: 3000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!asked) return;
-  await page.getByTestId('mail-reauth-password').fill(password);
-  await page.getByTestId('mail-reauth-ok').click();
-}
-
 test('SMTP: переключение способов входа не очищает экран; NTLM сохраняется и проходит проверку на сервере с NTLM', async () => {
   const pageErrors: string[] = [];
   const onError = (e: Error) => pageErrors.push(e.message);
@@ -1045,8 +1033,9 @@ test('SMTP: переключение способов входа не очища
     await chief.getByTestId('smtp-from').fill('arklock@corp.example');
     await chief.getByTestId('smtp-verify').uncheck(); // тестовый сертификат не из доверенного центра
     await expect(chief.getByTestId('unsaved-hint')).toBeVisible();
+    // снижение защиты подтверждается флажком, без пароля
+    await chief.getByTestId('smtp-confirm-insecure-box').check();
     await chief.getByTestId('smtp-save').click();
-    await reauthIfAsked(chief, CHIEF.password);
     await expect(chief.getByTestId('mail-notice')).toBeVisible();
 
     const card = chief.locator('[data-profile]', { hasText: 'Exchange NTLM' });
@@ -1455,6 +1444,149 @@ test('почта: сертификат, который предъявил сер
     chief.once('dialog', (d) => void d.accept());
     await card.locator('[data-testid^="smtp-untrust-"]').click();
     await expect(card.locator('[data-testid^="smtp-pinned-"]')).toHaveCount(0);
+  } finally {
+    await fake.close();
+  }
+});
+
+test('почта: существующий профиль SSL/TLS + NTLM переводится на порт relay без шифрования и без входа — сохраняется, показывается и работает', async () => {
+  const pki = await makePki();
+  const tlsServer = await fakeSmtp({
+    tls: { mode: 'tls', key: pki.keyPem, cert: pki.certPem },
+    authBefore: [],
+    auth: ['NTLM'],
+    ntlm: {
+      user: 'svc-mail',
+      domain: 'EXAMPLE',
+      password: 'N7lm-Synthetic-pw',
+      withTimestamp: true,
+    },
+  });
+  const relay = await fakeSmtp();
+  try {
+    await chief.goto('/admin/smtp');
+    await chief.getByTestId('smtp-add').click();
+    await chief.getByTestId('smtp-name').fill('Корпоративная почта');
+    await chief.getByTestId('smtp-host').fill('127.0.0.1');
+    await chief.getByTestId('smtp-security').selectOption('tls');
+    await chief.getByTestId('smtp-port').fill(String(tlsServer.port));
+    await chief.getByTestId('smtp-auth').selectOption('ntlm');
+    await chief.getByTestId('smtp-user').fill('EXAMPLE\\svc-mail');
+    await chief.getByTestId('smtp-password').fill('N7lm-Synthetic-pw');
+    await chief.getByTestId('smtp-from').fill('arklock@example.com');
+    await chief.getByTestId('smtp-verify').uncheck();
+    await chief.getByTestId('smtp-confirm-insecure-box').check();
+    await chief.getByTestId('smtp-save').click();
+    await expect(chief.getByTestId('mail-notice')).toBeVisible();
+    const card = chief.locator('[data-profile]', { hasText: 'Корпоративная почта' });
+    await expect(card).toContainText(`127.0.0.1:${tlsServer.port}`);
+
+    // правка: порт relay, без шифрования, без входа
+    await card.locator('[data-action="edit"]').click();
+    await chief.getByTestId('smtp-security').selectOption('none');
+    await chief.getByTestId('smtp-port').fill(String(relay.port));
+    await chief.getByTestId('smtp-auth').selectOption('none');
+    // поля входа и проверки сертификата исчезают: для этого режима они не нужны
+    await expect(chief.getByTestId('smtp-user')).toHaveCount(0);
+    await expect(chief.getByTestId('smtp-password')).toHaveCount(0);
+    await expect(chief.getByTestId('smtp-cert-settings')).toHaveCount(0);
+    // пока не сохранено — это сказано, а проверка идёт по значениям формы
+    await expect(chief.getByTestId('unsaved-hint').first()).toBeVisible();
+    await chief.getByTestId('smtp-confirm-insecure-box').check();
+    await chief.getByTestId('smtp-check-draft').click();
+    const draft = chief.getByTestId('smtp-draft-result');
+    await expect(draft).toContainText(/значения формы|form values/);
+    await expect(draft.getByTestId('smtp-result')).toContainText(/сервер доступен|reachable/);
+    await draft.getByTestId('smtp-stages').locator('summary').click();
+    await expect(draft.locator('[data-stage="tls"]')).toContainText(
+      /не применяется|not applicable/,
+    );
+    // сохраняем: пароль разблокировки не запрашивается, карточка показывает новые настройки
+    await chief.getByTestId('smtp-save').click();
+    await expect(chief.getByTestId('mail-notice')).toBeVisible();
+    await expect(chief.getByTestId('smtp-form')).toHaveCount(0);
+    await expect(chief.getByTestId('unsaved-hint')).toHaveCount(0);
+    await expect(card).toContainText(`127.0.0.1:${relay.port}`);
+    await expect(card).not.toContainText(String(tlsServer.port));
+    await expect(card).not.toContainText(/NTLM/);
+    // проверка сохранённого профиля — именно новые параметры
+    await card.locator('[data-action="check"]').click();
+    const result = card.getByTestId(/smtp-result-/);
+    await expect(result).toContainText(/сохранённые|saved/);
+    await expect(result.getByTestId('smtp-result')).toContainText(/сервер доступен|reachable/);
+    // тестовое письмо уходит через relay
+    await card.locator('input[type="email"]').fill('boss@example.com');
+    await card.getByRole('button', { name: /Отправить тестовое письмо|Send test mail/ }).click();
+    await expect.poll(() => relay.received.length, { timeout: 15_000 }).toBe(1);
+    expect(relay.received[0]!.to).toContain('boss@example.com');
+    // повторное открытие формы: значения совпадают с карточкой, старых нет
+    await card.locator('[data-action="edit"]').click();
+    await expect(chief.getByTestId('smtp-security')).toHaveValue('none');
+    await expect(chief.getByTestId('smtp-auth')).toHaveValue('none');
+    await expect(chief.getByTestId('smtp-port')).toHaveValue(String(relay.port));
+    await expect(chief.getByTestId('unsaved-hint')).toHaveCount(0);
+    await chief.getByTestId('smtp-cancel').click();
+  } finally {
+    await tlsServer.close();
+    await relay.close();
+  }
+});
+
+test('почта: сертификат центра сохраняется на сервере и сразу применяется ко всем профилям; после перезагрузки страницы он на месте', async () => {
+  const pki = await makePki();
+  const fake = await fakeSmtp({ tls: { mode: 'starttls', key: pki.keyPem, cert: pki.certPem } });
+  try {
+    await chief.goto('/admin/smtp');
+    await chief.getByTestId('smtp-add').click();
+    await chief.getByTestId('smtp-name').fill('С внутренним центром');
+    await chief.getByTestId('smtp-host').fill('127.0.0.1');
+    await chief.getByTestId('smtp-port').fill(String(fake.port));
+    await chief.getByTestId('smtp-from').fill('arklock@example.com');
+    // в форме выбирать центр не нужно: сервер использует все сохранённые
+    await expect(chief.getByTestId('smtp-ca')).toHaveCount(0);
+    await expect(chief.getByTestId('smtp-ca-note')).toBeVisible();
+    await chief.getByTestId('smtp-save').click();
+    await expect(chief.getByTestId('mail-notice')).toBeVisible();
+    const card = chief.locator('[data-profile]', { hasText: 'С внутренним центром' });
+    await card.locator('[data-action="check"]').click();
+    // сервер не знает центра: причина названа, предложено загрузить сертификат на сервер
+    await expect(card.getByTestId('smtp-suggest-ca')).toBeVisible();
+    await card.getByTestId('smtp-suggest-ca-open').click();
+    await expect(chief.getByTestId('mail-ca-name')).toBeVisible();
+    // загрузка файла .cer (DER)
+    const der = Buffer.from(new X509Certificate(pki.caPem).raw);
+    await chief
+      .getByTestId('mail-ca-file')
+      .setInputFiles({ name: 'internal-root.cer', mimeType: 'application/pkix-cert', buffer: der });
+    await chief.getByTestId('mail-ca-add').click();
+    // подтверждение пришло от сервера: сохранено, применяется ко всем профилям
+    await expect(chief.getByTestId('mail-notice')).toContainText(
+      /Сохранено на сервере|Saved on the server/,
+    );
+    await expect(chief.getByTestId('mail-ca').first()).toContainText(
+      /сохранён на сервере|stored on the server/,
+    );
+    await expect(chief.getByTestId('mail-ca').first()).toContainText(
+      /ко всем профилям|every profile/,
+    );
+    // профиль центр не выбирал — проверка проходит, и сказано, чем подтверждён сертификат
+    await card.locator('[data-action="check"]').click();
+    await expect(card.getByTestId('smtp-result')).toContainText(/Проверка пройдена|Check passed/);
+    await card.getByTestId('smtp-stages').locator('summary').click();
+    await expect(card.locator('[data-stage="certificate"]')).toContainText(/Arklock Test CA/);
+    // после перезагрузки страницы центр на месте (хранится на сервере, а не в браузере)
+    await chief.reload();
+    await chief.getByTestId('mail-ca-toggle').click();
+    await expect(chief.getByTestId('mail-ca').first()).toContainText(
+      /сохранён на сервере|stored on the server/,
+    );
+    // удаление снимает доверие
+    chief.once('dialog', (d) => void d.accept());
+    await chief.getByTestId('mail-ca').first().getByRole('button').click();
+    await expect(chief.getByTestId('mail-ca')).toHaveCount(0);
+    const again = chief.locator('[data-profile]', { hasText: 'С внутренним центром' });
+    await again.locator('[data-action="check"]').click();
+    await expect(again.getByTestId('smtp-suggest-ca')).toBeVisible();
   } finally {
     await fake.close();
   }

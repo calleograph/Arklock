@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
+import { X509Certificate } from 'node:crypto';
 import {
   isNtlmV2Authenticate,
   ntlmAuthenticate,
@@ -221,6 +222,34 @@ function certInfo(sock: tls.TLSSocket): StageResult['info'] {
   };
 }
 
+/**
+ * Каким доверенным центром организации подтверждён сертификат сервера: идём по цепочке, которую предъявил сервер,
+ * и ищем в ней загруженный администратором сертификат. Пусто — сертификат подтверждён системными центрами.
+ */
+function trustAnchor(sock: tls.TLSSocket, ours: string[]): string {
+  if (!ours.length) return '';
+  const known = new Map<string, string>();
+  for (const pem of ours)
+    try {
+      const x = new X509Certificate(pem);
+      known.set(
+        x.fingerprint256,
+        x.subject.match(/CN=([^\n]+)/)?.[1] ?? x.subject.split('\n')[0] ?? '',
+      );
+    } catch {
+      /* повреждённая запись не должна ломать проверку */
+    }
+  let cur: tls.DetailedPeerCertificate | undefined = sock.getPeerCertificate(true);
+  for (let i = 0; cur && i < 10; i++) {
+    const name = known.get(cur.fingerprint256);
+    if (name !== undefined) return name;
+    const next: tls.DetailedPeerCertificate | undefined = cur.issuerCertificate;
+    if (!next || next === cur) break;
+    cur = next;
+  }
+  return '';
+}
+
 export interface SessionOptions {
   signal?: AbortSignal;
   /** Результат каждого этапа сразу по готовности (для проверки соединения). */
@@ -324,7 +353,10 @@ export async function smtpSession(
     withTimeout(
       new Promise<tls.TLSSocket>((resolve, reject) => {
         const t: tls.TLSSocket = tls.connect(
-          s ? { ...tlsBase, socket: s } : { ...tlsBase, host: address, port: cfg.port },
+          // host нужен и при готовом сокете: по нему проверяется имя в сертификате, когда сервер указан адресом
+          s
+            ? { ...tlsBase, socket: s, host: address }
+            : { ...tlsBase, host: address, port: cfg.port },
           () => {
             if (verify && cfg.pinnedFingerprint && !t.authorized) {
               // не прошёл обычную проверку: принимается только сертификат с закреплённым отпечатком
@@ -359,23 +391,24 @@ export async function smtpSession(
   let sock: Sock | undefined;
   let connected = addresses[0]!;
   let lastError: unknown;
+  /** Соединение с портом установлено: дальнейшая неудача относится к защите, а не к соединению. */
+  let tcpReached = false;
   for (const address of addresses) {
     connected = address;
+    tcpReached = false;
     try {
-      if (cfg.security === 'tls') {
-        sock = await handshake(null, address);
-        report({ stage: 'tcp', ok: true, info: { address } });
-      } else {
-        sock = await withTimeout(
-          new Promise<Sock>((resolve, reject) => {
-            const s: Sock = net.connect({ host: address, port: cfg.port }, () => resolve(s));
-            pendingSocket = s;
-            s.once('error', reject);
-          }),
-          'tcp',
-        );
-        report({ stage: 'tcp', ok: true, info: { address } });
-      }
+      // соединение и (для SSL/TLS) рукопожатие — разные этапы: тайм-аут относится к тому, где он случился
+      const raw = await withTimeout(
+        new Promise<net.Socket>((resolve, reject) => {
+          const s = net.connect({ host: address, port: cfg.port }, () => resolve(s));
+          pendingSocket = s;
+          s.once('error', reject);
+        }),
+        'tcp',
+      );
+      tcpReached = true;
+      report({ stage: 'tcp', ok: true, info: { address } });
+      sock = cfg.security === 'tls' ? await handshake(raw, address) : raw;
       break;
     } catch (error) {
       pendingSocket?.destroy();
@@ -388,7 +421,7 @@ export async function smtpSession(
     const tlsLike =
       !!CERT_REASONS[e.code ?? ''] ||
       /^ERR_(SSL|TLS)|ssl|tls|handshake/i.test(`${e.code ?? ''} ${e.message ?? ''}`);
-    if (cfg.security === 'tls' && tlsLike) {
+    if (cfg.security === 'tls' && (tlsLike || tcpReached)) {
       const err = tlsFailure(e);
       let info = err.detail;
       if (opts.probeCertificate && err.code === 'certificate')
@@ -490,11 +523,12 @@ export async function smtpSession(
     if (needTls) {
       const info = certInfo(sock as tls.TLSSocket);
       const pinned = !!cfg.pinnedFingerprint && !(sock as tls.TLSSocket).authorized;
+      const anchor = pinned ? '' : trustAnchor(sock as tls.TLSSocket, cfg.ca ?? []);
       report({
         stage: 'certificate',
         ok: true,
         warn: !verify,
-        info: { ...info, verified: verify, pinned },
+        info: { ...info, verified: verify, pinned, anchor },
       });
     } else report({ stage: 'certificate', ok: true, skipped: true });
 

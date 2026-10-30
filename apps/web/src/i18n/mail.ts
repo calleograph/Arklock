@@ -40,8 +40,15 @@ export const ruMail = {
         'STARTTLS начинает обычное соединение и переводит его на TLS. SSL/TLS шифрует соединение с первого байта. Порт подставляется сам и меняется вручную.',
       plainAuth:
         'Разрешаю передавать пароль почтовой учётной записи без шифрования (только в изолированной сети)',
+      secServer: 'Сервер',
+      secSender: 'Отправитель',
+      checkDraft: 'Проверить эти настройки',
+      cardShowsSaved:
+        'Изменения ещё не сохранены: карточка профиля показывает действующие настройки.',
+      confirmInsecure:
+        'Подтверждаю снижение защиты: письма (и пароль, если он используется) будут передаваться без шифрования или без проверки сервера. Изменение запишется в журнал.',
       noneWarn:
-        'Без шифрования письма и пароль идут открытым текстом. Режим включает только главный администратор; при включении Arklock попросит пароль разблокировки сейфов, если он не вводился в последние 15 минут.',
+        'Без шифрования письма идут открытым текстом. Подходит для relay внутри защищённой сети. Режим включает только главный администратор — с явным подтверждением ниже.',
       port: 'Порт',
       timeout: 'Таймаут, с',
       auth: 'Вход на сервере',
@@ -110,6 +117,7 @@ export const ruMail = {
       tcp: 'Соединение с {address}',
       tlsOk: 'Протокол {protocol}',
       skipped: 'не используется',
+      notApplicable: 'не применяется: соединение без шифрования',
       certTrusted: 'Доверенный: {subject}, выдан {issuer}, до {validTo}',
       certUnverified: 'Не проверяется (небезопасно): {subject}',
       methods: 'до TLS: {before}; после: {after}',
@@ -123,6 +131,28 @@ export const ruMail = {
       ok: 'Проверка пройдена: сервер доступен и вход выполнен.',
       okNoAuth: 'Проверка пройдена: сервер доступен.',
       server: 'Ответ сервера: {text}',
+    },
+    check: {
+      sourceDraft: 'Проверены значения формы (ещё не сохранены).',
+      sourceSaved: 'Проверены сохранённые настройки профиля.',
+      stages: 'Подробности проверки по этапам',
+    },
+    field: {
+      smtp_account_required: 'Укажите учётную запись для выбранного способа входа.',
+      smtp_ntlm_needs_tls: 'NTLM используется только по STARTTLS или SSL/TLS.',
+      smtp_target_forbidden:
+        'Этот адрес нельзя использовать для отправки почты (loopback, служебный или зарезервированный).',
+      smtp_ca_unknown: 'Выбранного центра сертификации больше нет: выберите другой.',
+      plain_auth_consent:
+        'Отметьте разрешение передавать пароль без шифрования или выберите вход без пароля.',
+      password_reentry:
+        'Адрес или порт сервера изменён: введите пароль заново. Сохранённый пароль не отправляется на другой сервер.',
+      insecure_confirm: 'Отметьте подтверждение снижения защиты.',
+      too_small: 'Значение меньше допустимого.',
+      too_big: 'Значение больше допустимого.',
+      invalid_format: 'Значение указано неверно.',
+      invalid_type: 'Значение указано неверно.',
+      custom: 'Этот порт нельзя использовать для почты.',
     },
     reason: {
       untrusted:
@@ -266,16 +296,32 @@ export const ruMail = {
       pem: 'Сертификат в формате PEM',
       file: 'Выбрать файл',
       none: 'Своих центров сертификации нет.',
+      removeConfirm:
+        'Удалить центр «{name}»? Серверы, сертификаты которых он подтверждал, перестанут проходить проверку во всех профилях.',
+      stored: 'сохранён на сервере',
+      applies: 'применяется ко всем профилям с шифрованием',
+      expired: 'срок действия истёк',
+      expiredHint: 'Истёкший центр не подтверждает серверы: замените его действующим сертификатом.',
+      needRoot:
+        'Цепочка неполная: загружен промежуточный центр, а корневой — нет. Загрузите корневой сертификат того же центра.',
+      savedOnServer:
+        'Сохранено на сервере: сертификатов {n}. Они используются при проверке всех почтовых профилей.',
+      alreadyStored: 'Этот сертификат уже сохранён на сервере: повторно добавлять не нужно.',
+      appliesNote:
+        'Для проверки сервера используются системные центры и все доверенные центры, сохранённые на сервере ({n}). Выбирать их в профиле не нужно.',
+      noneNote:
+        'Сервер Arklock не знает ни одного доверенного центра. Если почтовый сервер использует внутренний центр сертификации, загрузите его сертификат (корневой и промежуточные) в блоке «Доверенные сертификаты» ниже. Подтверждение в браузере доверия серверу не даёт.',
+      suggest:
+        'Сервер не подтвердил сертификат. Загрузите сертификат центра, которым он подписан (корневой и промежуточные), в блоке «Доверенные сертификаты» — он сохранится на сервере и сразу применится ко всем профилям.',
+      suggestMore:
+        'Загруженные центры не подписывали этот сертификат: добавьте корневой и промежуточные сертификаты его центра сертификации.',
+      suggestOpen: 'Загрузить сертификат центра',
+      anchorLine: 'подтверждён доверенным центром «{name}»',
       until: 'до {date}',
       usedBy: 'используется: {names}',
       remove: 'Удалить',
       invalid: 'В тексте нет сертификата центра сертификации.',
       inUse: 'Сертификат выбран в профиле: сначала смените его там.',
-    },
-    reauth: {
-      title: 'Подтвердите паролем разблокировки сейфов',
-      hint: 'Защита снижается (без шифрования, без проверки сертификата или пароль без шифрования): это может сделать только главный администратор с подтверждением. Подтверждение действует 15 минут; повторное сохранение уже принятого решения его не требует.',
-      confirm: 'Подтвердить',
     },
     log: {
       title: 'Журнал отправки',
@@ -352,8 +398,14 @@ export const enMail = {
       securityHint:
         'STARTTLS starts a plain connection and upgrades it to TLS. SSL/TLS encrypts from the first byte. The port is filled in automatically and can be changed.',
       plainAuth: 'I allow sending the mail account password unencrypted (isolated network only)',
+      secServer: 'Server',
+      secSender: 'Sender',
+      checkDraft: 'Check these settings',
+      cardShowsSaved: 'Changes are not saved yet: the profile card shows the settings in use.',
+      confirmInsecure:
+        'I confirm lowering the protection: messages (and the password, if used) will travel unencrypted or to an unverified server. The change is recorded in the activity log.',
       noneWarn:
-        'Without encryption, messages and the password travel in clear text. Only the chief administrator can turn this on; Arklock asks for the vault unlock password unless it was entered in the last 15 minutes.',
+        'Without encryption, messages travel in clear text. Use it for a relay inside a protected network. Only the chief administrator can turn this on, with an explicit confirmation below.',
       port: 'Port',
       timeout: 'Timeout, s',
       auth: 'Server sign-in',
@@ -422,6 +474,7 @@ export const enMail = {
       tcp: 'Connected to {address}',
       tlsOk: 'Protocol {protocol}',
       skipped: 'not used',
+      notApplicable: 'not applicable: the connection is not encrypted',
       certTrusted: 'Trusted: {subject}, issued by {issuer}, until {validTo}',
       certUnverified: 'Not verified (unsafe): {subject}',
       methods: 'before TLS: {before}; after: {after}',
@@ -435,6 +488,28 @@ export const enMail = {
       ok: 'Check passed: the server is reachable and sign-in worked.',
       okNoAuth: 'Check passed: the server is reachable.',
       server: 'Server reply: {text}',
+    },
+    check: {
+      sourceDraft: 'The form values were checked (not saved yet).',
+      sourceSaved: 'The saved profile settings were checked.',
+      stages: 'Check details by stage',
+    },
+    field: {
+      smtp_account_required: 'Enter the account for the selected sign-in method.',
+      smtp_ntlm_needs_tls: 'NTLM is used only over STARTTLS or SSL/TLS.',
+      smtp_target_forbidden:
+        'This address cannot be used to send mail (loopback, service or reserved).',
+      smtp_ca_unknown: 'The selected certificate authority no longer exists: choose another one.',
+      plain_auth_consent:
+        'Tick the permission to send the password unencrypted or choose no sign-in.',
+      password_reentry:
+        'The server address or port changed: enter the password again. The saved password is never sent to another server.',
+      insecure_confirm: 'Tick the confirmation of lowering the protection.',
+      too_small: 'The value is too small.',
+      too_big: 'The value is too large.',
+      invalid_format: 'The value is not valid.',
+      invalid_type: 'The value is not valid.',
+      custom: 'This port cannot be used for mail.',
     },
     reason: {
       untrusted:
@@ -580,16 +655,33 @@ export const enMail = {
       pem: 'Certificate in PEM format',
       file: 'Choose file',
       none: 'No custom certificate authorities.',
+      removeConfirm:
+        'Delete the authority “{name}”? Servers whose certificates it confirmed will fail the check in every profile.',
+      stored: 'stored on the server',
+      applies: 'applies to every profile with encryption',
+      expired: 'expired',
+      expiredHint:
+        'An expired authority does not confirm servers: replace it with a valid certificate.',
+      needRoot:
+        'The chain is incomplete: an intermediate authority is uploaded but the root is not. Upload the root certificate of the same authority.',
+      savedOnServer:
+        'Saved on the server: {n} certificate(s). They are used when checking every mail profile.',
+      alreadyStored: 'This certificate is already stored on the server: no need to add it again.',
+      appliesNote:
+        'The server is verified against the system authorities and all trusted authorities stored on the Arklock server ({n}). You do not select them in the profile.',
+      noneNote:
+        'The Arklock server knows no trusted authority. If the mail server uses an internal certificate authority, upload its certificate (root and intermediates) under “Trusted certificates” below. A confirmation in the browser does not make the server trust anything.',
+      suggest:
+        'The server did not confirm the certificate. Upload the certificate of the authority that signed it (root and intermediates) under “Trusted certificates”: it is stored on the server and applies to every profile at once.',
+      suggestMore:
+        'The uploaded authorities did not sign this certificate: add the root and intermediate certificates of its authority.',
+      suggestOpen: 'Upload the authority certificate',
+      anchorLine: 'confirmed by the trusted authority “{name}”',
       until: 'until {date}',
       usedBy: 'used by: {names}',
       remove: 'Delete',
       invalid: 'The text has no certificate authority certificate.',
       inUse: 'The certificate is selected in a profile: change it there first.',
-    },
-    reauth: {
-      title: 'Confirm with your vault unlock password',
-      hint: 'Protection is being lowered (no encryption, no certificate check or an unencrypted password): only the chief administrator can do this, with confirmation. The confirmation lasts 15 minutes; saving an already accepted choice again does not ask for it.',
-      confirm: 'Confirm',
     },
     log: {
       title: 'Delivery log',

@@ -9,8 +9,6 @@ import { useI18n } from 'vue-i18n';
 import { bindAccount, ldapTransportProblem, normalizeLdapUrl } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
 import { errorMessage, when } from '../services/helpers';
-import { confirmStepUp, stepUpHeaders } from '../services/stepup';
-import { useAuthStore } from '../stores/auth';
 
 /**
  * Подключение к каталогу (Active Directory / LDAP) в три шага: 1) подключение и его проверка, 2) кто может входить и
@@ -86,7 +84,6 @@ const { t, te } = useI18n({
     },
   },
 });
-const auth = useAuthStore();
 
 const AD_FILTER =
   '(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(|(sAMAccountName={u})(userPrincipalName={u})(mail={u})))';
@@ -295,6 +292,7 @@ const SERVER_CODE: Record<string, (code: string) => string> = {
   access: () => t('dir.access.required'),
   allowedGroups: () => t('dir.access.groupsRequired'),
   pinnedPem: () => t('dir.check.fail', { stage: t('dir.stage.tls') }),
+  confirmInsecure: () => t('dir.insecure.confirmRequired'),
 };
 function applyServerErrors(e: unknown): boolean {
   if (!(e instanceof ApiError) || e.code !== 'validation_error' || !Array.isArray(e.details))
@@ -406,6 +404,7 @@ async function wrap(fn: () => Promise<void>): Promise<void> {
 
 const payload = () => ({
   ...form.value,
+  ...(lowering.value ? { confirmInsecure: confirmInsecure.value } : {}),
   access: form.value.access ?? undefined,
   allowedGroups: form.value.allowedGroups.map((g) => g.trim()).filter(Boolean),
   bindPassword: clearPassword.value
@@ -415,26 +414,16 @@ const payload = () => ({
       : form.value.bindPassword,
 });
 
-// ——— подтверждение снижения защиты (сервер требует его, когда включается небезопасный режим) ———
-const reauthFor = ref<null | ((h: Record<string, string>) => Promise<void>)>(null);
-const reauthPassword = ref('');
+// ——— снижение защиты: главный администратор подтверждает флажком в форме (без пароля) ———
+const confirmInsecure = ref(false);
+const lowering = computed(
+  () =>
+    (form.value.allowPlaintext && !saved.value?.allowPlaintext) ||
+    (form.value.insecureTls && !saved.value?.insecureTls),
+);
 async function withConfirm(action: (h: Record<string, string>) => Promise<void>): Promise<void> {
-  try {
-    await action(stepUpHeaders() ?? {});
-  } catch (e) {
-    if (e instanceof ApiError && e.code === 'reauth_required') reauthFor.value = action;
-    else throw e;
-  }
+  await action({});
 }
-const confirmReauth = () =>
-  wrap(async () => {
-    const action = reauthFor.value;
-    if (!action || !auth.user) return;
-    const h = await confirmStepUp(auth.user, reauthPassword.value);
-    reauthPassword.value = '';
-    reauthFor.value = null;
-    await action(h);
-  });
 
 // ——— шаг 1: проверка и сохранение ———
 interface Stage {
@@ -764,33 +753,6 @@ function allowGroup(dn: string): void {
       {{ notice }}
     </p>
 
-    <form
-      v-if="reauthFor"
-      class="card flex flex-wrap items-end gap-2 p-3 text-sm"
-      data-testid="ldap-reauth"
-      @submit.prevent="confirmReauth"
-    >
-      <div class="w-full text-xs text-slate-500">
-        <strong class="text-slate-700 dark:text-slate-200">{{ t('dir.reauth.title') }}.</strong>
-        {{ t('dir.reauth.text') }}
-      </div>
-      <input
-        v-model="reauthPassword"
-        type="password"
-        autocomplete="current-password"
-        class="input min-w-64 flex-1"
-        :aria-label="t('dir.reauth.password')"
-        data-testid="ldap-reauth-password"
-        required
-      />
-      <button type="submit" class="btn-primary" :disabled="busy" data-testid="ldap-reauth-ok">
-        {{ t('dir.reauth.ok') }}
-      </button>
-      <button type="button" class="btn" @click="reauthFor = null">
-        {{ t('common.cancel') }}
-      </button>
-    </form>
-
     <form v-if="loaded" class="space-y-4" novalidate @submit.prevent="save">
       <!-- 1. Подключение -->
       <section class="card space-y-3 p-4 text-sm" data-testid="ldap-step-connection">
@@ -1047,7 +1009,8 @@ function allowGroup(dn: string): void {
             form.startTls ||
             form.allowPlaintext ||
             form.insecureTls ||
-            !!showError('allowPlaintext')
+            !!showError('allowPlaintext') ||
+            !!showError('confirmInsecure')
           "
           data-testid="ldap-special"
         >
@@ -1089,6 +1052,16 @@ function allowGroup(dn: string): void {
             <p v-if="form.insecureTls" class="notice notice-warn" data-testid="ldap-insecure-warn">
               {{ t('dir.insecure.tls') }}
             </p>
+            <template v-if="lowering">
+              <SwitchField
+                v-model="confirmInsecure"
+                :label="t('dir.insecure.confirm')"
+                data-testid="ldap-confirm-insecure"
+              />
+              <p v-if="showError('confirmInsecure')" class="field-error pl-7">
+                {{ showError('confirmInsecure') }}
+              </p>
+            </template>
           </div>
         </details>
 

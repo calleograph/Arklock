@@ -80,8 +80,10 @@ export const ruDirectory = {
     },
     insecure: {
       plaintext:
-        'Пароли сотрудников пойдут по сети открытым текстом. Включайте только в изолированной сети; сохранение требует подтверждения паролем главного администратора.',
-      tls: 'Только для диагностики: подлинность сервера не проверяется, и пароли сотрудников может перехватить подменный сервер. Сохранение требует подтверждения паролем главного администратора.',
+        'Пароли сотрудников пойдут по сети открытым текстом. Включайте только в изолированной сети; включает главный администратор с подтверждением ниже.',
+      tls: 'Только для диагностики: подлинность сервера не проверяется, и пароли сотрудников может перехватить подменный сервер. Включает главный администратор с подтверждением ниже.',
+      confirm: 'Подтверждаю снижение защиты подключения к каталогу. Изменение запишется в журнал.',
+      confirmRequired: 'Отметьте подтверждение снижения защиты.',
     },
     check: {
       run: 'Проверить подключение',
@@ -184,12 +186,6 @@ export const ruDirectory = {
         none_mapped: 'Группы не сопоставлены.',
         missing: 'Не найдено групп: {missing} из {total}. Список — в подробностях.',
       },
-    },
-    reauth: {
-      title: 'Подтвердите снижение защиты',
-      text: 'Включается режим без шифрования или без проверки сертификата. Подтвердите паролем разблокировки сейфов (подтверждение действует 15 минут).',
-      password: 'Пароль разблокировки сейфов',
-      ok: 'Подтвердить и сохранить',
     },
     saved: 'Настройки подключения сохранены.',
     steps: {
@@ -356,8 +352,11 @@ export const enDirectory = {
     },
     insecure: {
       plaintext:
-        'Employee passwords will travel in the clear. Use only in an isolated network; saving requires confirmation by the chief administrator’s password.',
-      tls: 'Diagnostics only: the server identity is not verified, and a fake server could capture employee passwords. Saving requires confirmation by the chief administrator’s password.',
+        'Employee passwords will travel in the clear. Use only in an isolated network; the chief administrator turns it on with the confirmation below.',
+      tls: 'Diagnostics only: the server identity is not verified, and a fake server could capture employee passwords. The chief administrator turns it on with the confirmation below.',
+      confirm:
+        'I confirm lowering the directory connection protection. The change is recorded in the activity log.',
+      confirmRequired: 'Tick the confirmation of lowering the protection.',
     },
     check: {
       run: 'Check connection',
@@ -461,12 +460,6 @@ export const enDirectory = {
         none_mapped: 'No groups are mapped.',
         missing: 'Groups not found: {missing} of {total}. The list is in the details.',
       },
-    },
-    reauth: {
-      title: 'Confirm lowering protection',
-      text: 'An unencrypted or unverified mode is being turned on. Confirm with your vault unlock password (the confirmation lasts 15 minutes).',
-      password: 'Vault unlock password',
-      ok: 'Confirm and save',
     },
     saved: 'Connection settings saved.',
     steps: {
