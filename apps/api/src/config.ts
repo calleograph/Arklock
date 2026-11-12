@@ -35,6 +35,8 @@ const schema = z.object({
   /** Тестовых писем и проверок почты за 10 минут на администратора (защита почтового сервера от случайной рассылки). */
   SMTP_TEST_MAILS_PER_10MIN: z.coerce.number().int().min(1).max(1000).default(5),
   SMTP_CHECKS_PER_10MIN: z.coerce.number().int().min(1).max(1000).default(10),
+  /** Проверки входа сотрудника через каталог: на администратора за 10 минут. */
+  LDAP_LOGIN_TESTS_PER_10MIN: z.coerce.number().int().min(1).max(1000).default(10),
   SESSION_IDLE_HOURS: z.coerce.number().positive().default(12),
   SESSION_MAX_DAYS: z.coerce.number().positive().default(7),
   LOGIN_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(10),

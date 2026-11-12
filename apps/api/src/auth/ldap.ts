@@ -1,6 +1,11 @@
 import tls from 'node:tls';
 import { Client } from 'ldapts';
-import { bindAccount, ldapTransportProblem, normalizeLdapUrl } from '@arklock/contracts';
+import {
+  bindAccount,
+  type DirectoryStage,
+  ldapTransportProblem,
+  normalizeLdapUrl,
+} from '@arklock/contracts';
 
 export interface LdapConfig {
   enabled: boolean;
@@ -81,7 +86,7 @@ export class LdapError extends Error {
 }
 
 /** Коды Active Directory в ответе на вход («… data 52e …»): что именно не так с учётной записью. */
-const AD_BIND_DATA: Record<string, string> = {
+export const AD_BIND_DATA: Record<string, string> = {
   '525': 'account_not_found',
   '52e': 'invalid_credentials',
   '530': 'account_restriction',
@@ -93,7 +98,7 @@ const AD_BIND_DATA: Record<string, string> = {
   '773': 'password_must_change',
   '775': 'account_locked',
 };
-const LDAP_RESULT: Record<number, string> = {
+export const LDAP_RESULT: Record<number, string> = {
   8: 'strong_auth_required',
   13: 'confidentiality_required',
   32: 'no_such_object',
@@ -106,7 +111,7 @@ const LDAP_RESULT: Record<number, string> = {
   53: 'unwilling',
   80: 'unavailable',
 };
-const NET_ERRORS: Record<string, [LdapError['code'], string]> = {
+export const NET_ERRORS: Record<string, [LdapError['code'], string]> = {
   ENOTFOUND: ['connect', 'dns'],
   EAI_AGAIN: ['connect', 'dns'],
   ECONNREFUSED: ['connect', 'refused'],
@@ -302,13 +307,13 @@ async function findUser(
       sizeLimit: 0,
     });
   } catch (e) {
-    if (e instanceof LdapError) throw e;
-    const c2 = classifyLdapError(e, 'search');
-    throw new LdapError(`Search failed: ${c2.detail}`, c2.code, c2.reason, c2.detail);
+    // код результата каталога (например, нехватка прав) сохраняется: по нему интерфейс объясняет отказ
+    throw classifyLdapError(e, 'search');
   }
   if (res.searchReferences.length)
-    throw new LdapError('User search has unresolved referrals', 'search');
-  if (res.searchEntries.length > 1) throw new LdapError('User search is ambiguous', 'search');
+    throw new LdapError('User search has unresolved referrals', 'search', 'ldap_error');
+  if (res.searchEntries.length > 1)
+    throw new LdapError('User search is ambiguous', 'search', 'ambiguous_user');
   if (!res.searchEntries.length) return null;
   const e = res.searchEntries[0]!;
   const uac = Number(str(pick(e, 'userAccountControl')) || 0);
@@ -422,13 +427,18 @@ export async function ldapRootDse(
   });
 }
 
-export type LoginCheck =
-  | { ok: true; user: DirectoryUser; allowed: boolean }
-  | { ok: false; reason: string; detail?: string; user?: DirectoryUser };
-
 /**
  * Проверка входа сотрудника для администратора: поиск, состояние учётной записи, вход паролем самого сотрудника и
  * правило «кто может входить». Учётная запись в Arklock не создаётся, сеанс не открывается, пароль не сохраняется.
+ */
+export type LoginCheck =
+  | { ok: true; user: DirectoryUser; allowed: boolean }
+  | { ok: false; stage: DirectoryStage; reason: string; detail?: string; user?: DirectoryUser };
+
+/**
+ * Проверка входа сотрудника для администратора: служебная запись, поиск, состояние учётной записи, пароль самого
+ * сотрудника и правило «кто может входить». Учётная запись в Arklock не создаётся, сеанс не открывается, пароль не
+ * сохраняется. Каждый отказ возвращает этап и причину — интерфейс показывает их без общего текста.
  */
 export async function ldapCheckLogin(
   cfg: LdapConfig,
@@ -436,34 +446,43 @@ export async function ldapCheckLogin(
   username: string,
   password: string,
 ): Promise<LoginCheck> {
-  if (!password) return { ok: false, reason: 'password_missing' };
+  if (!password) return { ok: false, stage: 'user_bind', reason: 'password_missing' };
   let found: DirectoryUser | null;
   try {
     found = await withClient(cfg, async (c) => {
-      await serviceBind(c, cfg, bindPassword);
-      const u = await findUser(c, cfg, username);
-      return u ? { ...u, groups: await groupsOf(c, cfg, u) } : null;
+      try {
+        await serviceBind(c, cfg, bindPassword);
+      } catch (e) {
+        throw Object.assign(classifyLdapError(e, 'bind'), { stage: 'service' });
+      }
+      try {
+        const u = await findUser(c, cfg, username);
+        return u ? { ...u, groups: await groupsOf(c, cfg, u) } : null;
+      } catch (e) {
+        throw Object.assign(classifyLdapError(e, 'search'), { stage: 'search' });
+      }
     });
   } catch (e) {
-    const c = classifyLdapError(e, 'search');
-    if (c.message.includes('ambiguous')) return { ok: false, reason: 'ambiguous_user' };
+    const c = e as LdapError & { stage?: DirectoryStage };
     return {
       ok: false,
-      reason: c.code === 'bind' ? `service_${c.reason}` : c.reason,
+      stage: c.stage ?? 'service',
+      reason: c.reason,
       detail: c.detail,
     };
   }
-  if (!found) return { ok: false, reason: 'user_not_found' };
-  if (found.disabled) return { ok: false, reason: 'account_disabled', user: found };
+  if (!found) return { ok: false, stage: 'search', reason: 'user_not_found' };
+  if (found.disabled)
+    return { ok: false, stage: 'account', reason: 'account_disabled', user: found };
   try {
     await withClient(cfg, async (c) => {
       await c.bind(found!.dn, password);
     });
   } catch (e) {
     const c = classifyLdapError(e, 'bind');
-    return { ok: false, reason: c.reason, detail: c.detail, user: found };
+    return { ok: false, stage: 'user_bind', reason: c.reason, detail: c.detail, user: found };
   }
-  if (!found.email) return { ok: false, reason: 'no_email', user: found };
+  if (!found.email) return { ok: false, stage: 'account', reason: 'no_email', user: found };
   return { ok: true, user: found, allowed: accessAllowed(cfg, found.groups) };
 }
 

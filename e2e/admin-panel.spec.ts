@@ -465,16 +465,17 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await expect(page.getByTestId('ldap-notice')).toBeVisible();
   await expect(page.getByTestId('ldap-result')).toContainText(/работает|works/i);
   await expect(page.getByTestId('ldap-status')).toContainText(
-    /Подключение проверено|Connection verified/,
+    /Подключение к каталогу: пройдено|Directory connection: passed/,
   );
-  await expect(page.getByTestId('ldap-status')).toContainText(/не проверялся|not been checked/);
+  await expect(page.getByTestId('ldap-status')).toContainText(/не проверялось|not checked/);
   // проверка входа реального сотрудника: пароль проверяет каталог, учётная запись не создаётся
   await page.getByTestId('ldap-login-user').fill('alice');
   await page.getByTestId('ldap-login-password').fill(ALICE.password);
   await page.getByTestId('ldap-login-run').click();
   await expect(page.getByTestId('ldap-login-result')).toHaveAttribute('data-ok', 'true');
+  // все этапы входа пройдены: пароль, право на вход и учётная запись Arklock
   await expect(page.getByTestId('ldap-status')).toContainText(
-    /Вход сотрудника проверен|sign-in verified/,
+    /Учётная запись Arklock готова: пройдено|Arklock account ready: passed/,
   );
   await page.getByTestId('ldap-step-advanced').locator('summary').first().click();
   await page.getByTestId('ldap-lookup-name').fill('alice');

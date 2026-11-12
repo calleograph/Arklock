@@ -8,7 +8,7 @@ import {
   normalizeLdapUrl,
   uuid,
 } from '@arklock/contracts';
-import type { MfaChallengeResponse, SessionResponse } from '@arklock/contracts';
+import type { DirectoryStage, MfaChallengeResponse, SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import {
   DEFAULT_USER_FILTER,
@@ -191,9 +191,17 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
 
   // ——— состояние подключения: настроено, подключение проверено, вход проверен (отдельно от доп. возможностей)
   const statusKey = (id: string) => `ldap.status.${id}`;
+  /** Результаты по этапам входа хранятся отдельно: этап, пройденный раньше, не сбрасывается неудачей следующего. */
+  type Steps = {
+    service?: boolean;
+    user?: boolean;
+    credentials?: boolean;
+    policy?: boolean;
+    account?: boolean;
+  };
   type Status = {
     connection?: { ok: boolean; at: string; stage?: string; code?: string };
-    login?: { ok: boolean; at: string; reason?: string };
+    login?: { ok: boolean; at: string; reason?: string; steps?: Steps };
   };
   async function readStatus(id: string): Promise<Status> {
     const [row] = await db
@@ -441,11 +449,9 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       const draft: LdapConfig = { ...body, url, caPem };
       const secret = body.bindPassword ?? (s ? bindSecret(s) : '');
       // Base DN не задан: берётся из каталога (RootDSE), форма подставит его сама
-      let detected: Awaited<ReturnType<typeof ldapRootDse>> | null = null;
-      if (!draft.baseDn) {
-        detected = await ldapRootDse(draft, secret).catch(() => null);
-        if (detected?.baseDn) draft.baseDn = detected.baseDn;
-      }
+      // вид каталога и Base DN берутся из самого каталога (RootDSE): администратору не нужно их знать
+      const detected = await ldapRootDse(draft, secret).catch(() => null);
+      if (!draft.baseDn && detected?.baseDn) draft.baseDn = detected.baseDn;
       return { ...(await ldapDiagnose(draft, secret)), detected };
     }
     if (!s) throw new AppError(409, 'ldap_not_saved', 'Save the connection first');
@@ -478,7 +484,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     );
     const now = Date.now();
     const recent = (loginTests.get(user.id) ?? []).filter((t) => now - t < 10 * 60_000);
-    if (recent.length >= 10)
+    if (recent.length >= config.LDAP_LOGIN_TESTS_PER_10MIN)
       throw new AppError(429, 'too_many_attempts', 'Too many sign-in checks, try again later');
     loginTests.set(user.id, [...recent, now]);
     const r = await ldapCheckLogin(s, bindSecret(s), body.username, body.password);
@@ -499,21 +505,53 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         account = clash ? 'local_conflict' : 'new';
       }
     }
-    const reason = !r.ok
-      ? r.reason
+    // три результата отдельно: доменные учётные данные, право на вход по правилу, учётная запись Arklock
+    const verified = r.ok || (!r.ok && r.stage === 'account' && r.reason === 'no_email');
+    const local:
+      'ok' | 'not_provisioned' | 'login_disabled' | 'local_exists' | 'blocked_in_arklock' =
+      account === 'local_conflict'
+        ? 'local_exists'
+        : account === 'blocked'
+          ? 'blocked_in_arklock'
+          : account === 'new' && !s.autoProvision
+            ? 'not_provisioned'
+            : !s.enabled
+              ? 'login_disabled'
+              : 'ok';
+    const failure: { stage: DirectoryStage; reason: string } | null = !r.ok
+      ? { stage: r.stage, reason: r.reason }
       : !r.allowed
-        ? 'not_allowed'
-        : account === 'local_conflict'
-          ? 'local_exists'
-          : account === 'blocked'
-            ? 'blocked_in_arklock'
-            : account === 'new' && !s.autoProvision
-              ? 'not_provisioned'
-              : !s.enabled
-                ? 'login_disabled'
-                : 'ok';
-    const ok = reason === 'ok';
-    await writeStatus(id, { login: { ok, at: new Date().toISOString(), reason } });
+        ? { stage: 'policy', reason: 'not_allowed' }
+        : local !== 'ok'
+          ? { stage: 'account', reason: local }
+          : null;
+    const ok = failure === null;
+    const stage: DirectoryStage = failure ? failure.stage : 'done';
+    const reason = failure ? failure.reason : 'ok';
+    // обновляем только те этапы, до которых проверка дошла; остальные сохраняют прежний результат
+    const reached: Steps = {};
+    if (stage !== 'service') reached.service = true;
+    if (stage === 'service') reached.service = false;
+    // пользователь найден, если проверка дошла до пароля или дальше (даже когда пароль или правило не прошли)
+    if (['user_bind', 'policy', 'account', 'done'].includes(stage)) reached.user = true;
+    if (!r.ok && r.stage === 'search' && r.reason === 'user_not_found') reached.user = false;
+    if (!r.ok && r.stage === 'user_bind') reached.credentials = false;
+    if (verified) reached.credentials = true;
+    if (verified) reached.policy = r.ok ? r.allowed : false;
+    if (verified && (!r.ok || r.allowed)) reached.account = local === 'ok';
+    const [prev] = await db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, statusKey(id)));
+    const prevLogin = (prev?.value as Status | undefined)?.login;
+    await writeStatus(id, {
+      login: {
+        ok,
+        at: new Date().toISOString(),
+        reason,
+        steps: { ...(prevLogin?.steps ?? {}), ...reached },
+      },
+    });
     await audit(db, `user:${user.id}`, 'admin.ldap.login_test', `ldap:${id}`, {
       username: body.username.slice(0, 100),
       ok,
@@ -522,7 +560,10 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const u = 'user' in r ? r.user : undefined;
     return {
       ok,
+      stage,
       reason,
+      credentials: { ok: verified, reason: !verified && !r.ok ? r.reason : null },
+      policy: { allowed: r.ok ? r.allowed : null },
       account,
       detail: !r.ok ? (r.detail ?? '') : '',
       user: u

@@ -115,7 +115,11 @@ function probeTls(
         fingerprint256: peer?.fingerprint256 ?? '',
         pem,
         protocol: s.getProtocol() ?? '',
-        subject: [peer?.subject?.CN ?? ''].flat()[0] ?? '',
+        // имя сертификата: CN, если он есть; иначе первое DNS-имя из SAN (во многих сертификатах CN не заполнен)
+        subject:
+          [peer?.subject?.CN ?? ''].flat()[0] ||
+          /DNS:([^,]+)/.exec(peer?.subjectaltname ?? '')?.[1] ||
+          '',
         issuer: [peer?.issuer?.CN ?? ''].flat()[0] ?? '',
         validTo: peer?.valid_to ? new Date(peer.valid_to).toISOString() : '',
         names: peer?.subjectaltname ?? '',

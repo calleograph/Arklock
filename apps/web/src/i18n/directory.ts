@@ -94,6 +94,12 @@ export const ruDirectory = {
       skipped: 'пропущено',
     },
     stage: {
+      service: 'Служебная учётная запись',
+      search: 'Поиск сотрудника',
+      user_bind: 'Пароль сотрудника',
+      policy: 'Правило входа',
+      account: 'Учётная запись Arklock',
+      done: 'Вход',
       config: 'Настройки',
       dns: 'Имя сервера (DNS)',
       tcp: 'Соединение',
@@ -188,6 +194,75 @@ export const ruDirectory = {
       },
     },
     saved: 'Настройки подключения сохранены.',
+    result3: {
+      credentials: 'Доменные учётные данные',
+      credentialsOk: 'проверены: пароль принят каталогом',
+      credentialsNo: 'не подтверждены',
+      policy: 'Право на вход',
+      policyOk: 'разрешено правилом «{rule}»',
+      policyNo: 'не разрешено правилом «{rule}»',
+      policyNone: 'не проверялось: сначала пароль',
+      account: 'Учётная запись Arklock',
+      accountNew:
+        'будет создана при первом входе сотрудника (пароль разблокировки сейфов сотрудник задаст сам)',
+      accountLinked: 'создана и связана с доменной учётной записью',
+      accountBlocked: 'заблокирована в Arklock',
+      accountLocal:
+        'уже есть локальная учётная запись с этим адресом: она не присоединяется автоматически',
+      accountNotProvisioned:
+        'не создана: создание при первом входе выключено — создайте её заранее',
+      accountNone: 'не проверялась',
+    },
+    reason: {
+      invalid_credentials: 'неверные данные для входа',
+      account_not_found: 'учётная запись не найдена в каталоге (код 525)',
+      account_disabled: 'учётная запись отключена в каталоге (код 533)',
+      account_locked: 'учётная запись заблокирована после неверных попыток (код 775)',
+      account_expired: 'срок действия учётной записи истёк (код 701)',
+      account_restriction: 'вход запрещён ограничениями учётной записи (часы входа, компьютеры)',
+      password_expired: 'срок действия пароля истёк (код 532): смените пароль в каталоге',
+      password_must_change:
+        'пароль нужно сменить при следующем входе (код 773): смените его в каталоге',
+      user_not_found:
+        'сотрудник не найден: проверьте логин, Base DN и фильтр. Отключённые учётные записи не находятся',
+      ambiguous_user: 'найдено несколько учётных записей: уточните логин',
+      no_email:
+        'у учётной записи нет адреса почты в каталоге: Arklock не может создать учётную запись',
+      password_missing: 'пароль не введён',
+      insufficient_access:
+        'служебной учётной записи не хватает прав на чтение этой части каталога: выдайте право чтения на Base DN и OU сотрудников',
+      no_such_object: 'объект не найден в каталоге: проверьте Base DN',
+      invalid_dn: 'DN указан неверно',
+      inappropriate_auth: 'каталог не принимает этот способ входа для учётной записи',
+      strong_auth_required:
+        'каталог требует защищённого входа (подписывание LDAP): используйте ldaps:// или StartTLS',
+      confidentiality_required: 'каталог требует шифрования: используйте ldaps:// или StartTLS',
+      unwilling: 'каталог отказался выполнить вход',
+      unavailable: 'каталог занят или недоступен: повторите позже',
+      ldap_error:
+        'каталог вернул ошибку, которую Arklock не распознал: технические подробности — в блоке «Подробности»',
+      dns: 'имя сервера не найдено в DNS',
+      refused: 'порт закрыт или соединение отклонено межсетевым экраном',
+      timeout: 'нет ответа от сервера: проверьте маршрут и межсетевой экран',
+      unreachable: 'сервер недоступен из сети Arklock',
+      reset: 'сервер разорвал соединение',
+      tls_handshake:
+        'защищённое соединение не установлено: на порту нет LDAPS или протоколы не совпадают',
+      starttls_failed: 'сервер не выполнил StartTLS: используйте ldaps:// (порт 636)',
+      cert_name: 'сертификат выдан на другое имя: подключайтесь по имени из сертификата',
+      cert_expired: 'срок действия сертификата сервера истёк',
+      cert_not_yet_valid: 'сертификат сервера ещё не действует: проверьте часы на серверах',
+      cert_untrusted:
+        'сертификат сервера не подтверждён: загрузите корневой и промежуточные центры или доверьте сертификат',
+      not_allowed: 'пароль верный, но учётная запись не входит в разрешённые группы',
+      local_exists:
+        'в Arklock уже есть локальная учётная запись с этим адресом: она не присоединяется автоматически',
+      blocked_in_arklock: 'учётная запись заблокирована в Arklock',
+      not_provisioned:
+        'создание учётных записей при первом входе выключено: сначала создайте учётную запись сотрудника',
+      login_disabled: 'вход через каталог выключен (флажок «Разрешить вход»)',
+      ok: 'вход работает',
+    },
     steps: {
       connection: '1. Подключение к каталогу',
       connectionHint:
@@ -199,12 +274,28 @@ export const ruDirectory = {
       advancedHint:
         'Синхронизация, сопоставление групп, сведения о сотрудниках, фильтр поиска и просмотр каталога. Для входа не обязательны.',
     },
-    type: { label: 'Каталог', ad: 'Active Directory', ldap: 'Другой LDAP-каталог' },
+    type: {
+      label: 'Каталог',
+      ad: 'Active Directory',
+      ldap: 'Другой LDAP-каталог',
+      detected:
+        'Определено по каталогу: Active Directory. Тип и фильтр поиска установлены; сохраните подключение.',
+    },
     special: 'Особые случаи: StartTLS, без шифрования, без проверки сертификата',
     baseDnAuto: 'Определяется по каталогу при проверке подключения (можно изменить).',
     baseDnDetected: 'Определено по каталогу: {baseDn}',
     saveConnection: 'Сохранить подключение',
     status: {
+      connection: 'Подключение к каталогу',
+      connectionChecked: 'проверено',
+      service: 'Служебная учётная запись',
+      user: 'Сотрудник найден',
+      credentials: 'Пароль сотрудника проверен',
+      policy: 'Вход разрешён',
+      account: 'Учётная запись Arklock готова',
+      passed: 'пройдено',
+      failed: 'не пройдено',
+      notChecked: 'не проверялось',
       notSaved: 'Подключение ещё не сохранено.',
       connectionOk: 'Подключение проверено {at}.',
       connectionFail: 'Последняя проверка подключения не прошла ({at}).',
@@ -367,6 +458,12 @@ export const enDirectory = {
       skipped: 'skipped',
     },
     stage: {
+      service: 'Service account',
+      search: 'Employee search',
+      user_bind: 'Employee password',
+      policy: 'Sign-in rule',
+      account: 'Arklock account',
+      done: 'Sign-in',
       config: 'Settings',
       dns: 'Server name (DNS)',
       tcp: 'Connection',
@@ -462,6 +559,74 @@ export const enDirectory = {
       },
     },
     saved: 'Connection settings saved.',
+    result3: {
+      credentials: 'Domain credentials',
+      credentialsOk: 'verified: the directory accepted the password',
+      credentialsNo: 'not verified',
+      policy: 'Permission to sign in',
+      policyOk: 'allowed by “{rule}”',
+      policyNo: 'not allowed by “{rule}”',
+      policyNone: 'not checked: the password comes first',
+      account: 'Arklock account',
+      accountNew:
+        'will be created at the employee’s first sign-in (the employee sets the vault unlock password)',
+      accountLinked: 'created and linked to the domain account',
+      accountBlocked: 'blocked in Arklock',
+      accountLocal:
+        'a local account with this address already exists: it is not joined automatically',
+      accountNotProvisioned:
+        'not created: creating at first sign-in is off — create the account in advance',
+      accountNone: 'not checked',
+    },
+    reason: {
+      invalid_credentials: 'the credentials were refused',
+      account_not_found: 'the account is not found in the directory (code 525)',
+      account_disabled: 'the account is disabled in the directory (code 533)',
+      account_locked: 'the account is locked after failed attempts (code 775)',
+      account_expired: 'the account has expired (code 701)',
+      account_restriction: 'sign-in is restricted by the account (logon hours, workstations)',
+      password_expired: 'the password has expired (code 532): change it in the directory',
+      password_must_change:
+        'the password must be changed at next sign-in (code 773): change it in the directory',
+      user_not_found:
+        'the employee is not found: check the login, Base DN and filter. Disabled accounts are not found',
+      ambiguous_user: 'several accounts match: refine the login',
+      no_email: 'the account has no e-mail address in the directory: Arklock cannot create it',
+      password_missing: 'no password entered',
+      insufficient_access:
+        'the service account cannot read this part of the directory: grant read access to the Base DN and the employee OUs',
+      no_such_object: 'the object is not found in the directory: check the Base DN',
+      invalid_dn: 'the DN is not valid',
+      inappropriate_auth: 'the directory does not accept this sign-in method for the account',
+      strong_auth_required:
+        'the directory requires protected sign-in (LDAP signing): use ldaps:// or StartTLS',
+      confidentiality_required: 'the directory requires encryption: use ldaps:// or StartTLS',
+      unwilling: 'the directory refused to sign in',
+      unavailable: 'the directory is busy or unavailable: try again later',
+      ldap_error: 'the directory returned an error Arklock does not recognise: see the details',
+      dns: 'the server name is not found in DNS',
+      refused: 'the port is closed or a firewall refuses the connection',
+      timeout: 'no answer from the server: check the route and the firewall',
+      unreachable: 'the server is unreachable from the Arklock network',
+      reset: 'the server closed the connection',
+      tls_handshake:
+        'no encrypted connection: there is no LDAPS on this port or the protocols do not match',
+      starttls_failed: 'the server did not perform StartTLS: use ldaps:// (port 636)',
+      cert_name:
+        'the certificate is issued for another name: connect by the name in the certificate',
+      cert_expired: 'the server certificate has expired',
+      cert_not_yet_valid: 'the server certificate is not valid yet: check the clocks',
+      cert_untrusted:
+        'the server certificate is not trusted: upload the root and intermediate authorities or trust the certificate',
+      not_allowed: 'the password is right, but the account is not in an allowed group',
+      local_exists:
+        'a local account with this address already exists in Arklock: it is not joined automatically',
+      blocked_in_arklock: 'the account is blocked in Arklock',
+      not_provisioned:
+        'creating accounts at first sign-in is off: create the employee account first',
+      login_disabled: 'sign-in through the directory is turned off (the “Allow sign-in” checkbox)',
+      ok: 'sign-in works',
+    },
     steps: {
       connection: '1. Directory connection',
       connectionHint:
@@ -473,12 +638,28 @@ export const enDirectory = {
       advancedHint:
         'Synchronisation, group mapping, employee details, the search filter and directory browsing. Not needed for sign-in.',
     },
-    type: { label: 'Directory', ad: 'Active Directory', ldap: 'Other LDAP directory' },
+    type: {
+      label: 'Directory',
+      ad: 'Active Directory',
+      ldap: 'Other LDAP directory',
+      detected:
+        'Detected from the directory: Active Directory. The type and search filter are set; save the connection.',
+    },
     special: 'Special cases: StartTLS, no encryption, no certificate check',
     baseDnAuto: 'Detected from the directory during the connection check (can be changed).',
     baseDnDetected: 'Detected from the directory: {baseDn}',
     saveConnection: 'Save connection',
     status: {
+      connection: 'Directory connection',
+      connectionChecked: 'verified',
+      service: 'Service account',
+      user: 'Employee found',
+      credentials: 'Employee password verified',
+      policy: 'Sign-in allowed',
+      account: 'Arklock account ready',
+      passed: 'passed',
+      failed: 'failed',
+      notChecked: 'not checked',
       notSaved: 'The connection is not saved yet.',
       connectionOk: 'Connection verified {at}.',
       connectionFail: 'The last connection check failed ({at}).',

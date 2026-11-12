@@ -146,7 +146,18 @@ const FORM_KEYS = Object.keys(blankForm()) as (keyof Form)[];
 const form = ref<Form>(blankForm());
 interface Status {
   connection?: { ok: boolean; at: string; stage?: string; code?: string };
-  login?: { ok: boolean; at: string; reason?: string };
+  login?: {
+    ok: boolean;
+    at: string;
+    reason?: string;
+    steps?: {
+      service?: boolean;
+      user?: boolean;
+      credentials?: boolean;
+      policy?: boolean;
+      account?: boolean;
+    };
+  };
 }
 interface Profile extends Omit<Form, 'bindPassword' | 'access'> {
   id: string;
@@ -438,6 +449,8 @@ interface Stage {
 const check = ref<{ ok: boolean; stages: Stage[] } | null>(null);
 const checkSummary = ref('');
 const detected = ref('');
+/** Тип каталога определён по самому каталогу: показываем, что изменено, пока администратор не сохранил. */
+const typeDetected = ref(false);
 const stageText = (s: Stage) => {
   if (s.stage === 'config' && s.code !== 'ok')
     return SERVER_CODE[s.code.startsWith('bind_') ? 'bindDn' : 'url']!(s.code);
@@ -481,12 +494,19 @@ const test = () => {
       const r = await api<{
         ok: boolean;
         stages: Stage[];
-        detected?: { baseDn: string } | null;
+        detected?: { baseDn: string; isAd: boolean } | null;
       }>('POST', '/admin/ldap/test' + profileQuery(), payload(), { headers });
       // Base DN не задан — подставляем найденный в каталоге (видно, что именно подставлено)
       if (!form.value.baseDn && r.detected?.baseDn) {
         form.value.baseDn = r.detected.baseDn;
         detected.value = t('dir.baseDnDetected', { baseDn: r.detected.baseDn });
+      }
+      // каталог сообщил, что это Active Directory: тип и фильтр по умолчанию переключаются сами (сохранить нужно)
+      if (r.detected?.isAd && form.value.directoryType !== 'ad') {
+        form.value.directoryType = 'ad';
+        if (form.value.userFilter === LDAP_FILTER) form.value.userFilter = AD_FILTER;
+        if (form.value.nameAttr === 'cn') form.value.nameAttr = 'displayName';
+        typeDetected.value = true;
       }
       check.value = r;
       summarize(r);
@@ -529,23 +549,22 @@ const save = () => {
 // ——— шаг 2: проверка входа сотрудника ———
 const loginName = ref('');
 const loginPassword = ref('');
-const loginResult = ref<{
+interface LoginResult {
   ok: boolean;
+  stage: string;
   reason: string;
+  credentials: { ok: boolean; reason: string | null };
+  policy: { allowed: boolean | null };
+  account: 'new' | 'linked' | 'local_conflict' | 'blocked' | null;
   detail: string;
   user: { name: string; email: string; groups: number } | null;
-} | null>(null);
-const loginText = (reason: string) => {
-  for (const key of [
-    `dir.loginTest.reason.${reason}`,
-    `dir.result.bind.${reason}`,
-    `dir.result.tls.${reason}`,
-    `dir.result.tcp.${reason}`,
-  ])
-    if (te(key)) return t(key, { account: loginName.value, host: '', port: '' });
-  if (reason.startsWith('service_')) return t('dir.check.fail', { stage: t('dir.stage.bind') });
-  return t('dir.check.fail', { stage: t('dir.loginTest.title') });
-};
+}
+const loginResult = ref<LoginResult | null>(null);
+/** Текст этапа и причины из общего словаря. Неизвестная причина называется по коду, а не общей фразой. */
+const reasonKey = (reason: string) =>
+  te(`dir.reason.${reason}`) ? `dir.reason.${reason}` : 'dir.reason.ldap_error';
+const loginText = (stage: string, reason: string) =>
+  `${t(`dir.stage.${te(`dir.stage.${stage}`) ? stage : 'done'}`)}: ${t(reasonKey(reason))}`;
 const loginTest = () =>
   wrap(async () => {
     loginResult.value = await api('POST', '/admin/ldap/login-test' + profileQuery(), {
@@ -558,35 +577,44 @@ const loginTest = () =>
 
 // ——— состояние подключения ———
 const at = (iso?: string) => (iso ? when(iso) : '');
+/** Последовательность состояния: каждый этап со своим результатом (сохраняется, даже если следующий не пройден). */
 const statusLines = computed(() => {
   const p = saved.value;
   if (!p) return [{ tone: 'muted', text: t('dir.status.notSaved') }];
   const s = p.status ?? {};
   const lines: { tone: 'ok' | 'warn' | 'error' | 'muted'; text: string }[] = [];
-  if (!s.connection) lines.push({ tone: 'warn', text: t('dir.status.connectionUnknown') });
-  else if (s.connection.ok)
-    lines.push({ tone: 'ok', text: t('dir.status.connectionOk', { at: at(s.connection.at) }) });
-  else
-    lines.push({
-      tone: 'error',
-      text: t('dir.status.connectionFail', { at: at(s.connection.at) }),
-    });
-  if (!p.enabled) lines.push({ tone: 'muted', text: t('dir.status.loginOff') });
-  else if (!s.login)
-    lines.push({
-      tone: 'warn',
-      text: `${t('dir.status.loginOn')} ${t('dir.status.loginUnchecked')}`,
-    });
-  else if (s.login.ok)
-    lines.push({
-      tone: 'ok',
-      text: `${t('dir.status.loginOn')} ${t('dir.status.loginOk', { at: at(s.login.at) })}`,
-    });
-  else
-    lines.push({
-      tone: 'error',
-      text: `${t('dir.status.loginOn')} ${t('dir.status.loginFail', { at: at(s.login.at) })}`,
-    });
+  const step = (ok: boolean | undefined, label: string, at?: string) =>
+    ok === undefined
+      ? { tone: 'muted' as const, text: `${label}: ${t('dir.status.notChecked')}` }
+      : ok
+        ? {
+            tone: 'ok' as const,
+            text: `${label}: ${t('dir.status.passed')}${at ? ` (${at})` : ''}`,
+          }
+        : {
+            tone: 'error' as const,
+            text: `${label}: ${t('dir.status.failed')}${at ? ` (${at})` : ''}`,
+          };
+  const c = s.connection;
+  lines.push(
+    c
+      ? step(c.ok, t('dir.status.connection'), at(c.at))
+      : {
+          tone: 'warn',
+          text: `${t('dir.status.connection')}: ${t('dir.status.connectionUnknown')}`,
+        },
+  );
+  const st = s.login?.steps ?? {};
+  const at2 = s.login ? at(s.login.at) : undefined;
+  lines.push(step(st.service, t('dir.status.service'), at2));
+  lines.push(step(st.user, t('dir.status.user'), at2));
+  lines.push(step(st.credentials, t('dir.status.credentials'), at2));
+  lines.push(
+    p.enabled
+      ? step(st.policy, t('dir.status.policy'), at2)
+      : { tone: 'muted', text: `${t('dir.status.policy')}: ${t('dir.status.loginOff')}` },
+  );
+  lines.push(step(st.account, t('dir.status.account'), at2));
   lines.push({
     tone: 'muted',
     text: t('dir.status.extras', {
@@ -612,7 +640,7 @@ const lookupOut = ref<{
 } | null>(null);
 const opResult = ref('');
 const reasonText = (r: { reason?: string }) =>
-  r.reason ? loginText(r.reason) : t('dir.check.fail', { stage: t('directory.search2') });
+  r.reason ? t(reasonKey(r.reason)) : t('dir.check.fail', { stage: t('directory.search2') });
 const lookup = () =>
   wrap(async () => {
     opResult.value = '';
@@ -782,6 +810,9 @@ function allowGroup(dn: string): void {
               <option value="ad">{{ t('dir.type.ad') }}</option>
               <option value="ldap">{{ t('dir.type.ldap') }}</option>
             </select>
+            <span v-if="typeDetected" class="field-hint" data-testid="ldap-type-detected">{{
+              t('dir.type.detected')
+            }}</span>
           </label>
           <label class="block sm:col-span-2">
             <span class="field-label">{{ t('dir.url.label') }}</span>
@@ -1308,8 +1339,49 @@ function allowGroup(dn: string): void {
             :data-ok="loginResult.ok"
           >
             <p :class="loginResult.ok ? 'notice notice-ok' : 'notice notice-error'" role="status">
-              {{ loginText(loginResult.reason) }}
+              {{
+                loginResult.ok
+                  ? t(reasonKey('ok'))
+                  : loginText(loginResult.stage, loginResult.reason)
+              }}
             </p>
+            <ul class="space-y-0.5 text-xs" data-testid="ldap-login-three">
+              <li data-testid="ldap-login-credentials">
+                <span class="font-medium">{{ t('dir.result3.credentials') }}:</span>
+                {{
+                  loginResult.credentials.ok
+                    ? t('dir.result3.credentialsOk')
+                    : t('dir.result3.credentialsNo')
+                }}
+              </li>
+              <li data-testid="ldap-login-policy">
+                <span class="font-medium">{{ t('dir.result3.policy') }}:</span>
+                {{
+                  loginResult.policy.allowed === null
+                    ? t('dir.result3.policyNone')
+                    : loginResult.policy.allowed
+                      ? t('dir.result3.policyOk', {
+                          rule:
+                            form.access === 'groups' ? t('dir.access.groups') : t('dir.access.all'),
+                        })
+                      : t('dir.result3.policyNo', { rule: t('dir.access.groups') })
+                }}
+              </li>
+              <li data-testid="ldap-login-account">
+                <span class="font-medium">{{ t('dir.result3.account') }}:</span>
+                {{
+                  loginResult.account === null
+                    ? t('dir.result3.accountNone')
+                    : loginResult.account === 'new'
+                      ? t('dir.result3.accountNew')
+                      : loginResult.account === 'linked'
+                        ? t('dir.result3.accountLinked')
+                        : loginResult.account === 'blocked'
+                          ? t('dir.result3.accountBlocked')
+                          : t('dir.result3.accountLocal')
+                }}
+              </li>
+            </ul>
             <p v-if="loginResult.user" class="text-xs text-slate-500">
               {{ t('dir.loginTest.found', loginResult.user) }}
             </p>

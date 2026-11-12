@@ -18,6 +18,14 @@ const OUT = path.resolve(argv[0] && !argv[0].startsWith('--') ? argv[0] : 'test-
 const WIDTHS = opt('widths', '320,375,390,768,1024,1280,1920').split(',').map(Number);
 const THEMES = opt('themes', 'glass,night,grove,aurora').split(',');
 const SHOTS = argv.includes('--shots');
+// --layout: общий аудит сетки и ритма из стандарта компоновки (тот же скрипт, что запускается через agent-browser)
+const LAYOUT = argv.includes('--layout');
+const LAYOUT_JS = LAYOUT
+  ? readFileSync(
+      path.join(process.env.HOME ?? '', '.claude/design-standard/layout-audit.js'),
+      'utf8',
+    )
+  : '';
 const BROWSER = opt('browser', 'chromium');
 const ADMIN_TABS = (
   'overview,resources,containers,backups,logs,storage,diagnostics,certificates,smtp,ldap,sso,saml,syslog,' +
@@ -229,18 +237,21 @@ try {
         const m = await measure(page);
         const name = `${theme}-${width}-${route.replaceAll('/', '_') || 'home'}`;
         if (SHOTS) await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: false });
-        report.push({ theme, width, route, ...m, errors: [...errors] });
+        const layout = LAYOUT ? await page.evaluate(LAYOUT_JS) : null;
+        report.push({ theme, width, route, ...m, errors: [...errors], layout });
       }
     }
   }
   await browser.close();
 
-  const bad = report.filter((r) => r.overflowX || r.empty || r.errors.length || r.smallInputs);
+  const bad = report.filter(
+    (r) => r.overflowX || r.empty || r.errors.length || r.smallInputs || r.layout?.problems?.length,
+  );
   writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 1));
   console.log(`экранов: ${report.length}, с замечаниями: ${bad.length}`);
   for (const r of bad.slice(0, 80))
     console.log(
-      `${r.theme} ${r.width} /${r.route}: ${r.overflowX ? `прокрутка ${r.scrollWidth}>${r.clientWidth} [${r.wide.join(' ')}] ` : ''}${r.empty ? 'ПУСТО ' : ''}${r.smallInputs ? `полей<16px: ${r.smallInputs} ` : ''}${r.errors.join(' | ')}`,
+      `${r.theme} ${r.width} /${r.route}: ${r.layout?.problems?.length ? `сетка: ${r.layout.problems.slice(0, 4).join(' | ')} ` : ''}${r.overflowX ? `прокрутка ${r.scrollWidth}>${r.clientWidth} [${r.wide.join(' ')}] ` : ''}${r.empty ? 'ПУСТО ' : ''}${r.smallInputs ? `полей<16px: ${r.smallInputs} ` : ''}${r.errors.join(' | ')}`,
     );
   process.exitCode = bad.length ? 1 : 0;
 } finally {

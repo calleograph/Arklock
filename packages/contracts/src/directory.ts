@@ -100,3 +100,64 @@ export function bindAccount(
   }
   return { ok: false, problem: 'format' };
 }
+
+/**
+ * Все причины, с которыми сервер отвечает на проверку каталога и входа. Интерфейс обязан знать текст для каждой
+ * (проверяется тестом), иначе пользователь увидит общее сообщение вместо причины.
+ */
+export const DIRECTORY_REASONS = [
+  // учётная запись и пароль (ответ каталога)
+  'invalid_credentials',
+  'account_not_found',
+  'account_disabled',
+  'account_locked',
+  'account_expired',
+  'account_restriction',
+  'password_expired',
+  'password_must_change',
+  'user_not_found',
+  'ambiguous_user',
+  'no_email',
+  'password_missing',
+  // каталог и права
+  'insufficient_access',
+  'no_such_object',
+  'invalid_dn',
+  'inappropriate_auth',
+  'strong_auth_required',
+  'confidentiality_required',
+  'unwilling',
+  'unavailable',
+  'ldap_error',
+  // сеть и защищённое соединение
+  'dns',
+  'refused',
+  'timeout',
+  'unreachable',
+  'reset',
+  'tls_handshake',
+  'starttls_failed',
+  'cert_name',
+  'cert_expired',
+  'cert_not_yet_valid',
+  'cert_untrusted',
+  // правила Arklock
+  'not_allowed',
+  'local_exists',
+  'blocked_in_arklock',
+  'not_provisioned',
+  'login_disabled',
+  'ok',
+] as const;
+export type DirectoryReason = (typeof DIRECTORY_REASONS)[number];
+
+/** Этап, на котором проверка остановилась: служебная запись, поиск, пароль сотрудника, правило входа, учётная запись. */
+export const DIRECTORY_STAGES = [
+  'service',
+  'search',
+  'user_bind',
+  'policy',
+  'account',
+  'done',
+] as const;
+export type DirectoryStage = (typeof DIRECTORY_STAGES)[number];

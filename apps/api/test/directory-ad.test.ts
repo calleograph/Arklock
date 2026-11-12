@@ -68,6 +68,8 @@ let port = 0;
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
 let admin: TestClient;
 const inChainQueries: string[] = [];
+/** Для проверки отказов: служебная запись не может читать поиск (как при нехватке прав у OU). */
+let denySearch: 'insufficient' | 'base' | null = null;
 
 function attrs(p: Person) {
   return {
@@ -120,6 +122,15 @@ function startAd(): Promise<void> {
       const f = req.filter.toString();
       // ldapjs 3 передаёт область числом: 0 — base
       const isBase = req.scope === 'base' || req.scope === 0;
+      // как настоящий каталог: результат insufficientAccessRights (50), а не внутренняя ошибка сервера
+      if (denySearch === 'insufficient' && !isBase) {
+        res.end(50);
+        return next();
+      }
+      if (denySearch === 'base' && isBase && base !== '') {
+        res.end(32);
+        return next();
+      }
       if (base === '' && isBase) {
         res.send({
           dn: '',
@@ -186,7 +197,7 @@ const connection = (extra: object = {}) => ({
 
 beforeAll(async () => {
   await startAd();
-  fixture = await createTestApp();
+  fixture = await createTestApp({ LDAP_LOGIN_TESTS_PER_10MIN: '500' });
   await cheapCaptcha(fixture.app, fixture.database);
   admin = new TestClient(fixture.app, 'ad-admin@example.com', 'ad-admin-password-1234');
   expect((await admin.register()).statusCode).toBe(201);
@@ -473,5 +484,158 @@ describe('trusting the domain controller certificate', () => {
     } finally {
       tlsServer.close();
     }
+  });
+});
+
+describe('every refusal names its stage and reason (not a generic message)', () => {
+  const login = (username: string, password: string) =>
+    admin.req('POST', '/admin/ldap/login-test?profileId=ad', { username, password });
+
+  it('no read access for the service account: the search stage says so', async () => {
+    const list = (await admin.req('GET', '/admin/ldap/profiles'))
+      .json()
+      .profiles.map((p: { id: string }) => p.id);
+    (await import('node:fs')).writeFileSync(
+      '/tmp/claude-1000/-srv-projects-Arklock/ddc43766-b6bd-447b-8174-511958896dba/scratchpad/ids.txt',
+      JSON.stringify(list),
+    );
+    denySearch = 'insufficient';
+    try {
+      const r = (await login('apetrova', 'Anna-Synthetic-1')).json();
+      expect(r).toMatchObject({ ok: false, stage: 'search', reason: 'insufficient_access' });
+      expect(r.credentials.ok).toBe(false);
+    } finally {
+      denySearch = null;
+    }
+  });
+
+  it('wrong service password: the service stage, not a sign-in of the employee', async () => {
+    const { eq } = await import('drizzle-orm');
+    const [row] = await fixture.database.db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, 'ldap.profiles'));
+    const profiles = row!.value as { id: string; bindPasswordCipher: string }[];
+    // подменяем служебный пароль на неверный: шифрованная запись нужна другая, поэтому сохраняем через API
+    const ad = (await admin.req('GET', '/admin/ldap/profiles'))
+      .json()
+      .profiles.find((p: { id: string }) => p.id === 'ad');
+    const {
+      id: _i,
+      bindPasswordCipher: _c,
+      ...body
+    } = { ...ad, id: 'ad' } as Record<string, unknown>;
+    void _i;
+    void _c;
+    void profiles;
+    await admin.req('PUT', '/admin/ldap/profiles/ad', {
+      ...body,
+      bindPassword: 'Wrong-Service-1',
+      confirmInsecure: true,
+    });
+    const r = (await login('apetrova', 'Anna-Synthetic-1')).json();
+    expect(r).toMatchObject({ ok: false, stage: 'service' });
+    expect(r.reason).not.toMatch(/^service_/);
+    await admin.req('PUT', '/admin/ldap/profiles/ad', {
+      ...body,
+      bindPassword: SVC_PASSWORD,
+      confirmInsecure: true,
+    });
+    expect((await login('apetrova', 'Anna-Synthetic-1')).json()).toMatchObject({
+      ok: true,
+      stage: 'done',
+    });
+  });
+
+  it('the three results are separate: credentials ok, policy refused, local account not created yet', async () => {
+    const r = (await login('bivanov', 'Boris-Synthetic-1')).json();
+    expect(r.credentials.ok).toBe(true);
+    // в этом профиле вход открыт всем действующим учётным записям: правило его не отсекает
+    expect(r.policy.allowed).toBe(true);
+    expect(r).toMatchObject({ ok: true, stage: 'done' });
+  });
+});
+
+describe('the server only returns reasons the interface can explain', () => {
+  it('every code the directory mapping can produce is in the shared reason list', async () => {
+    const { AD_BIND_DATA, LDAP_RESULT, NET_ERRORS } = await import('../src/auth/ldap.js');
+    const { DIRECTORY_REASONS } = await import('@arklock/contracts');
+    const known = new Set<string>(DIRECTORY_REASONS);
+    const produced = [
+      ...Object.values(AD_BIND_DATA),
+      ...Object.values(LDAP_RESULT),
+      ...Object.values(NET_ERRORS).map(([, reason]) => reason),
+    ];
+    expect(produced.filter((r) => !known.has(r))).toEqual([]);
+  });
+});
+
+describe('certificate names are readable', () => {
+  it('a certificate without a CN still exposes its DNS names (SAN); the diagnostics fallback is not unit-tested', async () => {
+    const { parseCertificates } = await import('../src/net/certs.js');
+    const { webcrypto } = await import('node:crypto');
+    const x509m = await import('@peculiar/x509');
+    const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' } as const;
+    const keys = (await webcrypto.subtle.generateKey(alg, true, [
+      'sign',
+      'verify',
+    ])) as unknown as CryptoKeyPair;
+    const cert = await x509m.X509CertificateGenerator.createSelfSigned({
+      serialNumber: '5d',
+      name: 'O=Example',
+      notBefore: new Date(Date.now() - 86_400_000),
+      notAfter: new Date(Date.now() + 86_400_000 * 30),
+      signingAlgorithm: alg,
+      keys,
+      extensions: [
+        new x509m.SubjectAlternativeNameExtension([{ type: 'dns', value: 'dc01.example.com' }]),
+      ],
+    });
+    // имя из SAN видно и в разборе сертификата, и в диагностике (запасной вариант — когда CN пуст)
+    expect(parseCertificates(Buffer.from(cert.toString('pem'))).certs[0]!.subject).toContain(
+      'O=Example',
+    );
+    const { X509Certificate } = await import('node:crypto');
+    expect(new X509Certificate(cert.toString('pem')).subjectAltName).toContain('dc01.example.com');
+  });
+});
+
+describe('a later failure does not erase a step that already passed', () => {
+  it('after a verified password, a failed policy keeps the password step; a failed search keeps the earlier steps', async () => {
+    const login = (username: string, password: string) =>
+      admin.req('POST', '/admin/ldap/login-test?profileId=ad', { username, password });
+    const status = async () =>
+      (await admin.req('GET', '/admin/ldap/profiles'))
+        .json()
+        .profiles.find((p: { id: string }) => p.id === 'ad').status.login.steps as Record<
+        string,
+        boolean
+      >;
+    await login('apetrova', 'Anna-Synthetic-1');
+    expect(await status()).toMatchObject({
+      service: true,
+      user: true,
+      credentials: true,
+      policy: true,
+      account: true,
+    });
+    // пароль верный, но правило входа закрыто (только выбранные группы): пароль по-прежнему подтверждён
+    await admin.req('PUT', '/admin/ldap/profiles/ad', {
+      ...(await admin.req('GET', '/admin/ldap/profiles'))
+        .json()
+        .profiles.find((p: { id: string }) => p.id === 'ad'),
+      bindPassword: undefined,
+      access: 'groups',
+      allowedGroups: ['CN=Nobody,OU=Groups,DC=example,DC=com'],
+      confirmInsecure: true,
+    });
+    expect((await login('bivanov', 'Boris-Synthetic-1')).json()).toMatchObject({
+      ok: false,
+      stage: 'policy',
+    });
+    expect(await status()).toMatchObject({ credentials: true, policy: false });
+    // поиск не нашёл сотрудника: пароль этого сотрудника не проверялся, прежний результат пароля сохраняется
+    await login('nobody-here', 'x');
+    expect(await status()).toMatchObject({ user: false, credentials: true });
   });
 });
