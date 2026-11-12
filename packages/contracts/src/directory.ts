@@ -128,6 +128,9 @@ export const DIRECTORY_REASONS = [
   'confidentiality_required',
   'unwilling',
   'unavailable',
+  'operations_error',
+  'protocol_error',
+  'search_limit',
   'ldap_error',
   // сеть и защищённое соединение
   'dns',

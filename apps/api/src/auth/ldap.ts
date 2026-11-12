@@ -99,6 +99,11 @@ export const AD_BIND_DATA: Record<string, string> = {
   '775': 'account_locked',
 };
 export const LDAP_RESULT: Record<number, string> = {
+  1: 'operations_error',
+  2: 'protocol_error',
+  3: 'search_limit',
+  4: 'search_limit',
+  11: 'search_limit',
   8: 'strong_auth_required',
   13: 'confidentiality_required',
   32: 'no_such_object',
@@ -185,6 +190,11 @@ export function buildUserFilter(template: string, username: string): string {
 
 export interface DirectoryUser {
   dn: string;
+  /**
+   * Устойчивый идентификатор объекта каталога (objectGUID Active Directory, entryUUID OpenLDAP, nsUniqueId 389):
+   * не меняется при переименовании и переносе учётной записи, в отличие от DN. Пусто — каталог его не отдаёт.
+   */
+  guid: string;
   email: string;
   name: string;
   groups: string[];
@@ -206,6 +216,29 @@ const pick = (e: Record<string, unknown>, name: string): unknown => {
   const k = Object.keys(e).find((x) => x.toLowerCase() === name.toLowerCase());
   return k === undefined ? undefined : e[k];
 };
+
+/** Атрибуты устойчивого идентификатора; objectGUID бинарный, остальные — текст. */
+export const GUID_ATTRS = ['objectguid', 'entryuuid', 'nsuniqueid'];
+
+/**
+ * Идентификатор объекта в виде строки. objectGUID приходит 16 байтами в порядке Microsoft (первые три группы
+ * записаны наоборот): переводим к привычному виду «xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx», как его показывают
+ * средства администрирования.
+ */
+export function guidOf(e: Record<string, unknown>): string {
+  const bin = pick(e, 'objectguid');
+  const b = Array.isArray(bin) ? bin[0] : bin;
+  if (Buffer.isBuffer(b) && b.length === 16) {
+    const h = b.toString('hex');
+    const le = (x: string) => x.match(/../g)!.reverse().join('');
+    return `${le(h.slice(0, 8))}-${le(h.slice(8, 12))}-${le(h.slice(12, 16))}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  for (const name of ['entryuuid', 'nsuniqueid']) {
+    const v = str(pick(e, name)).trim().toLowerCase();
+    if (v) return v;
+  }
+  return '';
+}
 
 const str = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : String(v ?? ''));
 const list = (v: unknown): string[] =>
@@ -282,27 +315,52 @@ export async function serviceBind(c: Client, cfg: LdapConfig, bindPassword: stri
   }
 }
 
-async function findUser(
-  c: Client,
-  cfg: LdapConfig,
-  username: string,
-): Promise<DirectoryUser | null> {
-  // имена атрибутов в нижнем регистре: каталоги сравнивают их без учёта регистра, а некоторые реализации — только так
-  const pa = profileAttrs(cfg);
-  const attrs = [
+/** Атрибуты записи человека; имена в нижнем регистре: каталоги сравнивают их без учёта регистра, а некоторые реализации — только так. */
+function userAttrs(cfg: LdapConfig): string[] {
+  return [
     'dn',
     cfg.emailAttr,
     cfg.nameAttr,
     'memberOf',
     'userAccountControl',
-    ...Object.values(pa).filter(Boolean),
+    ...GUID_ATTRS,
+    ...Object.values(profileAttrs(cfg)).filter(Boolean),
   ].map((a) => a.toLowerCase());
+}
+
+function userFromEntry(
+  cfg: LdapConfig,
+  e: Record<string, unknown> & { dn: string },
+): DirectoryUser {
+  const pa = profileAttrs(cfg);
+  const uac = Number(str(pick(e, 'userAccountControl')) || 0);
+  return {
+    dn: e.dn,
+    guid: guidOf(e),
+    email: str(pick(e, cfg.emailAttr)).toLowerCase(),
+    name: str(pick(e, cfg.nameAttr)),
+    groups: list(pick(e, 'memberOf')),
+    disabled: (uac & 2) === 2,
+    profile: {
+      title: pa.title ? str(pick(e, pa.title)).trim() : '',
+      department: pa.department ? str(pick(e, pa.department)).trim() : '',
+      phone: pa.phone ? str(pick(e, pa.phone)).trim() : '',
+    },
+  };
+}
+
+async function findUser(
+  c: Client,
+  cfg: LdapConfig,
+  username: string,
+): Promise<DirectoryUser | null> {
   let res;
   try {
     res = await c.search(cfg.baseDn, {
       scope: 'sub',
       filter: buildUserFilter(cfg.userFilter, loginName(username)),
-      attributes: attrs,
+      attributes: userAttrs(cfg),
+      explicitBufferAttributes: ['objectguid'],
       // ldapts hides SizeLimitExceeded with a positive client limit; authoritative lookups must surface it.
       sizeLimit: 0,
     });
@@ -315,20 +373,7 @@ async function findUser(
   if (res.searchEntries.length > 1)
     throw new LdapError('User search is ambiguous', 'search', 'ambiguous_user');
   if (!res.searchEntries.length) return null;
-  const e = res.searchEntries[0]!;
-  const uac = Number(str(pick(e, 'userAccountControl')) || 0);
-  return {
-    dn: e.dn,
-    email: str(pick(e, cfg.emailAttr)).toLowerCase(),
-    name: str(pick(e, cfg.nameAttr)),
-    groups: list(pick(e, 'memberOf')),
-    disabled: (uac & 2) === 2,
-    profile: {
-      title: pa.title ? str(pick(e, pa.title)).trim() : '',
-      department: pa.department ? str(pick(e, pa.department)).trim() : '',
-      phone: pa.phone ? str(pick(e, pa.phone)).trim() : '',
-    },
-  };
+  return userFromEntry(cfg, res.searchEntries[0]!);
 }
 
 /** Группы пользователя: атрибут memberOf или поиск групп, где он перечислен участником. */
@@ -383,6 +428,99 @@ async function groupsOf(c: Client, cfg: LdapConfig, user: DirectoryUser): Promis
 }
 
 const norm = (dn: string) => dn.toLowerCase().replace(/\s*,\s*/g, ',');
+
+/** DN лежит внутри заданного Base DN (экранированные запятые принадлежат значению RDN и не подделывают предка). */
+export function withinBaseDn(cfg: Pick<LdapConfig, 'baseDn'>, dn: string): boolean {
+  const parts = (x: string) =>
+    x.match(/(?:\\.|[^,])+/g)?.map((rdn) => rdn.trim().toLowerCase()) ?? [];
+  const parent = parts(cfg.baseDn);
+  const requested = parts(dn);
+  return (
+    requested.length >= parent.length &&
+    parent.every((rdn, i) => rdn === requested[requested.length - parent.length + i])
+  );
+}
+
+/**
+ * Запись человека по DN (выбранная администратором в поиске): данные берутся из каталога, а не от браузера.
+ * null — записи нет или это не человек.
+ */
+export async function ldapReadUser(
+  cfg: LdapConfig,
+  bindPassword: string,
+  dn: string,
+): Promise<DirectoryUser | null> {
+  if (!withinBaseDn(cfg, dn)) throw new LdapError('DN is outside the Base DN', 'config');
+  return withClient(cfg, async (c) => {
+    await serviceBind(c, cfg, bindPassword);
+    let res;
+    try {
+      res = await c.search(dn, {
+        scope: 'base',
+        filter:
+          cfg.directoryType === 'ad'
+            ? '(&(objectCategory=person)(objectClass=user))'
+            : '(objectClass=person)',
+        attributes: userAttrs(cfg),
+        explicitBufferAttributes: ['objectguid'],
+        sizeLimit: 0,
+      });
+    } catch (e) {
+      const c2 = classifyLdapError(e, 'search');
+      if (c2.reason === 'no_such_object') return null;
+      throw c2;
+    }
+    const e = res.searchEntries[0];
+    if (!e) return null;
+    const u = userFromEntry(cfg, e);
+    return { ...u, groups: await groupsOf(c, cfg, u) };
+  });
+}
+
+/**
+ * Действующие участники группы каталога (в AD — с учётом вложенных групп). Нужны для предпросмотра и для того, чтобы
+ * при привязке группы сразу занести в группу Arklock тех, у кого уже есть профиль. Не больше `limit` человек.
+ */
+export async function ldapGroupMembers(
+  cfg: LdapConfig,
+  bindPassword: string,
+  groupDn: string,
+  limit = 1000,
+): Promise<{
+  members: { dn: string; guid: string; name: string; email: string }[];
+  truncated: boolean;
+}> {
+  if (!withinBaseDn(cfg, groupDn)) throw new LdapError('DN is outside the Base DN', 'config');
+  const dn = escapeFilter(groupDn);
+  const filter =
+    cfg.directoryType === 'ad'
+      ? `(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))(memberOf:${IN_CHAIN}:=${dn}))`
+      : `(&(objectClass=person)(memberOf=${dn}))`;
+  return withClient(cfg, async (c) => {
+    await serviceBind(c, cfg, bindPassword);
+    try {
+      const res = await c.search(cfg.baseDn, {
+        scope: 'sub',
+        filter,
+        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, ...GUID_ATTRS].map((a) => a.toLowerCase()),
+        explicitBufferAttributes: ['objectguid'],
+        sizeLimit: limit + 1,
+        paged: false,
+      });
+      return {
+        members: res.searchEntries.slice(0, limit).map((e) => ({
+          dn: e.dn,
+          guid: guidOf(e),
+          name: str(pick(e, cfg.nameAttr)),
+          email: str(pick(e, cfg.emailAttr)).toLowerCase(),
+        })),
+        truncated: res.searchEntries.length > limit,
+      };
+    } catch (e) {
+      throw classifyLdapError(e, 'search');
+    }
+  });
+}
 
 /** Поиск пользователя для проверки настроек администратором (пароли не запрашиваются). */
 export async function ldapLookup(
@@ -516,20 +654,21 @@ export async function ldapBrowse(
     activeOnly?: boolean;
   },
 ): Promise<{
-  entries: { dn: string; name: string; email: string; disabled: boolean }[];
+  entries: {
+    dn: string;
+    guid: string;
+    name: string;
+    email: string;
+    login: string;
+    title: string;
+    department: string;
+    disabled: boolean;
+  }[];
   truncated: boolean;
 }> {
   const base = query.baseDn || cfg.baseDn;
   const offset = Math.min(query.offset ?? 0, 500);
-  // Escaped commas belong to an RDN value and cannot forge the configured ancestor DN.
-  const parts = (dn: string) =>
-    dn.match(/(?:\\.|[^,])+/g)?.map((rdn) => rdn.trim().toLowerCase()) ?? [];
-  const parent = parts(cfg.baseDn);
-  const requested = parts(base);
-  if (
-    requested.length < parent.length ||
-    !parent.every((rdn, i) => rdn === requested[requested.length - parent.length + i])
-  )
+  if (!withinBaseDn(cfg, base))
     throw new LdapError('Browse base must be within the configured Base DN', 'config');
   const ad = cfg.directoryType === 'ad';
   const objectFilter =
@@ -542,10 +681,16 @@ export async function ldapBrowse(
       : query.kind === 'groups'
         ? '(|(objectClass=group)(objectClass=groupOfNames)(objectClass=groupOfUniqueNames)(objectClass=posixGroup))'
         : '(objectClass=organizationalUnit)';
-  const term = escapeFilter(query.q ?? '');
-  const filter = term
-    ? `(&${objectFilter}(|(cn=*${term}*)(ou=*${term}*)(mail=*${term}*)(uid=*${term}*)${ad ? `(sAMAccountName=*${term}*)(displayName=*${term}*)(userPrincipalName=*${term}*)` : ''}))`
-    : objectFilter;
+  // несколько слов («иванов анна») — каждое слово должно встретиться в имени, логине или почте
+  const words = (query.q ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((w) => escapeFilter(w));
+  const match = (term: string) =>
+    `(|(cn=*${term}*)(ou=*${term}*)(mail=*${term}*)(uid=*${term}*)${ad ? `(sAMAccountName=*${term}*)(displayName=*${term}*)(userPrincipalName=*${term}*)(givenName=*${term}*)(sn=*${term}*)` : ''})`;
+  const filter = words.length ? `(&${objectFilter}${words.map(match).join('')})` : objectFilter;
+  const pa = profileAttrs(cfg);
   return withClient(cfg, async (c) => {
     await serviceBind(c, cfg, bindPassword);
     try {
@@ -554,17 +699,31 @@ export async function ldapBrowse(
         filter,
         // как в findUser: в нижнем регистре, иначе часть каталогов теряет userAccountControl
         // и отключённые учётные записи выглядят активными
-        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, 'ou', 'userAccountControl'].map((a) =>
-          a.toLowerCase(),
-        ),
+        attributes: [
+          'dn',
+          cfg.nameAttr,
+          cfg.emailAttr,
+          'ou',
+          'userAccountControl',
+          'sAMAccountName',
+          'uid',
+          ...GUID_ATTRS,
+          pa.title,
+          pa.department,
+        ].map((a) => a.toLowerCase()),
+        explicitBufferAttributes: ['objectguid'],
         sizeLimit: Math.min(offset + query.limit + 1, 501),
         paged: false,
       });
       return {
         entries: result.searchEntries.slice(offset, offset + query.limit).map((e) => ({
           dn: e.dn,
+          guid: guidOf(e),
           name: str(pick(e, cfg.nameAttr)) || str(pick(e, 'ou')),
           email: str(pick(e, cfg.emailAttr)),
+          login: str(pick(e, 'sAMAccountName')) || str(pick(e, 'uid')),
+          title: pa.title ? str(pick(e, pa.title)).trim() : '',
+          department: pa.department ? str(pick(e, pa.department)).trim() : '',
           disabled: (Number(str(pick(e, 'userAccountControl')) || 0) & 2) === 2,
         })),
         truncated: result.searchEntries.length > offset + query.limit,

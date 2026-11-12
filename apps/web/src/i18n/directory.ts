@@ -239,6 +239,11 @@ export const ruDirectory = {
       confidentiality_required: 'каталог требует шифрования: используйте ldaps:// или StartTLS',
       unwilling: 'каталог отказался выполнить вход',
       unavailable: 'каталог занят или недоступен: повторите позже',
+      operations_error:
+        'каталог не выполнил операцию (код 1): чаще всего служебная учётная запись не вошла в каталог или нужен защищённый вход. Проверьте её имя и пароль и используйте ldaps://',
+      protocol_error: 'каталог не понял запрос (код 2): проверьте фильтр поиска сотрудника',
+      search_limit:
+        'каталог ограничил размер или время поиска (коды 3, 4, 11): сузьте Base DN до подразделения с сотрудниками или поднимите лимиты для служебной учётной записи',
       ldap_error:
         'каталог вернул ошибку, которую Arklock не распознал: технические подробности — в блоке «Подробности»',
       dns: 'имя сервера не найдено в DNS',
@@ -603,6 +608,12 @@ export const enDirectory = {
       confidentiality_required: 'the directory requires encryption: use ldaps:// or StartTLS',
       unwilling: 'the directory refused to sign in',
       unavailable: 'the directory is busy or unavailable: try again later',
+      operations_error:
+        'the directory did not perform the operation (code 1): most often the service account did not sign in or a secure sign-in is required. Check its name and password and use ldaps://',
+      protocol_error:
+        'the directory did not understand the request (code 2): check the user search filter',
+      search_limit:
+        'the directory limited the size or time of the search (codes 3, 4, 11): narrow the Base DN to the unit with employees or raise the limits for the service account',
       ldap_error: 'the directory returned an error Arklock does not recognise: see the details',
       dns: 'the server name is not found in DNS',
       refused: 'the port is closed or a firewall refuses the connection',

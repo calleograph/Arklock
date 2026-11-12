@@ -80,20 +80,13 @@ export async function insertAccount(
     chief?: boolean;
     /** Версия Arklock при создании: новому сотруднику не показывают примечания о прошлых обновлениях. */
     release: string;
+    /** Заполнить ключами уже созданный администратором профиль без ключей (его идентификатор — body.userId). */
+    claim?: boolean;
   },
 ): Promise<void> {
   const authSalt = randomB64url(16);
   const recoverySalt = randomB64url(16);
-  await tx.insert(users).values({
-    id: body.userId,
-    email: body.email,
-    displayName: body.displayName,
-    role: opts.role,
-    chief: opts.chief ?? false,
-    chiefSince: opts.chief ? new Date() : null,
-    seenRelease: opts.release,
-    authSource: opts.authSource,
-    externalId: opts.externalId,
+  const keys = {
     kdf: body.kdf,
     kdfSalt: body.salt,
     authSalt,
@@ -106,7 +99,42 @@ export async function insertAccount(
     recoveryHash: hashProof(recoverySalt, body.recoveryProof),
     recoveryWrappedPrivateKey: body.recoveryWrappedPrivateKey,
     recoveryWrappedSignPrivateKey: body.recoveryWrappedSignPrivateKey,
-  });
+  };
+  if (opts.claim) {
+    // профиль создан администратором заранее (без ключей): первый вход заполняет ту же строку, дубля не появляется
+    const done = await tx
+      .update(users)
+      .set({
+        ...keys,
+        displayName: body.displayName,
+        seenRelease: opts.release,
+        externalId: opts.externalId,
+        pendingActivation: false,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(users.id, body.userId),
+          eq(users.pendingActivation, true),
+          eq(users.authSource, opts.authSource),
+          isNull(users.disabledAt),
+        ),
+      )
+      .returning({ id: users.id });
+    if (!done.length) throw new AppError(409, 'already_exists', 'Account already exists');
+  } else
+    await tx.insert(users).values({
+      id: body.userId,
+      email: body.email,
+      displayName: body.displayName,
+      role: opts.role,
+      chief: opts.chief ?? false,
+      chiefSince: opts.chief ? new Date() : null,
+      seenRelease: opts.release,
+      authSource: opts.authSource,
+      externalId: opts.externalId,
+      ...keys,
+    });
   // Журнал привязки ключей: запись о новой идентичности включается в хэш-цепочку.
   const [last] = await tx
     .select({ hash: keyLog.hash })
@@ -235,7 +263,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   /** Параметры получения ключей. Для неизвестных адресов — правдоподобные детерминированные значения. */
   app.get('/auth/params', async (req): Promise<AuthParamsResponse> => {
     const { email } = parse(authParamsQuery, req.query);
-    const [u] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const [u] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, email), eq(users.pendingActivation, false)))
+      .limit(1);
     if (u) return { userId: u.id, salt: u.kdfSalt, kdf: u.kdf };
     return {
       userId: fakeUuid(config.APP_SECRET, email),
@@ -532,7 +564,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   app.post('/auth/login', async (req, reply): Promise<SessionResponse | MfaChallengeResponse> => {
     const body = parse(loginRequest, req.body);
     await ctx.shield.guard(req, 'login', body.email, body.captcha);
-    const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
+    const [u] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, body.email), eq(users.pendingActivation, false)))
+      .limit(1);
     const ok = verifyProof(u?.authSalt ?? DUMMY_SALT, body.authKey, u?.authHash ?? DUMMY_HASH);
     if (!u || !ok || u.disabledAt) {
       ctx.shield.recordFailure(req, 'login', body.email, u?.id ?? null);
@@ -728,7 +764,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     await ctx.shield.guard(req, 'recovery', body.email, body.captcha);
     // каждый запрос шага 1 — попытка: строгий предел восстановления считает и их
     ctx.shield.recordFailure(req, 'recovery', body.email, null, 'recovery_started');
-    const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
+    const [u] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, body.email), eq(users.pendingActivation, false)))
+      .limit(1);
     if (u) {
       return {
         userId: u.id,
@@ -752,7 +792,11 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     const body = parse(recoveryCompleteRequest, req.body);
     checkKdf(ctx, body.kdf);
     await ctx.shield.guard(req, 'recovery', body.email, body.captcha);
-    const [u] = await db.select().from(users).where(eq(users.email, body.email)).limit(1);
+    const [u] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.email, body.email), eq(users.pendingActivation, false)))
+      .limit(1);
     const ok = verifyProof(
       u?.recoverySalt ?? DUMMY_SALT,
       body.recoveryProof,

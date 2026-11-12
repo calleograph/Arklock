@@ -17,6 +17,31 @@ const { t, locale } = useI18n({
     ru: {
       title: 'Подразделения',
       hint: 'Одно действие вместо четырёх разделов: группа, пространство, сейф и права создаются вместе. Существующее используется повторно.',
+      whatTitle: 'Чем отличаются группа, подразделение и роль',
+      whatGroup:
+        'Группа — набор людей. Группе выдают доступ к сейфам, а состав может вести каталог домена: люди из связанной группы домена попадают в неё сами.',
+      whatDept:
+        'Подразделение — готовый набор для отдела: группа, закрытое пространство и сейф отдела (по желанию ещё сейф руководства). Это не отдельный вид прав, а быстрый способ создать всё сразу.',
+      whatRole:
+        'Роль — что человек может делать в сейфе: читатель видит записи, редактор меняет их, администратор управляет доступом. Руководитель подразделения получает роль администратора в сейфах отдела и в пространстве.',
+      whatRoleTerm: 'Роль',
+      whatPeople:
+        'Людей выбирают поиском по Arklock и по каталогу домена. Найденному в каталоге сразу создаётся профиль, а доступ к сейфам он получает после первого входа.',
+      listTitle: 'Созданные подразделения',
+      listNone: 'Подразделений пока нет. Создайте первое ниже.',
+      listHead: 'Руководитель',
+      listMembers: 'Участников: {n}',
+      listWaiting: 'ждут первого входа: {n}',
+      listVaults: 'Сейфов: {n}',
+      listNoHead: 'руководитель не назначен',
+      step1: '1. Название',
+      step2: '2. Руководитель',
+      step2hint: 'Получит роль администратора в пространстве и сейфах отдела.',
+      step3: '3. Участники',
+      step3hint: 'Войдут в группу подразделения и получат доступ к сейфу отдела.',
+      step4: '4. Что создать',
+      step5: '5. Проверка и создание',
+      fromDirectory: 'найден в каталоге, профиль будет создан при создании подразделения',
       one: 'Одно подразделение',
       many: 'Список',
       name: 'Название',
@@ -54,6 +79,31 @@ const { t, locale } = useI18n({
     en: {
       title: 'Departments',
       hint: 'One action instead of four sections: group, space, vault and permissions are created together. Existing items are reused.',
+      whatTitle: 'How a group, a department and a role differ',
+      whatGroup:
+        'A group is a set of people. Groups are given access to vaults, and the directory can manage the membership: people from a linked domain group join it by themselves.',
+      whatDept:
+        'A department is a ready set for a team: a group, a private space and a department vault (optionally a management vault). It is not a separate kind of rights, just a quick way to create everything at once.',
+      whatRole:
+        'A role is what a person can do in a vault: a reader sees entries, an editor changes them, an administrator manages access. A department head becomes an administrator in the department vaults and space.',
+      whatRoleTerm: 'Role',
+      whatPeople:
+        'People are picked by searching Arklock and the domain directory. A person found in the directory gets a profile at once and receives vault access after the first sign-in.',
+      listTitle: 'Created departments',
+      listNone: 'No departments yet. Create the first one below.',
+      listHead: 'Head',
+      listMembers: 'Members: {n}',
+      listWaiting: 'waiting for first sign-in: {n}',
+      listVaults: 'Vaults: {n}',
+      listNoHead: 'no head assigned',
+      step1: '1. Name',
+      step2: '2. Head',
+      step2hint: 'Becomes an administrator of the space and the department vaults.',
+      step3: '3. Members',
+      step3hint: 'Join the department group and get access to the department vault.',
+      step4: '4. What to create',
+      step5: '5. Review and create',
+      fromDirectory: 'found in the directory, the profile is created together with the department',
       one: 'One department',
       many: 'List',
       name: 'Name',
@@ -92,8 +142,28 @@ const { t, locale } = useI18n({
 void locale;
 const ws = useWorkspaceStore();
 
+/** Руководитель, найденный в каталоге по почте из списка: профиль создаётся вместе с подразделением. */
+type Candidate = Person & { dir?: { profileId: string; dn: string } };
+interface Dept {
+  spaceId: string;
+  circleId: string;
+  name: string;
+  description: string;
+  heads: { id: string; name: string; pending: boolean }[];
+  members: number;
+  waiting: number;
+  vaults: number;
+}
+const depts = ref<Dept[] | null>(null);
+async function loadDepts(): Promise<void> {
+  try {
+    depts.value = (await api<{ items: Dept[] }>('GET', '/admin/departments?limit=200')).items;
+  } catch {
+    depts.value = null;
+  }
+}
 const circleIds = ref<Record<string, string | null>>({});
-const headCache = ref<Record<string, Person | null>>({});
+const headCache = ref<Record<string, Candidate | null>>({});
 const mode = ref<'one' | 'many'>('one');
 const name = ref('');
 const description = ref('');
@@ -107,6 +177,7 @@ const error = ref('');
 const results = ref<Record<string, string>>({});
 
 onMounted(async () => {
+  void loadDepts();
   try {
     if (!ws.vaults.length) await ws.loadVaults();
   } catch (e) {
@@ -122,19 +193,47 @@ async function findCircle(n: string): Promise<string | null> {
   );
   return r.items.find((c) => c.name === n)?.id ?? null;
 }
-async function findPerson(email: string): Promise<Person | null> {
+async function findPerson(email: string): Promise<Candidate | null> {
   const r = await api<{ items: Person[] }>(
     'GET',
     `/admin/people?status=active&limit=5&q=${encodeURIComponent(email)}`,
   );
-  return r.items.find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? null;
+  const local = r.items.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  if (local) return local;
+  // нет в Arklock — ищем в каталоге домена по точному совпадению почты
+  try {
+    const d = await api<{
+      items: {
+        profileId: string;
+        dn: string;
+        name: string;
+        email: string;
+        existing: object | null;
+      }[];
+    }>('GET', `/admin/people/directory?limit=5&q=${encodeURIComponent(email)}`);
+    const m = d.items.find((x) => x.email.toLowerCase() === email.toLowerCase() && !x.existing);
+    if (m)
+      return {
+        id: '',
+        name: m.name,
+        email: m.email,
+        title: null,
+        department: null,
+        authSource: 'ldap',
+        pending: true,
+        dir: { profileId: m.profileId, dn: m.dn },
+      };
+  } catch {
+    /* каталог не подключён или недоступен: остаётся поиск по Arklock */
+  }
+  return null;
 }
 let timer: ReturnType<typeof setTimeout> | undefined;
 onBeforeUnmount(() => clearTimeout(timer));
 
 interface Item {
   name: string;
-  head: Person | null;
+  head: Candidate | null;
   headEmail: string;
   members: string[];
 }
@@ -203,7 +302,16 @@ const plan = computed(() =>
 const ready = computed(() => plan.value.length > 0 && plan.value.every((p) => !p.problems.length));
 const mark = (exists: boolean) => (exists ? t('reuse') : t('isNew'));
 
-async function build(it: Item): Promise<void> {
+async function build(source: Item): Promise<void> {
+  let it = source;
+  // руководитель найден в каталоге: профиль создаётся сейчас, до назначения ролей
+  if (it.head?.dir) {
+    const made = await api<Person>('POST', '/admin/people/directory/provision', it.head.dir);
+    it = {
+      ...it,
+      head: { ...made, title: made.title ?? null, department: made.department ?? null },
+    };
+  }
   let circleId = circleIds.value[it.name] ?? undefined;
   if (!circleId) {
     circleId = (
@@ -283,124 +391,193 @@ async function create(): Promise<void> {
     }
   }
   await ws.loadVaults().catch(() => undefined);
+  await loadDepts();
   busy.value = false;
 }
 </script>
 
 <template>
-  <section class="card space-y-4 p-4 text-sm" data-testid="departments">
-    <div>
-      <h2 class="font-medium">{{ t('title') }}</h2>
+  <section class="space-y-6 text-sm" data-testid="departments">
+    <header class="space-y-1">
+      <h2 class="text-base font-semibold">{{ t('title') }}</h2>
       <p class="max-w-prose text-xs text-slate-500">{{ t('hint') }}</p>
-    </div>
+    </header>
+
+    <details class="card p-4" :open="depts !== null && !depts.length" data-testid="dept-explain">
+      <summary class="min-h-11 cursor-pointer font-medium">{{ t('whatTitle') }}</summary>
+      <dl class="mt-2 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[8rem_1fr]">
+        <dt class="font-medium">{{ t('colGroup') }}</dt>
+        <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatGroup') }}</dd>
+        <dt class="font-medium">{{ t('title') }}</dt>
+        <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatDept') }}</dd>
+        <dt class="font-medium">{{ t('whatRoleTerm') }}</dt>
+        <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatRole') }}</dd>
+        <dt class="font-medium">{{ t('members') }}</dt>
+        <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatPeople') }}</dd>
+      </dl>
+    </details>
+
+    <section class="space-y-2" data-testid="dept-list-created">
+      <h3 class="font-medium">{{ t('listTitle') }}</h3>
+      <p v-if="depts && !depts.length" class="text-xs text-slate-500" data-testid="dept-list-empty">
+        {{ t('listNone') }}
+      </p>
+      <ul v-else-if="depts" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <li
+          v-for="d in depts"
+          :key="d.spaceId"
+          class="card flex flex-col gap-2 p-4"
+          data-testid="dept-card"
+        >
+          <h4 class="truncate font-medium" :title="d.name">{{ d.name }}</h4>
+          <p class="flex-1 text-xs text-slate-600 dark:text-slate-300">
+            <span class="font-medium">{{ t('listHead') }}:</span>
+            {{ d.heads.map((h) => h.name).join(', ') || t('listNoHead') }}
+          </p>
+          <p class="text-xs text-slate-500">
+            {{ t('listMembers', { n: d.members })
+            }}<span v-if="d.waiting"> · {{ t('listWaiting', { n: d.waiting }) }}</span> ·
+            {{ t('listVaults', { n: d.vaults }) }}
+          </p>
+        </li>
+      </ul>
+    </section>
+
     <p v-if="error" class="text-red-600" role="alert">{{ error }}</p>
-    <div class="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800 w-fit">
-      <button
-        v-for="m in ['one', 'many'] as const"
-        :key="m"
-        type="button"
-        class="seg"
-        :class="mode === m ? 'seg-on' : ''"
-        :data-testid="`dept-mode-${m}`"
-        @click="mode = m"
-      >
-        {{ t(m) }}
-      </button>
-    </div>
 
-    <div v-if="mode === 'one'" class="grid gap-x-3 gap-y-2 sm:grid-cols-2">
-      <label class="block"
-        ><span class="field-label">{{ t('name') }}</span
-        ><input v-model="name" maxlength="100" class="input" data-testid="dept-name"
-      /></label>
-      <label class="block"
-        ><span class="field-label">{{ t('description') }}</span
-        ><input v-model="description" maxlength="500" class="input" data-testid="dept-description"
-      /></label>
-      <div>
-        <span class="field-label">{{ t('head') }}</span>
-        <PersonPicker v-model="head" :placeholder="t('headFind')" testid="dept-head" />
+    <div class="card space-y-6 p-4">
+      <div class="flex w-fit gap-1 rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800">
+        <button
+          v-for="m in ['one', 'many'] as const"
+          :key="m"
+          type="button"
+          class="seg"
+          :class="mode === m ? 'seg-on' : ''"
+          :data-testid="`dept-mode-${m}`"
+          @click="mode = m"
+        >
+          {{ t(m) }}
+        </button>
       </div>
-      <div>
-        <span class="field-label">{{ t('members') }}</span>
-        <PersonPicker
-          v-model="members"
-          multiple
-          :placeholder="t('membersFind')"
-          testid="dept-member"
-        />
-      </div>
-    </div>
-    <label v-else class="block"
-      ><span class="field-label">{{ t('list') }}</span
-      ><textarea
-        v-model="listText"
-        rows="6"
-        class="input font-mono"
-        spellcheck="false"
-        data-testid="dept-list"
-      ></textarea>
-    </label>
 
-    <label class="flex items-start gap-2"
-      ><input v-model="leadVault" type="checkbox" class="mt-0.5" data-testid="dept-lead" />
-      {{ t('leadVault') }}</label
-    >
-    <label class="block"
-      ><span class="field-label">{{ t('folders') }}</span
-      ><input v-model="folders" class="input" data-testid="dept-folders"
-    /></label>
+      <template v-if="mode === 'one'">
+        <fieldset class="space-y-2">
+          <legend class="font-medium">{{ t('step1') }}</legend>
+          <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+            <label class="block"
+              ><span class="field-label">{{ t('name') }}</span
+              ><input v-model="name" maxlength="100" class="input" data-testid="dept-name"
+            /></label>
+            <label class="block"
+              ><span class="field-label">{{ t('description') }}</span
+              ><input
+                v-model="description"
+                maxlength="500"
+                class="input"
+                data-testid="dept-description"
+            /></label>
+          </div>
+        </fieldset>
+        <fieldset class="space-y-2">
+          <legend class="font-medium">{{ t('step2') }}</legend>
+          <p class="text-xs text-slate-500">{{ t('step2hint') }}</p>
+          <PersonPicker v-model="head" :placeholder="t('headFind')" testid="dept-head" />
+        </fieldset>
+        <fieldset class="space-y-2">
+          <legend class="font-medium">{{ t('step3') }}</legend>
+          <p class="text-xs text-slate-500">{{ t('step3hint') }}</p>
+          <PersonPicker
+            v-model="members"
+            multiple
+            :placeholder="t('membersFind')"
+            testid="dept-member"
+          />
+        </fieldset>
+      </template>
+      <fieldset v-else class="space-y-2">
+        <legend class="font-medium">{{ t('step1') }}</legend>
+        <label class="block"
+          ><span class="field-label">{{ t('list') }}</span
+          ><textarea
+            v-model="listText"
+            rows="6"
+            class="input font-mono"
+            spellcheck="false"
+            data-testid="dept-list"
+          ></textarea>
+        </label>
+      </fieldset>
 
-    <div v-if="plan.length" data-testid="dept-preview">
-      <h3 class="mb-1 text-xs font-medium text-slate-500">{{ t('preview') }}</h3>
-      <div class="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
-        <table class="min-w-full text-xs">
-          <thead class="text-left text-slate-500">
-            <tr>
-              <th class="px-2 py-1">{{ t('colName') }}</th>
-              <th>{{ t('colGroup') }}</th>
-              <th>{{ t('colSpace') }}</th>
-              <th>{{ t('colVault') }}</th>
-              <th>{{ t('colHead') }}</th>
-              <th>{{ t('colState') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="p in plan"
-              :key="p.name"
-              class="border-t border-slate-200 dark:border-slate-800"
-              data-testid="dept-row"
-            >
-              <td class="px-2 py-1 font-medium">{{ p.name }}</td>
-              <td>{{ mark(p.circle) }}</td>
-              <td>{{ mark(p.space) }}</td>
-              <td>{{ mark(p.vault) }}</td>
-              <td>{{ p.head?.name ?? t('none') }}</td>
-              <td data-testid="dept-state">
-                <span v-if="p.problems.length" class="text-red-600">{{
-                  p.problems.join('; ')
-                }}</span>
-                <span v-else>{{ results[p.name] ?? '' }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-    <p v-else class="text-xs text-slate-500">{{ t('none2') }}</p>
+      <fieldset class="space-y-2">
+        <legend class="font-medium">{{ t('step4') }}</legend>
+        <label class="flex min-h-11 items-start gap-2"
+          ><input v-model="leadVault" type="checkbox" class="mt-0.5" data-testid="dept-lead" />
+          {{ t('leadVault') }}</label
+        >
+        <label class="block"
+          ><span class="field-label">{{ t('folders') }}</span
+          ><input v-model="folders" class="input" data-testid="dept-folders"
+        /></label>
+      </fieldset>
 
-    <div class="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        class="btn-primary"
-        :disabled="!ready || busy"
-        data-testid="dept-create"
-        @click="create"
-      >
-        {{ busy ? t('creating') : t('create') }}
-      </button>
-      <span class="text-xs text-slate-500">{{ t('pendingKeys') }}</span>
+      <fieldset class="space-y-2">
+        <legend class="font-medium">{{ t('step5') }}</legend>
+        <div v-if="plan.length" data-testid="dept-preview">
+          <h3 class="mb-1 text-xs font-medium text-slate-500">{{ t('preview') }}</h3>
+          <div class="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
+            <table class="min-w-full text-xs">
+              <thead class="text-left text-slate-500">
+                <tr>
+                  <th class="px-2 py-1">{{ t('colName') }}</th>
+                  <th>{{ t('colGroup') }}</th>
+                  <th>{{ t('colSpace') }}</th>
+                  <th>{{ t('colVault') }}</th>
+                  <th>{{ t('colHead') }}</th>
+                  <th>{{ t('colState') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="p in plan"
+                  :key="p.name"
+                  class="border-t border-slate-200 dark:border-slate-800"
+                  data-testid="dept-row"
+                >
+                  <td class="px-2 py-1 font-medium">{{ p.name }}</td>
+                  <td>{{ mark(p.circle) }}</td>
+                  <td>{{ mark(p.space) }}</td>
+                  <td>{{ mark(p.vault) }}</td>
+                  <td>
+                    {{ p.head?.name ?? t('none') }}
+                    <span v-if="p.head?.dir" class="block text-slate-500">{{
+                      t('fromDirectory')
+                    }}</span>
+                  </td>
+                  <td data-testid="dept-state">
+                    <span v-if="p.problems.length" class="text-red-600">{{
+                      p.problems.join('; ')
+                    }}</span>
+                    <span v-else>{{ results[p.name] ?? '' }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p v-else class="text-xs text-slate-500">{{ t('none2') }}</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="!ready || busy"
+            data-testid="dept-create"
+            @click="create"
+          >
+            {{ busy ? t('creating') : t('create') }}
+          </button>
+          <span class="max-w-prose text-xs text-slate-500">{{ t('pendingKeys') }}</span>
+        </div>
+      </fieldset>
     </div>
   </section>
 </template>

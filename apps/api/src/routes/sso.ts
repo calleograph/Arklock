@@ -31,7 +31,7 @@ import { LDAP_SETTING_KEY, syncCirclesFor } from './ldap.js';
 import { ldapLookup, type LdapConfig } from '../auth/ldap.js';
 import {
   ldapBindSecret,
-  ldapExternalId,
+  identityMatches,
   readLdapProfiles,
   type LdapProfile,
 } from '../auth/ldap-profiles.js';
@@ -342,7 +342,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       } catch {
         throw new AppError(503, 'ldap_unavailable', 'Directory is unavailable');
       }
-      if (!found || found.disabled || ldapExternalId(profile.id, found.dn) !== ident.externalId)
+      if (!found || found.disabled || !identityMatches(profile.id, ident.externalId, found))
         throw new AppError(403, 'not_provisioned', 'Directory identity is no longer authorized');
       ident.groups = found.groups;
     }
@@ -365,17 +365,24 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
           );
       }
       await tx.execute(sql`select pg_advisory_xact_lock(7001)`);
-      const [dupe] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(sql`${users.email} = ${ident.email} or ${users.id} = ${body.userId}`)
-        .limit(1);
-      if (dupe) throw new AppError(409, 'already_exists', 'Account already exists');
+      // профиль, созданный администратором заранее, заполняется ключами в той же строке; прочее — новая запись
+      if (ident.claimUserId) {
+        if (body.userId !== ident.claimUserId)
+          throw new AppError(409, 'already_exists', 'Account already exists');
+      } else {
+        const [dupe] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(sql`${users.email} = ${ident.email} or ${users.id} = ${body.userId}`)
+          .limit(1);
+        if (dupe) throw new AppError(409, 'already_exists', 'Account already exists');
+      }
       await insertAccount(tx, full, {
         release: ctx.config.APP_VERSION,
         role: 'member',
         authSource: ident.source,
         externalId: ident.externalId,
+        claim: !!ident.claimUserId,
       });
       if (ident.source === 'ldap')
         await syncCirclesFor(tx, body.userId, cfg as unknown as LdapConfig, ident.groups);

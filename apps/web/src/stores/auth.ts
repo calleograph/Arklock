@@ -167,7 +167,7 @@ export const useAuthStore = defineStore('auth', () => {
   // Вход через каталог (LDAP): пароль каталога проверяет сервер, мастер-пароль нужен только для ключей
   let ldapChallenge: string | null = null;
   let mfaMethods: { totp: boolean; webauthn: boolean } = { totp: true, webauthn: false };
-  let ldapEnroll: { token: string; email: string; name: string } | null = null;
+  let ldapEnroll: { token: string; email: string; name: string; userId?: string } | null = null;
 
   /** ok — сессия есть, нужна разблокировка; mfa — нужен код; enroll — нужно создать мастер-пароль. */
   async function signInLdap(
@@ -179,11 +179,11 @@ export const useAuthStore = defineStore('auth', () => {
       api<
         | SessionResponse
         | MfaChallengeResponse
-        | { enroll: true; enrollToken: string; email: string; name: string }
+        | { enroll: true; enrollToken: string; email: string; name: string; userId?: string }
       >('POST', '/auth/ldap/login', { username, password, profileId, captcha }, { auth: false }),
     );
     if ('enroll' in res) {
-      ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
+      ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name, userId: res.userId };
       return 'enroll';
     }
     if ('mfaRequired' in res) {
@@ -233,7 +233,7 @@ export const useAuthStore = defineStore('auth', () => {
       masterPassword,
       undefined,
       undefined,
-      { enrollToken: ldapEnroll.token },
+      { enrollToken: ldapEnroll.token, userId: ldapEnroll.userId },
     );
     ldapEnroll = null;
     if (!made.session) throw new Error('enrolment failed');

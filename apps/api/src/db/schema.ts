@@ -182,6 +182,11 @@ export const users = pgTable(
       .notNull()
       .default('local'),
     externalId: text('external_id'),
+    /**
+     * Профиль создан администратором по данным каталога, человек ещё не входил: ключей шифрования нет (их создаёт сам
+     * человек при первом входе), поля ключей — пустые, войти по такой записи нельзя. Первый вход заполняет эту же строку.
+     */
+    pendingActivation: boolean('pending_activation').notNull().default(false),
     recoverySalt: text('recovery_salt').notNull(),
     recoveryHash: text('recovery_hash').notNull(),
     recoveryWrappedPrivateKey: text('recovery_wrapped_private_key').notNull(),

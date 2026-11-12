@@ -14,8 +14,9 @@ import {
   type LdapConfig,
 } from './ldap.js';
 import {
+  adoptGuidIdentity,
+  identityMatches,
   ldapBindSecret,
-  ldapExternalId,
   ldapIdentityProfile,
   readLdapProfiles,
   type LdapProfile,
@@ -165,7 +166,7 @@ export async function previewLdapProfile(db: Db, appSecret: string, profile: Lda
         ? 'missing'
         : found.disabled
           ? 'disabled'
-          : ldapExternalId(profile.id, found.dn) !== user.externalId
+          : !identityMatches(profile.id, user.externalId, found)
             ? 'moved'
             : null;
       if (reason || !found) {
@@ -239,7 +240,7 @@ export async function syncLdapProfile(
         const current = (await readLdapProfiles(tx)).find((p) => p.id === profile.id);
         if (!current?.enabled || JSON.stringify(current) !== JSON.stringify(profile))
           throw new Error('Directory configuration changed during sync; run it again');
-        if (!found || found.disabled || ldapExternalId(profile.id, found.dn) !== user.externalId) {
+        if (!found || found.disabled || !identityMatches(profile.id, user.externalId, found)) {
           await tx
             .update(users)
             // уже отключённого не переписываем: прежние время и причина остаются
@@ -258,6 +259,8 @@ export async function syncLdapProfile(
             newlyDisabled.push(user.id);
           }
         } else {
+          // привязка по прежнему DN заменяется привязкой по идентификатору объекта каталога
+          await adoptGuidIdentity(tx, user, profile.id, found);
           await syncCirclesFor(tx, user.id, current, found.groups);
           await syncProfileFor(tx, user.id, found, current);
           updated++;

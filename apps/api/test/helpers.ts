@@ -129,8 +129,11 @@ export class TestClient {
   }
 
   /** Тело регистрации, которое собрал бы браузер (ключи создаются здесь). */
-  async registerBody(setupToken?: string, kdf: typeof FAST = FAST) {
-    const userId = crypto.randomUUID();
+  async registerBody(
+    setupToken?: string,
+    kdf: typeof FAST = FAST,
+    userId: string = crypto.randomUUID(),
+  ) {
     const salt = generateSalt();
     const keys = await deriveMasterKeys(this.password, salt, userId, kdf, LOW_FLOOR);
     const kp = await generateAccountKeyPair();

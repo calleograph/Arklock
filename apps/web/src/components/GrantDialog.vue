@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { api } from '../services/api';
+import { ApiError, api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import Icon from './Icon.vue';
 
@@ -17,8 +17,14 @@ export interface Recipient {
   email?: string;
   publicKey?: string;
   signPublicKey?: string;
+  /** Профиль создан по каталогу, человек ещё не входил: роль назначается сразу, ключ сейфа — после его первого входа. */
+  pending?: boolean;
   level: string;
 }
+/** Найденное в каталоге домена: выбор создаёт профиль (человек) или связанную группу (группа). */
+type Result = Omit<Recipient, 'level'> & {
+  dir?: { kind: 'person' | 'group'; profileId: string; dn: string };
+};
 const props = defineProps<{
   open: boolean;
   title: string;
@@ -37,7 +43,10 @@ const { t } = useI18n();
 
 const dialog = ref<HTMLDialogElement | null>(null);
 const query = ref('');
-const results = ref<Omit<Recipient, 'level'>[]>([]);
+const results = ref<Result[]>([]);
+// домен доступен только администраторам: после первого отказа его больше не опрашиваем
+let directoryDenied = false;
+const resolving = ref(false);
 const circles = ref<{ id: string; name: string }[] | null>(null);
 const picked = ref<Recipient[]>([]);
 const level = ref(props.defaultLevel);
@@ -86,12 +95,18 @@ async function find(q: string): Promise<void> {
       { id: string; name: string; email: string; publicKey: string; signPublicKey: string }[]
     >('GET', `/directory/users?q=${encodeURIComponent(q)}`);
     const lower = q.toLowerCase();
-    results.value = [
+    const local: Result[] = [
       ...users.map((u) => ({ kind: 'user' as const, ...u })),
       ...circles.value
         .filter((c) => c.name.toLowerCase().includes(lower))
         .map((c) => ({ kind: 'circle' as const, id: c.id, name: c.name })),
     ];
+    results.value = local;
+    // каталог домена: люди, которых ещё нет в Arklock, и группы, которые ещё не заведены
+    if (!directoryDenied) {
+      const dir = await findInDirectory(q, circles.value);
+      if (q === query.value.trim()) results.value = [...local, ...dir];
+    }
   } catch (e) {
     searchError.value = errorMessage(e, t);
   } finally {
@@ -99,12 +114,104 @@ async function find(q: string): Promise<void> {
   }
 }
 
+interface DirPerson {
+  profileId: string;
+  dn: string;
+  name: string;
+  email: string;
+  existing: object | null;
+}
+interface DirGroup {
+  profileId: string;
+  dn: string;
+  name: string;
+  linked: { circleId: string }[];
+}
+async function findInDirectory(q: string, known: { id: string }[]): Promise<Result[]> {
+  try {
+    const enc = encodeURIComponent(q);
+    const [people, groups] = await Promise.all([
+      api<{ items: DirPerson[] }>('GET', `/admin/people/directory?limit=8&q=${enc}`),
+      api<{ items: DirGroup[] }>('GET', `/admin/directory/groups?limit=6&q=${enc}`),
+    ]);
+    return [
+      ...people.items
+        .filter((p) => !p.existing && p.email)
+        .map((p) => ({
+          kind: 'user' as const,
+          id: `dir:${p.dn}`,
+          name: p.name,
+          email: p.email,
+          dir: { kind: 'person' as const, profileId: p.profileId, dn: p.dn },
+        })),
+      // группа домена, уже связанная с группой Arklock, найдена среди групп выше
+      ...groups.items
+        .filter((g) => !g.linked.some((l) => known.some((c) => c.id === l.circleId)))
+        .map((g) => ({
+          kind: 'circle' as const,
+          id: `dir:${g.dn}`,
+          name: g.name,
+          dir: { kind: 'group' as const, profileId: g.profileId, dn: g.dn },
+        })),
+    ];
+  } catch (e) {
+    // нет полномочий администратора каталога или каталог не подключён — обычный поиск остаётся
+    if (e instanceof ApiError && (e.status === 403 || e.status === 401)) directoryDenied = true;
+    return [];
+  }
+}
+
 const key = (r: { kind: string; id: string }) => `${r.kind}:${r.id}`;
 const isPicked = (r: { kind: string; id: string }) => picked.value.some((p) => key(p) === key(r));
 const has = (r: { id: string }) => props.existing?.includes(r.id) ?? false;
 
-function pick(r: Omit<Recipient, 'level'>): void {
-  if (!isPicked(r)) picked.value.push({ ...r, level: level.value });
+const dirErrors: Record<string, string> = {
+  directory_not_allowed: 'grantDlg.errNotAllowed',
+  directory_no_email: 'grantDlg.errNoEmail',
+  account_exists_local: 'grantDlg.errLocal',
+  account_disabled_in_arklock: 'grantDlg.errBlocked',
+  ldap_unavailable: 'grantDlg.errUnavailable',
+};
+async function pick(r: Result): Promise<void> {
+  if (resolving.value) return;
+  let chosen: Omit<Recipient, 'level'> = r;
+  if (r.dir) {
+    resolving.value = true;
+    searchError.value = '';
+    try {
+      if (r.dir.kind === 'person') {
+        const p = await api<{ id: string; name: string; email: string }>(
+          'POST',
+          '/admin/people/directory/provision',
+          { profileId: r.dir.profileId, dn: r.dir.dn },
+        );
+        chosen = {
+          kind: 'user',
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          publicKey: '',
+          signPublicKey: '',
+          pending: true,
+        };
+      } else {
+        const g = await api<{ circle: { id: string; name: string } }>(
+          'POST',
+          '/admin/directory/groups/use',
+          { profileId: r.dir.profileId, dn: r.dir.dn },
+        );
+        chosen = { kind: 'circle', id: g.circle.id, name: g.circle.name };
+        circles.value = null;
+      }
+    } catch (e) {
+      searchError.value =
+        e instanceof ApiError && dirErrors[e.code] ? t(dirErrors[e.code]!) : errorMessage(e, t);
+      return;
+    } finally {
+      resolving.value = false;
+    }
+  }
+  if (!isPicked(chosen)) picked.value.push({ ...chosen, level: level.value });
   query.value = '';
   results.value = [];
   input.value?.focus();
@@ -222,7 +329,13 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
                   r.kind === 'user' ? r.email : t('grantDlg.group')
                 }}</span>
               </span>
-              <span v-if="isPicked(r)" class="text-xs text-brand-600">{{
+              <span
+                v-if="r.dir"
+                class="shrink-0 text-xs text-slate-500"
+                :data-testid="`grant-directory-${r.email ?? r.name}`"
+                >{{ t('grantDlg.fromDirectory') }} +</span
+              >
+              <span v-else-if="isPicked(r)" class="text-xs text-brand-600">{{
                 t('grantDlg.picked')
               }}</span>
               <span v-else-if="has(r)" class="text-xs text-slate-500">{{

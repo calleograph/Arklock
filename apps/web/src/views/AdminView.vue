@@ -85,6 +85,9 @@ import WizardsPanel from '../components/WizardsPanel.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
 import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
+import DomainGroupLinks from '../components/DomainGroupLinks.vue';
+import DirectoryGuide from '../components/DirectoryGuide.vue';
+import GroupsExplainer from '../components/GroupsExplainer.vue';
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
 
@@ -401,6 +404,14 @@ async function showCircle(c: C): Promise<void> {
       api<typeof circleMembers.value>('GET', `/admin/circles/${c.id}/members`),
       api<typeof assignedVaults.value>('GET', `/admin/circles/${c.id}/vaults`),
     ]);
+}
+/** После привязки группы домена состав и счётчики меняются; открытая группа остаётся открытой. */
+async function refreshCircle(c: C): Promise<void> {
+  await loadCircles();
+  [circleMembers.value, assignedVaults.value] = await Promise.all([
+    api<typeof circleMembers.value>('GET', `/admin/circles/${c.id}/members`),
+    api<typeof assignedVaults.value>('GET', `/admin/circles/${c.id}/vaults`),
+  ]);
 }
 const updateCircle = () =>
   run(async () => {
@@ -903,7 +914,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <WebhookSettings v-else-if="tab === 'webhooks'" />
           <SsoSettings v-else-if="tab === 'sso'" />
           <SamlSettings v-else-if="tab === 'saml'" />
-          <LdapSettings v-else-if="tab === 'ldap'" />
+          <div v-else-if="tab === 'ldap'" class="space-y-4">
+            <DirectoryGuide v-if="isFull()" />
+            <LdapSettings />
+          </div>
           <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
 
           <div v-else-if="tab === 'users'" class="card overflow-x-auto">
@@ -1149,6 +1163,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           </div>
 
           <div v-else-if="tab === 'circles'" class="space-y-3">
+            <GroupsExplainer />
             <input
               v-model="circleSearch"
               type="search"
@@ -1299,6 +1314,11 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       }}<span v-if="groupPick.length"> ({{ groupPick.length }})</span>
                     </button>
                   </div>
+                  <DomainGroupLinks
+                    :circle-id="c.id"
+                    :circle-name="c.name"
+                    @changed="run(() => refreshCircle(c))"
+                  />
                   <div class="space-y-1 text-xs">
                     <h3 class="font-medium">{{ t('corporate.groupVaults') }}</h3>
                     <p v-if="!assignedVaults.length" class="text-slate-500">

@@ -10,6 +10,8 @@ export interface ExternalIdentity {
   groups: string[];
   /** LDAP connection is bound to the ticket, never chosen again during enrollment. */
   directoryId?: string;
+  /** Профиль уже создан администратором без ключей: первый вход заполняет эту строку, а не создаёт новую. */
+  claimUserId?: string;
 }
 
 /** Одноразовые токены создания учётной записи: 15 минут, в памяти процесса. */

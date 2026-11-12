@@ -198,6 +198,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           title: users.title,
           department: users.department,
           authSource: users.authSource,
+          pending: users.pendingActivation,
           disabled: sql<boolean>`${users.disabledAt} is not null`,
         })
         .from(users)
@@ -207,7 +208,27 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         .offset(o.offset),
       db.select({ n: count() }).from(users).where(where),
     ]);
-    return { items: rows, total: total?.n ?? 0 };
+    // сколько профилей создано по каталогу, но сотрудники ещё не входили (подсказка «что дальше» в мастере)
+    const [waiting] = await db
+      .select({ n: count() })
+      .from(users)
+      .where(and(eq(users.pendingActivation, true), isNull(users.disabledAt)));
+    const [signedIn] = await db
+      .select({ n: count() })
+      .from(users)
+      .where(
+        and(
+          eq(users.authSource, 'ldap'),
+          eq(users.pendingActivation, false),
+          isNull(users.disabledAt),
+        ),
+      );
+    return {
+      items: rows,
+      total: total?.n ?? 0,
+      waiting: waiting?.n ?? 0,
+      signedIn: signedIn?.n ?? 0,
+    };
   });
 
   app.get('/admin/users', async (req) => {
@@ -270,6 +291,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       ),
       disabledNote: u.disabledAt ? u.disabledNote : null,
       authSource: u.authSource,
+      pending: u.pendingActivation,
       createdAt: u.createdAt.toISOString(),
       lastSeenAt: seen.get(u.id) ? new Date(seen.get(u.id)!).toISOString() : null,
       title: u.title,

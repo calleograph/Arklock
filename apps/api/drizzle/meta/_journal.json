@@ -218,6 +218,13 @@
       "when": 1793106893082,
       "tag": "0030_mail_log",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794491736354,
+      "tag": "0031_pending_directory_profiles",
+      "breakpoints": true
     }
   ]
 }

@@ -473,7 +473,13 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         ...grantUsers.map((g) => g.id),
       ]),
     ];
-    const us = ids.length ? await db.select().from(users).where(inArray(users.id, ids)) : [];
+    // профили без ключей (ещё не входили) в список держателей ключей не попадают: им нечем принять ключ сейфа
+    const us = ids.length
+      ? await db
+          .select()
+          .from(users)
+          .where(and(inArray(users.id, ids), eq(users.pendingActivation, false)))
+      : [];
     const keys = ids.length
       ? await db
           .select({ userId: vaultKeys.userId })
@@ -755,7 +761,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const v = await getVault(vaultId);
     const ids = await db.execute<{ id: string }>(sql`
       select distinct u.id from users u
-      where u.disabled_at is null and (
+      where u.disabled_at is null and not u.pending_activation and (
         exists (select 1 from vault_members m where m.vault_id = ${vaultId} and m.user_id = u.id)
         or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
                    where vc.vault_id = ${vaultId} and cm.user_id = u.id)
@@ -1151,8 +1157,10 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       id: u.id,
       name: u.displayName,
       email: u.email,
+      // у профиля, созданного по каталогу, ключей ещё нет: роль можно назначить, ключ выдаётся после первого входа
       publicKey: u.publicKey,
       signPublicKey: u.signPublicKey,
+      pending: u.pendingActivation,
     }));
   });
 

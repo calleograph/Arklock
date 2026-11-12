@@ -53,10 +53,11 @@ export async function createAccount(
   setupToken?: string,
   signal?: AbortSignal,
   /** Вход через каталог: адрес и имя задаёт сервер по данным каталога, запись создаётся по токену. */
-  directory?: { enrollToken: string },
+  directory?: { enrollToken: string; userId?: string },
   inviteToken?: string,
 ): Promise<{ recoveryCode: string; session?: SessionResponse }> {
-  const userId = crypto.randomUUID();
+  // профиль создан администратором заранее: ключи создаются для его идентификатора, а не для нового
+  const userId = directory?.userId ?? crypto.randomUUID();
   const salt = generateSalt();
   const keys = await deriveKeys(password, salt, userId, DEFAULT_KDF, signal);
   const kp = await generateAccountKeyPair();

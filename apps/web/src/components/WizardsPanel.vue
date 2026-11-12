@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
+import DirectoryGuide from './DirectoryGuide.vue';
 import Icon, { type IconName } from './Icon.vue';
 
 /**
@@ -180,6 +181,7 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
       <h2 class="text-base font-semibold">{{ t('title') }}</h2>
       <p class="mt-1 max-w-prose text-xs text-slate-500">{{ t('hint') }}</p>
     </div>
+    <DirectoryGuide />
     <div class="grid gap-3 md:grid-cols-2">
       <article v-for="c in CARDS" :key="c.id" class="card flex flex-col gap-2 p-4 text-sm">
         <h3 class="flex items-center gap-2 font-medium">

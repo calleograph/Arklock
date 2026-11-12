@@ -34,6 +34,8 @@ import { registerWebauthnRoutes } from './routes/webauthn.js';
 import { registerSsoRoutes } from './routes/sso.js';
 import { registerSamlRoutes } from './routes/saml.js';
 import { registerLdapRoutes } from './routes/ldap.js';
+import { registerDirectoryPeopleRoutes } from './routes/directory-people.js';
+import { registerDirectoryGroupRoutes } from './routes/directory-groups.js';
 import { registerMfaRoutes } from './routes/mfa.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSystemRoutes } from './routes/system.js';
@@ -214,6 +216,8 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminSystemRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminSmtpRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerDirectoryPeopleRoutes, { prefix: API_PREFIX, ctx });
+  await app.register(registerDirectoryGroupRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminShieldRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContinuityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerOffboardingRoutes, { prefix: API_PREFIX, ctx });

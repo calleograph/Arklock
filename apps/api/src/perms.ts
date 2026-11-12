@@ -117,9 +117,9 @@ export const ADMIN_PATHS: [RegExp, AdminPerm][] = [
   [/^\/api\/v1\/admin\/roles(\/|$)/, 'admin.roles'],
   [/^\/api\/v1\/admin\/users\/[^/]+\/mfa-reset$/, 'admin.users'],
   // поиск сотрудников нужен и при работе с группами: проверка «либо то, либо другое» в adminGate
-  [/^\/api\/v1\/admin\/people$/, 'admin.users'],
+  [/^\/api\/v1\/admin\/people(\/directory(\/provision)?)?$/, 'admin.users'],
   [/^\/api\/v1\/admin\/users(\/|$)/, 'admin.users'],
-  [/^\/api\/v1\/admin\/circles(\/|$)/, 'admin.circles'],
+  [/^\/api\/v1\/admin\/(circles|directory|departments)(\/|$)/, 'admin.circles'],
   [/^\/api\/v1\/admin\/(settings|security\/range|automation)(\/|$)/, 'admin.settings'],
   [/^\/api\/v1\/admin\/ledger(\/|$)/, 'admin.ledger'],
   [

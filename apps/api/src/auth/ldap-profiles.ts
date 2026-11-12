@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/connect.js';
-import { settings } from '../db/schema.js';
+import { settings, users } from '../db/schema.js';
 import { openSetting } from '../secretbox.js';
 import type { LdapConfig } from './ldap.js';
 
@@ -68,4 +68,57 @@ export async function writeLdapProfiles(
     if (legacy) await save(LDAP_SETTING_KEY, legacy);
     else await tx.delete(settings).where(eq(settings.key, LDAP_SETTING_KEY));
   });
+}
+
+/**
+ * Идентичность сотрудника в каталоге. Основная — по устойчивому идентификатору объекта (objectGUID и аналоги):
+ * переименование и перенос учётной записи в другое подразделение её не меняют. Старые привязки по DN остаются
+ * действительными и переводятся на идентификатор при ближайшем входе или сверке.
+ */
+export const ldapGuidExternalId = (profileId: string, guid: string): string =>
+  JSON.stringify([profileId, `guid:${guid.toLowerCase()}`]);
+
+/** Какую идентичность записывать новому профилю: по идентификатору объекта, если каталог его отдаёт, иначе по DN. */
+export const directoryExternalId = (profileId: string, found: { dn: string; guid: string }) =>
+  found.guid ? ldapGuidExternalId(profileId, found.guid) : ldapExternalId(profileId, found.dn);
+
+/** Все допустимые записи идентичности найденного человека: новая (по идентификатору) и прежняя (по DN). */
+export const identityIds = (profileId: string, found: { dn: string; guid: string }): string[] => [
+  ...(found.guid ? [ldapGuidExternalId(profileId, found.guid)] : []),
+  ldapExternalId(profileId, found.dn),
+];
+
+export const identityMatches = (
+  profileId: string,
+  externalId: string | null,
+  found: { dn: string; guid: string },
+): boolean => !!externalId && identityIds(profileId, found).includes(externalId);
+
+/** Учётная запись Arklock, связанная с найденным в каталоге человеком (по идентификатору или по прежнему DN). */
+export async function linkedLdapUser(
+  db: Db,
+  profileId: string,
+  found: { dn: string; guid: string },
+): Promise<typeof users.$inferSelect | undefined> {
+  const rows = await db
+    .select()
+    .from(users)
+    .where(
+      and(eq(users.authSource, 'ldap'), inArray(users.externalId, identityIds(profileId, found))),
+    );
+  const byGuid = found.guid ? ldapGuidExternalId(profileId, found.guid) : '';
+  return rows.find((u) => u.externalId === byGuid) ?? rows[0];
+}
+
+/** Прежняя привязка по DN заменяется привязкой по идентификатору объекта: дальше перенос учётной записи не страшен. */
+export async function adoptGuidIdentity(
+  db: Db,
+  user: Pick<typeof users.$inferSelect, 'id' | 'externalId'>,
+  profileId: string,
+  found: { dn: string; guid: string },
+): Promise<void> {
+  if (!found.guid) return;
+  const next = ldapGuidExternalId(profileId, found.guid);
+  if (user.externalId !== next)
+    await db.update(users).set({ externalId: next }).where(eq(users.id, user.id));
 }

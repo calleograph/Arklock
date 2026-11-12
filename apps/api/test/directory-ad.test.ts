@@ -3,7 +3,8 @@ import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
 import * as x509 from '@peculiar/x509';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { settings } from '../src/db/schema.js';
+import { eq } from 'drizzle-orm';
+import { settings, users } from '../src/db/schema.js';
 import { cheapCaptcha, createTestApp, postSolving, TestClient } from './helpers.js';
 
 // Тестовый каталог, отвечающий как Active Directory; все имена и пароли вымышленные
@@ -30,6 +31,8 @@ interface Person {
   /** Группы с учётом вложенности (что вернёт правило IN_CHAIN). */
   nested: string[];
   disabled?: boolean;
+  /** objectGUID так, как его отдаёт AD: 16 байт, первые три группы в обратном порядке. */
+  guid: Buffer;
 }
 const people: Person[] = [
   // Анна в группе «Team A», которая сама входит в «Staff»: доступ по «Staff» — через вложенность
@@ -39,6 +42,7 @@ const people: Person[] = [
     password: 'Anna-Synthetic-1',
     mail: 'anna.petrova@example.com',
     name: 'Anna Petrova',
+    guid: Buffer.from('33221100554477668899aabbccddeeff', 'hex'),
     memberOf: [TEAM],
     nested: [TEAM, STAFF],
   },
@@ -48,6 +52,7 @@ const people: Person[] = [
     password: 'Boris-Synthetic-1',
     mail: 'boris.ivanov@example.com',
     name: 'Boris Ivanov',
+    guid: Buffer.from('443322115566778899aabbccddeeff00', 'hex'),
     memberOf: [],
     nested: [],
   },
@@ -57,6 +62,7 @@ const people: Person[] = [
     password: 'Old-Synthetic-1',
     mail: 'old.account@example.com',
     name: 'Old Account',
+    guid: Buffer.from('5544332266778899aabbccddeeff0011', 'hex'),
     memberOf: [STAFF],
     nested: [STAFF],
     disabled: true,
@@ -84,6 +90,9 @@ function attrs(p: Person) {
     cn: p.name,
     memberof: p.memberOf,
     useraccountcontrol: p.disabled ? '514' : '512',
+    objectguid: p.guid,
+    title: 'Engineer',
+    department: 'Support',
   };
 }
 
@@ -151,6 +160,18 @@ function startAd(): Promise<void> {
         res.end();
         return next();
       }
+      // чтение записи человека по DN (выбор в поле поиска)
+      const byDn = people.find((x) => x.dn.toLowerCase() === base);
+      if (isBase && byDn) {
+        res.send({ dn: byDn.dn, attributes: attrs(byDn) });
+        res.end();
+        return next();
+      }
+      // записи с таким DN нет: настоящий каталог отвечает noSuchObject (32)
+      if (isBase && /^cn=/i.test(base)) {
+        res.end(32);
+        return next();
+      }
       if (isBase) {
         res.send({ dn: req.dn.toString(), attributes: { objectClass: 'top' } });
         res.end();
@@ -168,10 +189,38 @@ function startAd(): Promise<void> {
       }
       if (withReferrals)
         res.send(res.createSearchReference([`ldap://example.com/DC=DomainDnsZones,${BASE}`]));
+      // участники группы с учётом вложенности (правило IN_CHAIN со стороны пользователя)
+      const ofGroup = /memberOf:1\.2\.840\.113556\.1\.4\.1941:=(.+?)\)\)?$/i.exec(f)?.[1];
+      if (ofGroup) {
+        const gdn = ofGroup.replace(/\\2c/gi, ',').replace(/\\20/g, ' ').toLowerCase();
+        for (const p of people)
+          if (!p.disabled && p.nested.some((g) => g.toLowerCase() === gdn))
+            res.send({ dn: p.dn, attributes: attrs(p) });
+        res.end();
+        return next();
+      }
+      // поиск групп по словам в имени
+      if (f.includes('objectClass=group')) {
+        const gw = [...f.matchAll(/\(cn=\*([^*)]+)\*\)/gi)].map((m) => m[1]!.toLowerCase());
+        for (const g of [STAFF, TEAM]) {
+          const gn = /^CN=([^,]+)/i.exec(g)![1]!;
+          if (gw.every((w) => gn.toLowerCase().includes(w)))
+            res.send({ dn: g, attributes: { objectClass: 'group', cn: gn } });
+        }
+        res.end();
+        return next();
+      }
       const activeOnly = f.includes('userAccountControl:1.2.840.113556.1.4.803:=2');
       const value = /\((?:sAMAccountName|samaccountname)=([^)*]+)\)/i.exec(f)?.[1]?.toLowerCase();
+      // поиск по словам: каждое слово — отдельная группа (cn=*слово*)
+      const words = [...f.matchAll(/\(cn=\*([^*)]+)\*\)/gi)].map((m) => m[1]!.toLowerCase());
       for (const p of people) {
         if (activeOnly && p.disabled) continue;
+        if (
+          words.length &&
+          !words.every((w) => [p.name, p.sam, p.mail].some((x) => x.toLowerCase().includes(w)))
+        )
+          continue;
         if (value && ![p.sam, `${p.sam}@example.com`, p.mail].includes(value)) continue;
         res.send({ dn: p.dn, attributes: attrs(p) });
       }
@@ -657,5 +706,353 @@ describe('a later failure does not erase a step that already passed', () => {
     // поиск не нашёл сотрудника: пароль этого сотрудника не проверялся, прежний результат пароля сохраняется
     await login('nobody-here', 'x');
     expect(await status()).toMatchObject({ user: false, credentials: true });
+  });
+});
+
+describe('domain people: search, profile without sign-in, first sign-in fills the same profile', () => {
+  const ANNA_GUID = '00112233-4455-6677-8899-aabbccddeeff';
+  const find = (q: string) =>
+    admin.req('GET', `/admin/people/directory?q=${encodeURIComponent(q)}&profileId=ppl`);
+  const provision = (dn: string, profileId = 'ppl') =>
+    admin.req('POST', '/admin/people/directory/provision', { profileId, dn });
+
+  it('searches the directory by words (name, login, mail) and needs at least two letters', async () => {
+    expect(
+      (await put(connection({ baseDn: BASE, enabled: true, access: 'all' }), 'ppl')).statusCode,
+    ).toBe(200);
+    expect((await find('a')).json()).toMatchObject({ configured: true, items: [] });
+    const r = (await find('petrova anna')).json();
+    expect(r.problems).toEqual([]);
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({
+      name: 'Anna Petrova',
+      email: 'anna.petrova@example.com',
+      login: 'apetrova',
+      guid: ANNA_GUID,
+      title: 'Engineer',
+      existing: null,
+    });
+    // отключённых учётных записей в поиске нет
+    expect((await find('old')).json().items).toEqual([]);
+  });
+
+  it('creates a profile without the person signing in; choosing again returns the same profile', async () => {
+    const dn = `CN=Anna Petrova,OU=Users,${BASE}`;
+    const first = await provision(dn);
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({
+      email: 'anna.petrova@example.com',
+      pending: true,
+      created: true,
+      authSource: 'ldap',
+    });
+    const again = await provision(dn);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ id: first.json().id, created: false });
+    const rows = await fixture.database.db
+      .select()
+      .from(users)
+      .where(eq(users.email, 'anna.petrova@example.com'));
+    expect(rows).toHaveLength(1);
+    // идентичность — по идентификатору объекта, не по DN; ключей нет
+    expect(rows[0]).toMatchObject({
+      pendingActivation: true,
+      publicKey: '',
+      externalId: JSON.stringify(['ppl', `guid:${ANNA_GUID}`]),
+    });
+    // в поиске она теперь «уже есть», в общем списке людей — с отметкой «ожидает первого входа»
+    expect((await find('petrova')).json().items[0].existing).toEqual({
+      id: first.json().id,
+      state: 'pending',
+    });
+    const people = (await admin.req('GET', '/admin/people?q=petrova')).json();
+    expect(people.items[0]).toMatchObject({ id: first.json().id, pending: true });
+  });
+
+  it('refuses people the sign-in rule does not allow, outside the Base DN, and unknown entries', async () => {
+    expect(
+      (
+        await put(
+          connection({
+            baseDn: BASE,
+            enabled: true,
+            access: 'groups',
+            allowedGroups: [STAFF],
+          }),
+          'ppl',
+        )
+      ).statusCode,
+    ).toBe(200);
+    // Борис не состоит в разрешённой группе
+    const boris = await provision(`CN=Boris Ivanov,OU=Users,${BASE}`);
+    expect(boris.statusCode).toBe(409);
+    expect(boris.json().error.code).toBe('directory_not_allowed');
+    expect((await provision('CN=Anna Petrova,OU=Users,DC=other,DC=org')).json().error.code).toBe(
+      'dn_outside_base',
+    );
+    expect((await provision(`CN=Nobody,OU=Users,${BASE}`)).json().error.code).toBe(
+      'directory_person_not_found',
+    );
+    expect((await provision(`CN=Old Account,OU=Users,${BASE}`)).json().error.code).toBe(
+      'directory_account_disabled',
+    );
+  });
+
+  it('the profile cannot sign in with a password and does not appear as a key holder', async () => {
+    const login = await postSolving(fixture.app, '/api/v1/auth/login', {
+      email: 'anna.petrova@example.com',
+      authKey: 'A'.repeat(43),
+    });
+    expect(login.statusCode).toBe(401);
+    const recovery = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/recovery/start',
+      payload: { email: 'anna.petrova@example.com' },
+    });
+    expect(recovery.json().recoveryWrappedPrivateKey).toMatch(/^ak1\./);
+    // в поиске для выдачи доступа он есть, но без ключей: роль назначить можно, ключ выдастся после его входа
+    const found = (await admin.req('GET', '/directory/users?q=petrova')).json();
+    expect(found).toEqual([expect.objectContaining({ pending: true, publicKey: '' })]);
+  });
+
+  it('the first sign-in fills the same profile; the account moved to another unit stays linked', async () => {
+    const stub = (
+      await fixture.database.db
+        .select()
+        .from(users)
+        .where(eq(users.email, 'anna.petrova@example.com'))
+    )[0]!;
+    // учётная запись перенесена в другое подразделение: DN изменился, идентификатор прежний
+    const anna = people.find((p) => p.sam === 'apetrova')!;
+    const oldDn = anna.dn;
+    anna.dn = `CN=Anna Petrova,OU=Moved,${BASE}`;
+    try {
+      await put(connection({ baseDn: BASE, enabled: true, access: 'all' }), 'ppl');
+      const first = await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+        username: 'apetrova',
+        password: 'Anna-Synthetic-1',
+        profileId: 'ppl',
+      });
+      expect(first.statusCode).toBe(200);
+      // сервер возвращает идентификатор созданного профиля: ключи создаются именно для него
+      expect(first.json()).toMatchObject({ enroll: true, userId: stub.id });
+      const client = new TestClient(fixture.app, 'anna.petrova@example.com', 'anna-master-pass-12');
+      const { payload } = await client.registerBody(undefined, undefined, stub.id);
+      const { email: _e, displayName: _d, setupToken: _s, ...rest } = payload;
+      void _e;
+      void _d;
+      void _s;
+      // чужой идентификатор вместо созданного профиля не принимается
+      const other = await client.registerBody();
+      const wrong = await fixture.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/external/enroll',
+        payload: { ...other.payload, enrollToken: first.json().enrollToken },
+      });
+      expect(wrong.statusCode).toBe(409);
+      const second = await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+        username: 'apetrova',
+        password: 'Anna-Synthetic-1',
+        profileId: 'ppl',
+      });
+      const done = await fixture.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/external/enroll',
+        payload: { ...rest, enrollToken: second.json().enrollToken },
+      });
+      expect(done.statusCode).toBe(201);
+      expect(done.json().user.id).toBe(stub.id);
+      const rows = await fixture.database.db
+        .select()
+        .from(users)
+        .where(eq(users.email, 'anna.petrova@example.com'));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ pendingActivation: false, id: stub.id });
+      expect(rows[0]!.publicKey).not.toBe('');
+      // следующий вход — обычный, с новой записью DN привязка не теряется
+      const next = await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+        username: 'apetrova',
+        password: 'Anna-Synthetic-1',
+        profileId: 'ppl',
+      });
+      expect(next.statusCode).toBe(200);
+      expect(next.json().enroll).toBeUndefined();
+    } finally {
+      anna.dn = oldDn;
+    }
+  });
+
+  it('a vault role goes to a person who has not signed in yet; the key follows after the first sign-in', async () => {
+    const borisDn = `CN=Boris Ivanov,OU=Users,${BASE}`;
+    const made = await provision(borisDn);
+    expect(made.statusCode).toBe(201);
+    const borisId = made.json().id as string;
+    const { id: vaultId } = await admin.createSharedVault('People without a sign-in');
+    const role = await admin.req('PUT', `/vaults/${vaultId}/members/${borisId}`, {
+      role: 'reader',
+    });
+    expect(role.statusCode).toBe(204);
+    // без ключа он не держатель ключа: ни в списке участников с ключами, ни в списке «ждут ключ»
+    const members = (await admin.req('GET', `/vaults/${vaultId}/members`)).json();
+    expect(members.members.some((m: { userId: string }) => m.userId === borisId)).toBe(false);
+    const waiting = () =>
+      admin
+        .req('GET', `/vaults/${vaultId}/pending-keys`)
+        .then((r) => r.json().users as { userId: string }[]);
+    expect((await waiting()).some((u) => u.userId === borisId)).toBe(false);
+    // первый вход заполняет профиль ключами: теперь ему можно выдать ключ сейфа
+    const first = await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+      username: 'bivanov',
+      password: 'Boris-Synthetic-1',
+      profileId: 'ppl',
+    });
+    expect(first.json()).toMatchObject({ enroll: true, userId: borisId });
+    const client = new TestClient(fixture.app, 'boris.ivanov@example.com', 'boris-master-pass-12');
+    const { payload } = await client.registerBody(undefined, undefined, borisId);
+    const { email: _e, displayName: _d, setupToken: _s, ...rest } = payload;
+    void _e;
+    void _d;
+    void _s;
+    const done = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/external/enroll',
+      payload: { ...rest, enrollToken: first.json().enrollToken },
+    });
+    expect(done.statusCode).toBe(201);
+    expect((await waiting()).some((u) => u.userId === borisId)).toBe(true);
+  });
+});
+
+describe('domain groups: search, preview, link and unlink', () => {
+  let circleId = '';
+  const groups = (q: string) =>
+    admin.req('GET', `/admin/directory/groups?q=${encodeURIComponent(q)}&profileId=ppl`);
+  const preview = (action: 'link' | 'unlink') =>
+    admin.req('POST', '/admin/directory/groups/preview', {
+      profileId: 'ppl',
+      dn: STAFF,
+      circleId,
+      action,
+    });
+  const links = () => admin.req('GET', `/admin/circles/${circleId}/directory-links`);
+  const change = (action: 'link' | 'unlink', keepMembers = true) =>
+    admin.req('PUT', `/admin/circles/${circleId}/directory-links`, {
+      profileId: 'ppl',
+      dn: STAFF,
+      action,
+      keepMembers,
+    });
+  const membersOf = async () =>
+    (await admin.req('GET', `/admin/circles/${circleId}/members`)).json() as { email: string }[];
+
+  it('finds domain groups and shows which Arklock group they are linked to', async () => {
+    expect((await groups('s')).json().items).toEqual([]);
+    const r = (await groups('staff')).json();
+    expect(r.items).toEqual([
+      expect.objectContaining({ dn: STAFF, name: 'Staff', profileId: 'ppl', linked: [] }),
+    ]);
+    circleId = (
+      await admin.req('POST', '/admin/circles', { name: 'Support team', description: '' })
+    ).json().id;
+    expect(circleId).toBeTruthy();
+  });
+
+  it('the preview says who joins and what the group gives, without changing anything', async () => {
+    const r = (await preview('link')).json();
+    expect(r).toMatchObject({
+      action: 'link',
+      group: 'Staff',
+      domainMembers: 1,
+      withProfile: 1,
+      withoutProfile: 0,
+      willJoin: 1,
+      alreadyMembers: 0,
+      adminRole: null,
+    });
+    expect(await membersOf()).toEqual([]);
+    expect((await links()).json().links).toEqual([]);
+  });
+
+  it('linking brings in people who already have a profile and is visible and repeatable', async () => {
+    const r = (await change('link')).json();
+    expect(r).toMatchObject({ ok: true, added: 1 });
+    expect((await membersOf()).map((m) => m.email)).toEqual(['anna.petrova@example.com']);
+    expect((await links()).json().links).toEqual([
+      expect.objectContaining({ profileId: 'ppl', dn: STAFF, name: 'Staff' }),
+    ]);
+    // повтор не создаёт вторую привязку и не дублирует участника
+    expect((await change('link')).json()).toMatchObject({ ok: true, added: 0 });
+    expect((await links()).json().links).toHaveLength(1);
+    expect((await groups('staff')).json().items[0].linked).toEqual([
+      { circleId, circleName: 'Support team' },
+    ]);
+  });
+
+  it('unlinking keeps members by default; removing them is a separate explicit choice', async () => {
+    const p = (await preview('unlink')).json();
+    expect(p).toMatchObject({ action: 'unlink', directoryMembers: 1, stillMapped: false });
+    expect((await change('unlink')).json()).toMatchObject({ ok: true, removed: 0 });
+    expect((await links()).json().links).toEqual([]);
+    expect(await membersOf()).toHaveLength(1);
+    await change('link');
+    expect((await change('unlink', false)).json()).toMatchObject({ ok: true, removed: 1 });
+    expect(await membersOf()).toEqual([]);
+    // привязки уже нет — повторная отвязка сообщает об этом
+    expect((await change('unlink')).statusCode).toBe(404);
+  });
+
+  it('"add a domain group" creates a linked Arklock group once and reuses it afterwards', async () => {
+    const use = () =>
+      admin.req('POST', '/admin/directory/groups/use', { profileId: 'ppl', dn: TEAM });
+    const first = await use();
+    expect(first.statusCode).toBe(201);
+    expect(first.json()).toMatchObject({ created: true, added: 1, circle: { name: 'Team A' } });
+    const again = await use();
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ created: false, circle: { id: first.json().circle.id } });
+    expect(
+      (await admin.req('GET', `/admin/circles/${first.json().circle.id}/members`)).json(),
+    ).toHaveLength(1);
+    // DN вне Base DN не принимается
+    const bad = await admin.req('POST', '/admin/directory/groups/use', {
+      profileId: 'ppl',
+      dn: 'CN=Team,DC=other,DC=org',
+    });
+    expect(bad.json().error.code).toBe('dn_outside_base');
+  });
+
+  it('the departments list shows each department with its head, members and vaults', async () => {
+    const name = 'Support department';
+    const cid = (await admin.req('POST', '/admin/circles', { name, description: '' })).json().id;
+    const space = (
+      await admin.req('POST', '/spaces', { name, publicToOrg: false, description: '' })
+    ).json();
+    expect(
+      (await admin.req('PUT', `/spaces/${space.id}/circles/${cid}`, { role: 'member' })).statusCode,
+    ).toBe(204);
+    const boris = (await admin.req('GET', '/admin/people?q=boris')).json().items[0] as {
+      id: string;
+    };
+    expect(
+      (await admin.req('PATCH', `/admin/circles/${cid}/members`, { add: [boris.id] })).statusCode,
+    ).toBe(200);
+    expect(
+      (await admin.req('PUT', `/spaces/${space.id}/users/${boris.id}`, { role: 'admin' }))
+        .statusCode,
+    ).toBe(204);
+    const r = (await admin.req('GET', '/admin/departments?q=support dep')).json();
+    expect(r.items).toEqual([
+      expect.objectContaining({
+        name,
+        circleId: cid,
+        members: 1,
+        waiting: 0,
+        vaults: 0,
+        // руководители — администраторы пространства: и создавший его, и назначенный
+        heads: expect.arrayContaining([expect.objectContaining({ id: boris.id })]),
+      }),
+    ]);
+    // обычная группа без пространства подразделением не считается
+    expect((await admin.req('GET', '/admin/departments?q=Support team')).json().items).toEqual([]);
   });
 });

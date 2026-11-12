@@ -945,6 +945,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     user: { id: string; publicKey: string; signPublicKey: string },
     role: string | object,
   ): Promise<void> {
+    const roleOnly = typeof role === 'string' ? { role } : role;
+    // профиль создан по каталогу, человек ещё не входил: ключей нет, роль назначается сразу, ключ выдастся после его входа
+    if (!user.publicKey) {
+      await api('PUT', `/vaults/${vaultId}/members/${user.id}`, roleOnly);
+      return;
+    }
     const v = vaults.value.find((x) => x.id === vaultId)!;
     const key = keyOf(vaultId, v.keyVersion)!;
     if (!keyLog.length) await loadKeyLog();

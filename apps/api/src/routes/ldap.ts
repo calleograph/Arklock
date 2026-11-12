@@ -36,7 +36,9 @@ import { sealSetting } from '../secretbox.js';
 import { bundle } from './auth.js';
 import {
   ldapBindSecret,
-  ldapExternalId,
+  adoptGuidIdentity,
+  directoryExternalId,
+  linkedLdapUser,
   ldapIdentityProfile,
   ldapSecretPurpose,
   readLdapProfiles,
@@ -493,15 +495,11 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       throw new AppError(429, 'too_many_attempts', 'Too many sign-in checks, try again later');
     loginTests.set(user.id, [...recent, now]);
     const r = await ldapCheckLogin(s, bindSecret(s), body.username, body.password);
-    let account: 'new' | 'linked' | 'local_conflict' | 'blocked' | null = null;
+    let account: 'new' | 'linked' | 'pending' | 'local_conflict' | 'blocked' | null = null;
     if (r.ok) {
-      const [linked] = await db
-        .select({ id: users.id, disabledAt: users.disabledAt })
-        .from(users)
-        .where(
-          and(eq(users.authSource, 'ldap'), eq(users.externalId, ldapExternalId(s.id, r.user.dn))),
-        );
-      if (linked) account = linked.disabledAt ? 'blocked' : 'linked';
+      const linked = await linkedLdapUser(db, s.id, r.user);
+      if (linked)
+        account = linked.disabledAt ? 'blocked' : linked.pendingActivation ? 'pending' : 'linked';
       else {
         const [clash] = await db
           .select({ id: users.id })
@@ -646,7 +644,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     ): Promise<
       | SessionResponse
       | MfaChallengeResponse
-      | { enroll: true; enrollToken: string; email: string; name: string }
+      | { enroll: true; enrollToken: string; email: string; name: string; userId?: string }
     > => {
       const body = parse(loginSchema, req.body);
       const s = await stored(body.profileId ?? 'default');
@@ -666,15 +664,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       if (!ident) {
         const disabled = await ldapLookup(s, bindSecret(s), body.username).catch(() => null);
         if (disabled?.disabled) {
-          const [linked] = await db
-            .select({ id: users.id })
-            .from(users)
-            .where(
-              and(
-                eq(users.authSource, 'ldap'),
-                eq(users.externalId, ldapExternalId(s.id, disabled.dn)),
-              ),
-            );
+          const linked = await linkedLdapUser(db, s.id, disabled);
           if (linked) {
             await db
               .update(users)
@@ -703,42 +693,45 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       if (!ident.email)
         throw new AppError(403, 'ldap_no_email', 'The directory entry has no e-mail address');
 
-      const [linked] = await db
-        .select()
-        .from(users)
-        .where(
-          and(eq(users.authSource, 'ldap'), eq(users.externalId, ldapExternalId(s.id, ident.dn))),
-        );
-      if (!linked) {
-        const [clash] = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(users.email, ident.email));
-        if (clash)
-          throw new AppError(
-            409,
-            'account_exists_local',
-            'A local account with this e-mail already exists',
-          );
-        if (!s.autoProvision)
-          throw new AppError(
-            403,
-            'ldap_not_provisioned',
-            'Your account has not been created yet — contact an administrator',
-          );
+      const linked = await linkedLdapUser(db, s.id, ident);
+      // профиль создан администратором заранее: ключей ещё нет, первый вход их создаёт в этой же строке
+      if (!linked || linked.pendingActivation) {
+        if (linked?.disabledAt)
+          throw new AppError(401, 'invalid_credentials', 'Invalid username or password');
+        // созданный администратором профиль уже разрешён явно; для новых людей действуют проверки
+        if (!linked) {
+          const [clash] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.email, ident.email));
+          if (clash)
+            throw new AppError(
+              409,
+              'account_exists_local',
+              'A local account with this e-mail already exists',
+            );
+          if (!s.autoProvision)
+            throw new AppError(
+              403,
+              'ldap_not_provisioned',
+              'Your account has not been created yet — contact an administrator',
+            );
+        }
         const token = ctx.enroll.issue({
           source: 'ldap',
-          externalId: ldapExternalId(s.id, ident.dn),
+          externalId: directoryExternalId(s.id, ident),
           directoryId: s.id,
           email: ident.email,
           name: ident.name,
           groups: ident.groups,
+          ...(linked ? { claimUserId: linked.id } : {}),
         });
         return {
           enroll: true,
           enrollToken: token,
           email: ident.email,
           name: ident.name || ident.email,
+          ...(linked ? { userId: linked.id } : {}),
         };
       }
       if (linked.disabledAt)
@@ -752,6 +745,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
             'not_provisioned',
             'The directory configuration changed; start sign-in again',
           );
+        await adoptGuidIdentity(tx, linked, s.id, ident);
         await syncCirclesFor(tx, linked.id, current, ident.groups);
         await syncProfileFor(tx, linked.id, ident, current);
       });
