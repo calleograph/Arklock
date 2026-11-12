@@ -492,13 +492,6 @@ describe('every refusal names its stage and reason (not a generic message)', () 
     admin.req('POST', '/admin/ldap/login-test?profileId=ad', { username, password });
 
   it('no read access for the service account: the search stage says so', async () => {
-    const list = (await admin.req('GET', '/admin/ldap/profiles'))
-      .json()
-      .profiles.map((p: { id: string }) => p.id);
-    (await import('node:fs')).writeFileSync(
-      '/tmp/claude-1000/-srv-projects-Arklock/ddc43766-b6bd-447b-8174-511958896dba/scratchpad/ids.txt',
-      JSON.stringify(list),
-    );
     denySearch = 'insufficient';
     try {
       const r = (await login('apetrova', 'Anna-Synthetic-1')).json();
