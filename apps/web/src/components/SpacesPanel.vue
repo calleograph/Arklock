@@ -26,6 +26,7 @@ const { t } = useI18n({
         remove: 'Удалить',
         confirm: 'Удалить пустое пространство?',
         members: 'Пользователи',
+        fromDirectory: 'из каталога',
         groups: 'Группы',
         member: 'Участник',
         admin: 'Администратор пространства',
@@ -57,6 +58,7 @@ const { t } = useI18n({
         remove: 'Delete',
         confirm: 'Delete this empty space?',
         members: 'Users',
+        fromDirectory: 'from the directory',
         groups: 'Groups',
         member: 'Member',
         admin: 'Space administrator',
@@ -86,7 +88,10 @@ const detail = ref<Detail | null>(null);
 const form = ref({ name: '', description: '', publicToOrg: false });
 const circles = ref<{ id: string; name: string }[]>([]);
 const query = ref('');
-const results = ref<{ id: string; name: string; email: string }[]>([]);
+/** Найденные: сотрудники Arklock и (для администратора) люди из каталога домена, которых ещё нет в Arklock. */
+const results = ref<
+  { id: string; name: string; email: string; dir?: { profileId: string; dn: string } }[]
+>([]);
 const userId = ref('');
 const circleId = ref('');
 const userRole = ref<'member' | 'admin'>('member');
@@ -159,8 +164,40 @@ const remove = () =>
   });
 const find = () =>
   run(async () => {
-    results.value = await api('GET', `/directory/users?q=${encodeURIComponent(query.value)}`);
+    const q = encodeURIComponent(query.value);
+    const local = await api<typeof results.value>('GET', `/directory/users?q=${q}`);
+    // каталог домена доступен администратору: остальным остаётся поиск по Arklock
+    const domain = await api<{
+      items: {
+        profileId: string;
+        dn: string;
+        name: string;
+        email: string;
+        existing: object | null;
+      }[];
+    }>('GET', `/admin/people/directory?limit=8&q=${q}`).catch(() => ({ items: [] }));
+    results.value = [
+      ...local,
+      ...domain.items
+        .filter((d) => !d.existing && d.email)
+        .map((d) => ({
+          id: `dir:${d.dn}`,
+          name: d.name,
+          email: d.email,
+          dir: { profileId: d.profileId, dn: d.dn },
+        })),
+    ];
     userId.value = results.value[0]?.id ?? '';
+  });
+/** Человек из каталога сначала получает профиль, затем добавляется в пространство. */
+const addUser = () =>
+  run(async () => {
+    const chosen = results.value.find((r) => r.id === userId.value);
+    let id = userId.value;
+    if (chosen?.dir)
+      id = (await api<{ id: string }>('POST', '/admin/people/directory/provision', chosen.dir)).id;
+    await api('PUT', `/spaces/${selected.value}/users/${id}`, { role: userRole.value });
+    await changed();
   });
 const putMember = (kind: 'users' | 'circles', id: string, role: string) =>
   run(async () => {
@@ -317,17 +354,12 @@ onMounted(() => run(load));
             <div v-if="results.length" class="flex flex-wrap gap-2">
               <select v-model="userId" class="input flex-1">
                 <option v-for="u in results" :key="u.id" :value="u.id">
-                  {{ u.name }} ({{ u.email }})
+                  {{ u.name }} ({{ u.email }}){{ u.dir ? ` · ${t('spaces.fromDirectory')}` : '' }}
                 </option></select
               ><select v-model="userRole" class="input w-44">
                 <option value="member">{{ t('spaces.member') }}</option>
                 <option value="admin">{{ t('spaces.admin') }}</option></select
-              ><button
-                type="button"
-                class="btn"
-                :disabled="busy || !userId"
-                @click="putMember('users', userId, userRole)"
-              >
+              ><button type="button" class="btn" :disabled="busy || !userId" @click="addUser">
                 {{ t('spaces.add') }}
               </button>
             </div>

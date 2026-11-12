@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { api, ApiError } from '../services/api';
 import { errorMessage, when } from '../services/helpers';
 import BulkInvitations from './BulkInvitations.vue';
+import DirectoryInvite from './DirectoryInvite.vue';
 
 const { t } = useI18n();
 
@@ -95,6 +96,8 @@ const fmt = (s: string) => when(s);
     >
       {{ error }}
     </p>
+
+    <DirectoryInvite />
 
     <BulkInvitations :circles="circles" @created="load" />
 

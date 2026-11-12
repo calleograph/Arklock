@@ -208,27 +208,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         .offset(o.offset),
       db.select({ n: count() }).from(users).where(where),
     ]);
-    // сколько профилей создано по каталогу, но сотрудники ещё не входили (подсказка «что дальше» в мастере)
-    const [waiting] = await db
-      .select({ n: count() })
-      .from(users)
-      .where(and(eq(users.pendingActivation, true), isNull(users.disabledAt)));
-    const [signedIn] = await db
-      .select({ n: count() })
-      .from(users)
-      .where(
-        and(
-          eq(users.authSource, 'ldap'),
-          eq(users.pendingActivation, false),
-          isNull(users.disabledAt),
-        ),
-      );
-    return {
-      items: rows,
-      total: total?.n ?? 0,
-      waiting: waiting?.n ?? 0,
-      signedIn: signedIn?.n ?? 0,
-    };
+    return { items: rows, total: total?.n ?? 0 };
   });
 
   app.get('/admin/users', async (req) => {

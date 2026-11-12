@@ -292,6 +292,7 @@ async function cancel(): Promise<void> {
                 v-model="appointPick"
                 :exclude="status.chiefs.map((c) => c.id)"
                 :placeholder="t('chief.choose')"
+                :directory="false"
                 testid="chief-add-person"
             /></label>
             <label
@@ -326,6 +327,7 @@ async function cancel(): Promise<void> {
                 v-model="successorPick"
                 :exclude="status?.chief ? [status.chief.id] : []"
                 :placeholder="t('chief.choose')"
+                :directory="false"
                 testid="chief-successor"
             /></label>
             <label

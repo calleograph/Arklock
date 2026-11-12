@@ -124,7 +124,11 @@ const initial = () =>
       style="background: var(--header-bg)"
     >
       <div class="mx-auto flex max-w-screen-2xl items-center gap-3 px-3 py-2 sm:px-5">
-        <RouterLink to="/" class="flex shrink-0 items-center gap-2.5" aria-label="Arklock">
+        <RouterLink
+          to="/"
+          class="flex min-h-11 min-w-11 shrink-0 items-center gap-2.5"
+          aria-label="Arklock"
+        >
           <span
             class="flex size-8 items-center justify-center rounded-lg bg-brand-500 shadow-xs"
             style="color: var(--on-brand)"

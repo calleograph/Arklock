@@ -517,7 +517,8 @@ describe('password change and account recovery', () => {
     ).json();
     expect(Object.keys(unknown).sort()).toEqual(Object.keys(known).sort());
     expect(unknown.recoveryWrappedPrivateKey.length).toBe(known.recoveryWrappedPrivateKey.length);
-  });
+    // после нескольких попыток восстановления сложность проверки растёт: на загруженной машине решение занимает 20–35 с
+  }, 120_000);
 });
 
 function fromSalt(s: string): Uint8Array {

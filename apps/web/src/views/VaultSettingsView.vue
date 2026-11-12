@@ -6,7 +6,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { decryptEntry, fingerprint, fromBase64Url } from '@arklock/crypto';
-import { api } from '../services/api';
+import { ApiError, api } from '../services/api';
 import { errorMessage, vaultLabel, day, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore, type MemberInfo } from '../stores/workspace';
@@ -210,15 +210,22 @@ const grantMany = (list: Recipient[], expiresAt: string | null) =>
     async () => {
       for (const r of list) {
         if (r.kind === 'user')
-          await ws.addMember(
-            id,
-            {
-              id: r.id,
-              publicKey: r.publicKey ?? '',
-              signPublicKey: r.signPublicKey ?? '',
-            },
-            roleBody(r.level, expiresAt ?? undefined),
-          );
+          try {
+            await ws.addMember(
+              id,
+              {
+                id: r.id,
+                publicKey: r.publicKey ?? '',
+                signPublicKey: r.signPublicKey ?? '',
+              },
+              roleBody(r.level, expiresAt ?? undefined),
+            );
+          } catch (e) {
+            // человека нет в закрытом пространстве сейфа: сервер отвечает «не найдено», не раскрывая устройство пространства
+            if (e instanceof ApiError && e.code === 'not_found')
+              throw new Error(`${r.name}: ${t('error.notInSpace')}`);
+            throw e;
+          }
         else
           await api(
             'PUT',
@@ -465,7 +472,7 @@ void decryptEntry;
         class="btn-primary"
         :disabled="busy"
         data-testid="grant-open"
-        @click="showGrant = true"
+        @click="((error = ''), (showGrant = true))"
       >
         <Icon name="share" /> {{ t('grantDlg.open') }}
       </button>
@@ -721,6 +728,7 @@ void decryptEntry;
       default-level="builtin:reader"
       :existing="info?.members.map((m) => m.userId) ?? []"
       :busy="busy"
+      :error="error"
       @close="showGrant = false"
       @submit="grantMany"
     />

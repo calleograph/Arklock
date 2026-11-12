@@ -110,7 +110,7 @@ onMounted(async () => {
       }>('GET', '/admin/ldap/profiles'),
     ),
     ok(api<{ items: unknown[] }>('GET', '/admin/departments?limit=1')),
-    ok(api<{ waiting: number; signedIn: number }>('GET', '/admin/people?status=active&limit=1')),
+    ok(api<{ waiting: number; signedIn: number }>('GET', '/admin/people/summary')),
   ]);
   const p = ldap?.profiles?.[0];
   waiting.value = people?.waiting ?? 0;

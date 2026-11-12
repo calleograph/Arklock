@@ -206,6 +206,8 @@ export const ruDirectory = {
       accountNew:
         'будет создана при первом входе сотрудника (пароль разблокировки сейфов сотрудник задаст сам)',
       accountLinked: 'создана и связана с доменной учётной записью',
+      accountPending:
+        'профиль создан по каталогу, но сотрудник ещё не входил: ключи шифрования он создаст при первом входе',
       accountBlocked: 'заблокирована в Arklock',
       accountLocal:
         'уже есть локальная учётная запись с этим адресом: она не присоединяется автоматически',
@@ -576,6 +578,8 @@ export const enDirectory = {
       accountNew:
         'will be created at the employee’s first sign-in (the employee sets the vault unlock password)',
       accountLinked: 'created and linked to the domain account',
+      accountPending:
+        'the profile was created from the directory but the employee has not signed in yet: they create their encryption keys at the first sign-in',
       accountBlocked: 'blocked in Arklock',
       accountLocal:
         'a local account with this address already exists: it is not joined automatically',

@@ -31,7 +31,7 @@ interface Person {
   /** Группы с учётом вложенности (что вернёт правило IN_CHAIN). */
   nested: string[];
   disabled?: boolean;
-  /** objectGUID так, как его отдаёт AD: 16 байт, первые три группы в обратном порядке. */
+  /** objectGUID так, как его отдаёт AD: 16 байт, первые три группы в обратном порядке (байты < 0x80: тестовый каталог читает значение фильтра как текст). */
   guid: Buffer;
 }
 const people: Person[] = [
@@ -42,7 +42,7 @@ const people: Person[] = [
     password: 'Anna-Synthetic-1',
     mail: 'anna.petrova@example.com',
     name: 'Anna Petrova',
-    guid: Buffer.from('33221100554477668899aabbccddeeff', 'hex'),
+    guid: Buffer.from('33221100554477660811223344556677', 'hex'),
     memberOf: [TEAM],
     nested: [TEAM, STAFF],
   },
@@ -52,7 +52,7 @@ const people: Person[] = [
     password: 'Boris-Synthetic-1',
     mail: 'boris.ivanov@example.com',
     name: 'Boris Ivanov',
-    guid: Buffer.from('443322115566778899aabbccddeeff00', 'hex'),
+    guid: Buffer.from('44332211556677780011223344556677', 'hex'),
     memberOf: [],
     nested: [],
   },
@@ -62,7 +62,7 @@ const people: Person[] = [
     password: 'Old-Synthetic-1',
     mail: 'old.account@example.com',
     name: 'Old Account',
-    guid: Buffer.from('5544332266778899aabbccddeeff0011', 'hex'),
+    guid: Buffer.from('55443322667777080102030405060708', 'hex'),
     memberOf: [STAFF],
     nested: [STAFF],
     disabled: true,
@@ -189,6 +189,23 @@ function startAd(): Promise<void> {
       }
       if (withReferrals)
         res.send(res.createSearchReference([`ldap://example.com/DC=DomainDnsZones,${BASE}`]));
+      // поиск по идентификатору объекта: ldapjs отдаёт байты значения текстом, управляющие — как \HH
+      const byGuid = /objectGUID=(.*)\)$/i.exec(f)?.[1];
+      if (byGuid !== undefined) {
+        const bytes: number[] = [];
+        for (let i = 0; i < byGuid.length; i++) {
+          const esc = /^\\([0-9a-f]{2})/i.exec(byGuid.slice(i, i + 3));
+          if (esc) {
+            bytes.push(parseInt(esc[1]!, 16));
+            i += 2;
+          } else bytes.push(byGuid.charCodeAt(i));
+        }
+        const hex = Buffer.from(bytes).toString('hex');
+        for (const p of people)
+          if (p.guid.toString('hex') === hex) res.send({ dn: p.dn, attributes: attrs(p) });
+        res.end();
+        return next();
+      }
       // участники группы с учётом вложенности (правило IN_CHAIN со стороны пользователя)
       const ofGroup = /memberOf:1\.2\.840\.113556\.1\.4\.1941:=(.+?)\)\)?$/i.exec(f)?.[1];
       if (ofGroup) {
@@ -710,7 +727,7 @@ describe('a later failure does not erase a step that already passed', () => {
 });
 
 describe('domain people: search, profile without sign-in, first sign-in fills the same profile', () => {
-  const ANNA_GUID = '00112233-4455-6677-8899-aabbccddeeff';
+  const ANNA_GUID = '00112233-4455-6677-0811-223344556677';
   const find = (q: string) =>
     admin.req('GET', `/admin/people/directory?q=${encodeURIComponent(q)}&profileId=ppl`);
   const provision = (dn: string, profileId = 'ppl') =>
@@ -767,6 +784,11 @@ describe('domain people: search, profile without sign-in, first sign-in fills th
     });
     const people = (await admin.req('GET', '/admin/people?q=petrova')).json();
     expect(people.items[0]).toMatchObject({ id: first.json().id, pending: true });
+    // сводка для шагов «что дальше»: один профиль ждёт первого входа, никто из каталога ещё не входил
+    expect((await admin.req('GET', '/admin/people/summary')).json()).toEqual({
+      waiting: 1,
+      signedIn: 0,
+    });
   });
 
   it('refuses people the sign-in rule does not allow, outside the Base DN, and unknown entries', async () => {
@@ -810,6 +832,14 @@ describe('domain people: search, profile without sign-in, first sign-in fills th
       payload: { email: 'anna.petrova@example.com' },
     });
     expect(recovery.json().recoveryWrappedPrivateKey).toMatch(/^ak1\./);
+    // роль главного администратора принимается мастер-паролем, которого у такого профиля ещё нет
+    const [stub] = await fixture.database.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, 'anna.petrova@example.com'));
+    const appoint = await admin.reqStep('POST', '/admin/chief/appoint', { userId: stub!.id });
+    expect(appoint.statusCode).toBe(409);
+    expect(appoint.json().error.code).toBe('account_pending');
     // в поиске для выдачи доступа он есть, но без ключей: роль назначить можно, ключ выдастся после его входа
     const found = (await admin.req('GET', '/directory/users?q=petrova')).json();
     expect(found).toEqual([expect.objectContaining({ pending: true, publicKey: '' })]);
@@ -920,6 +950,47 @@ describe('domain people: search, profile without sign-in, first sign-in fills th
     });
     expect(done.statusCode).toBe(201);
     expect((await waiting()).some((u) => u.userId === borisId)).toBe(true);
+  });
+
+  it('a link made by DN (before identifiers existed) moves to the identifier; a moved account is not disabled by the sync', async () => {
+    const boris = people.find((p) => p.sam === 'bivanov')!;
+    const row = async () =>
+      (
+        await fixture.database.db
+          .select()
+          .from(users)
+          .where(eq(users.email, 'boris.ivanov@example.com'))
+      )[0]!;
+    // привязка по DN, как было до идентификаторов объекта
+    await fixture.database.db
+      .update(users)
+      .set({ externalId: JSON.stringify(['ppl', boris.dn]) })
+      .where(eq(users.email, 'boris.ivanov@example.com'));
+    const sync = () => admin.req('POST', '/admin/ldap/sync?profileId=ppl');
+    const first = (await sync()).json();
+    expect(first).toMatchObject({ disabled: 0 });
+    // байты objectGUID в порядке AD приводятся к привычному виду: первые три группы читаются наоборот
+    expect((await row()).externalId).toBe(
+      JSON.stringify(['ppl', 'guid:11223344-6655-7877-0011-223344556677']),
+    );
+    // у человека сменилась почта: по прежней его не найти, но идентификатор прежний — сверка его не отключает
+    const oldMail = boris.mail;
+    boris.mail = 'boris.renamed@example.com';
+    try {
+      expect((await sync()).json()).toMatchObject({ disabled: 0 });
+      expect((await row()).disabledAt).toBeNull();
+    } finally {
+      boris.mail = oldMail;
+    }
+    // учётную запись перенесли в другое подразделение: DN изменился, человек тот же
+    const oldDn = boris.dn;
+    boris.dn = `CN=Boris Ivanov,OU=Moved,${BASE}`;
+    try {
+      expect((await sync()).json()).toMatchObject({ disabled: 0 });
+      expect((await row()).disabledAt).toBeNull();
+    } finally {
+      boris.dn = oldDn;
+    }
   });
 });
 

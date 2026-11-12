@@ -131,6 +131,9 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const { userId } = parse(z.object({ userId: uuid }).strict(), req.body);
     const [target] = await db.select().from(users).where(eq(users.id, userId));
     if (!target || target.disabledAt) throw notFound();
+    // роль главного администратора принимается мастер-паролем: у профиля, созданного по каталогу, его ещё нет
+    if (target.pendingActivation)
+      throw new AppError(409, 'account_pending', 'The person has not signed in yet');
     if (target.chief)
       throw new AppError(409, 'conflict', 'The person is already a chief administrator');
     const list = (await addOffers(db)).filter((o) => o.to !== userId);
@@ -217,6 +220,8 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       throw new AppError(409, 'conflict', 'You already are the chief administrator');
     const [target] = await db.select().from(users).where(eq(users.id, userId));
     if (!target || target.disabledAt) throw notFound();
+    if (target.pendingActivation)
+      throw new AppError(409, 'account_pending', 'The person has not signed in yet');
     const offer: Offer = {
       from: user.id,
       to: userId,

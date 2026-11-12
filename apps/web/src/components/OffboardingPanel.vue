@@ -162,6 +162,7 @@ async function submit(): Promise<void> {
               :model-value="heirPeople[v.id] ?? []"
               :exclude="[user.id]"
               :placeholder="`${t('pick')}: ${v.name}`"
+              :directory="false"
               :testid="`offboarding-heir-${v.name}`"
               @update:model-value="setHeir(v.id, $event)"
             />

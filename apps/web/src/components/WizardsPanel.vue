@@ -205,7 +205,7 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
                 :aria-label="st.done ? t('done') : st.done === null ? '' : t('todo')"
                 >✓</span
               >
-              <RouterLink :to="st.to" class="hover:underline">{{
+              <RouterLink :to="st.to" class="inline-flex min-h-11 items-center hover:underline">{{
                 t(`step.${st.id}`, st.params ?? {})
               }}</RouterLink>
             </li>

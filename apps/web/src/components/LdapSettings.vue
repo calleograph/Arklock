@@ -555,7 +555,7 @@ interface LoginResult {
   reason: string;
   credentials: { ok: boolean; reason: string | null };
   policy: { allowed: boolean | null };
-  account: 'new' | 'linked' | 'local_conflict' | 'blocked' | null;
+  account: 'new' | 'linked' | 'pending' | 'local_conflict' | 'blocked' | null;
   detail: string;
   user: { name: string; email: string; groups: number } | null;
 }
@@ -1376,9 +1376,11 @@ function allowGroup(dn: string): void {
                       ? t('dir.result3.accountNew')
                       : loginResult.account === 'linked'
                         ? t('dir.result3.accountLinked')
-                        : loginResult.account === 'blocked'
-                          ? t('dir.result3.accountBlocked')
-                          : t('dir.result3.accountLocal')
+                        : loginResult.account === 'pending'
+                          ? t('dir.result3.accountPending')
+                          : loginResult.account === 'blocked'
+                            ? t('dir.result3.accountBlocked')
+                            : t('dir.result3.accountLocal')
                 }}
               </li>
             </ul>

@@ -67,13 +67,14 @@ const { t } = useI18n({
       adding: 'Добавляю…',
       added: 'добавлен',
       hint: 'Введите не меньше двух букв: имя, логин или почту.',
+      searchingDirectory: 'Ищу в каталоге…',
       directoryNote:
         'Человек из каталога получит профиль Arklock сразу. Доступ к сейфам появится после его первого входа.',
       noEmail: 'в каталоге нет почты',
       directoryProblem: 'Каталог «{name}» не ответил. Поиск по Arklock работает.',
       err: {
         directory_not_allowed:
-          'Правило входа этого каталога не допускает этого человека. Измените правило или выберите другого.',
+          'Правило входа этого каталога не разрешает вход этому человеку. Измените правило или выберите другого.',
         directory_no_email: 'В записи каталога нет адреса почты: профиль создать нельзя.',
         directory_account_disabled: 'Учётная запись в каталоге отключена.',
         directory_person_not_found: 'Запись в каталоге не найдена: обновите поиск.',
@@ -103,6 +104,7 @@ const { t } = useI18n({
       adding: 'Adding…',
       added: 'added',
       hint: 'Type at least two letters: name, login or e-mail.',
+      searchingDirectory: 'Searching the directory…',
       directoryNote:
         'A person from the directory gets an Arklock profile right away. Vault access appears after their first sign-in.',
       noEmail: 'no e-mail in the directory',
@@ -139,39 +141,50 @@ const open = ref(false);
 let timer: ReturnType<typeof setTimeout> | undefined;
 let seq = 0;
 
+const dirBusy = ref(false);
 async function search(): Promise<void> {
   const mine = ++seq;
   busy.value = true;
   error.value = '';
   const term = q.value.trim();
   try {
-    const [local, dir] = await Promise.all([
-      api<{ items: Person[]; total: number }>(
-        'GET',
-        `/admin/people?status=active&limit=${LIMIT}&q=${encodeURIComponent(term)}`,
-      ),
-      props.directory && term.length >= 2
-        ? api<{
-            configured: boolean;
-            items: Found[];
-            problems: { profileName: string }[];
-          }>('GET', `/admin/people/directory?limit=${LIMIT}&q=${encodeURIComponent(term)}`).catch(
-            () => null,
-          )
-        : Promise.resolve(null),
-    ]);
+    const local = await api<{ items: Person[]; total: number }>(
+      'GET',
+      `/admin/people?status=active&limit=${LIMIT}&q=${encodeURIComponent(term)}`,
+    );
     // ответ на устаревший запрос не затирает свежий
     if (mine !== seq) return;
     items.value = local.items;
     total.value = local.total;
-    configured.value = dir?.configured ?? configured.value;
-    // те, кто уже есть в Arklock, показаны в первом списке; из каталога — только ещё не заведённые
-    domain.value = (dir?.items ?? []).filter((d) => !d.existing);
-    problems.value = (dir?.problems ?? []).map((p) => p.profileName);
   } catch (e) {
     if (mine === seq) error.value = errorMessage(e, t);
   } finally {
     if (mine === seq) busy.value = false;
+  }
+  if (mine !== seq) return;
+  // каталог отвечает дольше (сеть, до 10 с при недоступном сервере): результаты Arklock уже на экране
+  if (!props.directory || term.length < 2) {
+    domain.value = [];
+    problems.value = [];
+    return;
+  }
+  dirBusy.value = true;
+  try {
+    const dir = await api<{
+      configured: boolean;
+      items: Found[];
+      problems: { profileName: string }[];
+    }>('GET', `/admin/people/directory?limit=${LIMIT}&q=${encodeURIComponent(term)}`);
+    if (mine !== seq) return;
+    configured.value = dir.configured;
+    // те, кто уже есть в Arklock, показаны в первом списке; из каталога — только ещё не заведённые
+    domain.value = dir.items.filter((d) => !d.existing);
+    problems.value = dir.problems.map((p) => p.profileName);
+  } catch {
+    // поиск по Arklock остаётся; нет права на каталог или он не подключён
+    if (mine === seq) domain.value = [];
+  } finally {
+    if (mine === seq) dirBusy.value = false;
   }
 }
 watch(q, () => {
@@ -361,8 +374,11 @@ const meta = (p: { email: string; department: string | null; title: string | nul
           <p class="px-2 pb-1 text-xs text-slate-500">{{ t('directoryNote') }}</p>
         </template>
       </template>
-      <p v-else-if="!busy && !error" class="px-2 py-1 text-slate-500">
+      <p v-else-if="!busy && !dirBusy && !error" class="px-2 py-1 text-slate-500">
         {{ configured ? t('noneDirectory') : t('none') }}
+      </p>
+      <p v-if="dirBusy" class="px-2 py-1 text-xs text-slate-500" role="status">
+        {{ t('searchingDirectory') }}
       </p>
       <p v-if="problems.length" class="px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
         {{ t('directoryProblem', { name: problems.join(', ') }) }}

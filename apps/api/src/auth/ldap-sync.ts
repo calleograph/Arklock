@@ -9,6 +9,7 @@ import {
   circlesFor,
   ldapBrowse,
   ldapLookup,
+  ldapLookupByGuid,
   profileAttrs,
   type DirectoryUser,
   type LdapConfig,
@@ -125,6 +126,18 @@ export async function revokeLdapProfileSessions(db: Db, profileId: string): Prom
       );
 }
 
+/** Сотрудник в каталоге: по почте, а если по ней не нашёлся, но известен идентификатор объекта, — по нему (сменилась почта). */
+async function findInDirectory(
+  profile: LdapProfile,
+  secret: string,
+  user: { email: string; externalId: string | null },
+): Promise<DirectoryUser | null> {
+  const found = await ldapLookup(profile, secret, user.email);
+  if (found) return found;
+  const guid = /^\["[^"]*","guid:([0-9a-f-]{36})"\]$/i.exec(user.externalId ?? '')?.[1];
+  return guid ? ldapLookupByGuid(profile, secret, guid) : null;
+}
+
 /**
  * Предпросмотр сверки: те же правила, что у `syncLdapProfile`, без записи. Кого отключат, у кого изменятся
  * группы и поля карточки, кто есть в каталоге, но ещё не входил (учётная запись появится при первом входе:
@@ -161,7 +174,7 @@ export async function previewLdapProfile(db: Db, appSecret: string, profile: Lda
   let sample: Pick<DirectoryUser, 'email' | 'name' | 'profile' | 'groups'> | null = null;
   for (const user of linked) {
     try {
-      const found = await ldapLookup(profile, secret, user.email);
+      const found = await findInDirectory(profile, secret, user);
       const reason = !found
         ? 'missing'
         : found.disabled
@@ -234,7 +247,7 @@ export async function syncLdapProfile(
   const errors: string[] = [];
   for (const user of linked) {
     try {
-      const found = await ldapLookup(profile, secret, user.email);
+      const found = await findInDirectory(profile, secret, user);
       await db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext('arklock.ldap.profiles'))`);
         const current = (await readLdapProfiles(tx)).find((p) => p.id === profile.id);

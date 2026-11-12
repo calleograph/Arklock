@@ -458,7 +458,7 @@ dialog::backdrop {
   .btn-primary,
   .btn-danger,
   .btn-ghost {
-    @apply relative inline-flex min-h-(--control-h) cursor-pointer items-center justify-center gap-1.5 rounded-(--radius-control) px-3 py-1 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
+    @apply relative inline-flex min-h-(--control-h) cursor-pointer items-center justify-center gap-2 rounded-(--radius-control) px-3 py-1 text-center text-sm font-medium select-none disabled:cursor-not-allowed disabled:opacity-50;
     transition:
       background-color 160ms var(--ease-out),
       border-color 160ms var(--ease-out),
@@ -524,14 +524,20 @@ dialog::backdrop {
   .field {
     @apply min-h-10;
   }
-  /* на сенсорных экранах зоны нажатия не меньше 40 px: компактность только там, где есть мышь */
-  @media (pointer: coarse) {
+  /* на сенсорных и узких экранах зоны нажатия не меньше 44 px: компактность только там, где есть мышь и широкое окно */
+  @media (max-width: 640px), (pointer: coarse) {
     .btn,
     .btn-primary,
     .btn-danger,
     .btn-ghost,
-    .input {
+    .input,
+    .seg {
       min-height: 2.75rem;
+    }
+    /* раскрывающиеся блоки в рабочей области: заголовок нажимается так же, как кнопка */
+    main summary {
+      min-height: 2.75rem;
+      align-content: center;
     }
   }
   .input:focus-visible,
@@ -934,6 +940,13 @@ h2 {
   gap: 4px;
   border-radius: 0.5rem;
   transition: background-color 150ms var(--ease-out);
+}
+/* на узких и сенсорных экранах кнопка меню не меньше 44 px */
+@media (max-width: 640px), (pointer: coarse) {
+  .burger-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
 }
 .burger-btn:hover {
   background-color: var(--color-slate-100, #f1f5f9);

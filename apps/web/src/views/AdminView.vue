@@ -1199,7 +1199,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 <div class="flex items-center justify-between gap-2">
                   <button
                     type="button"
-                    class="min-w-0 truncate text-left font-medium"
+                    class="min-h-11 min-w-0 truncate text-left font-medium"
                     :data-testid="`circle-${c.name}`"
                     @click="run(() => showCircle(c))"
                   >

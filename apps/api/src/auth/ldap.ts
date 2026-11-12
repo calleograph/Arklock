@@ -522,6 +522,53 @@ export async function ldapGroupMembers(
   });
 }
 
+/**
+ * Человек по устойчивому идентификатору объекта: находится, даже если у него сменились почта или логин. Сверка
+ * использует его, когда поиск по прежней почте ничего не вернул, чтобы не отключить человека, который просто переименован.
+ */
+export async function ldapLookupByGuid(
+  cfg: LdapConfig,
+  bindPassword: string,
+  guid: string,
+): Promise<DirectoryUser | null> {
+  const hex = guid.replace(/-/g, '').toLowerCase();
+  let filter: string;
+  if (cfg.directoryType === 'ad') {
+    if (!/^[0-9a-f]{32}$/.test(hex)) return null;
+    // objectGUID хранится в порядке AD: первые три группы записаны наоборот
+    const b = Buffer.from(hex, 'hex');
+    const ad = Buffer.concat([
+      Buffer.from(b.subarray(0, 4)).reverse(),
+      Buffer.from(b.subarray(4, 6)).reverse(),
+      Buffer.from(b.subarray(6, 8)).reverse(),
+      b.subarray(8),
+    ]);
+    filter = `(objectGUID=${[...ad].map((x) => `\\${x.toString(16).padStart(2, '0')}`).join('')})`;
+  } else {
+    const g = escapeFilter(guid);
+    filter = `(|(entryUUID=${g})(nsUniqueId=${g}))`;
+  }
+  return withClient(cfg, async (c) => {
+    await serviceBind(c, cfg, bindPassword);
+    let res;
+    try {
+      res = await c.search(cfg.baseDn, {
+        scope: 'sub',
+        filter,
+        attributes: userAttrs(cfg),
+        explicitBufferAttributes: ['objectguid'],
+        sizeLimit: 2,
+        paged: false,
+      });
+    } catch (e) {
+      throw classifyLdapError(e, 'search');
+    }
+    if (res.searchEntries.length !== 1) return null;
+    const u = userFromEntry(cfg, res.searchEntries[0]!);
+    return { ...u, groups: await groupsOf(c, cfg, u) };
+  });
+}
+
 /** Поиск пользователя для проверки настроек администратором (пароли не запрашиваются). */
 export async function ldapLookup(
   cfg: LdapConfig,

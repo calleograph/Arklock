@@ -299,6 +299,8 @@ export const ruHelp = {
     pinGone: 'PIN на этом устройстве больше не действует. Введите пароль разблокировки сейфов.',
     lastOwner: 'Сначала назначьте нового владельца сейфа.',
     spaceNotEmpty: 'В пространстве есть сейфы. Перенесите их или заархивируйте пространство.',
+    notInSpace:
+      'Этого человека нет в пространстве сейфа. Сначала добавьте его в пространство (раздел «Пространства»), затем назначайте доступ к сейфу.',
     spaceArchived: 'Пространство в архиве: сначала верните его из архива.',
     defaultSpace: 'Основное пространство нельзя удалить или изменить таким образом.',
     selfDisable: 'Нельзя отключить собственную учётную запись.',
@@ -912,7 +914,7 @@ export const ruHelp = {
     picked: 'выбран',
     hasAccess: 'уже есть доступ',
     fromDirectory: 'из каталога',
-    errNotAllowed: 'Правило входа каталога не допускает этого человека.',
+    errNotAllowed: 'Правило входа каталога не разрешает вход этому человеку.',
     errNoEmail: 'В записи каталога нет почты: профиль создать нельзя.',
     errLocal: 'Человек с этой почтой уже есть в Arklock вне каталога: найдите его в списке.',
     errBlocked: 'Этот сотрудник заблокирован в Arklock.',
@@ -1317,6 +1319,8 @@ export const enHelp = {
     pinGone: 'The PIN no longer works on this device. Enter your vault unlock password.',
     lastOwner: 'Assign a new owner of the vault first.',
     spaceNotEmpty: 'The space still has vaults. Move them or archive the space.',
+    notInSpace:
+      'This person is not in the vault’s space. Add them to the space first (the “Spaces” section), then assign vault access.',
     spaceArchived: 'The space is archived: restore it from the archive first.',
     defaultSpace: 'The default space cannot be deleted or changed this way.',
     selfDisable: 'You cannot disable your own account.',

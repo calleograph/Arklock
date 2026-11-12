@@ -373,6 +373,48 @@ const ALICE = {
   password: 'alice-ldap-e2e-pass',
   master: 'alice-master-password-e2e-1',
 };
+const GROUP_DN = `cn=Support,ou=groups,${BASE_DN}`;
+const GROUPS = [
+  { dn: GROUP_DN, cn: 'Support' },
+  { dn: `cn=Helpdesk,ou=groups,${BASE_DN}`, cn: 'Helpdesk' },
+];
+const PEOPLE = [
+  {
+    dn: ALICE.dn,
+    uid: 'alice',
+    mail: 'alice@example.com',
+    cn: 'Alice Directory',
+    uuid: '6f1c0f6e-0001-4a2b-9c10-aaaaaaaaaaaa',
+    password: ALICE.password,
+  },
+  {
+    dn: `uid=boris,ou=people,${BASE_DN}`,
+    uid: 'boris',
+    mail: 'boris@example.com',
+    cn: 'Boris Directory',
+    uuid: '6f1c0f6e-0002-4a2b-9c10-bbbbbbbbbbbb',
+    password: 'boris-ldap-e2e-pass',
+  },
+  {
+    dn: `uid=clara,ou=people,${BASE_DN}`,
+    uid: 'clara',
+    mail: 'clara@example.com',
+    cn: 'Clara Directory',
+    uuid: '6f1c0f6e-0003-4a2b-9c10-cccccccccccc',
+    password: 'clara-ldap-e2e-pass',
+    // эта сотрудница не входит в группу «Support»
+    memberOf: undefined as string | undefined,
+  },
+  {
+    dn: `uid=dmitri,ou=people,${BASE_DN}`,
+    uid: 'dmitri',
+    mail: 'dmitri@example.com',
+    cn: 'Dmitri Directory',
+    uuid: '6f1c0f6e-0004-4a2b-9c10-dddddddddddd',
+    password: 'dmitri-ldap-e2e-pass',
+    memberOf: undefined as string | undefined,
+  },
+];
 let directory: {
   close: () => void;
   listen: (...a: unknown[]) => void;
@@ -400,26 +442,46 @@ async function startDirectory(): Promise<void> {
       res: { end: () => void },
       next: (e?: unknown) => void,
     ) => {
-      if (req.dn.toString().toLowerCase() !== ALICE.dn || req.credentials !== ALICE.password)
-        return next(new ldap.InvalidCredentialsError());
+      const p = PEOPLE.find((x) => x.dn.toLowerCase() === req.dn.toString().toLowerCase());
+      if (!p || req.credentials !== p.password) return next(new ldap.InvalidCredentialsError());
       res.end();
       return next();
     },
   );
+  // два сотрудника и одна группа; у обычного LDAP устойчивый идентификатор — entryUUID
   s.search(
     BASE_DN,
     (
-      req: { filter: { matches: (o: object) => boolean } },
+      req: {
+        dn: { toString: () => string };
+        scope: number | string;
+        filter: { matches: (o: object) => boolean };
+      },
       res: { send: (e: object) => void; end: () => void },
       next: () => void,
     ) => {
-      const attrs = {
-        objectClass: 'person',
-        uid: 'alice',
-        mail: 'alice@example.com',
-        cn: 'Alice Directory',
-      };
-      if (req.filter.matches(attrs)) res.send({ dn: ALICE.dn, attributes: attrs });
+      const base = req.dn.toString().toLowerCase();
+      const isBase = req.scope === 0 || req.scope === 'base';
+      for (const p of PEOPLE) {
+        const attrs = {
+          objectClass: 'person',
+          uid: p.uid,
+          mail: p.mail,
+          cn: p.cn,
+          entryUUID: p.uuid,
+          ...('memberOf' in p ? {} : { memberOf: GROUP_DN }),
+        };
+        if (
+          isBase
+            ? base === p.dn.toLowerCase() && req.filter.matches(attrs)
+            : req.filter.matches(attrs)
+        )
+          res.send({ dn: p.dn, attributes: attrs });
+      }
+      for (const g of GROUPS) {
+        const group = { objectClass: 'groupOfNames', cn: g.cn };
+        if (!isBase && req.filter.matches(group)) res.send({ dn: g.dn, attributes: group });
+      }
       res.end();
       return next();
     },
@@ -533,6 +595,157 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await local.getByTestId('submit').click();
   await expect(local.getByTestId('error')).toBeVisible({ timeout: 90_000 });
   await expect(local.getByTestId('add-entry')).toHaveCount(0);
+});
+
+test('directory people: find an employee in the head field, add with "+", link a domain group after a preview', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/login');
+  await page.getByTestId('email').fill(ADMIN.email);
+  await page.getByTestId('password').fill(ADMIN.password);
+  await page.getByTestId('submit').click();
+  await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  const token = await page.evaluate(() => sessionStorage.getItem('arklock.token'));
+  const headers = { authorization: `Bearer ${token}` };
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+
+  // после подключения каталога мастер показывает, что сделано и что дальше
+  await tab(page, 'ldap');
+  await expect(page.getByTestId('guide-connect')).toHaveAttribute('data-state', 'done');
+  await expect(page.getByTestId('guide-departments')).toHaveAttribute('data-state', 'now');
+
+  // руководитель подразделения ищется в каталоге: поиск → «+» → профиль создан без входа человека
+  await tab(page, 'departments');
+  await page.getByTestId('dept-head-input').fill('boris');
+  await expect(page.getByTestId('dept-head-directory-title')).toBeVisible();
+  await page.getByTestId('dept-head-add-boris@example.com').click();
+  await expect(page.getByTestId('dept-head-chip-boris@example.com')).toContainText(
+    /ждёт первого входа|waiting for first sign-in/,
+  );
+  const found = await page.request.get('/api/v1/admin/people?q=boris', { headers });
+  expect((await found.json()).items[0]).toMatchObject({
+    email: 'boris@example.com',
+    pending: true,
+  });
+  // повторный поиск показывает его уже среди сотрудников Arklock, а не каталога
+  await page.getByTestId('dept-member-input').fill('boris');
+  await expect(page.getByTestId('dept-member-result-boris@example.com')).toContainText(
+    /ждёт первого входа|waiting for first sign-in/,
+  );
+  await expect(page.getByTestId('dept-member-directory-title')).toHaveCount(0);
+
+  await page.getByTestId('dept-name').fill('Поддержка');
+  await expect(page.getByTestId('dept-create')).toBeEnabled({ timeout: 30_000 });
+  await page.getByTestId('dept-create').click();
+  await expect(page.getByTestId('dept-state').first()).toContainText(/Готово|Done/, {
+    timeout: 60_000,
+  });
+  const card = page.getByTestId('dept-card').filter({ hasText: 'Поддержка' });
+  await expect(card).toContainText('Boris Directory');
+  await expect(card).toContainText(/ждут первого входа|waiting for first sign-in/);
+
+  // группа домена связывается с группой Arklock: сначала предпросмотр, потом связь
+  const made = await page.request.post('/api/v1/admin/circles', {
+    headers,
+    data: { name: 'Support team', description: '' },
+  });
+  expect(made.status()).toBe(201);
+  await tab(page, 'circles');
+  await page.getByTestId('circle-Support team').click();
+  await page.getByTestId('domain-group-input').fill('Supp');
+  await page.getByTestId('domain-link-Support').click();
+  await expect(page.getByTestId('domain-preview')).toBeVisible();
+  await expect(page.getByTestId('pv-domain')).toContainText(/2/);
+  await expect(page.getByTestId('pv-join')).toContainText(/2/);
+  await page.getByTestId('domain-confirm').click();
+  await expect(page.getByTestId('domain-links-notice')).toBeVisible();
+  await expect(page.getByTestId('domain-links-list')).toContainText('Support');
+
+  // доступ к сейфу выдаётся тем же поиском: человек из каталога находится, «+» создаёт профиль, роль назначается сразу
+  const vaults = await (await page.request.get('/api/v1/vaults', { headers })).json();
+  const grant = async (vaultName: string) => {
+    const v = vaults.find((x: { name: string }) => x.name === vaultName);
+    await page.goto(`/vault/${v.id}/settings`);
+    await page.getByTestId('grant-open').click();
+    await page.getByTestId('grant-search').fill('clara');
+    await page.getByTestId('grant-option-clara@example.com').click();
+    await expect(page.getByTestId('grant-chip')).toContainText('Clara Directory');
+    await page.getByTestId('grant-submit').click();
+  };
+  // в закрытом пространстве отдела её ещё нет: причина названа в самом окне, окно не закрывается молча
+  await grant('Поддержка');
+  await expect(page.getByTestId('grant-error')).toContainText(
+    /not in the vault|нет в пространстве сейфа/,
+  );
+  await grant('Organization');
+  await expect(page.getByTestId('grant-dialog')).toBeHidden({ timeout: 30_000 });
+  const clara = await page.request.get('/api/v1/admin/people?q=clara', { headers });
+  expect((await clara.json()).items[0]).toMatchObject({
+    email: 'clara@example.com',
+    pending: true,
+  });
+
+  // «Создание и приглашение»: сотрудники домена находятся поиском и сразу включаются в группы, код не нужен
+  await page.goto('/admin/invitations');
+  await page.getByTestId('dir-invite-person-input').fill('dmitri');
+  await page.getByTestId('dir-invite-person-add-dmitri@example.com').click();
+  await expect(page.getByTestId('dir-invite-person-chip-dmitri@example.com')).toBeVisible();
+  // группа домена, которой ещё нет в Arklock, добавляется там же кнопкой «+»
+  await page.getByTestId('dir-invite-group-input').fill('Help');
+  await page.getByTestId('dir-invite-group-add-Helpdesk').click();
+  await expect(page.getByTestId('dir-invite-group-chip-Helpdesk')).toBeVisible();
+  await page.getByTestId('dir-invite-submit').click();
+  await expect(page.getByTestId('dir-invite-done')).toBeVisible({ timeout: 30_000 });
+  const helpdesk = await (
+    await page.request.get('/api/v1/admin/circles?q=Helpdesk', { headers })
+  ).json();
+  const helpdeskId = (helpdesk.items ?? helpdesk)[0].id;
+  const helpMembers = await (
+    await page.request.get(`/api/v1/admin/circles/${helpdeskId}/members`, { headers })
+  ).json();
+  expect(helpMembers).toEqual([expect.objectContaining({ email: 'dmitri@example.com' })]);
+
+  // первый вход человека, чей профиль создан заранее: ключи создаются для того же профиля, дубля нет
+  const boris = await (await browser.newContext()).newPage();
+  await boris.goto('/login');
+  await boris.getByTestId('to-ldap').click();
+  await boris.getByTestId('ldap-user').fill('boris');
+  await boris.getByTestId('password').fill('boris-ldap-e2e-pass');
+  await boris.getByTestId('submit').click();
+  await expect(boris.getByTestId('ldap-enroll-hint')).toBeVisible({ timeout: 30_000 });
+  await boris.getByTestId('password').fill('boris-master-password-e2e-1');
+  await boris.getByTestId('repeat').fill('boris-master-password-e2e-1');
+  await boris.getByTestId('submit').click();
+  await boris.getByTestId('recovery-saved').check({ timeout: 90_000 });
+  await boris.getByTestId('recovery-continue').click();
+  // доступ к сейфу отдела уже назначен, но ключа у него ещё нет: он передаётся, когда администратор открывает Arklock
+  await expect(boris.getByText(/not ready yet|ещё не готов/)).toBeVisible({ timeout: 90_000 });
+  await page.reload();
+  await expect(page.getByTestId('menu-toggle')).toBeVisible({ timeout: 90_000 });
+  // администратор открывает рабочую область: ключи ожидающим выдаются сами
+  await page.getByRole('link', { name: 'Arklock', exact: true }).click();
+  await expect(
+    page.getByTestId('add-entry').or(page.getByText(/not ready yet|ещё не готов/)),
+  ).toBeVisible({
+    timeout: 90_000,
+  });
+  // ключ выдан: после перезагрузки сейф отдела открыт, и сотрудник может добавить запись
+  await boris.reload();
+  await expect(boris.getByTestId('add-entry').first()).toBeVisible({ timeout: 90_000 });
+  await expect(boris.getByText(/not ready yet|ещё не готов/)).toHaveCount(0);
+  await boris.getByTestId('add-entry').first().click();
+  await boris.getByTestId('f-title').fill('Отдел: запись руководителя');
+  await boris.getByTestId('f-password').fill('Dept-Secret-9!x');
+  await boris.getByTestId('f-save').click();
+  await expect(boris.getByTestId('view-title')).toHaveText('Отдел: запись руководителя');
+  // это тот же профиль: один человек, больше не «ждёт первого входа»
+  const after = await page.request.get('/api/v1/admin/people?q=boris', { headers });
+  const people = (await after.json()).items as { email: string; pending: boolean }[];
+  expect(people.filter((u) => u.email === 'boris@example.com')).toEqual([
+    expect.objectContaining({ pending: false }),
+  ]);
   directory?.close();
 });
 

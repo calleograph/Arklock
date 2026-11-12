@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { inArray, and, eq, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { DEFAULT_KDF } from '@arklock/crypto';
@@ -51,6 +51,25 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
     pendingActivation: boolean;
   }): Existing['state'] => (u.disabledAt ? 'disabled' : u.pendingActivation ? 'pending' : 'active');
 
+  /** Сводка для шагов «что дальше»: сколько профилей по каталогу ждут первого входа и сколько сотрудников уже входили. */
+  app.get('/admin/people/summary', async () => {
+    const [waiting] = await db
+      .select({ n: count() })
+      .from(users)
+      .where(and(eq(users.pendingActivation, true), isNull(users.disabledAt)));
+    const [signedIn] = await db
+      .select({ n: count() })
+      .from(users)
+      .where(
+        and(
+          eq(users.authSource, 'ldap'),
+          eq(users.pendingActivation, false),
+          isNull(users.disabledAt),
+        ),
+      );
+    return { waiting: waiting?.n ?? 0, signedIn: signedIn?.n ?? 0 };
+  });
+
   /** Поиск в каталоге: по имени, логину и почте; в ответе видно, кто уже есть в Arklock. */
   app.get('/admin/people/directory', async (req) => {
     const o = parse(
@@ -78,50 +97,63 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
     }[] = [];
     const problems: { profileId: string; profileName: string; reason: string; detail: string }[] =
       [];
-    for (const p of profiles) {
-      try {
-        const r = await ldapBrowse(p, ldapBindSecret(p, config.APP_SECRET), {
-          kind: 'users',
-          q: o.q,
-          limit: o.limit,
-          activeOnly: true,
-        });
-        const found = r.entries.map((e) => ({ ...e, ids: identityIds(p.id, e) }));
-        const linked = found.length
-          ? await db
-              .select({
-                id: users.id,
-                externalId: users.externalId,
-                disabledAt: users.disabledAt,
-                pendingActivation: users.pendingActivation,
-              })
-              .from(users)
-              .where(
-                and(
-                  eq(users.authSource, 'ldap'),
-                  inArray(users.externalId, [...new Set(found.flatMap((f) => f.ids))]),
-                ),
-              )
-          : [];
-        for (const e of found) {
-          const u = linked.find((l) => l.externalId && e.ids.includes(l.externalId));
-          items.push({
-            profileId: p.id,
-            profileName: p.name,
-            dn: e.dn,
-            guid: e.guid,
-            name: e.name,
-            email: e.email,
-            login: e.login,
-            title: e.title,
-            department: e.department,
-            existing: u ? { id: u.id, state: stateOf(u) } : null,
+    // подключения опрашиваются одновременно: недоступный сервер не задерживает остальные
+    const parts = await Promise.all(
+      profiles.map(async (p) => {
+        try {
+          const r = await ldapBrowse(p, ldapBindSecret(p, config.APP_SECRET), {
+            kind: 'users',
+            q: o.q,
+            limit: o.limit,
+            activeOnly: true,
           });
+          const found = r.entries.map((e) => ({ ...e, ids: identityIds(p.id, e) }));
+          const linked = found.length
+            ? await db
+                .select({
+                  id: users.id,
+                  externalId: users.externalId,
+                  disabledAt: users.disabledAt,
+                  pendingActivation: users.pendingActivation,
+                })
+                .from(users)
+                .where(
+                  and(
+                    eq(users.authSource, 'ldap'),
+                    inArray(users.externalId, [...new Set(found.flatMap((f) => f.ids))]),
+                  ),
+                )
+            : [];
+          return {
+            items: found.map((e) => {
+              const u = linked.find((l) => l.externalId && e.ids.includes(l.externalId));
+              return {
+                profileId: p.id,
+                profileName: p.name,
+                dn: e.dn,
+                guid: e.guid,
+                name: e.name,
+                email: e.email,
+                login: e.login,
+                title: e.title,
+                department: e.department,
+                existing: u ? { id: u.id, state: stateOf(u) } : null,
+              };
+            }),
+            problem: null,
+          };
+        } catch (e) {
+          const c: LdapError = classifyLdapError(e, 'search');
+          return {
+            items: [],
+            problem: { profileId: p.id, profileName: p.name, reason: c.reason, detail: c.detail },
+          };
         }
-      } catch (e) {
-        const c: LdapError = classifyLdapError(e, 'search');
-        problems.push({ profileId: p.id, profileName: p.name, reason: c.reason, detail: c.detail });
-      }
+      }),
+    );
+    for (const part of parts) {
+      items.push(...part.items);
+      if (part.problem) problems.push(part.problem);
     }
     return { configured: profiles.length > 0, items, problems };
   });
