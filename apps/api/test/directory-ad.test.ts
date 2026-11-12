@@ -70,6 +70,8 @@ let admin: TestClient;
 const inChainQueries: string[] = [];
 /** Для проверки отказов: служебная запись не может читать поиск (как при нехватке прав у OU). */
 let denySearch: 'insufficient' | 'base' | null = null;
+/** Как настоящий AD при поиске от корня домена: вместе с записями приходят ссылки на другие разделы каталога. */
+let withReferrals = false;
 
 function attrs(p: Person) {
   return {
@@ -115,7 +117,11 @@ function startAd(): Promise<void> {
         scope: string | number;
         filter: { toString: () => string };
       },
-      res: { send: (e: object) => void; end: () => void },
+      res: {
+        send: (e: object) => void;
+        end: (code?: number) => void;
+        createSearchReference: (uris: string[]) => object;
+      },
       next: () => void,
     ) => {
       const base = req.dn.toString().toLowerCase();
@@ -160,6 +166,8 @@ function startAd(): Promise<void> {
         res.end();
         return next();
       }
+      if (withReferrals)
+        res.send(res.createSearchReference([`ldap://example.com/DC=DomainDnsZones,${BASE}`]));
       const activeOnly = f.includes('userAccountControl:1.2.840.113556.1.4.803:=2');
       const value = /\((?:sAMAccountName|samaccountname)=([^)*]+)\)/i.exec(f)?.[1]?.toLowerCase();
       for (const p of people) {
@@ -499,6 +507,25 @@ describe('every refusal names its stage and reason (not a generic message)', () 
       expect(r.credentials.ok).toBe(false);
     } finally {
       denySearch = null;
+    }
+  });
+
+  it('referrals to other directory partitions (as real AD sends from the domain root) do not break the search', async () => {
+    withReferrals = true;
+    try {
+      const r = (await login('apetrova', 'Anna-Synthetic-1')).json();
+      expect(r).toMatchObject({
+        ok: true,
+        reason: 'ok',
+        user: { email: 'anna.petrova@example.com' },
+      });
+      expect((await login('nobody', 'x')).json()).toMatchObject({
+        ok: false,
+        stage: 'search',
+        reason: 'user_not_found',
+      });
+    } finally {
+      withReferrals = false;
     }
   });
 

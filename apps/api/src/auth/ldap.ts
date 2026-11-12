@@ -310,8 +310,8 @@ async function findUser(
     // код результата каталога (например, нехватка прав) сохраняется: по нему интерфейс объясняет отказ
     throw classifyLdapError(e, 'search');
   }
-  if (res.searchReferences.length)
-    throw new LdapError('User search has unresolved referrals', 'search', 'ldap_error');
+  // Active Directory при поиске от корня домена добавляет ссылки на другие разделы каталога (DomainDnsZones и т.п.):
+  // людей там нет, найденные записи этого домена достоверны, поэтому ссылки не считаются ошибкой.
   if (res.searchEntries.length > 1)
     throw new LdapError('User search is ambiguous', 'search', 'ambiguous_user');
   if (!res.searchEntries.length) return null;
@@ -358,12 +358,27 @@ async function groupsOf(c: Client, cfg: LdapConfig, user: DirectoryUser): Promis
       attributes: ['dn'],
       sizeLimit: 0,
     });
-    if (res.searchReferences.length || res.searchEntries.length > 500)
-      throw new LdapError('Group search is incomplete or exceeds the supported limit', 'search');
+    // в AD ссылки ведут в служебные разделы, групп людей там нет; в других каталогах ссылка может скрывать группы
+    if (
+      (cfg.directoryType !== 'ad' && res.searchReferences.length) ||
+      res.searchEntries.length > 500
+    )
+      throw new LdapError(
+        'Group search is incomplete or exceeds the supported limit',
+        'search',
+        'ldap_error',
+        'Group search is incomplete or exceeds the supported limit',
+      );
     return res.searchEntries.map((e) => e.dn);
   } catch (e) {
     // An incomplete group search must not remove existing memberships during synchronization.
-    throw new LdapError(`Group search failed: ${(e as Error).message}`, 'search');
+    const c = classifyLdapError(e, 'search');
+    throw new LdapError(
+      `Group search failed: ${c.detail || c.message}`,
+      'search',
+      c.reason,
+      c.detail || c.message,
+    );
   }
 }
 

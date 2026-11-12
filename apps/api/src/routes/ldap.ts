@@ -115,7 +115,12 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   const failure = (e: unknown) =>
     e instanceof LdapError
       ? { ok: false as const, code: e.code, reason: e.reason, detail: e.detail }
-      : { ok: false as const, code: 'error', reason: 'ldap_error', detail: '' };
+      : {
+          ok: false as const,
+          code: 'error',
+          reason: 'ldap_error',
+          detail: String((e as Error)?.message ?? e).slice(0, 400),
+        };
 
   /**
    * Проверка формы подключения. Все ошибки собираются сразу и указывают поле и причину (интерфейс показывает их под полями);
