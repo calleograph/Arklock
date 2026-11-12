@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -116,9 +117,9 @@ onMounted(async () => {
   waiting.value = people?.waiting ?? 0;
   signedIn.value = people?.signedIn ?? 0;
   steps.value = [
-    { id: 'connect', done: !!p?.status.connection?.ok, to: '/admin/ldap' },
-    { id: 'login', done: !!p?.status.login?.ok, to: '/admin/ldap' },
-    { id: 'access', done: !!p?.enabled && !!p.access, to: '/admin/ldap' },
+    { id: 'connect', done: !!p?.status.connection?.ok, to: '/admin/ldap#connection' },
+    { id: 'login', done: !!p?.status.login?.ok, to: '/admin/ldap#login-check' },
+    { id: 'access', done: !!p?.enabled && !!p.access, to: '/admin/ldap#access' },
     { id: 'departments', done: (depts?.items.length ?? 0) > 0, to: '/admin/departments' },
     { id: 'groups', done: (p?.groups.length ?? 0) > 0, to: '/admin/circles' },
     { id: 'people', done: signedIn.value > 0, to: '/admin/users' },
@@ -133,10 +134,9 @@ void props;
 <template>
   <section v-if="loaded" class="card space-y-3 p-4 text-sm" data-testid="directory-guide">
     <div>
-      <h2 class="font-medium">{{ t('title') }}</h2>
-      <p class="max-w-prose text-xs text-slate-500">
-        {{ current ? t('lead') : t('allDone') }}
-      </p>
+      <h2 class="font-medium">
+        {{ t('title') }}<InfoHint class="ml-1" :text="current ? t('lead') : t('allDone')" />
+      </h2>
     </div>
     <ol class="space-y-2">
       <li

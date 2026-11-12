@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import qrcode from 'qrcode-generator';
@@ -278,8 +279,9 @@ const copyCodes = () => navigator.clipboard.writeText(shownCodes.value.join('\n'
       class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
       data-testid="keys-section"
     >
-      <h3 class="font-medium">{{ t('mfa.keys') }}</h3>
-      <p class="text-xs text-slate-500">{{ t('mfa.keysHint') }}</p>
+      <h3 class="font-medium">
+        {{ t('mfa.keys') }}<InfoHint class="ml-1" :text="t('mfa.keysHint')" />
+      </h3>
       <p v-if="!keys.available" class="text-sm text-amber-700">{{ t('mfa.keyUnavailable') }}</p>
       <p v-else-if="!webauthnSupported()" class="text-sm text-amber-700">
         {{ t('mfa.keyUnsupported') }}

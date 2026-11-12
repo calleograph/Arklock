@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue';
 import { errorMessage, when } from '../services/helpers';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -217,7 +218,6 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
 
 <template>
   <section class="space-y-6">
-    <h2>{{ t('updates.title') }}</h2>
     <p
       v-if="(error || loadError) && !askPassword"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
@@ -484,8 +484,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
       aria-modal="true"
     >
       <form class="modal w-full max-w-sm space-y-3 p-5" @submit.prevent="confirmPassword">
-        <h2 class="font-semibold">{{ t('updates.confirmTitle') }}</h2>
-        <p class="text-sm text-slate-500">{{ t('updates.confirmHint') }}</p>
+        <h2 class="font-semibold">
+          {{ t('updates.confirmTitle') }}<InfoHint class="ml-1" :text="t('updates.confirmHint')" />
+        </h2>
         <input
           v-model="password"
           type="password"

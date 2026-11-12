@@ -85,7 +85,8 @@ import WizardsPanel from '../components/WizardsPanel.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
 import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
-import DomainGroupLinks from '../components/DomainGroupLinks.vue';
+import GroupDetail from '../components/GroupDetail.vue';
+import PageHeading from '../components/PageHeading.vue';
 import DirectoryGuide from '../components/DirectoryGuide.vue';
 import GroupsExplainer from '../components/GroupsExplainer.vue';
 import RolesPanel from '../components/RolesPanel.vue';
@@ -361,6 +362,7 @@ interface C {
   description: string;
   adminRoleId?: string | null;
   members: number;
+  directoryLinks?: number;
 }
 const circles = ref<C[]>([]);
 const circleSearch = ref('');
@@ -370,20 +372,8 @@ const visibleCircles = computed(() =>
   ),
 );
 const editingCircle = ref<C | null>(null);
-const groupPick = ref<Person[]>([]);
-const selectedMembers = ref<string[]>([]);
-const assignedVaults = ref<
-  {
-    id: string;
-    name: string;
-    role: string;
-    customRoleId: string | null;
-    expiresAt: string | null;
-  }[]
->([]);
 const newCircle = ref({ name: '', description: '' });
 const openCircle = ref<string | null>(null);
-const circleMembers = ref<{ id: string; name: string; email: string }[]>([]);
 const loadCircles = async () => {
   circles.value = await api('GET', '/admin/circles');
 };
@@ -395,24 +385,7 @@ const createCircle = () =>
 const deleteCircle = (c: C) =>
   window.confirm(t('admin.confirmDelete')) &&
   run(() => api('DELETE', `/admin/circles/${c.id}`), loadCircles);
-async function showCircle(c: C): Promise<void> {
-  openCircle.value = openCircle.value === c.id ? null : c.id;
-  selectedMembers.value = [];
-  groupPick.value = [];
-  if (openCircle.value)
-    [circleMembers.value, assignedVaults.value] = await Promise.all([
-      api<typeof circleMembers.value>('GET', `/admin/circles/${c.id}/members`),
-      api<typeof assignedVaults.value>('GET', `/admin/circles/${c.id}/vaults`),
-    ]);
-}
-/** После привязки группы домена состав и счётчики меняются; открытая группа остаётся открытой. */
-async function refreshCircle(c: C): Promise<void> {
-  await loadCircles();
-  [circleMembers.value, assignedVaults.value] = await Promise.all([
-    api<typeof circleMembers.value>('GET', `/admin/circles/${c.id}/members`),
-    api<typeof assignedVaults.value>('GET', `/admin/circles/${c.id}/vaults`),
-  ]);
-}
+const showCircle = (c: C) => (openCircle.value = openCircle.value === c.id ? null : c.id);
 const updateCircle = () =>
   run(async () => {
     if (!editingCircle.value) return;
@@ -422,21 +395,6 @@ const updateCircle = () =>
     });
     editingCircle.value = null;
   }, loadCircles);
-const updateGroupMembers = (action: 'add' | 'remove') =>
-  run(async () => {
-    await api('PATCH', `/admin/circles/${openCircle.value}/members`, {
-      [action]: action === 'add' ? groupPick.value.map((p) => p.id) : selectedMembers.value,
-    });
-    circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
-    groupPick.value = [];
-    selectedMembers.value = [];
-  }, loadCircles);
-const removeFromCircle = (uid: string) =>
-  run(async () => {
-    await api('DELETE', `/admin/circles/${openCircle.value}/members/${uid}`);
-    circleMembers.value = await api('GET', `/admin/circles/${openCircle.value}/members`);
-  }, loadCircles);
-
 // действия со строкой — в меню «⋯» и по правой кнопке: строка таблицы не растёт на ноутбуке
 const userActions = (u: U): ActionItem[] => [
   {
@@ -882,6 +840,11 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
       </nav>
       <div class="min-w-0 space-y-4">
         <ErrorBoundary :reset-key="tab">
+          <PageHeading
+            v-if="tab !== 'settings'"
+            :title="t(`admin.tab.${tab}`)"
+            :hint="te(`pagehint.${tab}`) ? t(`pagehint.${tab}`) : ''"
+          />
           <SetupChecklist v-if="tab === 'overview' && isFull()" />
           <p
             v-if="error"
@@ -1201,7 +1164,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     type="button"
                     class="min-h-11 min-w-0 truncate text-left font-medium"
                     :data-testid="`circle-${c.name}`"
-                    @click="run(() => showCircle(c))"
+                    @click="showCircle(c)"
                   >
                     ◎ {{ c.name }}
                     <span class="text-xs text-slate-500"
@@ -1268,69 +1231,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     {{ t('common.cancel') }}
                   </button>
                 </form>
-                <div v-if="openCircle === c.id" class="mt-2 space-y-2">
-                  <ul class="text-xs">
-                    <li v-for="m in circleMembers" :key="m.id" class="flex justify-between py-0.5">
-                      <label class="flex items-center gap-2"
-                        ><input v-model="selectedMembers" :value="m.id" type="checkbox" />{{
-                          m.name
-                        }}
-                        ({{ m.email }})</label
-                      >
-                      <button
-                        type="button"
-                        class="text-red-600"
-                        :aria-label="`${t('common.delete')}: ${m.name}`"
-                        @click="removeFromCircle(m.id)"
-                      >
-                        ×
-                      </button>
-                    </li>
-                  </ul>
-                  <button
-                    v-if="selectedMembers.length"
-                    type="button"
-                    class="btn-danger"
-                    @click="updateGroupMembers('remove')"
-                  >
-                    {{ t('corporate.removeSelected') }} ({{ selectedMembers.length }})
-                  </button>
-                  <div class="space-y-1">
-                    <PersonPicker
-                      v-model="groupPick"
-                      multiple
-                      :exclude="circleMembers.map((m) => m.id)"
-                      :placeholder="t('corporate.addSeveral')"
-                      testid="circle-add-user"
-                    />
-                    <button
-                      type="button"
-                      class="btn"
-                      :disabled="!groupPick.length"
-                      data-testid="circle-add"
-                      @click="updateGroupMembers('add')"
-                    >
-                      {{ t('settings.add')
-                      }}<span v-if="groupPick.length"> ({{ groupPick.length }})</span>
-                    </button>
-                  </div>
-                  <DomainGroupLinks
-                    :circle-id="c.id"
-                    :circle-name="c.name"
-                    @changed="run(() => refreshCircle(c))"
-                  />
-                  <div class="space-y-1 text-xs">
-                    <h3 class="font-medium">{{ t('corporate.groupVaults') }}</h3>
-                    <p v-if="!assignedVaults.length" class="text-slate-500">
-                      {{ t('corporate.noGroupVaults') }}
-                    </p>
-                    <p v-for="v in assignedVaults" :key="v.id">
-                      {{ vaultLabel(v, t) }} ·
-                      {{ v.customRoleId ? t('corporate.customRole') : t(`role.${v.role}`)
-                      }}<span v-if="v.expiresAt"> · {{ fmt(v.expiresAt) }}</span>
-                    </p>
-                  </div>
-                </div>
+                <GroupDetail v-if="openCircle === c.id" :circle="c" @changed="loadCircles" />
               </li>
             </ul>
           </div>
@@ -1347,8 +1248,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'main'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.access') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.accessHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.access')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.accessHint')" />
+                </h2>
               </div>
               <label class="setting-row"
                 ><span class="inline-flex items-center gap-1"
@@ -1383,6 +1286,44 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 </select></label
               >
               <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.sharingOutside')
+                  }}<InfoHint :text="t('admin.sharingOutsideHint')" /></span
+                ><select
+                  :value="settings['sharing.outside']"
+                  class="input w-auto"
+                  data-testid="set-sharing-outside"
+                  @change="
+                    saveSetting('sharing.outside', ($event.target as HTMLSelectElement).value)
+                  "
+                >
+                  <option value="owners">{{ t('admin.sharingOwners') }}</option>
+                  <option value="admins">{{ t('admin.sharingAdmins') }}</option>
+                  <option value="off">{{ t('admin.sharingOff') }}</option>
+                </select></label
+              >
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('admin.sharingMaxDays')
+                  }}<InfoHint :text="t('admin.sharingMaxDaysHint')" /></span
+                ><select
+                  :value="settings['sharing.outsideMaxDays']"
+                  class="input w-auto"
+                  data-testid="set-sharing-days"
+                  @change="
+                    saveSetting(
+                      'sharing.outsideMaxDays',
+                      Number(($event.target as HTMLSelectElement).value),
+                    )
+                  "
+                >
+                  <option v-for="n in [30, 90, 180, 365]" :key="n" :value="n">
+                    {{ t('admin.sharingDays', { n }) }}
+                  </option>
+                  <option :value="0">{{ t('admin.sharingNoLimit') }}</option>
+                </select></label
+              >
+              <label class="setting-row"
                 ><span class="inline-flex items-center gap-1">{{ t('admin.defaultTheme') }}</span
                 ><select
                   :value="settings['appearance.defaultTheme']"
@@ -1405,8 +1346,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'security'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.sessions') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.sessionsHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.sessions')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.sessionsHint')" />
+                </h2>
               </div>
               <label class="setting-row"
                 ><span class="inline-flex items-center gap-1"
@@ -1504,8 +1447,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'security'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.passwords') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.passwordsHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.passwords')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.passwordsHint')" />
+                </h2>
               </div>
               <label class="setting-row"
                 ><span class="inline-flex items-center gap-1"
@@ -1600,8 +1545,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'security'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.generator') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.generatorHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.generator')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.generatorHint')" />
+                </h2>
               </div>
               <label class="setting-row"
                 ><span>{{ t('generator.length') }}</span
@@ -1657,8 +1604,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'security'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.links') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.linksHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.links')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.linksHint')" />
+                </h2>
               </div>
               <label class="setting-row"
                 ><span>{{ t('admin.linksMaxMinutes') }}</span
@@ -1709,8 +1658,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'storage'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.storage') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.storageHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.storage')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.storageHint')" />
+                </h2>
               </div>
               <label class="setting-row"
                 ><span class="inline-flex items-center gap-1"
@@ -1794,8 +1745,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               v-show="settingsTab === 'notify'"
             >
               <div>
-                <h2 class="font-medium">{{ t('admin.settingsGroup.notify') }}</h2>
-                <p class="text-xs text-slate-500">{{ t('admin.settingsGroup.notifyHint') }}</p>
+                <h2 class="font-medium">
+                  {{ t('admin.settingsGroup.notify')
+                  }}<InfoHint class="ml-1" :text="t('admin.settingsGroup.notifyHint')" />
+                </h2>
               </div>
               <label class="check-row"
                 ><input
@@ -1813,8 +1766,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               ></label>
             </section>
             <div class="card space-y-2 p-4 text-sm">
-              <h2 class="font-medium">{{ t('admin.rangeTitle') }}</h2>
-              <p class="text-slate-500">{{ t('admin.rangeHint') }}</p>
+              <h2 class="font-medium">
+                {{ t('admin.rangeTitle') }}<InfoHint class="ml-1" :text="t('admin.rangeHint')" />
+              </h2>
               <textarea
                 v-model="rangeUrl"
                 rows="2"

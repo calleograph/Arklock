@@ -1,3 +1,4 @@
+import { pruneGuests } from './sharing-policy.js';
 import { eq, lt, or, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import { MAX_EVENTS } from './shield/events.js';
 import type { BlobStore } from './blobs.js';
@@ -25,6 +26,8 @@ import { purgeExpiredTrash } from './routes/content.js';
 /** Плановое обслуживание. Возвращает число удалённых объектов по категориям (для журнала и тестов). */
 export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore) {
   const expired = (await expireAccounts(db, now)).length;
+  // гости, у которых закончились все выданные доступы, выходят из подразделений
+  const guestsPruned = await pruneGuests(db);
   const [ret] = await db.select().from(settings).where(eq(settings.key, 'trash.retentionDays'));
   const days = typeof ret?.value === 'number' ? ret.value : 30;
   const trash = await purgeExpiredTrash(db, days, now, blobs);
@@ -60,6 +63,7 @@ export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore
     securityEvents: shieldRetention,
     digest: await signalsDigest(db, now),
     expired,
+    guestsPruned,
     lapsed: await rotateExpiredAccess(db, now),
   };
 }

@@ -225,6 +225,13 @@
       "when": 1794491736354,
       "tag": "0031_pending_directory_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794514147902,
+      "tag": "0032_space_guests",
+      "breakpoints": true
     }
   ]
 }

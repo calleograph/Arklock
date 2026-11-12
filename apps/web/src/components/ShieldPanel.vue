@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -543,11 +544,6 @@ const KIND_OPTIONS = [
 
 <template>
   <section class="space-y-4" data-testid="shield-panel">
-    <header>
-      <h2 class="text-lg font-semibold">{{ t('shield.title') }}</h2>
-      <p class="max-w-3xl text-xs text-slate-500">{{ t('shield.intro') }}</p>
-    </header>
-
     <div
       role="tablist"
       class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800"
@@ -1173,8 +1169,9 @@ const KIND_OPTIONS = [
         </div>
       </div>
       <form class="card space-y-2 p-4 text-sm" @submit.prevent="addBlock">
-        <h3>{{ t('shield.blocks.manual') }}</h3>
-        <p class="text-xs text-slate-500">{{ t('shield.blocks.nat') }}</p>
+        <h3>
+          {{ t('shield.blocks.manual') }}<InfoHint class="ml-1" :text="t('shield.blocks.nat')" />
+        </h3>
         <div class="flex flex-wrap items-end gap-2">
           <label
             ><span class="field-label">{{ t('shield.blocks.manualIp') }}</span
@@ -1241,8 +1238,10 @@ const KIND_OPTIONS = [
       </ul>
 
       <div class="card space-y-2 p-4 text-sm">
-        <h3>{{ t('shield.requests.rulesTitle') }}</h3>
-        <p class="text-xs text-slate-500">{{ t('shield.requests.rulesHint') }}</p>
+        <h3>
+          {{ t('shield.requests.rulesTitle')
+          }}<InfoHint class="ml-1" :text="t('shield.requests.rulesHint')" />
+        </h3>
         <div class="overflow-x-auto">
           <table data-testid="waf-rules">
             <thead>
@@ -1300,8 +1299,10 @@ const KIND_OPTIONS = [
       </div>
 
       <form v-if="waf" class="card space-y-2 p-4 text-sm" @submit.prevent="saveLimits">
-        <h3>{{ t('shield.requests.limitsTitle') }}</h3>
-        <p class="text-xs text-slate-500">{{ t('shield.requests.limitsHint') }}</p>
+        <h3>
+          {{ t('shield.requests.limitsTitle')
+          }}<InfoHint class="ml-1" :text="t('shield.requests.limitsHint')" />
+        </h3>
         <div class="grid gap-3 sm:grid-cols-3 xl:grid-cols-5">
           <label v-for="l in waf.limits" :key="l.class">
             <span class="field-label">{{ t(`shield.requests.class.${l.class}`) }}</span>

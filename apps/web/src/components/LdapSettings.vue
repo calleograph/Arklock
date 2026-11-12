@@ -4,7 +4,8 @@ import UnsavedHint from './UnsavedHint.vue';
 import InfoHint from './InfoHint.vue';
 import Icon from './Icon.vue';
 import { useDirty } from '../services/dirty';
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { bindAccount, ldapTransportProblem, normalizeLdapUrl } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
@@ -237,7 +238,30 @@ async function load(): Promise<void> {
   );
   loaded.value = true;
 }
-onMounted(() => load().catch((e) => (error.value = errorMessage(e, t))));
+const route = useRoute();
+/** Ссылка вида /admin/ldap#login-check ведёт к нужному месту страницы и ставит курсор в первое поле. */
+const ANCHORS: Record<string, { id: string; focus?: string }> = {
+  '#connection': { id: 'ldap-step-connection', focus: 'ldap-url' },
+  '#access': { id: 'ldap-access' },
+  '#login-check': { id: 'ldap-login-test', focus: 'ldap-login-user' },
+};
+async function jump(): Promise<void> {
+  const a = ANCHORS[route.hash];
+  if (!a || !loaded.value) return;
+  await nextTick();
+  const el = document.querySelector(`[data-testid="${a.id}"]`);
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (a.focus)
+    (document.querySelector(`[data-testid="${a.focus}"]`) as HTMLElement | null)?.focus({
+      preventScroll: true,
+    });
+}
+watch(() => route.hash, jump);
+onMounted(() =>
+  load()
+    .then(jump)
+    .catch((e) => (error.value = errorMessage(e, t))),
+);
 
 /** Вид каталога: для нового подключения меняется и фильтр по умолчанию (если его не правили). */
 function setType(v: 'ad' | 'ldap'): void {
@@ -729,8 +753,7 @@ function allowGroup(dn: string): void {
 </script>
 
 <template>
-  <div class="max-w-3xl space-y-4" data-testid="ldap-settings">
-    <p class="text-sm text-slate-500">{{ t('ldap.hint') }}</p>
+  <div class="space-y-4" data-testid="ldap-settings">
     <div class="flex flex-wrap items-end gap-2">
       <label class="min-w-48 flex-1 text-sm">
         <span class="field-label">{{ t('directory.profiles') }}</span>
@@ -784,10 +807,10 @@ function allowGroup(dn: string): void {
     <form v-if="loaded" class="space-y-4" novalidate @submit.prevent="save">
       <!-- 1. Подключение -->
       <section class="card space-y-3 p-4 text-sm" data-testid="ldap-step-connection">
-        <div>
-          <h3 class="font-semibold">{{ t('dir.steps.connection') }}</h3>
-          <p class="field-hint">{{ t('dir.steps.connectionHint') }}</p>
-        </div>
+        <h3 class="font-semibold">
+          {{ t('dir.steps.connection')
+          }}<InfoHint class="ml-1" :text="t('dir.steps.connectionHint')" />
+        </h3>
         <div class="form-grid">
           <label class="block">
             <span class="field-label">{{ t('directory.name') }}</span>
@@ -815,7 +838,9 @@ function allowGroup(dn: string): void {
             }}</span>
           </label>
           <label class="block sm:col-span-2">
-            <span class="field-label">{{ t('dir.url.label') }}</span>
+            <span class="field-label"
+              >{{ t('dir.url.label') }}<InfoHint :text="t('dir.url.hint')"
+            /></span>
             <input
               v-model="form.url"
               class="input font-mono"
@@ -831,7 +856,6 @@ function allowGroup(dn: string): void {
             <p v-else-if="urlFixed" class="field-hint" data-testid="ldap-url-fixed">
               {{ urlFixed }}
             </p>
-            <p v-else class="field-hint">{{ t('dir.url.hint') }}</p>
           </label>
           <label class="block">
             <span class="field-label"
@@ -1105,9 +1129,8 @@ function allowGroup(dn: string): void {
           <button type="submit" class="btn-primary" :disabled="busy" data-testid="ldap-save">
             {{ t('dir.saveConnection') }}
           </button>
-          <UnsavedHint :dirty="dirty" />
+          <UnsavedHint :dirty="dirty" /><InfoHint :text="t('dir.check.note')" />
         </div>
-        <p class="field-hint">{{ t('dir.check.note') }}</p>
 
         <section v-if="check" class="space-y-1" data-testid="ldap-check">
           <p
@@ -1173,10 +1196,9 @@ function allowGroup(dn: string): void {
 
       <!-- 2. Вход сотрудников -->
       <section class="card space-y-3 p-4 text-sm" data-testid="ldap-step-login">
-        <div>
-          <h3 class="font-semibold">{{ t('dir.steps.login') }}</h3>
-          <p class="field-hint">{{ t('dir.steps.loginHint') }}</p>
-        </div>
+        <h3 class="font-semibold">
+          {{ t('dir.steps.login') }}<InfoHint class="ml-1" :text="t('dir.steps.loginHint')" />
+        </h3>
         <SwitchField v-model="form.enabled" data-testid="ldap-enabled" :label="t('dir.enable')" />
         <fieldset class="space-y-1.5" data-testid="ldap-access">
           <legend class="field-label">{{ t('dir.access.label') }}</legend>
@@ -1292,7 +1314,7 @@ function allowGroup(dn: string): void {
         </div>
 
         <div
-          class="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
+          class="scroll-mt-20 space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800"
           data-testid="ldap-login-test"
         >
           <p class="font-medium">{{ t('dir.loginTest.title') }}</p>
@@ -1401,7 +1423,7 @@ function allowGroup(dn: string): void {
       <details class="card p-4 text-sm" data-testid="ldap-step-advanced">
         <summary class="cursor-pointer">
           <span class="font-semibold">{{ t('dir.steps.advanced') }}</span>
-          <span class="field-hint block">{{ t('dir.steps.advancedHint') }}</span>
+          <InfoHint class="ml-1" :text="t('dir.steps.advancedHint')" />
         </summary>
         <div class="mt-3 space-y-4">
           <fieldset class="space-y-2">

@@ -22,6 +22,7 @@ import { notifyUsers } from '../notifications.js';
 import { isEnrolled, resetMfaPolicyCache } from '../auth/mfa.js';
 import { resetSessionLimitsCache } from '../auth/session.js';
 import { adminGate } from '../auth/adminperm.js';
+import { readLdapProfiles } from '../auth/ldap-profiles.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
@@ -48,6 +49,10 @@ const SETTINGS: Record<string, z.ZodType> = {
   'appearance.defaultTheme': z.enum(THEME_IDS),
   'registration.mode': z.enum(['closed', 'open']),
   'vaults.creators': z.enum(['admins', 'members']),
+  /** Кто может выдать доступ к папке или записи человеку вне подразделения. */
+  'sharing.outside': z.enum(['owners', 'admins', 'off']),
+  /** Предел срока доступа гостю, дней (0 — без предела). */
+  'sharing.outsideMaxDays': z.number().int().min(0).max(3650),
   /** false permits only explicit user/group exceptions. */
   'vaults.personalLockers': z.boolean(),
   'vaults.personalLockerUsers': z.array(uuid).max(10000),
@@ -98,6 +103,8 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'appearance.defaultTheme': DEFAULT_THEME,
   'registration.mode': 'closed',
   'vaults.creators': 'admins',
+  'sharing.outside': 'owners',
+  'sharing.outsideMaxDays': 90,
   'vaults.personalLockers': false,
   'vaults.personalLockerUsers': [],
   'vaults.personalLockerCircles': [],
@@ -431,12 +438,17 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       .from(circleMembers)
       .groupBy(circleMembers.circleId);
     const m = new Map(counts.map((c) => [c.id, c.n]));
+    // сколько групп каталога связано с группой: состав такой группы ведёт каталог
+    const linked = new Map<string, number>();
+    for (const p of await readLdapProfiles(db))
+      for (const g of p.groups) linked.set(g.circleId, (linked.get(g.circleId) ?? 0) + 1);
     const list = rows.map((c) => ({
       id: c.id,
       name: c.name,
       description: c.description,
       adminRoleId: c.adminRoleId,
       members: m.get(c.id) ?? 0,
+      directoryLinks: linked.get(c.id) ?? 0,
     }));
     if (!paged) return list;
     const [total] = await db.select({ n: count() }).from(circles).where(where);
@@ -501,15 +513,36 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     return reply.status(204).send();
   });
 
+  /**
+   * Состав группы. Без параметров — весь список (как раньше); с `limit` — страница с поиском по имени и почте и общим
+   * числом: в группе из каталога могут быть сотни человек.
+   */
   app.get('/admin/circles/:id/members', async (req) => {
     const { id } = parse(idParam, req.params);
-    const rows = await db
-      .select({ id: users.id, name: users.displayName, email: users.email })
+    const o = parse(pageQuery, req.query);
+    const where = and(eq(circleMembers.circleId, id), matchUser(o.q));
+    const base = db
+      .select({
+        id: users.id,
+        name: users.displayName,
+        email: users.email,
+        pending: users.pendingActivation,
+        disabled: sql<boolean>`${users.disabledAt} is not null`,
+      })
       .from(circleMembers)
       .innerJoin(users, eq(users.id, circleMembers.userId))
-      .where(eq(circleMembers.circleId, id))
-      .orderBy(asc(users.displayName));
-    return rows;
+      .where(where)
+      .orderBy(asc(users.displayName), asc(users.email));
+    if (o.limit === undefined) return await base;
+    const [rows, [total]] = await Promise.all([
+      base.limit(o.limit).offset(o.offset),
+      db
+        .select({ n: count() })
+        .from(circleMembers)
+        .innerJoin(users, eq(users.id, circleMembers.userId))
+        .where(where),
+    ]);
+    return { items: rows, total: total?.n ?? 0 };
   });
 
   app.put('/admin/circles/:id/members/:userId', async (req, reply) => {

@@ -62,23 +62,27 @@ export const registerSpaceRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     if (!space) throw notFound();
     const value = await info(space, user);
     if (!value.member && !value.canManage) throw notFound();
-    const [members, groups] = await Promise.all([
-      db
-        .select({
-          userId: users.id,
-          name: users.displayName,
-          email: users.email,
-          role: spaceMembers.role,
-        })
-        .from(spaceMembers)
-        .innerJoin(users, eq(users.id, spaceMembers.userId))
-        .where(eq(spaceMembers.spaceId, id)),
-      db
-        .select({ circleId: circles.id, name: circles.name, role: spaceCircles.role })
-        .from(spaceCircles)
-        .innerJoin(circles, eq(circles.id, spaceCircles.circleId))
-        .where(eq(spaceCircles.spaceId, id)),
-    ]);
+    // гостю не показывают состав подразделения: он видит только выданное ему
+    const hideRoster = (await spaceAccess(db, id, user.id)).guest && !value.canManage;
+    const [members, groups] = hideRoster
+      ? [[], []]
+      : await Promise.all([
+          db
+            .select({
+              userId: users.id,
+              name: users.displayName,
+              email: users.email,
+              role: spaceMembers.role,
+            })
+            .from(spaceMembers)
+            .innerJoin(users, eq(users.id, spaceMembers.userId))
+            .where(eq(spaceMembers.spaceId, id)),
+          db
+            .select({ circleId: circles.id, name: circles.name, role: spaceCircles.role })
+            .from(spaceCircles)
+            .innerJoin(circles, eq(circles.id, spaceCircles.circleId))
+            .where(eq(spaceCircles.spaceId, id)),
+        ]);
     const containers = value.canManage
       ? await db
           .select({ id: vaults.id, name: vaults.name })
@@ -147,7 +151,8 @@ export const registerSpaceRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             .values({ spaceId: id, userId: subjectId, role })
             .onConflictDoUpdate({
               target: [spaceMembers.spaceId, spaceMembers.userId],
-              set: { role },
+              // добавленный явно перестаёт быть гостем
+              set: { role, guest: false },
             });
         } else {
           const [target] = await tx.select().from(circles).where(eq(circles.id, subjectId));

@@ -75,8 +75,7 @@ const useCurrent = () => (draft.value = here);
 <template>
   <section class="card space-y-4 p-4 text-sm" data-testid="network-settings">
     <div>
-      <h2>{{ t('network.title') }}</h2>
-      <p class="text-xs text-slate-500">{{ t('network.intro') }}</p>
+      <h2>{{ t('network.title') }}<InfoHint class="ml-1" :text="t('network.intro')" /></h2>
     </div>
     <p v-if="error" class="notice notice-error" role="alert" data-testid="network-error">
       {{ error }}

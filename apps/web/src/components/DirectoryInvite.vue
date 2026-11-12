@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -90,14 +91,11 @@ const label = computed(() => (groups.value.length ? t('submit') : t('submitNoGro
 </script>
 
 <template>
-  <section
-    v-if="configured"
-    class="card max-w-xl space-y-3 p-4 text-sm"
-    data-testid="directory-invite"
-  >
+  <section v-if="configured" class="card space-y-4 p-4 text-sm" data-testid="directory-invite">
     <div>
-      <h2 class="text-base font-semibold">{{ t('title') }}</h2>
-      <p class="mt-1 max-w-prose text-xs text-slate-500">{{ t('lead') }}</p>
+      <h2 class="text-base font-semibold">
+        {{ t('title') }}<InfoHint class="ml-1" :text="t('lead')" />
+      </h2>
     </div>
     <div class="space-y-1">
       <span class="field-label">{{ t('people') }}</span>

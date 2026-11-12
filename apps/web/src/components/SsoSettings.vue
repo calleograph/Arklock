@@ -104,7 +104,6 @@ const test = () =>
 
 <template>
   <div class="space-y-4" data-testid="sso-settings">
-    <p class="text-sm text-slate-500">{{ t('sso.hint') }}</p>
     <p
       v-if="error"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -121,15 +120,15 @@ const test = () =>
       {{ notice }}
     </p>
 
-    <div class="card max-w-2xl space-y-1 p-4 text-sm">
+    <div class="card space-y-1 p-4 text-sm">
       <div class="text-xs text-slate-500">{{ t('sso.redirectUri') }}</div>
       <code v-if="redirectUri" class="break-all" data-testid="sso-redirect">{{ redirectUri }}</code>
       <p v-else class="text-amber-700">{{ t('sso.redirectMissing') }}</p>
     </div>
 
-    <form class="card max-w-2xl space-y-3 p-4 text-sm" @submit.prevent="save">
+    <form class="card form-grid p-4 text-sm" @submit.prevent="save">
       <SwitchField v-model="form.enabled" data-testid="sso-enabled" :label="t('sso.enabled')" />
-      <label class="block"
+      <label class="block span-2"
         >{{ t('sso.issuer')
         }}<input v-model="form.issuer" required class="input font-mono" data-testid="sso-issuer"
       /></label>
@@ -147,17 +146,15 @@ const test = () =>
           :placeholder="hasSecret ? t('sys.smtp.keepPassword') : ''"
           data-testid="sso-secret"
       /></label>
-      <label class="block"
+      <label class="block span-2"
         >{{ t('sso.scopes') }}<input v-model="form.scopes" class="input font-mono"
       /></label>
-      <div class="flex gap-3">
-        <label class="flex-1"
-          >{{ t('sso.emailClaim') }}<input v-model="form.emailClaim" class="input"
-        /></label>
-        <label class="flex-1"
-          >{{ t('sso.nameClaim') }}<input v-model="form.nameClaim" class="input"
-        /></label>
-      </div>
+      <label class="block"
+        >{{ t('sso.emailClaim') }}<input v-model="form.emailClaim" class="input"
+      /></label>
+      <label class="block"
+        >{{ t('sso.nameClaim') }}<input v-model="form.nameClaim" class="input"
+      /></label>
       <label class="block"
         >{{ t('sso.button')
         }}<input v-model="form.buttonText" class="input" data-testid="sso-button-text"
@@ -172,7 +169,7 @@ const test = () =>
         data-testid="sso-insecure"
         :label="t('sso.allowInsecure')"
       />
-      <div class="flex gap-2">
+      <div class="btn-row">
         <button type="submit" class="btn-primary" :disabled="busy" data-testid="sso-save">
           {{ t('common.save') }}
         </button>

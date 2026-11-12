@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -56,17 +57,22 @@ async function save(): Promise<void> {
 <template>
   <section class="card space-y-3 p-4 text-sm" data-testid="managed-settings">
     <div>
-      <h2 class="text-base font-semibold">{{ t('managed.settingsTitle') }}</h2>
-      <p class="mt-1 max-w-prose text-xs text-slate-500">{{ t('managed.settingsHint') }}</p>
+      <h2 class="text-base font-semibold">
+        {{ t('managed.settingsTitle') }}<InfoHint class="ml-1" :text="t('managed.settingsHint')" />
+      </h2>
     </div>
     <div class="grid gap-3 md:grid-cols-2">
       <div class="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-        <h3 class="font-medium">{{ t('managed.modePrivate') }}</h3>
-        <p class="mt-1 text-xs text-slate-500">{{ t('managed.modePrivateText') }}</p>
+        <h3 class="font-medium">
+          {{ t('managed.modePrivate')
+          }}<InfoHint class="ml-1" :text="t('managed.modePrivateText')" />
+        </h3>
       </div>
       <div class="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-        <h3 class="font-medium">{{ t('managed.modeManaged') }}</h3>
-        <p class="mt-1 text-xs text-slate-500">{{ t('managed.modeManagedText') }}</p>
+        <h3 class="font-medium">
+          {{ t('managed.modeManaged')
+          }}<InfoHint class="ml-1" :text="t('managed.modeManagedText')" />
+        </h3>
       </div>
     </div>
     <form class="space-y-2" @submit.prevent="save">

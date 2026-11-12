@@ -300,7 +300,11 @@ export const ruHelp = {
     lastOwner: 'Сначала назначьте нового владельца сейфа.',
     spaceNotEmpty: 'В пространстве есть сейфы. Перенесите их или заархивируйте пространство.',
     notInSpace:
-      'Этого человека нет в пространстве сейфа. Сначала добавьте его в пространство (раздел «Пространства»), затем назначайте доступ к сейфу.',
+      'Этого человека нет в подразделении сейфа. Чтобы он видел весь сейф, добавьте его в подразделение (Подразделения → Управлять). Чтобы дать доступ только к папке или записи, выдайте его на самой папке или записи.',
+    outsideOff: 'Выдавать доступ людям вне подразделения запрещено администратором.',
+    outsideGroup:
+      'Группе вне подразделения доступ выдаёт только администратор подразделения. Отдельному человеку доступ выдать можно.',
+    outsideAdmins: 'Людям вне подразделения доступ выдаёт только администратор сейфа.',
     spaceArchived: 'Пространство в архиве: сначала верните его из архива.',
     defaultSpace: 'Основное пространство нельзя удалить или изменить таким образом.',
     selfDisable: 'Нельзя отключить собственную учётную запись.',
@@ -905,6 +909,19 @@ export const ruHelp = {
     mfaTotp: 'второй фактор: код',
     mfaNone: 'без второго фактора',
   },
+  admin: {
+    sharingOutside: 'Доступ людям вне подразделения',
+    sharingOutsideHint:
+      'Кто может выдать доступ к папке или записи человеку не из этого подразделения, в том числе из каталога домена. Человек становится гостем: он видит только выданную папку или запись, а не весь сейф. Доступ ко всему сейфу и доступ группам вне подразделения выдаёт только администратор. Администратор подразделения может всё это независимо от настройки.',
+    sharingOwners: 'Тот, кто управляет папкой или записью',
+    sharingAdmins: 'Только администратор сейфа',
+    sharingOff: 'Никто (только администратор подразделения)',
+    sharingMaxDays: 'Предел срока доступа гостю',
+    sharingMaxDaysHint:
+      'Доступ человеку вне подразделения всегда временный: без указанного срока ставится 30 дней, больше этого предела указать нельзя.',
+    sharingDays: '{n} дней',
+    sharingNoLimit: 'Без предела',
+  },
   grantDlg: {
     open: 'Предоставить доступ',
     recipients: 'Получатели',
@@ -914,6 +931,12 @@ export const ruHelp = {
     picked: 'выбран',
     hasAccess: 'уже есть доступ',
     fromDirectory: 'из каталога',
+    hintVault:
+      'Доступ ко всему сейфу выдаётся людям и группам этого подразделения. Человеку из другого подразделения выдайте доступ к отдельной папке или записи: он увидит только выданное.',
+    hintObject:
+      'Выбрать можно любого сотрудника, в том числе из каталога домена. Если он не из этого подразделения, он станет гостем и увидит только эту папку или запись, а не весь сейф. Укажите срок: по его окончании доступ закроется. Технически гость получает ключ сейфа, а сервер отдаёт ему только выданное: для особо важных секретов заведите отдельный сейф.',
+    errProvision: 'Профили сотрудников из каталога создаёт администратор.',
+    errOutsideOff: 'Выдавать доступ людям вне подразделения запрещено администратором.',
     errNotAllowed: 'Правило входа каталога не разрешает вход этому человеку.',
     errNoEmail: 'В записи каталога нет почты: профиль создать нельзя.',
     errLocal: 'Человек с этой почтой уже есть в Arklock вне каталога: найдите его в списке.',
@@ -932,10 +955,16 @@ export const ruHelp = {
     },
     submit: 'Предоставить доступ',
     done: 'Доступ предоставлен: {n}.',
+    guests: 'В подразделение добавлены гостями: {names}. Они видят только то, что им выдано.',
     donePending:
       'Права назначены: {n}. Ключ сейфа будет передан, как только участник с правом управления откроет Arklock.',
   },
   ws: {
+    department: 'Подразделение',
+    departmentHint:
+      'Подразделение — это отдел или вся организация. Внутри него лежат сейфы с паролями. Сначала выберите подразделение, затем сейф.',
+    vaultHint:
+      'Сейф — защищённый набор паролей подразделения. В нём папки и записи. Доступ можно выдать на весь сейф, на папку или на отдельную запись, в том числе человеку из другого подразделения.',
     vault: 'Сейф',
     actions: 'Действия',
     actionsTitle: 'Действия с сейфом и пространством',
@@ -1320,7 +1349,11 @@ export const enHelp = {
     lastOwner: 'Assign a new owner of the vault first.',
     spaceNotEmpty: 'The space still has vaults. Move them or archive the space.',
     notInSpace:
-      'This person is not in the vault’s space. Add them to the space first (the “Spaces” section), then assign vault access.',
+      'This person is not in the vault’s department. To let them see the whole vault, add them to the department (Departments → Manage). To give access to a folder or entry only, share it on the folder or entry itself.',
+    outsideOff: 'An administrator has forbidden giving access to people outside the department.',
+    outsideGroup:
+      'Only a department administrator gives a group outside the department access. A single person can be given access.',
+    outsideAdmins: 'Only a vault administrator gives access to people outside the department.',
     spaceArchived: 'The space is archived: restore it from the archive first.',
     defaultSpace: 'The default space cannot be deleted or changed this way.',
     selfDisable: 'You cannot disable your own account.',
@@ -1922,6 +1955,19 @@ export const enHelp = {
     mfaTotp: 'second factor: code',
     mfaNone: 'no second factor',
   },
+  admin: {
+    sharingOutside: 'Access for people outside the department',
+    sharingOutsideHint:
+      'Who may give access to a folder or entry to a person from another department, including one from the domain directory. The person becomes a guest: they see only the shared folder or entry, not the whole vault. Access to a whole vault and access for groups outside the department is given only by an administrator. A department administrator can do all this regardless of the setting.',
+    sharingOwners: 'Whoever manages the folder or entry',
+    sharingAdmins: 'Only a vault administrator',
+    sharingOff: 'Nobody (only a department administrator)',
+    sharingMaxDays: 'Guest access term cap',
+    sharingMaxDaysHint:
+      'Access for a person outside the department is always limited in time: without a term 30 days are set, and a longer term cannot be given.',
+    sharingDays: '{n} days',
+    sharingNoLimit: 'No cap',
+  },
   grantDlg: {
     open: 'Grant access',
     recipients: 'Recipients',
@@ -1931,6 +1977,12 @@ export const enHelp = {
     picked: 'selected',
     hasAccess: 'already has access',
     fromDirectory: 'from the directory',
+    hintVault:
+      'Access to the whole vault goes to people and groups of this department. For a person from another department give access to a single folder or entry: they see only what is given.',
+    hintObject:
+      'You can pick any employee, including one from the domain directory. If they are not from this department they become a guest and see only this folder or entry, not the whole vault. Set a term: access closes when it ends. Technically the guest receives the vault key and the server returns only what was given: for especially sensitive secrets use a separate vault.',
+    errProvision: 'The profiles of directory employees are created by an administrator.',
+    errOutsideOff: 'An administrator has forbidden giving access to people outside the department.',
     errNotAllowed: 'The sign-in rule of the directory does not allow this person.',
     errNoEmail: 'The directory entry has no e-mail: a profile cannot be created.',
     errLocal:
@@ -1950,10 +2002,17 @@ export const enHelp = {
     },
     submit: 'Grant access',
     done: 'Access granted: {n}.',
+    guests:
+      'Added to the department as guests: {names}. They see only what has been given to them; access is limited in time: until {date}.',
     donePending:
       'Rights assigned: {n}. The vault key will be passed on as soon as a member who can manage it opens Arklock.',
   },
   ws: {
+    department: 'Department',
+    departmentHint:
+      'A department is a team or the whole organization. It holds vaults with passwords. Choose the department first, then the vault.',
+    vaultHint:
+      'A vault is a protected password store of the department, with folders and entries. Access can be given to the whole vault, a folder or a single entry, including to a person from another department.',
     vault: 'Vault',
     actions: 'Actions',
     actionsTitle: 'Vault and space actions',

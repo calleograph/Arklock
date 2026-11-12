@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
@@ -7,6 +8,7 @@ import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers'
 import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
+import UserMemberships from './UserMemberships.vue';
 import UserTransfer from './UserTransfer.vue';
 
 /** Карточка сотрудника: статус, группы, сеансы и сейфы в одном месте — без перехода по разделам. */
@@ -42,8 +44,8 @@ interface Profile {
     createdAt: string;
   };
   mfa: { totp: boolean; passkey: boolean };
-  spaces: { id: string; name: string; isDefault: boolean }[];
-  groups: { id: string; name: string; adminRoleId: string | null }[];
+  spaces: { id: string; name: string; isDefault: boolean; head?: boolean }[];
+  groups: { id: string; name: string; adminRoleId: string | null; directory?: boolean }[];
   sessionList: { id: string; lastSeenAt: string; ip: string | null; userAgent: string | null }[];
   vaults: { id: string; name: string; role: string; entries: number }[];
   apiTokens: number;
@@ -166,8 +168,9 @@ async function endSessions(): Promise<void> {
     <template v-if="p">
       <header class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
-          <h2 class="break-words">{{ p.user.name }}</h2>
-          <p class="break-all text-slate-500">{{ p.user.email }}</p>
+          <h2 class="break-words">
+            {{ p.user.name }}<InfoHint class="ml-1" :text="p.user.email" />
+          </h2>
           <div class="mt-1.5 flex flex-wrap gap-1">
             <span class="badge" :class="p.user.disabled ? 'text-red-700' : 'text-emerald-700'">{{
               p.user.disabled ? t('admin.disabled') : t('admin.active')
@@ -302,25 +305,13 @@ async function endSessions(): Promise<void> {
       </div>
 
       <div class="grid gap-4 lg:grid-cols-3">
-        <div>
-          <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.spaces') }}</h3>
-          <ul v-if="p.spaces.length" class="flex flex-wrap gap-1" data-testid="profile-spaces">
-            <li v-for="s in p.spaces" :key="s.id" class="badge">{{ spaceLabel(s, t) }}</li>
-          </ul>
-          <p v-else class="text-slate-500">{{ t('profile.noSpaces') }}</p>
-        </div>
-        <div>
-          <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.groups') }}</h3>
-          <ul v-if="p.groups.length" class="flex flex-wrap gap-1" data-testid="profile-groups">
-            <li v-for="g in p.groups" :key="g.id" class="badge gap-1">
-              <Icon name="users" class="size-3.5" />{{ g.name
-              }}<span v-if="roleName(g.adminRoleId)" class="text-brand-700"
-                >· {{ roleName(g.adminRoleId) }}</span
-              >
-            </li>
-          </ul>
-          <p v-else class="text-slate-500">{{ t('profile.noGroups') }}</p>
-        </div>
+        <UserMemberships
+          :user-id="userId"
+          :groups="p.groups"
+          :spaces="p.spaces"
+          :role-name="roleName"
+          @changed="(load(), emit('changed'))"
+        />
         <div>
           <h3 class="mb-1.5 text-xs font-medium text-slate-500">
             {{ t('profile.sessions', { n: p.sessionList.length }) }}
@@ -420,7 +411,7 @@ async function endSessions(): Promise<void> {
           <h3 class="text-xs font-medium text-slate-500">{{ t('profile.journal') }}</h3>
           <button
             type="button"
-            class="text-xs underline"
+            class="min-h-11 text-xs underline"
             data-testid="profile-journal-all"
             @click="openJournal"
           >

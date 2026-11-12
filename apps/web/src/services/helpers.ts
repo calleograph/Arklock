@@ -114,6 +114,12 @@ export function errorMessage(e: unknown, t: T): string {
         return t('error.lastOwner');
       case 'space_not_empty':
         return t('error.spaceNotEmpty');
+      case 'outside_sharing_off':
+        return t('error.outsideOff');
+      case 'outside_group_admin_only':
+        return t('error.outsideGroup');
+      case 'outside_sharing_admins':
+        return t('error.outsideAdmins');
       case 'space_archived':
         return t('error.spaceArchived');
       case 'default_space_required':

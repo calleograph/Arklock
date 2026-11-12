@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -38,8 +39,9 @@ onMounted(async () => {
     class="card space-y-3 p-4 sm:col-span-2 lg:col-span-3"
     data-testid="corporate-continuity"
   >
-    <h2 class="font-semibold">{{ t('corporate.continuity') }}</h2>
-    <p class="max-w-prose text-sm text-slate-500">{{ t('corporate.continuityHint') }}</p>
+    <h2 class="font-semibold">
+      {{ t('corporate.continuity') }}<InfoHint class="ml-1" :text="t('corporate.continuityHint')" />
+    </h2>
     <p v-if="error" class="text-sm text-red-600" role="alert">{{ error }}</p>
     <p v-else-if="!vaults" class="text-sm text-slate-500" aria-busy="true">
       {{ t('common.loading') }}

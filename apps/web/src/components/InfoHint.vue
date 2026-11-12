@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n';
 
 /**
- * Информационная подсказка «i»: наведение или фокус показывают короткий текст, нажатие (в том числе на телефоне)
+ * Подсказка «?»: наведение или фокус показывают короткий текст, нажатие (в том числе на телефоне)
  * закрепляет её и раскрывает подробности. Закрывается по Escape и по нажатию вне подсказки.
  */
 defineProps<{ text: string; details?: string }>();
@@ -74,7 +74,7 @@ onBeforeUnmount(() => {
       <span
         class="inline-flex size-4 items-center justify-center rounded-full border border-current text-xs font-semibold leading-none"
         aria-hidden="true"
-        >i</span
+        >?</span
       >
     </span>
     <span

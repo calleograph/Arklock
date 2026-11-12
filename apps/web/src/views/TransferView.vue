@@ -441,7 +441,7 @@ const canExport = computed(
 </script>
 
 <template>
-  <section class="max-w-3xl space-y-3" data-testid="transfer-page">
+  <section class="space-y-3" data-testid="transfer-page">
     <header class="flex flex-wrap items-center justify-between gap-2">
       <h2 class="flex items-center gap-2">
         <Icon name="transfer" class="size-5" />{{ t('transfer.title') }}

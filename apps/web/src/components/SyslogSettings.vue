@@ -90,7 +90,6 @@ const test = () =>
 
 <template>
   <div class="space-y-4" data-testid="syslog-settings">
-    <p class="text-sm text-slate-500">{{ t('syslog.hint') }}</p>
     <p v-if="error" class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
       {{ error }}
     </p>
@@ -101,7 +100,7 @@ const test = () =>
     >
       {{ notice }}
     </p>
-    <form class="card max-w-xl space-y-3 p-4 text-sm" @submit.prevent="save">
+    <form class="card form-grid p-4 text-sm" @submit.prevent="save">
       <SwitchField
         v-model="form.enabled"
         data-testid="syslog-enabled"
@@ -152,7 +151,7 @@ const test = () =>
       </div>
       <p v-if="result" data-testid="syslog-result">{{ result }}</p>
     </form>
-    <div v-if="status" class="card max-w-xl p-4 text-sm" data-testid="syslog-status">
+    <div v-if="status" class="card p-4 text-sm" data-testid="syslog-status">
       {{ t('syslog.sent') }}: {{ status.sent }} · {{ t('syslog.failed') }}: {{ status.failed }}
       <span v-if="status.lastError" class="block text-xs text-red-600">{{ status.lastError }}</span>
     </div>

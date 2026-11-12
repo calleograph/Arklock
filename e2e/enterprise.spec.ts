@@ -156,6 +156,8 @@ test('стало: подразделение мастером — одно ок�
   // руководитель находится поиском на сервере, а не выбирается из списка в тысячи человек
   await c.fill('dept-head-input', headEmail(4));
   await c.click(`dept-head-result-${headEmail(4)}`);
+  // сейф руководства — по желанию: включаем, чтобы проверить и его
+  await page.getByTestId('dept-lead').check();
   await c.click('dept-create');
   await expect(page.getByTestId('dept-state')).toHaveText('Готово', { timeout: 120_000 });
   record(c);
@@ -165,7 +167,7 @@ test('стало: подразделение мастером — одно ок�
   const circle = circles.find((x) => x.name === 'Бухгалтерия')!;
   // руководитель — администратор сейфа напрямую, а не только участник группы
   const vs = (await api('GET', '/vaults')).json as { id: string; name: string }[];
-  const dv = vs.find((x) => x.name === 'Бухгалтерия')!;
+  const dv = vs.find((x) => x.name === 'Бухгалтерия · Пароли')!;
   const mem = (await api('GET', `/vaults/${dv.id}/members`)).json as {
     members: { email: string; directRole: string | null }[];
   };
@@ -188,7 +190,7 @@ test('стало: подразделение мастером — одно ок�
       .filter((x) => x.spaceId === space.id)
       .map((x) => x.name)
       .sort(),
-  ).toEqual(['Бухгалтерия', 'Бухгалтерия · Руководство']);
+  ).toEqual(['Бухгалтерия · Пароли', 'Бухгалтерия · Руководство']);
   expect(c.actions).toBeLessThanOrEqual(8);
 });
 
@@ -199,6 +201,7 @@ test('стало: остальные 19 подразделений списко�
   const lines = rest.map((d) => `${d}; ${headEmail(DEPARTMENTS.indexOf(d))}`);
   c.screen();
   await c.click('dept-mode-many');
+  await page.getByTestId('dept-lead').check();
   await c.fill('dept-list', lines.join('\n'));
   await expect(page.getByTestId('dept-row')).toHaveCount(19);
   // предпросмотр до создания: никаких конфликтов
@@ -224,7 +227,7 @@ test('стало: остальные 19 подразделений списко�
       d,
     ).toHaveLength(1);
     expect(
-      vaults.filter((x) => x.name === d),
+      vaults.filter((x) => x.name === `${d} · Пароли`),
       d,
     ).toHaveLength(1);
   }
@@ -320,7 +323,7 @@ test('руководитель отдела: структура папок, за
   await expect(head.getByTestId('space-select').locator('option:checked')).toHaveText(
     'Бухгалтерия',
   );
-  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия' });
+  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия · Пароли' });
 
   // подпапки до пяти уровней
   const f = new Counter(head, 'Создать подпапку внутри выбранной папки');
@@ -432,7 +435,7 @@ test('сотрудник видит только свой отдел; сейф �
   expect(spaces).not.toContain('Продажи');
   const vaultsShown = await staff.getByTestId('vault-select').locator('option').allTextContents();
   expect(vaultsShown.map((v) => v.replace(/[^\p{L}\p{N}· ]/gu, '').trim())).toEqual([
-    'Бухгалтерия',
+    'Бухгалтерия · Пароли',
   ]);
   // глобальный поиск без выбора отдела находит запись, созданную руководителем
   await expect(async () => {
@@ -481,13 +484,13 @@ test('перевод сотрудника из бухгалтерии в зак�
   const card = (await api('GET', `/admin/users/${id}/profile`)).json as {
     access: { name: string }[];
   };
-  expect(card.access.map((a) => a.name)).toEqual(['Закупки']);
+  expect(card.access.map((a) => a.name)).toEqual(['Закупки · Пароли']);
   // старый доступ закрыт на сервере, по потерянным записям — «смените пароль»
   const s2 = await login(browser, staffEmail(1));
   await expect(s2.getByTestId('space-select').locator('option:checked')).toHaveText('Закупки');
   await s2.context().close();
   const old = ((await api('GET', '/vaults')).json as { id: string; name: string }[]).find(
-    (v) => v.name === 'Бухгалтерия',
+    (v) => v.name === 'Бухгалтерия · Пароли',
   )!;
   const sig = (await api('GET', `/vaults/${old.id}/signals`)).json as {
     type: string;
@@ -502,7 +505,7 @@ test('нагрузка: 1500 записей в сейфе отдела — за�
   test.setTimeout(590_000);
   const hc = new TestClient(httpApp(BASE), headEmail(4), PASSWORD);
   await hc.login();
-  const vault = (await hc.vaults()).find((v) => v.name === 'Бухгалтерия')!;
+  const vault = (await hc.vaults()).find((v) => v.name === 'Бухгалтерия · Пароли')!;
   const key = await hc.openVault(vault);
   const folders: string[] = [];
   for (let i = 0; i < 12; i++)
@@ -633,7 +636,7 @@ test('ноутбук 1366×768 при масштабе 100, 125 и 150 %: всё
     { zoom: 150, width: 911, height: 512 },
   ];
   const head = await login(browser, headEmail(4));
-  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия' });
+  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия · Пароли' });
   await expect(head.getByTestId('entry-row').first()).toBeVisible({ timeout: 60_000 });
   await head.getByTestId('entry-row').first().click();
   // папки идут в естественном порядке: «Раздел 2» раньше «Раздел 10»
@@ -731,7 +734,7 @@ test('безопасность: слабые пароли отдела видн�
   test.setTimeout(300_000);
   const hc = new TestClient(httpApp(BASE), headEmail(5), PASSWORD);
   await hc.login();
-  const vault = (await hc.vaults()).find((v) => v.name === 'Финансы')!;
+  const vault = (await hc.vaults()).find((v) => v.name === 'Финансы · Пароли')!;
   const key = await hc.openVault(vault);
   const mk = (title: string, password: string) =>
     hc.createEntry(
@@ -758,7 +761,7 @@ test('безопасность: слабые пароли отдела видн�
   await mk('Отчётность', 'Correct-Horse-Battery-9!x');
 
   const head = await login(browser, headEmail(5));
-  await head.getByTestId('vault-select').selectOption({ label: 'Финансы' });
+  await head.getByTestId('vault-select').selectOption({ label: 'Финансы · Пароли' });
   await expect(head.getByTestId('overview-weak')).toContainText('3');
   await expect(head.getByTestId('overview-health')).toContainText('25%');
   await head.getByTestId('overview-weak').click();
@@ -786,7 +789,7 @@ test('доступ между отделами: временный доступ 
   test.setTimeout(300_000);
   const hc = new TestClient(httpApp(BASE), headEmail(10), PASSWORD); // Логистика
   await hc.login();
-  const vault = (await hc.vaults()).find((v) => v.name === 'Логистика')!;
+  const vault = (await hc.vaults()).find((v) => v.name === 'Логистика · Пароли')!;
   const key = await hc.openVault(vault);
   await hc.createEntry(
     {
@@ -804,7 +807,7 @@ test('доступ между отделами: временный доступ 
     { vaultId: vault.id, vaultKey: key },
   );
   const head = await login(browser, headEmail(10));
-  await head.getByTestId('vault-select').selectOption({ label: 'Логистика' });
+  await head.getByTestId('vault-select').selectOption({ label: 'Логистика · Пароли' });
   await head.getByTestId('entry-row').first().click();
 
   const g = new Counter(head, 'Временный доступ другому отделу на 7 дней');
@@ -836,7 +839,7 @@ test('формы записей разных типов помещаются н�
   test.setTimeout(300_000);
   const head = await login(browser, headEmail(5));
   await head.setViewportSize({ width: 1366, height: 768 });
-  await head.getByTestId('vault-select').selectOption({ label: 'Финансы' });
+  await head.getByTestId('vault-select').selectOption({ label: 'Финансы · Пароли' });
   const rows: string[] = [];
   head.on('dialog', (d) => void d.accept().catch(() => undefined));
   for (const kind of ['login', 'server', 'apikey', 'note', 'custom']) {
@@ -962,7 +965,7 @@ test('поиск находит запись в другом сейфе без �
     { vaultId: lead.id, vaultKey: key },
   );
   const head = await login(browser, headEmail(5));
-  await head.getByTestId('vault-select').selectOption({ label: 'Финансы' });
+  await head.getByTestId('vault-select').selectOption({ label: 'Финансы · Пароли' });
   const t0 = Date.now();
   await head.getByTestId('search').fill('Совет директоров');
   await expect(head.getByTestId('global-search-result')).toHaveCount(1, { timeout: 30_000 });

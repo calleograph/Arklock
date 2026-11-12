@@ -213,7 +213,6 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
 
 <template>
   <div class="space-y-4" data-testid="saml-settings">
-    <p class="text-sm text-slate-500">{{ t('saml.hint') }}</p>
     <p
       v-if="error"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -231,7 +230,7 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
       {{ notice }}
     </p>
 
-    <div class="card max-w-3xl space-y-2 p-4 text-sm">
+    <div class="card space-y-2 p-4 text-sm">
       <div class="font-medium">{{ t('saml.spData') }}</div>
       <template v-if="urls">
         <div class="text-xs text-slate-500">{{ t('saml.spEntity') }}</div>
@@ -274,7 +273,7 @@ const addGroup = () => form.value.groups.push({ name: '', circleId: circles.valu
       </button>
     </div>
 
-    <form class="card max-w-3xl space-y-3 p-4 text-sm" @submit.prevent="save">
+    <form class="card form-grid p-4 text-sm" @submit.prevent="save">
       <SwitchField v-model="form.enabled" data-testid="saml-enabled" :label="t('saml.enabled')" />
       <label class="block"
         >{{ t('saml.idpEntity')

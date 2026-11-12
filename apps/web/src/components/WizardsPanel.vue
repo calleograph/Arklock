@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -177,17 +178,13 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
 
 <template>
   <section class="space-y-3" data-testid="wizards">
-    <div>
-      <h2 class="text-base font-semibold">{{ t('title') }}</h2>
-      <p class="mt-1 max-w-prose text-xs text-slate-500">{{ t('hint') }}</p>
-    </div>
     <DirectoryGuide />
     <div class="grid gap-3 md:grid-cols-2">
       <article v-for="c in CARDS" :key="c.id" class="card flex flex-col gap-2 p-4 text-sm">
         <h3 class="flex items-center gap-2 font-medium">
-          <Icon :name="c.icon" class="size-4 opacity-80" />{{ t(c.id) }}
+          <Icon :name="c.icon" class="size-4 opacity-80" />{{ t(c.id)
+          }}<InfoHint :text="t(`${c.id}Text`)" />
         </h3>
-        <p class="flex-1 text-xs text-slate-600 dark:text-slate-300">{{ t(`${c.id}Text`) }}</p>
         <template v-if="steps[c.id]">
           <p class="text-xs font-medium" data-testid="wizard-progress">
             {{ t('stepsDone', progress(c.id)) }}
@@ -211,7 +208,7 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
             </li>
           </ol>
         </template>
-        <RouterLink :to="c.to" class="btn self-start" :data-testid="`wizard-${c.id}`">{{
+        <RouterLink :to="c.to" class="btn mt-auto self-start" :data-testid="`wizard-${c.id}`">{{
           t('open')
         }}</RouterLink>
       </article>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import { useWorkspaceStore } from '../stores/workspace';
+import DepartmentDetail from './DepartmentDetail.vue';
 import PersonPicker, { type Person } from './PersonPicker.vue';
 
 /**
@@ -17,17 +19,24 @@ const { t, locale } = useI18n({
     ru: {
       title: 'Подразделения',
       hint: 'Одно действие вместо четырёх разделов: группа, пространство, сейф и права создаются вместе. Существующее используется повторно.',
-      whatTitle: 'Чем отличаются группа, подразделение и роль',
+      dtPeople: 'Люди',
+      dtVault: 'Сейф',
+      dtRoles: 'Роли',
+      dtOthers: 'Другим отделам',
+      whatTitle: 'Как это устроено',
       whatGroup:
-        'Группа — набор людей. Группе выдают доступ к сейфам, а состав может вести каталог домена: люди из связанной группы домена попадают в неё сами.',
+        'Люди отдела — это группа. Состав ведёт руководитель вручную или каталог домена: люди из связанной группы домена попадают в неё сами.',
       whatDept:
-        'Подразделение — готовый набор для отдела: группа, закрытое пространство и сейф отдела (по желанию ещё сейф руководства). Это не отдельный вид прав, а быстрый способ создать всё сразу.',
+        'У отдела один сейф с паролями (по желанию ещё отдельный сейф руководства). Внутри сейфа — папки и записи. Все участники отдела видят сейф с выданной им ролью.',
       whatRole:
-        'Роль — что человек может делать в сейфе: читатель видит записи, редактор меняет их, администратор управляет доступом. Руководитель подразделения получает роль администратора в сейфах отдела и в пространстве.',
+        'Читатель видит записи, редактор меняет их, администратор управляет доступом. Руководитель отдела — администратор его сейфов.',
       whatRoleTerm: 'Роль',
       whatPeople:
-        'Людей выбирают поиском по Arklock и по каталогу домена. Найденному в каталоге сразу создаётся профиль, а доступ к сейфам он получает после первого входа.',
+        'Человеку из другого отдела выдают доступ к одной папке или записи: в сейфе нажмите «Предоставить доступ». Он увидит только выданное, остальной сейф ему закрыт.',
       listTitle: 'Созданные подразделения',
+      manage: 'Управлять',
+      showArchived: 'Показывать архивные',
+      archivedBadge: 'в архиве',
       listNone: 'Подразделений пока нет. Создайте первое ниже.',
       listHead: 'Руководитель',
       listMembers: 'Участников: {n}',
@@ -52,7 +61,8 @@ const { t, locale } = useI18n({
       membersFind: 'Имя, логин или почта',
       checking: 'проверяю…',
       list: 'По строке на подразделение: «Название; почта руководителя»',
-      leadVault: 'Отдельный сейф для руководства (его не видят остальные сотрудники отдела)',
+      leadVault:
+        'Создать ещё отдельный сейф для руководства (его не видят остальные сотрудники отдела)',
       folders: 'Начальные папки в сейфе отдела, через запятую',
       preview: 'Что будет сделано',
       create: 'Создать',
@@ -75,21 +85,29 @@ const { t, locale } = useI18n({
         'Ключи сейфа участники получат при ближайшем входе администратора или собственном входе.',
       none2: 'Введите название подразделения.',
       leadSuffix: 'Руководство',
+      vaultSuffix: 'Пароли',
     },
     en: {
       title: 'Departments',
       hint: 'One action instead of four sections: group, space, vault and permissions are created together. Existing items are reused.',
-      whatTitle: 'How a group, a department and a role differ',
+      dtPeople: 'People',
+      dtVault: 'Vault',
+      dtRoles: 'Roles',
+      dtOthers: 'Other departments',
+      whatTitle: 'How it works',
       whatGroup:
-        'A group is a set of people. Groups are given access to vaults, and the directory can manage the membership: people from a linked domain group join it by themselves.',
+        'The people of the department are a group. The head keeps the membership by hand or the domain directory does: people from a linked domain group join by themselves.',
       whatDept:
-        'A department is a ready set for a team: a group, a private space and a department vault (optionally a management vault). It is not a separate kind of rights, just a quick way to create everything at once.',
+        'A department has one vault with passwords (optionally a separate leadership vault). Inside are folders and entries. Every member sees the vault with the role given to them.',
       whatRole:
-        'A role is what a person can do in a vault: a reader sees entries, an editor changes them, an administrator manages access. A department head becomes an administrator in the department vaults and space.',
+        'A reader sees entries, an editor changes them, an administrator manages access. The head of the department is the administrator of its vaults.',
       whatRoleTerm: 'Role',
       whatPeople:
-        'People are picked by searching Arklock and the domain directory. A person found in the directory gets a profile at once and receives vault access after the first sign-in.',
+        'A person from another department is given access to one folder or entry: press “Grant access” in the vault. They see only what was given; the rest of the vault stays closed.',
       listTitle: 'Created departments',
+      manage: 'Manage',
+      showArchived: 'Show archived',
+      archivedBadge: 'archived',
       listNone: 'No departments yet. Create the first one below.',
       listHead: 'Head',
       listMembers: 'Members: {n}',
@@ -114,7 +132,8 @@ const { t, locale } = useI18n({
       membersFind: 'Name, login or e-mail',
       checking: 'checking…',
       list: 'One department per line: “Name; head email”',
-      leadVault: 'Separate vault for leadership (other department staff cannot see it)',
+      leadVault:
+        'Also create a separate vault for leadership (other department staff cannot see it)',
       folders: 'Initial folders in the department vault, comma-separated',
       preview: 'What will be done',
       create: 'Create',
@@ -136,6 +155,7 @@ const { t, locale } = useI18n({
       pendingKeys: 'Members receive the vault key on the next administrator sign-in or their own.',
       none2: 'Enter a department name.',
       leadSuffix: 'Leadership',
+      vaultSuffix: 'Passwords',
     },
   },
 });
@@ -150,14 +170,23 @@ interface Dept {
   name: string;
   description: string;
   heads: { id: string; name: string; pending: boolean }[];
+  archived: boolean;
   members: number;
   waiting: number;
   vaults: number;
 }
 const depts = ref<Dept[] | null>(null);
+/** Открытая для правки карточка подразделения (идентификатор пространства). */
+const managing = ref('');
+const showArchived = ref(false);
 async function loadDepts(): Promise<void> {
   try {
-    depts.value = (await api<{ items: Dept[] }>('GET', '/admin/departments?limit=200')).items;
+    depts.value = (
+      await api<{ items: Dept[] }>(
+        'GET',
+        `/admin/departments?limit=200${showArchived.value ? '&archived=1' : ''}`,
+      )
+    ).items;
   } catch {
     depts.value = null;
   }
@@ -170,7 +199,8 @@ const description = ref('');
 const head = ref<Person[]>([]);
 const listText = ref('');
 const members = ref<Person[]>([]);
-const leadVault = ref(true);
+// сейф руководства — по желанию: по умолчанию у отдела один сейф с папками
+const leadVault = ref(false);
 const folders = ref('');
 const busy = ref(false);
 const error = ref('');
@@ -278,7 +308,10 @@ watch(
 );
 
 const spaceOf = (n: string) => ws.spaces.find((s) => s.name === n);
-const vaultOf = (n: string) => ws.vaults.find((v) => v.name === n && v.spaceId === spaceOf(n)?.id);
+const mainName = (n: string) => `${n} · ${t('vaultSuffix')}`;
+/** Сейф отдела: под новым названием («Отдел · Пароли»); созданный прежней версией назван как сам отдел. */
+const vaultOf = (n: string) =>
+  ws.vaults.find((v) => v.spaceId === spaceOf(n)?.id && (v.name === mainName(n) || v.name === n));
 const leadName = (n: string) => `${n} · ${t('leadSuffix')}`;
 const plan = computed(() =>
   items.value.map((it, i) => {
@@ -342,7 +375,8 @@ async function build(source: Item): Promise<void> {
   await api('PUT', `/spaces/${space.id}/circles/${circleId}`, { role: 'member' });
   if (it.head) await api('PUT', `/spaces/${space.id}/users/${it.head.id}`, { role: 'admin' });
   let vaultId = vaultOf(it.name)?.id;
-  if (!vaultId) vaultId = await ws.createVault(it.name, { spaceId: space.id, select: false });
+  if (!vaultId)
+    vaultId = await ws.createVault(mainName(it.name), { spaceId: space.id, select: false });
   await api('PUT', `/vaults/${vaultId}/circles/${circleId}`, { role: 'editor' });
   const headUser = it.head
     ? (
@@ -393,35 +427,51 @@ async function create(): Promise<void> {
   await ws.loadVaults().catch(() => undefined);
   await loadDepts();
   busy.value = false;
+  // созданное подразделение сразу открывается: туда можно добавить людей и назначить руководителей
+  const only = plan.value.length === 1 ? spaceOf(plan.value[0]!.name) : undefined;
+  if (only && results.value[plan.value[0]!.name] === t('done')) {
+    managing.value = only.id;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 }
 </script>
 
 <template>
   <section class="space-y-6 text-sm" data-testid="departments">
-    <header class="space-y-1">
-      <h2 class="text-base font-semibold">{{ t('title') }}</h2>
-      <p class="max-w-prose text-xs text-slate-500">{{ t('hint') }}</p>
-    </header>
-
     <details class="card p-4" :open="depts !== null && !depts.length" data-testid="dept-explain">
       <summary class="min-h-11 cursor-pointer font-medium">{{ t('whatTitle') }}</summary>
       <dl class="mt-2 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[8rem_1fr]">
-        <dt class="font-medium">{{ t('colGroup') }}</dt>
+        <dt class="font-medium">{{ t('dtPeople') }}</dt>
         <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatGroup') }}</dd>
-        <dt class="font-medium">{{ t('title') }}</dt>
+        <dt class="font-medium">{{ t('dtVault') }}</dt>
         <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatDept') }}</dd>
-        <dt class="font-medium">{{ t('whatRoleTerm') }}</dt>
+        <dt class="font-medium">{{ t('dtRoles') }}</dt>
         <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatRole') }}</dd>
-        <dt class="font-medium">{{ t('members') }}</dt>
+        <dt class="font-medium">{{ t('dtOthers') }}</dt>
         <dd class="max-w-prose text-slate-600 dark:text-slate-300">{{ t('whatPeople') }}</dd>
       </dl>
     </details>
 
     <section class="space-y-2" data-testid="dept-list-created">
       <h3 class="font-medium">{{ t('listTitle') }}</h3>
+      <label class="flex min-h-11 items-center gap-2 text-xs text-slate-500"
+        ><input
+          v-model="showArchived"
+          type="checkbox"
+          data-testid="dept-show-archived"
+          @change="loadDepts"
+        />{{ t('showArchived') }}</label
+      >
       <p v-if="depts && !depts.length" class="text-xs text-slate-500" data-testid="dept-list-empty">
         {{ t('listNone') }}
       </p>
+      <DepartmentDetail
+        v-if="managing"
+        :key="managing"
+        :space-id="managing"
+        @close="managing = ''"
+        @changed="loadDepts"
+      />
       <ul v-else-if="depts" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <li
           v-for="d in depts"
@@ -429,7 +479,9 @@ async function create(): Promise<void> {
           class="card flex flex-col gap-2 p-4"
           data-testid="dept-card"
         >
-          <h4 class="truncate font-medium" :title="d.name">{{ d.name }}</h4>
+          <h4 class="truncate font-medium" :title="d.name">
+            {{ d.name }}<span v-if="d.archived" class="badge ml-2">{{ t('archivedBadge') }}</span>
+          </h4>
           <p class="flex-1 text-xs text-slate-600 dark:text-slate-300">
             <span class="font-medium">{{ t('listHead') }}:</span>
             {{ d.heads.map((h) => h.name).join(', ') || t('listNoHead') }}
@@ -439,6 +491,14 @@ async function create(): Promise<void> {
             }}<span v-if="d.waiting"> · {{ t('listWaiting', { n: d.waiting }) }}</span> ·
             {{ t('listVaults', { n: d.vaults }) }}
           </p>
+          <button
+            type="button"
+            class="btn self-start"
+            :data-testid="`dept-manage-${d.name}`"
+            @click="managing = d.spaceId"
+          >
+            {{ t('manage') }}
+          </button>
         </li>
       </ul>
     </section>
@@ -479,13 +539,15 @@ async function create(): Promise<void> {
           </div>
         </fieldset>
         <fieldset class="space-y-2">
-          <legend class="font-medium">{{ t('step2') }}</legend>
-          <p class="text-xs text-slate-500">{{ t('step2hint') }}</p>
+          <legend class="font-medium">
+            {{ t('step2') }}<InfoHint class="ml-1" :text="t('step2hint')" />
+          </legend>
           <PersonPicker v-model="head" :placeholder="t('headFind')" testid="dept-head" />
         </fieldset>
         <fieldset class="space-y-2">
-          <legend class="font-medium">{{ t('step3') }}</legend>
-          <p class="text-xs text-slate-500">{{ t('step3hint') }}</p>
+          <legend class="font-medium">
+            {{ t('step3') }}<InfoHint class="ml-1" :text="t('step3hint')" />
+          </legend>
           <PersonPicker
             v-model="members"
             multiple
@@ -575,7 +637,7 @@ async function create(): Promise<void> {
           >
             {{ busy ? t('creating') : t('create') }}
           </button>
-          <span class="max-w-prose text-xs text-slate-500">{{ t('pendingKeys') }}</span>
+          <InfoHint :text="t('pendingKeys')" />
         </div>
       </fieldset>
     </div>

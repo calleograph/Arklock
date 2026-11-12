@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -218,8 +219,9 @@ const where = computed(() => {
 
 <template>
   <section class="space-y-3" data-testid="offsite">
-    <h2 class="text-base font-semibold">{{ t('offsite.title') }}</h2>
-    <p class="text-sm text-slate-500">{{ t('offsite.hint') }}</p>
+    <h2 class="text-base font-semibold">
+      {{ t('offsite.title') }}<InfoHint class="ml-1" :text="t('offsite.hint')" />
+    </h2>
     <p v-if="!helperAlive" class="text-sm text-amber-700">{{ t('offsite.noHelper') }}</p>
     <p
       v-if="error"
@@ -256,7 +258,7 @@ const where = computed(() => {
       </div>
     </div>
 
-    <form class="card max-w-2xl space-y-3 p-4 text-sm" @submit.prevent="save">
+    <form class="card form-grid p-4 text-sm" @submit.prevent="save">
       <label class="block"
         >{{ t('offsite.type') }}
         <select v-model="form.type" class="input w-auto" data-testid="offsite-type">

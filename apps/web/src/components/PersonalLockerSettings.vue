@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -129,8 +130,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-3 border-t border-slate-200 pt-4" data-testid="personal-locker-policy">
-    <h3 class="font-medium">{{ t('title') }}</h3>
-    <p class="text-xs text-slate-500">{{ t('hint') }}</p>
+    <h3 class="font-medium">{{ t('title') }}<InfoHint class="ml-1" :text="t('hint')" /></h3>
     <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
     <fieldset :disabled="busy" class="space-y-3">
       <label class="check-row">

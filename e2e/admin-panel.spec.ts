@@ -406,6 +406,15 @@ const PEOPLE = [
     memberOf: undefined as string | undefined,
   },
   {
+    dn: `uid=elena,ou=people,${BASE_DN}`,
+    uid: 'elena',
+    mail: 'elena@example.com',
+    cn: 'Elena Directory',
+    uuid: '6f1c0f6e-0005-4a2b-9c10-eeeeeeeeeeee',
+    password: 'elena-ldap-e2e-pass',
+    memberOf: undefined as string | undefined,
+  },
+  {
     dn: `uid=dmitri,ou=people,${BASE_DN}`,
     uid: 'dmitri',
     mail: 'dmitri@example.com',
@@ -642,9 +651,62 @@ test('directory people: find an employee in the head field, add with "+", link a
   await expect(page.getByTestId('dept-state').first()).toContainText(/Готово|Done/, {
     timeout: 60_000,
   });
-  const card = page.getByTestId('dept-card').filter({ hasText: 'Поддержка' });
-  await expect(card).toContainText('Boris Directory');
-  await expect(card).toContainText(/ждут первого входа|waiting for first sign-in/);
+  // созданное подразделение сразу открывается: руководитель в списке, участник ждёт первого входа
+  await expect(page.getByTestId('dept-detail-title')).toHaveText('Поддержка');
+  await expect(page.getByTestId('dept-head-row-boris@example.com')).toBeVisible();
+  await expect(page.getByTestId('dept-member-row-boris@example.com')).toContainText(
+    /ждёт первого входа|waiting for first sign-in/,
+  );
+  const deptNames = async () =>
+    (
+      (await (await page.request.get('/api/v1/vaults', { headers })).json()) as {
+        name: string | null;
+      }[]
+    )
+      .map((v) => v.name)
+      .filter((n) => n?.startsWith('Поддержка'));
+  // у отдела один сейф с понятным названием, а не сейф с таким же именем, как у отдела
+  expect(await deptNames()).toEqual(['Поддержка · Passwords']);
+
+  // переименование меняет пространство, группу и сейф вместе; обратно — так же
+  await page.getByTestId('dept-edit-name').fill('Служба поддержки');
+  await page.getByTestId('dept-edit-save').click();
+  await expect(page.getByTestId('dept-detail-title')).toHaveText('Служба поддержки');
+  expect(
+    ((await (await page.request.get('/api/v1/vaults', { headers })).json()) as { name: string }[])
+      .map((v) => v.name)
+      .filter((n) => n?.startsWith('Служба')),
+  ).toEqual(['Служба поддержки · Passwords']);
+  await page.getByTestId('dept-edit-name').fill('Поддержка');
+  await page.getByTestId('dept-edit-save').click();
+  await expect(page.getByTestId('dept-detail-title')).toHaveText('Поддержка');
+
+  // состав: человек из каталога добавляется прямо в карточке (поиск → «+» → «Добавить»)
+  await page.getByTestId('dept-newmember-input').fill('elena');
+  await page.getByTestId('dept-newmember-add-elena@example.com').click();
+  await page.getByTestId('dept-members-add').click();
+  await expect(page.getByTestId('dept-member-row-elena@example.com')).toBeVisible();
+  // смена руководителя: назначить, затем снять (с подтверждением)
+  await page.getByTestId('dept-newhead-input').fill('elena');
+  await page.getByTestId('dept-newhead-result-elena@example.com').click();
+  await page.getByTestId('dept-head-assign').click();
+  await expect(page.getByTestId('dept-head-row-elena@example.com')).toBeVisible();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('dept-head-remove-elena@example.com').click();
+  await expect(page.getByTestId('dept-head-row-elena@example.com')).toHaveCount(0);
+  await expect(page.getByTestId('dept-head-row-boris@example.com')).toBeVisible();
+
+  // принадлежность видна и меняется в карточке сотрудника
+  await page.goto('/admin/users');
+  await page.getByTestId('admin-user-search').fill('elena');
+  await page.getByTestId('profile-open-elena@example.com').click();
+  await expect(page.getByTestId('profile-dept-Поддержка')).toBeVisible();
+  await page.getByTestId('profile-dept-leave-Поддержка').click();
+  await expect(page.getByTestId('profile-dept-Поддержка')).toHaveCount(0);
+  await page.getByTestId('profile-dept-pick').selectOption({ label: 'Поддержка' });
+  await page.getByTestId('profile-dept-add').click();
+  await expect(page.getByTestId('profile-dept-Поддержка')).toBeVisible();
+  await page.goto('/admin/departments');
 
   // группа домена связывается с группой Arklock: сначала предпросмотр, потом связь
   const made = await page.request.post('/api/v1/admin/circles', {
@@ -663,29 +725,18 @@ test('directory people: find an employee in the head field, add with "+", link a
   await expect(page.getByTestId('domain-links-notice')).toBeVisible();
   await expect(page.getByTestId('domain-links-list')).toContainText('Support');
 
-  // доступ к сейфу выдаётся тем же поиском: человек из каталога находится, «+» создаёт профиль, роль назначается сразу
+  // ко всему сейфу доступ выдаётся людям подразделения: человека из каталога здесь не предлагают
+  // (ему доступ выдают на папку или запись: он становится гостем)
   const vaults = await (await page.request.get('/api/v1/vaults', { headers })).json();
-  const grant = async (vaultName: string) => {
-    const v = vaults.find((x: { name: string }) => x.name === vaultName);
-    await page.goto(`/vault/${v.id}/settings`);
-    await page.getByTestId('grant-open').click();
-    await page.getByTestId('grant-search').fill('clara');
-    await page.getByTestId('grant-option-clara@example.com').click();
-    await expect(page.getByTestId('grant-chip')).toContainText('Clara Directory');
-    await page.getByTestId('grant-submit').click();
-  };
-  // в закрытом пространстве отдела её ещё нет: причина названа в самом окне, окно не закрывается молча
-  await grant('Поддержка');
-  await expect(page.getByTestId('grant-error')).toContainText(
-    /not in the vault|нет в пространстве сейфа/,
-  );
-  await grant('Organization');
-  await expect(page.getByTestId('grant-dialog')).toBeHidden({ timeout: 30_000 });
-  const clara = await page.request.get('/api/v1/admin/people?q=clara', { headers });
-  expect((await clara.json()).items[0]).toMatchObject({
-    email: 'clara@example.com',
-    pending: true,
-  });
+  const dept = vaults.find((v: { name: string }) => v.name === 'Поддержка · Passwords');
+  await page.goto(`/vault/${dept.id}/settings`);
+  await page.getByTestId('grant-open').click();
+  await page.getByTestId('grant-search').fill('boris');
+  await expect(page.getByTestId('grant-option-boris@example.com')).toBeVisible();
+  await page.getByTestId('grant-search').fill('clara');
+  await page.waitForTimeout(1_000);
+  await expect(page.getByTestId('grant-option-clara@example.com')).toHaveCount(0);
+  await page.getByRole('button', { name: /Cancel|Отмена/ }).click();
 
   // «Создание и приглашение»: сотрудники домена находятся поиском и сразу включаются в группы, код не нужен
   await page.goto('/admin/invitations');

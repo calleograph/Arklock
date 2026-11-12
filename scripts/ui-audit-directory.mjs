@@ -209,7 +209,44 @@ try {
       },
       ready: 'dir-invite-group-directory-title',
     },
-    { id: 'departments', run: async () => go('admin/departments'), ready: 'dept-card' },
+    {
+      id: 'departments',
+      run: async () => {
+        await go('admin/departments');
+        // карточка созданного подразделения остаётся открытой между экранами: закрываем её, чтобы увидеть список
+        if (
+          await page
+            .getByTestId('dept-detail-close')
+            .isVisible()
+            .catch(() => false)
+        )
+          await page.getByTestId('dept-detail-close').click();
+      },
+      ready: 'dept-card',
+    },
+    {
+      id: 'department-card',
+      run: async () => {
+        await go('admin/departments');
+        if (
+          !(await page
+            .getByTestId('dept-detail')
+            .isVisible()
+            .catch(() => false))
+        )
+          await page.getByTestId('dept-manage-Поддержка').click();
+      },
+      ready: 'dept-detail',
+    },
+    {
+      id: 'user-card',
+      run: async () => {
+        await go('admin/users');
+        await page.getByTestId('admin-user-search').fill('boris');
+        await page.getByTestId('profile-open-boris@example.com').click();
+      },
+      ready: 'user-memberships',
+    },
     {
       id: 'departments-picker',
       run: async () => {

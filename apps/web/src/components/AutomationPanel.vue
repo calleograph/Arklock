@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import SwitchField from './SwitchField.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
@@ -137,10 +138,7 @@ const recipients = (r: Rule) =>
 <template>
   <section class="card space-y-4 p-4 text-sm" data-testid="automation">
     <div class="flex flex-wrap items-start justify-between gap-2">
-      <div>
-        <h2 class="font-medium">{{ t('automation.title') }}</h2>
-        <p class="max-w-prose text-xs text-slate-500">{{ t('automation.hint') }}</p>
-      </div>
+      <span />
       <button
         v-if="!editing"
         type="button"

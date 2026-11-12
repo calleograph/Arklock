@@ -231,6 +231,8 @@ export const registerDirectoryGroupRoutes: FastifyPluginAsync<{ ctx: AppContext 
       z.object({
         q: z.string().trim().max(100).default(''),
         limit: z.coerce.number().int().min(1).max(200).default(100),
+        /** Показывать и архивные подразделения (их можно вернуть из архива). */
+        archived: z.enum(['0', '1']).default('0'),
       }),
       req.query,
     );
@@ -240,12 +242,17 @@ export const registerDirectoryGroupRoutes: FastifyPluginAsync<{ ctx: AppContext 
         name: spaces.name,
         circleId: circles.id,
         description: spaces.description,
+        archived: spaces.archived,
       })
       .from(spaces)
       .innerJoin(spaceCircles, eq(spaceCircles.spaceId, spaces.id))
       .innerJoin(circles, and(eq(circles.id, spaceCircles.circleId), eq(circles.name, spaces.name)))
       .where(
-        and(eq(spaces.archived, false), eq(spaces.publicToOrg, false), eq(spaces.isDefault, false)),
+        and(
+          o.archived === '1' ? undefined : eq(spaces.archived, false),
+          eq(spaces.publicToOrg, false),
+          eq(spaces.isDefault, false),
+        ),
       )
       .orderBy(asc(spaces.name))
       .limit(o.limit);
@@ -283,6 +290,7 @@ export const registerDirectoryGroupRoutes: FastifyPluginAsync<{ ctx: AppContext 
         circleId: r.circleId,
         name: r.name,
         description: r.description,
+        archived: r.archived,
         heads: heads
           .filter((h) => h.spaceId === r.spaceId)
           .map(({ id, name, pending }) => ({ id, name, pending })),

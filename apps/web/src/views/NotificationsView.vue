@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue';
 import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -116,8 +117,9 @@ const vaultName = (row: NotificationRow) =>
   <section class="mx-auto max-w-4xl space-y-5" data-testid="notifications-page">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1>{{ t('notifications.title') }}</h1>
-        <p class="mt-1 text-sm text-slate-500">{{ t('notifications.hint') }}</p>
+        <h1>
+          {{ t('notifications.title') }}<InfoHint class="ml-1" :text="t('notifications.hint')" />
+        </h1>
       </div>
       <button class="btn" type="button" :disabled="busy" @click="load()">
         {{ t('entryPanel.refresh') }}

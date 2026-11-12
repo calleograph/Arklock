@@ -196,12 +196,6 @@ async function test(h: Hook, i: number): Promise<void> {
 
 <template>
   <div class="space-y-4" data-testid="webhook-settings">
-    <div class="space-y-1 text-sm">
-      <p class="max-w-prose">{{ t('intro') }}</p>
-      <p class="flex items-center gap-1 text-slate-500">
-        {{ t('hint') }}<InfoHint :text="t('signHint')" />
-      </p>
-    </div>
     <details
       class="rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700"
       data-testid="webhook-help"
@@ -253,7 +247,7 @@ X-Arklock-Signature: sha256=3f5c…
       <div
         v-for="(h, i) in hooks"
         :key="h.id ?? i"
-        class="card max-w-2xl space-y-2 p-4 text-sm"
+        class="card space-y-2 p-4 text-sm"
         data-testid="webhook-row"
       >
         <label class="block"

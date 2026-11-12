@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ApiTokenInfo } from '@arklock/contracts';
@@ -59,8 +60,9 @@ const fmt = (s: string | null) => (s ? when(s) : '—');
 
 <template>
   <div class="max-w-xl space-y-3" data-testid="tokens-section">
-    <h2 class="font-medium">{{ t('tokens.title') }}</h2>
-    <p class="text-sm text-slate-500">{{ t('tokens.hint') }}</p>
+    <h2 class="font-medium">
+      {{ t('tokens.title') }}<InfoHint class="ml-1" :text="t('tokens.hint')" />
+    </h2>
 
     <div
       v-if="created"

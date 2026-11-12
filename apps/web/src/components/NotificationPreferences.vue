@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -33,8 +34,10 @@ async function save(): Promise<void> {
 </script>
 <template>
   <form class="card space-y-3 p-4" data-testid="notification-preferences" @submit.prevent="save">
-    <h2 class="font-medium">{{ t('notifications.preferences') }}</h2>
-    <p class="text-xs text-slate-500">{{ t('notifications.preferencesHint') }}</p>
+    <h2 class="font-medium">
+      {{ t('notifications.preferences')
+      }}<InfoHint class="ml-1" :text="t('notifications.preferencesHint')" />
+    </h2>
     <fieldset v-if="form" :disabled="busy" class="flex flex-wrap gap-4 text-sm">
       <label v-for="category in categories" :key="category" class="flex items-center gap-2"
         ><input

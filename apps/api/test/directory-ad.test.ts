@@ -57,6 +57,16 @@ const people: Person[] = [
     nested: [],
   },
   {
+    dn: `CN=Clara Sidorova,OU=Users,${BASE}`,
+    sam: 'csidorova',
+    password: 'Clara-Synthetic-1',
+    mail: 'clara.sidorova@example.com',
+    name: 'Clara Sidorova',
+    guid: Buffer.from('66554433227766550102030405060708', 'hex'),
+    memberOf: [],
+    nested: [],
+  },
+  {
     dn: `CN=Old Account,OU=Users,${BASE}`,
     sam: 'oldacc',
     password: 'Old-Synthetic-1',
@@ -1125,5 +1135,47 @@ describe('domain groups: search, preview, link and unlink', () => {
     ]);
     // обычная группа без пространства подразделением не считается
     expect((await admin.req('GET', '/admin/departments?q=Support team')).json().items).toEqual([]);
+  });
+});
+
+describe('any employee finds domain people to share with, within the policy', () => {
+  let eve: TestClient;
+  const search = (c: TestClient, q: string) =>
+    c.req('GET', `/directory/people?q=${encodeURIComponent(q)}&profileId=ppl`);
+
+  it('searches from three letters and creates a profile only when the directory allows it', async () => {
+    await admin.req('PUT', '/admin/settings', { 'registration.mode': 'open' });
+    eve = new TestClient(fixture.app, 'eve-employee@example.com', 'eve-employee-password-1234');
+    expect((await eve.register()).statusCode).toBe(201);
+    await eve.login();
+    expect((await search(eve, 'cl')).json().items).toEqual([]);
+    const found = (await search(eve, 'sidorova')).json();
+    expect(found.items).toHaveLength(1);
+    expect(found.items[0]).toMatchObject({ email: 'clara.sidorova@example.com', existing: null });
+    // профиль создаёт и обычный сотрудник (подключение разрешает создание при первом входе)
+    const made = await eve.req('POST', '/directory/people/provision', {
+      profileId: 'ppl',
+      dn: found.items[0].dn,
+    });
+    expect(made.statusCode).toBe(201);
+    expect(made.json()).toMatchObject({ email: 'clara.sidorova@example.com', pending: true });
+    // повтор не создаёт дубль
+    const again = await eve.req('POST', '/directory/people/provision', {
+      profileId: 'ppl',
+      dn: found.items[0].dn,
+    });
+    expect(again.json()).toMatchObject({ id: made.json().id, created: false });
+  });
+
+  it('with the sharing policy "nobody" the directory stays closed for employees but not for administrators', async () => {
+    await admin.req('PUT', '/admin/settings', { 'sharing.outside': 'off' });
+    expect((await search(eve, 'sidorova')).json()).toMatchObject({ configured: false, items: [] });
+    const denied = await eve.req('POST', '/directory/people/provision', {
+      profileId: 'ppl',
+      dn: `CN=Anna Petrova,OU=Users,${BASE}`,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect((await search(admin, 'sidorova')).json().items).toHaveLength(1);
+    await admin.req('PUT', '/admin/settings', { 'sharing.outside': 'owners' });
   });
 });

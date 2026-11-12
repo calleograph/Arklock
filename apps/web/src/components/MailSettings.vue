@@ -554,11 +554,6 @@ const typeLabel = (r: Row) =>
 
 <template>
   <section class="space-y-4" data-testid="mail-settings">
-    <header>
-      <h2 class="text-lg font-semibold">{{ t('mail.title') }}</h2>
-      <p class="max-w-3xl text-xs text-slate-500">{{ t('mail.intro') }}</p>
-    </header>
-
     <div
       role="tablist"
       class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800"

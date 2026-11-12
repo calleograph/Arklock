@@ -1,3 +1,4 @@
+import { readLdapProfiles } from '../auth/ldap-profiles.js';
 import { and, count, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -236,10 +237,17 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
           ),
         ),
     ]);
-    const memberOf: { id: string; name: string; isDefault: boolean }[] = [];
-    for (const s of await db.select().from(spaces))
-      if ((await spaceAccess(db, s.id, id)).member)
-        memberOf.push({ id: s.id, name: s.name, isDefault: s.isDefault });
+    // группы, состав которых ведёт каталог: исключённый вручную вернётся при сверке
+    const linkedGroups = new Set(
+      (await readLdapProfiles(db)).flatMap((x) => x.groups.map((g) => g.circleId)),
+    );
+    const memberOf: { id: string; name: string; isDefault: boolean; head: boolean }[] = [];
+    for (const s of await db.select().from(spaces)) {
+      const access = await spaceAccess(db, s.id, id);
+      // head — администратор пространства (руководитель подразделения), в том числе через группу
+      if (access.member)
+        memberOf.push({ id: s.id, name: s.name, isDefault: s.isDefault, head: access.admin });
+    }
     return {
       user: {
         id,
@@ -262,7 +270,7 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       },
       mfa: { totp: await hasTotp(ctx, id), passkey: await hasPasskey(ctx, id) },
       spaces: memberOf,
-      groups,
+      groups: groups.map((g) => ({ ...g, directory: linkedGroups.has(g.id) })),
       sessionList: sessionList.map((x) => ({
         ...x,
         createdAt: x.createdAt.toISOString(),

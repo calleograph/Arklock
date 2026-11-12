@@ -534,6 +534,11 @@ dialog::backdrop {
     .seg {
       min-height: 2.75rem;
     }
+    /* кнопки в ячейках таблиц (сортировка, имя сотрудника, действия) нажимаются так же, как остальные */
+    main table :is(th, td) button {
+      min-height: 2.75rem;
+      min-width: 2.75rem;
+    }
     /* раскрывающиеся блоки в рабочей области: заголовок нажимается так же, как кнопка */
     main summary {
       min-height: 2.75rem;
@@ -663,10 +668,38 @@ dialog::backdrop {
   }
   /* ряд полей: поля прижаты к верхней границе, высота ряда — по самому высокому полю */
   .form-grid {
-    @apply grid items-start gap-x-3 gap-y-2.5 sm:grid-cols-2;
+    @apply grid items-start gap-x-6 gap-y-4 sm:grid-cols-2;
   }
-  .form-grid > .span-2 {
+  /*
+   * Правило ширины полей: в форме поля стоят в две колонки одной ширины; длинное значение (адрес, DN, фильтр) занимает
+   * всю строку. Поля «в промежутке» (узкие, с max-w) не делаются. Флажки, пояснения, списки и кнопки — всегда на всю строку.
+   */
+  .form-grid > .span-2,
+  .form-grid
+    > :is(.check-row, .notice, details, hr, p, ul, ol, h2, h3, h4, fieldset, .btn-row, pre) {
     @apply sm:col-span-2;
+  }
+  .btn-row {
+    @apply flex flex-wrap items-center gap-2;
+  }
+  /*
+   * Подпись поля в старых формах — текст прямо в label. Чтобы все формы выглядели одинаково, подпись у label.block
+   * оформляется как .field-label, а само поле отделяется от неё на 4 px.
+   */
+  label:is(.block, .flex-1) {
+    @apply text-xs leading-4 font-medium text-slate-600 dark:text-slate-300;
+  }
+  label:is(.block, .flex-1)
+    > :is(.input, .field, select, textarea, input:not([type='checkbox'], [type='radio'])) {
+    @apply mt-1 font-normal;
+  }
+  /* длинные значения (многострочный текст, адреса и DN моноширинным шрифтом) занимают всю строку формы */
+  .form-grid > label:has(textarea) {
+    @apply sm:col-span-2;
+  }
+  /* два поля в обёртке (старая разметка) выравниваются по той же двухколоночной сетке */
+  .form-grid > div:has(> label.flex-1) {
+    @apply grid gap-x-6 sm:col-span-2 sm:grid-cols-2;
   }
 
   /*

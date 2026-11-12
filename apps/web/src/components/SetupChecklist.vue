@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -100,8 +101,8 @@ function hide(): void {
   <section v-if="show" class="card space-y-2 p-4 text-sm" data-testid="setup-checklist">
     <div class="flex flex-wrap items-start justify-between gap-2">
       <div>
-        <h2 class="font-medium">{{ t('title') }}</h2>
-        <p class="text-xs text-slate-500">{{ t('hint') }} {{ t('left', { n: left }) }}</p>
+        <h2 class="font-medium">{{ t('title') }}<InfoHint class="ml-1" :text="t('hint')" /></h2>
+        <p class="text-xs text-slate-500">{{ t('left', { n: left }) }}</p>
       </div>
       <button type="button" class="btn-ghost text-xs" data-testid="setup-hide" @click="hide">
         {{ t('hide') }}

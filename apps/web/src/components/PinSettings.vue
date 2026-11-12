@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -65,8 +66,7 @@ const remove = (id: string) =>
 
 <template>
   <div data-testid="pin-settings">
-    <h2>{{ t('pin.title') }}</h2>
-    <p class="mb-3 mt-1 text-sm text-slate-500">{{ t('pin.hint') }}</p>
+    <h2>{{ t('pin.title') }}<InfoHint class="ml-1" :text="t('pin.hint')" /></h2>
     <p v-if="error" class="notice notice-error mb-3" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice notice-ok mb-3" role="status">{{ notice }}</p>
     <p v-if="!policy" class="text-sm text-slate-500">{{ t('pin.off') }}</p>

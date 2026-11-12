@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -76,8 +77,10 @@ onBeforeUnmount(() => {
     @click.self="emit('close')"
   >
     <div class="modal max-h-[92dvh] w-full max-w-2xl space-y-3 overflow-y-auto p-4 text-sm">
-      <h2 class="text-base font-semibold">{{ t('shield.login.preview.title') }}</h2>
-      <p class="text-xs text-slate-500">{{ t('shield.login.preview.intro') }}</p>
+      <h2 class="text-base font-semibold">
+        {{ t('shield.login.preview.title')
+        }}<InfoHint class="ml-1" :text="t('shield.login.preview.intro')" />
+      </h2>
       <p class="text-xs text-slate-500" data-testid="preview-mechanism">
         {{ t('shield.login.preview.mechanism', { bits: bits || '…' }) }}
       </p>

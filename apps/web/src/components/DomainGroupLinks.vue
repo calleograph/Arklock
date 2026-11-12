@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ApiError, api } from '../services/api';
@@ -280,8 +281,9 @@ const otherLink = (h: Hit) => h.linked.find((l) => l.circleId !== props.circleId
     data-testid="domain-links"
   >
     <div>
-      <h3 class="text-sm font-medium">{{ t('title') }}</h3>
-      <p class="max-w-prose text-slate-500">{{ t('lead') }}</p>
+      <h3 class="text-sm font-medium">
+        {{ t('title') }}<InfoHint class="ml-1" :text="t('lead')" />
+      </h3>
     </div>
     <p v-if="error" class="text-red-600" role="alert" data-testid="domain-links-error">
       {{ error }}

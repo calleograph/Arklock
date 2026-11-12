@@ -27,6 +27,7 @@ import type { AppContext } from '../context.js';
 import { users } from '../db/schema.js';
 import { AppError, parse } from '../errors.js';
 import { hashProof, randomB64url } from '../security.js';
+import { outsideSharing } from '../sharing-policy.js';
 
 type Existing = { id: string; state: 'active' | 'pending' | 'disabled' };
 
@@ -41,7 +42,10 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
 ) => {
   const { db, config } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
-  app.addHook('preHandler', (req) => adminGate(ctx, req));
+  // права администратора нужны только маршрутам /admin: остальные доступны любому вошедшему и ограничены политикой
+  app.addHook('preHandler', async (req) => {
+    if (req.url.startsWith('/api/v1/admin/')) await adminGate(ctx, req);
+  });
 
   const enabledProfiles = async (only?: string): Promise<LdapProfile[]> =>
     (await readLdapProfiles(db)).filter((p) => p.enabled && (!only || p.id === only));
@@ -71,18 +75,10 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
   });
 
   /** Поиск в каталоге: по имени, логину и почте; в ответе видно, кто уже есть в Arklock. */
-  app.get('/admin/people/directory', async (req) => {
-    const o = parse(
-      z.object({
-        q: z.string().trim().max(100).default(''),
-        limit: z.coerce.number().int().min(1).max(25).default(12),
-        profileId: z.string().max(60).optional(),
-      }),
-      req.query,
-    );
+  async function search(o: { q: string; limit: number; profileId?: string }, minLength = 2) {
     const profiles = await enabledProfiles(o.profileId);
     // короткий запрос выбрал бы весь каталог; подсказка в поле просит ввести хотя бы две буквы
-    if (o.q.length < 2) return { configured: profiles.length > 0, items: [], problems: [] };
+    if (o.q.length < minLength) return { configured: profiles.length > 0, items: [], problems: [] };
     const items: {
       profileId: string;
       profileName: string;
@@ -156,18 +152,15 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
       if (part.problem) problems.push(part.problem);
     }
     return { configured: profiles.length > 0, items, problems };
-  });
+  }
 
   /**
    * Профиль для выбранного в каталоге человека. Данные берутся из каталога по DN, а не из запроса; повторный выбор
    * того же человека возвращает уже созданный профиль (дублей нет). Допуск по настройке «кто может входить» проверяется.
    */
-  app.post('/admin/people/directory/provision', async (req, reply) => {
-    const { user } = authOf(req);
-    const body = parse(
-      z.object({ profileId: z.string().min(1).max(60), dn: z.string().min(3).max(1000) }),
-      req.body,
-    );
+  /** Профиль для человека из каталога; actor — кто создаёт (запись в журнале). Возвращает карточку и признак «создан». */
+  async function provision(actor: { id: string }, body: { profileId: string; dn: string }) {
+    const user = actor;
     const [s] = await enabledProfiles(body.profileId);
     if (!s) throw new AppError(409, 'ldap_disabled', 'Directory sign-in is turned off');
     let found;
@@ -259,7 +252,6 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
       });
       return { user: row!, created: true };
     });
-    reply.status(result.created ? 201 : 200);
     const [fresh] = await db.select().from(users).where(eq(users.id, result.user.id));
     const u = fresh ?? result.user;
     return {
@@ -272,5 +264,65 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
       pending: u.pendingActivation,
       created: result.created,
     };
+  }
+
+  const searchQuery = z.object({
+    q: z.string().trim().max(100).default(''),
+    limit: z.coerce.number().int().min(1).max(25).default(12),
+    profileId: z.string().max(60).optional(),
+  });
+  const provisionBody = z.object({
+    profileId: z.string().min(1).max(60),
+    dn: z.string().min(3).max(1000),
+  });
+
+  // ---- администратор: без ограничений
+  app.get('/admin/people/directory', async (req) => {
+    return search(parse(searchQuery, req.query));
+  });
+  app.post('/admin/people/directory/provision', async (req, reply) => {
+    const { user } = authOf(req);
+    const r = await provision(user, parse(provisionBody, req.body));
+    reply.status(r.created ? 201 : 200);
+    return r;
+  });
+
+  // ---- любой сотрудник: чтобы поделиться папкой или записью с человеком из домена. Условия: политика не «никто»,
+  // профили при первом входе разрешено создавать, поиск от трёх букв, число созданных профилей ограничено
+  const sharingActions = new Map<string, number[]>();
+  const sharingAllowed = async (user: { role: string }) =>
+    user.role === 'admin' || (await outsideSharing(db)) !== 'off';
+  app.get('/directory/people', async (req) => {
+    const { user } = authOf(req);
+    if (!(await sharingAllowed(user))) return { configured: false, items: [], problems: [] };
+    const o = parse(searchQuery, req.query);
+    const r = await search({ ...o, limit: Math.min(o.limit, 8) }, 3);
+    // от пользователя скрыты технические подробности каталога
+    return {
+      configured: r.configured,
+      items: r.items,
+      problems: r.problems.map((p) => ({ ...p, detail: '' })),
+    };
+  });
+  app.post('/directory/people/provision', async (req, reply) => {
+    const { user } = authOf(req);
+    if (!(await sharingAllowed(user)))
+      throw new AppError(403, 'outside_sharing_off', 'Sharing with people outside is turned off');
+    const body = parse(provisionBody, req.body);
+    const [p] = await enabledProfiles(body.profileId);
+    if (user.role !== 'admin' && !p?.autoProvision)
+      throw new AppError(
+        403,
+        'provision_admin_only',
+        'An administrator creates the profiles of directory employees',
+      );
+    const now = Date.now();
+    const recent = (sharingActions.get(user.id) ?? []).filter((t) => now - t < 3_600_000);
+    if (user.role !== 'admin' && recent.length >= 20)
+      throw new AppError(429, 'too_many_attempts', 'Too many new profiles, try again later');
+    sharingActions.set(user.id, [...recent, now]);
+    const r = await provision(user, body);
+    reply.status(r.created ? 201 : 200);
+    return r;
   });
 };

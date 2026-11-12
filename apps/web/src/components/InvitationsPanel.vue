@@ -87,7 +87,6 @@ const fmt = (s: string) => when(s);
 
 <template>
   <div class="space-y-4" data-testid="invitations-panel">
-    <p class="text-sm text-slate-500">{{ t('invite.hint') }}</p>
     <p
       v-if="error"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -101,7 +100,7 @@ const fmt = (s: string) => when(s);
 
     <BulkInvitations :circles="circles" @created="load" />
 
-    <form class="card max-w-xl space-y-3 p-4 text-sm" @submit.prevent="create">
+    <form class="card form-grid p-4 text-sm" @submit.prevent="create">
       <h2 class="text-base font-semibold">{{ t('invite.newUser') }}</h2>
       <label class="block"
         >{{ t('invite.name')
@@ -132,29 +131,29 @@ const fmt = (s: string) => when(s);
           <option value="admin">{{ t('invite.roleAdmin') }}</option>
         </select></label
       >
-      <div class="flex flex-wrap items-center gap-3">
-        <label
-          >{{ t('invite.days') }}
-          <input v-model.number="form.days" type="number" min="1" max="60" class="input w-20"
-        /></label>
-        <label class="flex items-center gap-2"
-          ><input
-            v-model="form.sendEmail"
-            type="checkbox"
-            :disabled="!canEmail"
-            data-testid="invite-send"
-          />
-          {{ t('invite.send') }}</label
-        >
-      </div>
-      <fieldset v-if="circles.length" class="space-y-1">
-        <legend class="text-xs text-slate-500">{{ t('invite.circles') }}</legend>
+      <label class="block"
+        >{{ t('invite.days') }}
+        <input v-model.number="form.days" type="number" min="1" max="60" class="input"
+      /></label>
+      <label class="check-row"
+        ><input
+          v-model="form.sendEmail"
+          type="checkbox"
+          :disabled="!canEmail"
+          data-testid="invite-send"
+        />
+        <span class="check-text">{{ t('invite.send') }}</span></label
+      >
+      <fieldset v-if="circles.length" class="space-y-2">
+        <legend class="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+          {{ t('invite.circles') }}
+        </legend>
         <!-- при десятках групп (по числу подразделений) нужен отбор, а выбранные остаются на виду -->
         <input
           v-if="circles.length > 6"
           v-model="circleFilter"
           type="search"
-          class="input max-w-xs"
+          class="input"
           :placeholder="t('invite.circleFilter')"
           data-testid="invite-circle-filter"
         />
@@ -169,12 +168,17 @@ const fmt = (s: string) => when(s);
           </label>
         </div>
       </fieldset>
-      <button type="submit" class="btn-primary" :disabled="busy" data-testid="invite-create">
+      <button
+        type="submit"
+        class="btn-primary sm:col-span-2"
+        :disabled="busy"
+        data-testid="invite-create"
+      >
         {{ t('invite.createAction') }}
       </button>
     </form>
 
-    <div v-if="created" class="card max-w-xl space-y-2 p-4 text-sm" data-testid="invite-created">
+    <div v-if="created" class="card space-y-2 p-4 text-sm" data-testid="invite-created">
       <p>{{ t('invite.codeShown') }}</p>
       <code class="block break-all text-base tracking-wider" data-testid="invite-code">{{
         created.code

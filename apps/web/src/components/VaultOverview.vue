@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ApiError } from '../services/api';
@@ -34,8 +35,9 @@ async function checkLeaks(): Promise<void> {
 <template>
   <section class="card space-y-3 p-4" data-testid="vault-overview">
     <div>
-      <h2 class="font-semibold">{{ t('corporate.summary') }}</h2>
-      <p class="mt-1 text-xs text-slate-500">{{ t('corporate.scope') }}</p>
+      <h2 class="font-semibold">
+        {{ t('corporate.summary') }}<InfoHint class="ml-1" :text="t('corporate.scope')" />
+      </h2>
     </div>
     <dl class="grid grid-cols-2 gap-3 text-sm">
       <div>

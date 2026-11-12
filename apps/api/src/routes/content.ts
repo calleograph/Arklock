@@ -15,6 +15,7 @@ import type { BranchRecord, EntryRecord, RevisionRecord } from '@arklock/contrac
 import { loadAccess, requireVault, type Access, type VaultAccess } from '../access.js';
 import { auditRotations, rotateLostAccess, subjectUsers } from '../rotate-signals.js';
 import { audit } from '../audit.js';
+import { notifyUsers } from '../notifications.js';
 import { enforceDenyRules } from '../automation.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -27,13 +28,16 @@ import {
   pins,
   signals,
   branchPins,
+  spaceMembers,
   users,
+  vaultMembers,
   vaults,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { attachmentIdsExpired, attachmentIdsOfEntries } from './attachments.js';
 import { registerObjectDetailsRoutes } from './object-details.js';
 import { lockVaultForWrite } from '../vault-mutation.js';
+import { admitOutside, guestTerm, pruneGuests } from '../sharing-policy.js';
 
 const REVISIONS_KEEP = 100;
 const atLeast = (a: Access | null, min: Access): boolean =>
@@ -988,15 +992,29 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         .where(eq(circles.id, body.subjectId));
       if (!c) throw notFound();
     }
+    // доступ к папке или записи человеку вне подразделения: он принимается гостем (не ко всему сейфу)
+    const guest =
+      body.role !== 'none'
+        ? await admitOutside(db, {
+            vaultId,
+            subjectType: body.subjectType,
+            subjectId: body.subjectId,
+            caller: user,
+            vaultAdmin: access.isAdmin,
+          })
+        : false;
     await enforceDenyRules(db, 'access.change', {
       actor: `user:${user.id}`,
       vaultId,
       target: `${body.targetType}:${body.targetId}`,
     });
-    const expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
+    let expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
       throw new AppError(400, 'validation_error', 'Expiry must be in the future');
     }
+    // гостю доступ всегда временный
+    if (body.subjectType === 'user' && body.role !== 'none')
+      expiresAt = await guestTerm(db, vaultId, body.subjectId, expiresAt);
     const id = crypto.randomUUID();
     // понижение или запрет может отнять записи — по ним «смените пароль»
     const affected = await subjectUsers(db, body.subjectType, body.subjectId);
@@ -1023,8 +1041,41 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       subject: body.subjectId,
       subjectType: body.subjectType,
       role: body.role,
+      guest,
     });
-    return reply.status(200).send({ id: row!.id });
+    if (guest) {
+      // администраторы сейфа и подразделения узнают, что доступ выдан человеку вне подразделения
+      const [v] = await db
+        .select({ spaceId: vaults.spaceId })
+        .from(vaults)
+        .where(eq(vaults.id, vaultId));
+      const owners = await db
+        .select({ id: vaultMembers.userId })
+        .from(vaultMembers)
+        .where(
+          and(eq(vaultMembers.vaultId, vaultId), inArray(vaultMembers.role, ['owner', 'admin'])),
+        );
+      const heads = v?.spaceId
+        ? await db
+            .select({ id: spaceMembers.userId })
+            .from(spaceMembers)
+            .where(and(eq(spaceMembers.spaceId, v.spaceId), eq(spaceMembers.role, 'admin')))
+        : [];
+      await notifyUsers(
+        db,
+        [...owners, ...heads].map((r) => r.id).filter((id) => id !== user.id),
+        {
+          category: 'access',
+          event: 'grant.outside',
+          resourceType: 'vault',
+          resourceId: vaultId,
+          vaultId,
+        },
+      );
+    }
+    return reply
+      .status(200)
+      .send({ id: row!.id, guest, expiresAt: expiresAt?.toISOString() ?? null });
   });
 
   app.delete('/vaults/:vaultId/grants/:grantId', async (req, reply) => {
@@ -1061,6 +1112,12 @@ export const registerContentRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       subject: g.subjectId,
       subjectType: g.subjectType,
     });
+    // гость без доступов выходит из подразделения
+    const [v] = await db
+      .select({ spaceId: vaults.spaceId })
+      .from(vaults)
+      .where(eq(vaults.id, vaultId));
+    if (v?.spaceId) await pruneGuests(db, v.spaceId);
     return reply.status(204).send();
   });
 

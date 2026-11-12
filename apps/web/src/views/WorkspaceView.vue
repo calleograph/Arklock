@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -757,8 +758,10 @@ void router;
     >
       <label
         class="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500 sm:flex-none"
-        >{{ t('spaces.title')
-        }}<select
+        ><span class="flex items-center gap-1"
+          >{{ t('ws.department') }}<InfoHint :text="t('ws.departmentHint')"
+        /></span>
+        <select
           class="input text-slate-900 sm:w-56 dark:text-slate-100"
           :value="ws.currentSpaceId ?? ''"
           data-testid="space-select"
@@ -770,8 +773,10 @@ void router;
       >
       <label
         class="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500 sm:flex-none"
-        >{{ t('ws.vault')
-        }}<select
+        ><span class="flex items-center gap-1"
+          >{{ t('ws.vault') }}<InfoHint :text="t('ws.vaultHint')"
+        /></span>
+        <select
           class="input text-slate-900 sm:w-64 dark:text-slate-100"
           :value="ws.currentId"
           data-testid="vault-select"

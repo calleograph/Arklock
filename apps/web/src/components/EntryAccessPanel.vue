@@ -104,7 +104,7 @@ function putGrant(grant: {
   subjectId: string;
   role: string;
   expiresAt: string | null;
-}): Promise<unknown> {
+}): Promise<{ id: string; guest?: boolean; expiresAt?: string | null }> {
   return api('PUT', `/vaults/${props.vaultId}/grants`, {
     targetType: props.targetType,
     targetId: props.entryId,
@@ -115,10 +115,26 @@ function putGrant(grant: {
 function grantMany(list: Recipient[], expiresAt: string | null): void {
   notice.value = '';
   void mutate(async () => {
-    for (const r of list)
-      await putGrant({ subjectType: r.kind, subjectId: r.id, role: r.level, expiresAt });
+    const guests: string[] = [];
+    let until = '';
+    for (const r of list) {
+      const done = await putGrant({
+        subjectType: r.kind,
+        subjectId: r.id,
+        role: r.level,
+        expiresAt,
+      });
+      // человек не из этого подразделения: сервер принял его гостем (видит только выданное)
+      if (done.guest) {
+        guests.push(r.name);
+        until ||= done.expiresAt ?? '';
+      }
+    }
     showGrant.value = false;
-    notice.value = t('grantDlg.done', { n: list.length });
+    const done = t('grantDlg.done', { n: list.length });
+    notice.value = guests.length
+      ? `${done} ${t('grantDlg.guests', { names: guests.join(', '), date: until ? when(until) : '' })}`
+      : done;
   });
 }
 // у наследуемого правила другой уровень — новое правило этого объекта (сервер хранит одно правило
@@ -318,6 +334,7 @@ function sourceLabel(source: string): string {
         </ul>
       </section>
       <GrantDialog
+        scope="object"
         :open="showGrant"
         :title="t(targetType === 'branch' ? 'entryPanel.assignFolder' : 'entryPanel.assign')"
         :levels="levels"

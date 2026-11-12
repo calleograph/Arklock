@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -102,8 +103,10 @@ async function save(): Promise<void> {
     </p>
     <p v-if="!data && busy" class="text-slate-500">{{ t('common.working') }}</p>
     <template v-if="data">
-      <h3 class="font-medium">{{ t('entryPanel.passwordPolicy') }}</h3>
-      <p class="text-xs text-slate-500">{{ t('entryPanel.policyHint') }}</p>
+      <h3 class="font-medium">
+        {{ t('entryPanel.passwordPolicy')
+        }}<InfoHint class="ml-1" :text="t('entryPanel.policyHint')" />
+      </h3>
       <dl
         class="grid grid-cols-1 gap-2 rounded-md bg-slate-50 p-3 dark:bg-slate-900 sm:grid-cols-3"
       >

@@ -1,13 +1,18 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
+import { useWorkspaceStore } from '../stores/workspace';
 
 /** Инвентаризация сейфов для главного администратора: страницами, с поиском и отбором по типу; только метаданные. */
 const { t } = useI18n();
 const auth = useAuthStore();
+const ws = useWorkspaceStore();
+/** Сейфы, в которых просматривающий участник: только их настройки он может открыть. */
+const mine = computed(() => new Set(ws.vaults.map((v) => v.id)));
 interface Row {
   id: string;
   kind: 'corporate' | 'managed' | 'private';
@@ -52,6 +57,7 @@ async function load(): Promise<void> {
 }
 onMounted(() => {
   if (auth.user?.chief) void load();
+  if (!ws.vaults.length) void ws.loadVaults().catch(() => undefined);
 });
 watch([kind, q], () => {
   page.value = 0;
@@ -70,10 +76,6 @@ const to = computed(() => Math.min(total.value, (page.value + 1) * PAGE));
 
 <template>
   <section class="space-y-3" data-testid="vaults-inventory">
-    <div>
-      <h2 class="text-base font-semibold">{{ t('managed.inventory') }}</h2>
-      <p class="mt-1 max-w-prose text-xs text-slate-500">{{ t('managed.inventoryHint') }}</p>
-    </div>
     <p v-if="!auth.user?.chief" class="notice notice-warn">{{ t('managed.onlyChief') }}</p>
     <template v-else>
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
@@ -113,6 +115,7 @@ const to = computed(() => Math.min(total.value, (page.value + 1) * PAGE));
               <th>{{ t('managed.colEntries') }}</th>
               <th>{{ t('managed.colLast') }}</th>
               <th>{{ t('managed.colKeys') }}</th>
+              <th>{{ t('managed.colActions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -140,6 +143,18 @@ const to = computed(() => Math.min(total.value, (page.value + 1) * PAGE));
                     ? t('managed.keysPending', { n: r.pendingKeys })
                     : t('managed.keysOk')
                 }}
+              </td>
+              <td class="pr-3 text-xs">
+                <RouterLink
+                  v-if="mine.has(r.id)"
+                  :to="`/vault/${r.id}/settings`"
+                  class="btn"
+                  :data-testid="`vault-settings-${r.id}`"
+                  >{{ t('managed.openSettings') }}</RouterLink
+                >
+                <span v-else class="inline-flex items-center gap-1 text-slate-500"
+                  >{{ t('managed.notMember') }}<InfoHint :text="t('managed.notMemberHint')"
+                /></span>
               </td>
             </tr>
           </tbody>

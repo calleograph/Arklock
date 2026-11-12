@@ -169,8 +169,9 @@ async function run(fn: () => Promise<unknown>, ok = ''): Promise<void> {
   notice.value = '';
   busy.value = true;
   try {
-    await fn();
-    if (ok) notice.value = ok;
+    const result = await fn();
+    if (typeof result === 'string') notice.value = result;
+    else if (ok) notice.value = ok;
     await load();
   } catch (e) {
     error.value =
@@ -235,6 +236,7 @@ const grantMany = (list: Recipient[], expiresAt: string | null) =>
       }
       showGrant.value = false;
       if (list.some((r) => r.kind === 'circle')) await ws.distributePending(id);
+      return t('grantDlg.done', { n: list.length });
     },
     t('grantDlg.done', { n: list.length }),
   );
@@ -681,8 +683,10 @@ void decryptEntry;
         {{ t('settings.rotate') }}
       </button>
       <div v-if="isOwner && heirs.length" class="card max-w-xl space-y-2 p-3 text-sm">
-        <h3 class="font-medium">{{ t('settings.transferTitle') }}</h3>
-        <p class="text-xs text-slate-500">{{ t('settings.transferHint') }}</p>
+        <h3 class="font-medium">
+          {{ t('settings.transferTitle')
+          }}<InfoHint class="ml-1" :text="t('settings.transferHint')" />
+        </h3>
         <select v-model="heir" class="input" data-testid="heir">
           <option value="">—</option>
           <option v-for="m in heirs" :key="m.userId" :value="m.userId">
@@ -723,6 +727,7 @@ void decryptEntry;
     </div>
     <GrantDialog
       :open="showGrant"
+      scope="vault"
       :title="t('grantDlg.open')"
       :levels="grantLevels"
       default-level="builtin:reader"

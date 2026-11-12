@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { ApiError, api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 import Icon from './Icon.vue';
+import InfoHint from './InfoHint.vue';
 
 /**
  * Единое окно «Предоставить доступ» для сейфа, папки и записи: один поиск по сотрудникам и группам,
@@ -34,6 +35,11 @@ const props = defineProps<{
   existing?: string[];
   busy?: boolean;
   error?: string;
+  /**
+   * Что выдаётся: весь сейф (только участникам подразделения) или папка и запись (можно и человеку из другого
+   * подразделения, в том числе из каталога: он станет гостем и увидит только выданное).
+   */
+  scope?: 'vault' | 'object';
 }>();
 const emit = defineEmits<{
   close: [];
@@ -103,7 +109,7 @@ async function find(q: string): Promise<void> {
     ];
     results.value = local;
     // каталог домена: люди, которых ещё нет в Arklock, и группы, которые ещё не заведены
-    if (!directoryDenied) {
+    if (!directoryDenied && props.scope !== 'vault') {
       const dir = await findInDirectory(q, circles.value);
       if (q === query.value.trim()) results.value = [...local, ...dir];
     }
@@ -128,37 +134,35 @@ interface DirGroup {
   linked: { circleId: string }[];
 }
 async function findInDirectory(q: string, known: { id: string }[]): Promise<Result[]> {
-  try {
-    const enc = encodeURIComponent(q);
-    const [people, groups] = await Promise.all([
-      api<{ items: DirPerson[] }>('GET', `/admin/people/directory?limit=8&q=${enc}`),
-      api<{ items: DirGroup[] }>('GET', `/admin/directory/groups?limit=6&q=${enc}`),
-    ]);
-    return [
-      ...people.items
-        .filter((p) => !p.existing && p.email)
-        .map((p) => ({
-          kind: 'user' as const,
-          id: `dir:${p.dn}`,
-          name: p.name,
-          email: p.email,
-          dir: { kind: 'person' as const, profileId: p.profileId, dn: p.dn },
-        })),
-      // группа домена, уже связанная с группой Arklock, найдена среди групп выше
-      ...groups.items
-        .filter((g) => !g.linked.some((l) => known.some((c) => c.id === l.circleId)))
-        .map((g) => ({
-          kind: 'circle' as const,
-          id: `dir:${g.dn}`,
-          name: g.name,
-          dir: { kind: 'group' as const, profileId: g.profileId, dn: g.dn },
-        })),
-    ];
-  } catch (e) {
-    // нет полномочий администратора каталога или каталог не подключён — обычный поиск остаётся
-    if (e instanceof ApiError && (e.status === 403 || e.status === 401)) directoryDenied = true;
-    return [];
-  }
+  const enc = encodeURIComponent(q);
+  // люди — любому сотруднику (политика «делиться с людьми вне подразделения»); группы домена — только администратору
+  const [people, groups] = await Promise.all([
+    api<{ items: DirPerson[] }>('GET', `/directory/people?limit=8&q=${enc}`).catch((e) => {
+      if (e instanceof ApiError && (e.status === 403 || e.status === 401)) directoryDenied = true;
+      return null;
+    }),
+    api<{ items: DirGroup[] }>('GET', `/admin/directory/groups?limit=6&q=${enc}`).catch(() => null),
+  ]);
+  return [
+    ...(people?.items ?? [])
+      .filter((p) => !p.existing && p.email)
+      .map((p) => ({
+        kind: 'user' as const,
+        id: `dir:${p.dn}`,
+        name: p.name,
+        email: p.email,
+        dir: { kind: 'person' as const, profileId: p.profileId, dn: p.dn },
+      })),
+    // группа домена, уже связанная с группой Arklock, найдена среди групп выше
+    ...(groups?.items ?? [])
+      .filter((g) => !g.linked.some((l) => known.some((c) => c.id === l.circleId)))
+      .map((g) => ({
+        kind: 'circle' as const,
+        id: `dir:${g.dn}`,
+        name: g.name,
+        dir: { kind: 'group' as const, profileId: g.profileId, dn: g.dn },
+      })),
+  ];
 }
 
 const key = (r: { kind: string; id: string }) => `${r.kind}:${r.id}`;
@@ -171,6 +175,8 @@ const dirErrors: Record<string, string> = {
   account_exists_local: 'grantDlg.errLocal',
   account_disabled_in_arklock: 'grantDlg.errBlocked',
   ldap_unavailable: 'grantDlg.errUnavailable',
+  provision_admin_only: 'grantDlg.errProvision',
+  outside_sharing_off: 'grantDlg.errOutsideOff',
 };
 async function pick(r: Result): Promise<void> {
   if (resolving.value) return;
@@ -182,7 +188,7 @@ async function pick(r: Result): Promise<void> {
       if (r.dir.kind === 'person') {
         const p = await api<{ id: string; name: string; email: string }>(
           'POST',
-          '/admin/people/directory/provision',
+          '/directory/people/provision',
           { profileId: r.dir.profileId, dn: r.dir.dn },
         );
         chosen = {
@@ -262,7 +268,14 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
       </header>
       <div class="space-y-4 overflow-y-auto px-5 py-4 text-sm">
         <div class="relative">
-          <label class="field-label" for="grant-search">{{ t('grantDlg.recipients') }}</label>
+          <div class="flex items-center gap-1">
+            <label class="field-label !mb-0" for="grant-search">{{
+              t('grantDlg.recipients')
+            }}</label>
+            <InfoHint
+              :text="scope === 'vault' ? t('grantDlg.hintVault') : t('grantDlg.hintObject')"
+            />
+          </div>
           <div
             class="input flex min-h-10 flex-wrap items-center gap-1.5 !py-1.5 focus-within:border-brand-500 focus-within:shadow-[var(--ring)]"
           >

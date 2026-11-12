@@ -865,6 +865,8 @@ export const spaceMembers = pgTable(
     role: text('role', { enum: ['member', 'admin'] })
       .notNull()
       .default('member'),
+    /** Гость: добавлен автоматически, когда ему выдали доступ к папке или записи. Видит только выданное. */
+    guest: boolean('guest').notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.spaceId, t.userId] })],
 );

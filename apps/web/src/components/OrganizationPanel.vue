@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -186,8 +187,7 @@ async function cancel(): Promise<void> {
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
     <section class="card space-y-3 p-4 text-sm">
       <div>
-        <h2>{{ t('chief.title') }}</h2>
-        <p class="mt-1 text-xs text-slate-500">{{ t('chief.intro') }}</p>
+        <h2>{{ t('chief.title') }}<InfoHint class="ml-1" :text="t('chief.intro')" /></h2>
       </div>
       <div
         v-if="status?.chiefs.length"
@@ -358,8 +358,9 @@ async function cancel(): Promise<void> {
     <section v-if="status?.you" class="card p-4 text-sm" data-testid="structure">
       <div class="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2>{{ t('chief.structure') }}</h2>
-          <p class="mt-1 text-xs text-slate-500">{{ t('chief.structureHint') }}</p>
+          <h2>
+            {{ t('chief.structure') }}<InfoHint class="ml-1" :text="t('chief.structureHint')" />
+          </h2>
         </div>
         <input
           v-model="query"
@@ -370,8 +371,9 @@ async function cancel(): Promise<void> {
         />
       </div>
       <div v-if="ranking.length > 3 && !query" class="mt-3" data-testid="structure-rank">
-        <h3 class="text-sm font-semibold">{{ t('chief.rank') }}</h3>
-        <p class="text-xs text-slate-500">{{ t('chief.rankHint') }}</p>
+        <h3 class="text-sm font-semibold">
+          {{ t('chief.rank') }}<InfoHint class="ml-1" :text="t('chief.rankHint')" />
+        </h3>
         <div
           class="mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 dark:border-slate-700"
         >

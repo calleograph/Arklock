@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue';
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../stores/auth';
@@ -79,8 +80,9 @@ function setLocale(value: 'ru' | 'en'): void {
     </header>
 
     <div>
-      <h2>{{ t('prefs.appearance') }}</h2>
-      <p class="mb-4 mt-1 text-sm text-slate-500">{{ t('prefs.appearanceHint') }}</p>
+      <h2>
+        {{ t('prefs.appearance') }}<InfoHint class="ml-1" :text="t('prefs.appearanceHint')" />
+      </h2>
       <p v-if="error" class="notice notice-error mb-3" role="alert">{{ error }}</p>
       <p v-else-if="notice" class="notice notice-ok mb-3" role="status" data-testid="theme-notice">
         {{ notice }}
@@ -142,8 +144,7 @@ function setLocale(value: 'ru' | 'en'): void {
     </div>
 
     <div>
-      <h2>{{ t('prefs.autoLock') }}</h2>
-      <p class="mb-4 mt-1 text-sm text-slate-500">{{ t('prefs.autoLockHint') }}</p>
+      <h2>{{ t('prefs.autoLock') }}<InfoHint class="ml-1" :text="t('prefs.autoLockHint')" /></h2>
       <div class="flex flex-wrap gap-2" role="radiogroup" :aria-label="t('prefs.autoLock')">
         <button
           v-for="m in AUTO_LOCK_OPTIONS"
@@ -181,8 +182,7 @@ function setLocale(value: 'ru' | 'en'): void {
     </div>
 
     <div>
-      <h2>{{ t('prefs.homeTitle') }}</h2>
-      <p class="mt-1 text-sm text-slate-500">{{ t('prefs.homeHint') }}</p>
+      <h2>{{ t('prefs.homeTitle') }}<InfoHint class="ml-1" :text="t('prefs.homeHint')" /></h2>
       <div class="mt-3 flex flex-wrap items-center gap-3">
         <select
           :value="homeSpace"

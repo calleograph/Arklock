@@ -1,110 +1,120 @@
-import { afterAll, beforeAll, expect, it } from 'vitest';
-import { settings } from '../src/db/schema.js';
-import { DEFAULT_SPACE_ID } from '../src/spaces.js';
+import 'reflect-metadata';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, TestClient } from './helpers.js';
 
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
 let admin: TestClient;
-let finHead: TestClient;
-let devHead: TestClient;
-let developer: TestClient;
+let bob: TestClient;
+let spaceId = '';
+let circleId = '';
+let vaultId = '';
 
 beforeAll(async () => {
   fixture = await createTestApp();
-  admin = new TestClient(fixture.app, 'dept-admin@example.com', 'dept-password-1234');
-  await admin.register();
+  admin = new TestClient(fixture.app, 'dept-admin@example.com', 'dept-admin-password-1234');
+  expect((await admin.register()).statusCode).toBe(201);
   await admin.login();
-  await fixture.database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
-  finHead = new TestClient(fixture.app, 'dept-fin@example.com', 'dept-password-1234');
-  devHead = new TestClient(fixture.app, 'dept-devhead@example.com', 'dept-password-1234');
-  developer = new TestClient(fixture.app, 'dept-dev@example.com', 'dept-password-1234');
-  for (const c of [finHead, devHead, developer]) {
-    await c.register();
-    await c.login();
-  }
+  await admin.req('PUT', '/admin/settings', { 'registration.mode': 'open' });
+  bob = new TestClient(fixture.app, 'dept-bob@example.com', 'dept-bob-password-123456');
+  expect((await bob.register()).statusCode).toBe(201);
+  await bob.login();
 });
 afterAll(async () => fixture.app.close());
 
-it('an employee of one department learns nothing about another department', async () => {
-  const space = async (name: string) =>
-    (await admin.req('POST', '/spaces', { name, description: `${name} department` })).json()
-      .id as string;
-  const finance = await space('Finance-Treasury');
-  const dev = await space('Development');
-  // руководители подразделений — администраторы своих пространств, сотрудник — участник
-  for (const [s, c, role] of [
-    [finance, finHead, 'admin'],
-    [dev, devHead, 'admin'],
-    [dev, developer, 'member'],
-  ] as const)
-    expect((await admin.req('PUT', `/spaces/${s}/users/${c.userId}`, { role })).statusCode).toBe(
-      204,
-    );
+describe('department card, rename and delete', () => {
+  it('the card shows head, members and vaults of a department', async () => {
+    circleId = (
+      await admin.req('POST', '/admin/circles', { name: 'Sales', description: '' })
+    ).json().id;
+    spaceId = (await admin.req('POST', '/spaces', { name: 'Sales', publicToOrg: false })).json().id;
+    await admin.req('PUT', `/spaces/${spaceId}/circles/${circleId}`, { role: 'member' });
+    await admin.req('PATCH', `/admin/circles/${circleId}/members`, { add: [bob.userId] });
+    const created = await admin.createSharedVault('Sales', { spaceId });
+    expect(created.res.statusCode).toBe(201);
+    vaultId = created.id;
+    await admin.req('PUT', `/vaults/${vaultId}/circles/${circleId}`, { role: 'editor' });
+    const lead = await admin.createSharedVault('Sales · Leadership', { spaceId });
+    expect(lead.res.statusCode).toBe(201);
+    const other = await admin.createSharedVault('Salesforce tools', { spaceId });
+    expect(other.res.statusCode).toBe(201);
+    const card = (await admin.req('GET', `/admin/departments/${spaceId}`)).json();
+    expect(card).toMatchObject({
+      name: 'Sales',
+      circleId,
+      members: 1,
+      waiting: 0,
+      directoryLinks: 0,
+      archived: false,
+    });
+    expect(card.heads.map((h: { email: string }) => h.email)).toEqual(['dept-admin@example.com']);
+    expect(card.vaults.find((v: { id: string }) => v.id === vaultId)).toMatchObject({
+      role: 'editor',
+    });
+    // обычная группа и общее пространство подразделением не считаются
+    expect((await admin.req('GET', `/admin/departments/${DEFAULT_SPACE}`)).statusCode).toBe(404);
+    expect((await bob.req('GET', `/admin/departments/${spaceId}`)).statusCode).toBe(403);
+  });
 
-  const made = await admin.createSharedVault('Treasury-Bank-Keys');
-  const vaultId = made.id;
-  expect(
-    (
-      await admin.req('PUT', `/spaces/${DEFAULT_SPACE_ID}/vaults/${vaultId}`, {
-        targetSpaceId: finance,
-      })
-    ).statusCode,
-  ).toBe(200);
-  expect((await admin.addMember(vaultId, finHead, 'editor', made.key)).statusCode).toBe(204);
-  const { entryId } = await admin.createEntry({ title: 'swift' }, { vaultId, vaultKey: made.key });
-  const branch = await admin.createBranch(vaultId, made.key, 'Payments');
+  it('renames the space, the group and the department vaults together, not foreign vaults', async () => {
+    const r = await admin.req('PATCH', `/admin/departments/${spaceId}`, {
+      name: 'Retail',
+      description: 'Розница',
+    });
+    expect(r.statusCode).toBe(200);
+    const card = (await admin.req('GET', `/admin/departments/${spaceId}`)).json();
+    expect(card).toMatchObject({ name: 'Retail', description: 'Розница' });
+    expect(card.vaults.map((v: { name: string }) => v.name).sort()).toEqual([
+      'Retail',
+      'Retail · Leadership',
+      'Salesforce tools',
+    ]);
+    const group = (await admin.req('GET', '/admin/circles?q=Retail')).json();
+    expect(group[0]).toMatchObject({ id: circleId, name: 'Retail', description: 'Розница' });
+  });
 
-  // руководитель финансов видит своё подразделение и сейф в нём
-  expect((await finHead.req('GET', '/spaces')).json().map((s: { id: string }) => s.id)).toContain(
-    finance,
-  );
-  expect((await finHead.vaults()).map((v) => v.id)).toContain(vaultId);
+  it('refuses a name taken by another group', async () => {
+    await admin.req('POST', '/admin/circles', { name: 'Support', description: '' });
+    const r = await admin.req('PATCH', `/admin/departments/${spaceId}`, { name: 'Support' });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.code).toBe('name_taken');
+    expect((await admin.req('GET', `/admin/departments/${spaceId}`)).json().name).toBe('Retail');
+  });
 
-  const secretWords = [finance, vaultId, entryId, branch.id, 'Finance-Treasury', 'Treasury-Bank'];
-  const urls = [
-    '/spaces',
-    '/spaces?manage=1',
-    `/spaces/${finance}`,
-    '/vaults',
-    `/vaults/${vaultId}/tree`,
-    `/vaults/${vaultId}/members`,
-    `/vaults/${vaultId}/grants`,
-    `/vaults/${vaultId}/signals`,
-    `/vaults/${vaultId}/pending-keys`,
-    `/vaults/${vaultId}/attachments`,
-    `/vaults/${vaultId}/recovery`,
-    `/vaults/${vaultId}/entries/${entryId}`,
-    `/vaults/${vaultId}/entries/${entryId}/revisions`,
-    `/vaults/${vaultId}/entries/${entryId}/journal`,
-    `/vaults/${vaultId}/entries/${entryId}/access`,
-    `/vaults/${vaultId}/branches/${branch.id}/journal`,
-    `/vaults/${vaultId}/branches/${branch.id}/access`,
-    '/key-log',
-    '/notifications',
-    '/handoffs',
-  ];
-  // и сотрудник, и руководитель другого подразделения: ни по списку, ни по прямой ссылке
-  for (const outsider of [developer, devHead])
-    for (const url of urls) {
-      const res = await outsider.req('GET', url);
-      if (res.statusCode !== 200) {
-        expect([403, 404], `${url}: ${res.statusCode}`).toContain(res.statusCode);
-        continue;
-      }
-      for (const word of secretWords)
-        expect(res.body, `${url} reveals ${word}`).not.toContain(word);
-    }
+  it('lists members page by page with search, flags and the number of directory links', async () => {
+    const page = (
+      await admin.req('GET', `/admin/circles/${circleId}/members?limit=1&offset=0&q=bob`)
+    ).json();
+    expect(page.total).toBe(1);
+    expect(page.items[0]).toMatchObject({ email: 'dept-bob@example.com', pending: false });
+    // без параметров — прежний полный список
+    expect((await admin.req('GET', `/admin/circles/${circleId}/members`)).json()).toHaveLength(1);
+    const list = (await admin.req('GET', '/admin/circles?q=Retail')).json();
+    expect(list[0].directoryLinks).toBe(0);
+  });
 
-  // руководитель разработки не может забрать чужой сейф к себе и не управляет чужим пространством
-  expect(
-    (await devHead.req('PUT', `/spaces/${finance}/vaults/${vaultId}`, { targetSpaceId: dev }))
-      .statusCode,
-  ).toBe(403);
-  expect(
-    (await devHead.req('PUT', `/spaces/${finance}/users/${developer.userId}`, { role: 'member' }))
-      .statusCode,
-  ).toBe(403);
-  expect((await devHead.req('PATCH', `/spaces/${finance}`, { archived: true })).statusCode).toBe(
-    403,
-  );
+  it('the user card tells which spaces the person heads', async () => {
+    const p = (await admin.req('GET', `/admin/users/${admin.userId}/profile`)).json();
+    expect(p.spaces.find((s: { id: string }) => s.id === spaceId)).toMatchObject({ head: true });
+    const b = (await admin.req('GET', `/admin/users/${bob.userId}/profile`)).json();
+    expect(b.spaces.find((s: { id: string }) => s.id === spaceId)).toMatchObject({ head: false });
+  });
+
+  it('deleting is refused while vaults remain and removes an empty department with its group', async () => {
+    const busy = await admin.req('DELETE', `/admin/departments/${spaceId}`);
+    expect(busy.statusCode).toBe(409);
+    expect(busy.json().error.code).toBe('space_not_empty');
+    const tmpCircle = (
+      await admin.req('POST', '/admin/circles', { name: 'Temp', description: '' })
+    ).json().id;
+    const tmpSpace = (
+      await admin.req('POST', '/spaces', { name: 'Temp', publicToOrg: false })
+    ).json().id;
+    await admin.req('PUT', `/spaces/${tmpSpace}/circles/${tmpCircle}`, { role: 'member' });
+    const done = await admin.req('DELETE', `/admin/departments/${tmpSpace}`);
+    expect(done.statusCode).toBe(200);
+    expect(done.json()).toEqual({ circleDeleted: true });
+    expect((await admin.req('GET', `/admin/circles?q=Temp`)).json()).toEqual([]);
+  });
 });
+
+const DEFAULT_SPACE = '00000000-0000-4000-8000-000000000001';

@@ -129,7 +129,6 @@ const remove = (r: Role) =>
 
 <template>
   <div class="space-y-4" data-testid="roles-panel">
-    <p class="text-sm text-slate-600 dark:text-slate-400">{{ t('roles.intro') }}</p>
     <p
       v-if="error"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
