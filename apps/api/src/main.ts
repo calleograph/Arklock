@@ -4,6 +4,7 @@ import { createContext } from './context.js';
 import { loadConfig } from './config.js';
 import { connect } from './db/connect.js';
 import { BlobStore } from './blobs.js';
+import { seedPresetRoles } from './preset-roles.js';
 import { grantAllPendingKeys } from './managed-keys.js';
 import { runMaintenance } from './maintenance.js';
 import { sampleMetrics } from './metrics.js';
@@ -14,6 +15,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const database = await connect(config.DATABASE_URL);
   await database.migrate();
+  await seedPresetRoles(database.db);
   const app = await buildApp({ config, database });
 
   // Корректная остановка контейнера: перестаём принимать соединения и закрываем БД.

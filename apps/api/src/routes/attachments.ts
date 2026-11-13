@@ -14,7 +14,9 @@ import { attachments, entries, settings, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { lockVaultForWrite } from '../vault-mutation.js';
 
-export const DEFAULT_MAX_MIB = 1024;
+/** Предел одного файла и всех файлов одной записи по умолчанию: пароль — не файловое хранилище, а диск сервера общий. */
+export const DEFAULT_MAX_MIB = 50;
+export const DEFAULT_ENTRY_QUOTA_MIB = 200;
 const MIB = 1024 * 1024;
 export const blobSuffix = (keyVersion: number) => `.k${keyVersion}`;
 export const rotationSuffix = (keyVersion: number, rotationId: string) =>
@@ -30,6 +32,7 @@ export async function attachmentLimits(db: AppContext['db']) {
   return {
     maxBytes: num('storage.attachmentMaxMiB', DEFAULT_MAX_MIB) * MIB,
     vaultQuotaBytes: num('storage.vaultQuotaMiB', 0) * MIB,
+    entryQuotaBytes: num('storage.entryQuotaMiB', DEFAULT_ENTRY_QUOTA_MIB) * MIB,
   };
 }
 
@@ -144,6 +147,22 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       throw new AppError(413, 'attachment_too_large', 'The file exceeds the allowed size', {
         maxBytes: limits.maxBytes,
       });
+    if (limits.entryQuotaBytes > 0) {
+      const [used] = await db
+        .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })
+        .from(attachments)
+        .where(eq(attachments.entryId, entryId));
+      if ((used?.n ?? 0) + body.size > limits.entryQuotaBytes)
+        throw new AppError(
+          413,
+          'entry_quota_exceeded',
+          'The files of this entry exceed its quota',
+          {
+            quotaBytes: limits.entryQuotaBytes,
+            usedBytes: used?.n ?? 0,
+          },
+        );
+    }
     if (limits.vaultQuotaBytes > 0) {
       const [used] = await db
         .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })

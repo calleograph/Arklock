@@ -237,6 +237,31 @@ describe('attachments', () => {
     const second = await reg(await mk(700 * 1024));
     expect(second.statusCode).toBe(413);
     expect(second.json().error.code).toBe('quota_exceeded');
+    // квота на запись: все файлы одной записи вместе, другая запись того же сейфа не затронута
+    await database.db.delete(settings);
+    await database.db.insert(settings).values([
+      { key: 'registration.mode', value: 'open' },
+      { key: 'storage.entryQuotaMiB', value: 1 },
+    ]);
+    const other = await admin.createEntry(
+      { title: 'other' },
+      { vaultId: quotaVault.id, vaultKey: quotaVault.key },
+    );
+    // у записи уже есть файл 700 КБ из проверки выше: второй такой не помещается в 1 МБ
+    const over = await reg(await mk(700 * 1024));
+    expect(over.statusCode).toBe(413);
+    expect(over.json().error.code).toBe('entry_quota_exceeded');
+    expect(
+      (
+        await admin.req(
+          'POST',
+          `/vaults/${quotaVault.id}/entries/${other.entryId}/attachments`,
+          await mk(700 * 1024),
+        )
+      ).statusCode,
+    ).toBe(201);
+    // политика отдаёт предел клиенту: он показывает занятое и оставшееся
+    expect((await admin.req('GET', '/auth/policy')).json()['storage.entryQuotaMiB']).toBe(1);
     await database.db.delete(settings);
     await database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
   });

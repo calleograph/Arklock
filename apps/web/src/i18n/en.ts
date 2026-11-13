@@ -38,7 +38,7 @@ export default {
     managedWait:
       'The keys are not available yet: set up the second factor first (the “Security” section), then try again.',
     unlockHint:
-      'Your session is open, but access to your data is locked. Enter your vault unlock password to continue.',
+      'Your session is open, but access to your data is locked. Enter the vault unlock password you chose at the first sign-in (it is not the sign-in password). You need it on every new device.',
     loginPassword: 'Sign-in password',
     sameForUnlock:
       'For a local account this is also the vault unlock password: your encryption keys are derived from it on your device. With directory sign-in, the directory password and the vault unlock password are different.',

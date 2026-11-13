@@ -47,6 +47,7 @@ export type IconName =
   | 'idcard'
   | 'certificate'
   | 'user-plus'
+  | 'x'
   | 'more';
 
 defineProps<{ name: IconName }>();
@@ -107,6 +108,7 @@ const paths: Record<IconName, string> = {
   'user-plus': 'M10 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM3 20c1-3.5 3.7-5 7-5M18 8v6M15 11h6',
   globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
   transfer: 'M7 4v14M3 14l4 4 4-4M17 20V6M13 10l4-4 4 4',
+  x: 'M6 6l12 12M18 6L6 18',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
 };
 </script>

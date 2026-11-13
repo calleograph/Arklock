@@ -77,6 +77,8 @@ const SETTINGS: Record<string, z.ZodType> = {
   'security.keyMode': z.enum(['strict', 'managed']),
   'storage.attachmentMaxMiB': z.number().int().min(0).max(102_400),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
+  /** Все файлы одной записи, МБ (0 — без ограничения). */
+  'storage.entryQuotaMiB': z.number().int().min(0).max(102_400),
   'notifications.security': z.boolean(),
   'security.pinUnlock': z.boolean(),
   'security.reloadUnlock': z.boolean(),
@@ -121,7 +123,8 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'security.passwordMaxAgeDays': 365,
   'security.mfaRequired': 'off',
   'security.keyMode': 'strict',
-  'storage.attachmentMaxMiB': 1024,
+  'storage.attachmentMaxMiB': 50,
+  'storage.entryQuotaMiB': 200,
   'storage.vaultQuotaMiB': 0,
   'notifications.security': true,
   'security.pinUnlock': false,

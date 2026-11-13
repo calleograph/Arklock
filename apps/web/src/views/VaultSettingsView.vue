@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import GrantDialog, { type Recipient } from '../components/GrantDialog.vue';
 import Icon from '../components/Icon.vue';
+import IconButton from '../components/IconButton.vue';
 import InfoHint from '../components/InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -25,7 +26,14 @@ const isOwner = computed(() => vault.value?.role === 'owner');
 const info = ref<{
   keyVersion: number;
   members: MemberInfo[];
-  circles: { id: string; name: string; role: string; managed?: boolean }[];
+  circles: {
+    id: string;
+    name: string;
+    role: string;
+    customRoleId?: string | null;
+    expiresAt?: string | null;
+    managed?: boolean;
+  }[];
 } | null>(null);
 const fingerprints = ref<Record<string, string>>({});
 const error = ref('');
@@ -162,7 +170,10 @@ async function load(): Promise<void> {
     error.value = errorMessage(e, t);
   }
 }
-onMounted(load);
+onMounted(async () => {
+  await load();
+  await loadCircles();
+});
 
 async function run(fn: () => Promise<unknown>, ok = ''): Promise<void> {
   error.value = '';
@@ -197,7 +208,7 @@ const roleValue = (builtin: string | null, custom: string | null) =>
 const toIso = (d: string) => (d ? new Date(d + 'T23:59:59').toISOString() : null);
 
 const showGrant = ref(false);
-const grantLevels = computed(() => [
+const grantLevels = computed<{ value: string; label: string; disabled?: boolean }[]>(() => [
   ...['admin', 'editor', 'reader', 'limited'].map((r) => ({
     value: `builtin:${r}`,
     label: t(`role.${r}`),
@@ -256,6 +267,27 @@ const distribute = () =>
   run(async () => {
     notice.value = t('settings.keysIssued', { n: await ws.distributePending(id) });
   });
+/** Группы, которым сейф ещё не открыт (список доступен администратору сейфа). */
+const allCircles = ref<{ id: string; name: string }[]>([]);
+const freeCircles = computed(() =>
+  allCircles.value.filter((g) => !info.value?.circles.some((c) => c.id === g.id)),
+);
+const pickCircle = ref('');
+const pickLevel = ref('builtin:reader');
+const loadCircles = async () => {
+  allCircles.value = await api<{ id: string; name: string }[]>('GET', '/directory/circles').catch(
+    () => [],
+  );
+};
+const addCircle = () =>
+  run(async () => {
+    await api('PUT', `/vaults/${id}/circles/${pickCircle.value}`, roleBody(pickLevel.value));
+    pickCircle.value = '';
+    // участники группы получают ключи по мере выдачи; часть может получить их сразу
+    await ws.distributePending(id);
+  }, t('settings.circleAdded'));
+const setCircleRole = (c: { id: string; expiresAt?: string | null }, value: string) =>
+  run(() => api('PUT', `/vaults/${id}/circles/${c.id}`, roleBody(value, c.expiresAt ?? null)));
 const removeCircle = (cid: string) =>
   run(async () => {
     await api('DELETE', `/vaults/${id}/circles/${cid}`);
@@ -494,24 +526,80 @@ void decryptEntry;
 
     <!-- Круги -->
     <div class="space-y-2">
-      <h2 class="font-medium">{{ t('settings.circles') }}</h2>
-      <ul class="card divide-y divide-slate-200 text-sm dark:divide-slate-800">
-        <li
+      <h2 class="font-medium">
+        {{ t('settings.circles') }}<InfoHint class="ml-1" :text="t('settings.circlesHint')" />
+      </h2>
+      <div
+        class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
+        data-testid="vault-circles"
+      >
+        <div
           v-for="c in info?.circles"
           :key="c.id"
-          class="flex items-center justify-between px-3 py-2"
+          class="grid min-h-12 grid-cols-1 items-center gap-x-4 gap-y-1 px-4 py-1 sm:grid-cols-[minmax(0,1fr)_12rem_2.75rem]"
           data-testid="circle-row"
         >
-          <span>
-            ◎ {{ c.name }} · {{ t(`role.${c.role}`) }}
-            <span v-if="c.managed" class="badge ml-1">{{ t('managed.byPolicy') }}</span>
+          <span class="flex min-w-0 items-center gap-2 font-medium">
+            <Icon name="users" class="text-slate-400" /><span class="truncate">{{ c.name }}</span>
+            <span v-if="c.managed" class="badge">{{ t('managed.byPolicy') }}</span>
           </span>
-          <button v-if="!c.managed" type="button" class="btn-danger" @click="removeCircle(c.id)">
-            {{ t('settings.remove') }}
+          <select
+            v-if="!c.managed"
+            :value="roleValue(c.role, c.customRoleId ?? null)"
+            class="input"
+            :disabled="busy"
+            :aria-label="`${t('settings.circleRole')}: ${c.name}`"
+            :data-testid="`circle-role-${c.name}`"
+            @change="setCircleRole(c, ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="l in grantLevels" :key="l.value" :value="l.value" :disabled="l.disabled">
+              {{ l.label }}
+            </option>
+          </select>
+          <span v-else class="text-slate-500">{{ t(`role.${c.role}`) }}</span>
+          <IconButton
+            v-if="!c.managed"
+            class="justify-self-end"
+            icon="trash"
+            :label="`${t('settings.remove')}: ${c.name}`"
+            :data-testid="`circle-remove-${c.name}`"
+            @click="removeCircle(c.id)"
+          />
+          <span v-else />
+        </div>
+        <p v-if="!info?.circles.length" class="px-4 py-3 text-slate-500">
+          {{ t('settings.noCircles') }}
+        </p>
+        <div
+          v-if="freeCircles.length"
+          class="grid grid-cols-1 items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_12rem_auto]"
+          data-testid="circle-add-row"
+        >
+          <select
+            v-model="pickCircle"
+            class="input"
+            :aria-label="t('settings.addCircle')"
+            data-testid="circle-pick"
+          >
+            <option value="">{{ t('settings.pickCircle') }}</option>
+            <option v-for="g in freeCircles" :key="g.id" :value="g.id">{{ g.name }}</option>
+          </select>
+          <select v-model="pickLevel" class="input" :aria-label="t('settings.circleRole')">
+            <option v-for="l in grantLevels" :key="l.value" :value="l.value" :disabled="l.disabled">
+              {{ l.label }}
+            </option>
+          </select>
+          <button
+            type="button"
+            class="btn-primary"
+            :disabled="busy || !pickCircle"
+            data-testid="circle-add"
+            @click="addCircle"
+          >
+            <Icon name="plus" /> {{ t('settings.addCircle') }}
           </button>
-        </li>
-        <li v-if="!info?.circles.length" class="px-3 py-2 text-slate-500">—</li>
-      </ul>
+        </div>
+      </div>
     </div>
 
     <!-- Гранты -->

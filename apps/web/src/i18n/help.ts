@@ -38,7 +38,11 @@ export const ruHelp = {
       },
       pending: {
         q: 'Мне назначили доступ, но записей не видно',
-        a: 'Права назначены, но доступ к данным ещё не готов: ключ сейфа передаёт уполномоченный участник, когда открывает Arklock. Если записи не появились, попросите администратора сейфа открыть Arklock.',
+        a: 'Доступ вам выдан, но записи появятся чуть позже: обычно это занимает пару минут. Ничего делать не нужно: обновите страницу. Если записей нет долго, сообщите администратору сейфа.',
+      },
+      mfa: {
+        q: 'Как включить двухфакторную защиту (одноразовые коды)?',
+        a: 'Установите на телефон приложение Яндекс.ID (Яндекс Ключ), Google Authenticator или Microsoft Authenticator. Откройте в Arklock своё имя → «Безопасность» (или окно настройки, которое открывается само, если защита обязательна) и нажмите «Подключить». Отсканируйте QR-код в приложении, введите шестизначный код из приложения и нажмите «Включить». Сохраните резервные коды: они нужны, если телефон потерян. После этого при входе нужны пароль и код из приложения.',
       },
       forgot: {
         q: 'Я забыл пароль разблокировки сейфов',
@@ -209,6 +213,9 @@ export const ruHelp = {
     vaultQuota: {
       text: 'Сколько мегабайт файлов можно хранить в одном сейфе. 0 — без ограничения.',
     },
+    entryQuota: {
+      text: 'Сколько мегабайт файлов можно прикрепить к одной записи. Сотрудник видит в карточке записи, сколько занято и сколько осталось. 0 — без ограничения.',
+    },
     notify: {
       text: 'Письма пользователям о важных событиях безопасности в их учётной записи. Нужна настроенная почта.',
     },
@@ -287,8 +294,7 @@ export const ruHelp = {
       'Сервер сейчас не может выполнить действие. Повторите попытку позже; если ошибка повторяется, сообщите администратору.',
     reauth: 'Для этого действия подтвердите пароль разблокировки сейфов.',
     personalDisabled: 'Личные сейфы отключены политикой организации.',
-    keyMissing:
-      'Доступ к записям ещё не готов: ключ сейфа не передан. Он будет передан, как только уполномоченный участник откроет Arklock.',
+    keyMissing: 'Доступ к записям ещё готовится. Записи появятся сами, обычно через пару минут.',
     pinWrong: 'Неверный PIN. Осталось попыток: {n}.',
     pinLocked: 'Слишком много неверных попыток: PIN отключён. Введите пароль разблокировки сейфов.',
     chiefRequired: 'Это может сделать только главный администратор.',
@@ -1093,7 +1099,11 @@ export const enHelp = {
       },
       pending: {
         q: 'I was given access, but I see no entries',
-        a: 'Access is assigned, but your data is not ready yet: an authorized member passes on the vault key when they open Arklock. If entries do not appear, ask a vault administrator to open Arklock.',
+        a: 'Access is given to you, but the entries appear a little later, usually in a couple of minutes. You do not need to do anything: reload the page. If there are still no entries after a long time, tell the vault administrator.',
+      },
+      mfa: {
+        q: 'How do I turn on two-factor protection (one-time codes)?',
+        a: 'Install Yandex ID (Yandex Key), Google Authenticator or Microsoft Authenticator on your phone. In Arklock open your name → “Security” (or the setup window that opens by itself when the protection is mandatory) and press “Connect”. Scan the QR code in the app, enter the six-digit code from the app and press “Turn on”. Save the backup codes: you need them if the phone is lost. After that sign-in needs the password and the code from the app.',
       },
       forgot: {
         q: 'I forgot my vault unlock password',
@@ -1264,6 +1274,9 @@ export const enHelp = {
       text: 'The largest size of one attached file. 0 means attachments are not allowed.',
     },
     vaultQuota: { text: 'How many megabytes of files one vault can hold. 0 means no limit.' },
+    entryQuota: {
+      text: 'How many megabytes of files can be attached to one entry. The employee sees in the entry card how much is used and left. 0 means no limit.',
+    },
     notify: {
       text: 'Emails to users about important security events in their account. Requires configured mail.',
     },
@@ -1343,7 +1356,7 @@ export const enHelp = {
     reauth: 'Confirm your vault unlock password for this action.',
     personalDisabled: 'Personal vaults are turned off by your organization’s policy.',
     keyMissing:
-      'Access to entries is not ready yet: the vault key has not been passed on. It will be as soon as an authorized member opens Arklock.',
+      'Access to the entries is still being prepared. They appear by themselves, usually in a couple of minutes.',
     pinWrong: 'Wrong PIN. Attempts left: {n}.',
     pinLocked:
       'Too many wrong attempts: the PIN is switched off. Enter your vault unlock password.',

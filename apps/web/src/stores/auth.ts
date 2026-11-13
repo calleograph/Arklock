@@ -42,6 +42,8 @@ export const useAuthStore = defineStore('auth', () => {
   const hasToken = ref(false);
   const unlocked = ref(false);
   const ready = ref(false);
+  /** Администратор требует второй фактор, а он не настроен: окно настройки открывается поверх страницы. */
+  const mfaSetupRequired = ref(false);
   let idleTimer: ReturnType<typeof setInterval> | null = null;
   /** Момент последней активности пользователя (чтение, прокрутка, ввод). Не сбрасывается фоновыми запросами. */
   let lastActivity = 0;
@@ -430,11 +432,9 @@ export const useAuthStore = defineStore('auth', () => {
   /** Восстановление состояния после перезагрузки страницы: токен есть, ключей нет — потребуется разблокировка. */
   async function restore(): Promise<void> {
     setUnauthorizedHandler(clearSession);
-    // Политика требует второй фактор, а он не настроен: ведём на страницу настройки
+    // Политика требует второй фактор, а он не настроен: открываем окно настройки с инструкцией прямо на месте
     setMfaRequiredHandler(() => {
-      void import('../router').then(({ router }) => {
-        if (router.currentRoute.value.path !== '/security') void router.replace('/security');
-      });
+      mfaSetupRequired.value = true;
     });
     reload.listen({ unlocked: () => unlocked.value, lock: () => lock(), logout: clearSession });
     // новая вкладка получает сеанс от уже открытой вкладки (без ключей — только токен и шифртекст)
@@ -492,6 +492,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     unlocked,
     ready,
+    mfaSetupRequired,
     isSignedIn,
     keys,
     touch,

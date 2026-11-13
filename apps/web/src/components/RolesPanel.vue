@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import IconButton from './IconButton.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
@@ -14,6 +15,8 @@ interface Role {
   allow: string[];
   deny: string[];
   parents: string[];
+  /** Сколько раз назначена: сотрудникам и группам или участникам и группам сейфов. */
+  uses?: number;
 }
 interface Listing {
   roles: Role[];
@@ -238,7 +241,7 @@ const remove = (r: Role) =>
 
     <p v-if="!data.roles.length" class="text-sm text-slate-500">{{ t('roles.empty') }}</p>
     <div
-      class="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+      class="relative overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
     >
       <table class="min-w-full text-sm">
         <thead class="bg-slate-50 text-left text-xs text-slate-500 dark:bg-slate-800/60">
@@ -246,6 +249,7 @@ const remove = (r: Role) =>
             <th class="px-4 py-2.5 font-medium">{{ t('roles.colName') }}</th>
             <th class="px-4 py-2.5 font-medium">{{ t('roles.colScope') }}</th>
             <th class="px-4 py-2.5 font-medium">{{ t('roles.colRights') }}</th>
+            <th class="px-4 py-2.5 font-medium">{{ t('roles.colUses') }}</th>
             <th class="w-px px-4 py-2.5">
               <span class="sr-only">{{ t('roles.colActions') }}</span>
             </th>
@@ -296,25 +300,34 @@ const remove = (r: Role) =>
                 {{ t('roles.deny') }}: {{ r.deny.map((p) => permLabel(p)).join(', ') }}
               </p>
             </td>
+            <td
+              class="px-4 py-3 text-slate-600 dark:text-slate-300"
+              :data-testid="`role-uses-${r.name}`"
+            >
+              {{ r.uses ?? 0 }}
+            </td>
             <td class="whitespace-nowrap px-4 py-3 text-right">
-              <div class="flex justify-end gap-1.5">
-                <button
-                  type="button"
-                  class="btn"
+              <div class="flex items-center justify-end gap-1">
+                <span v-if="confirmId === r.id" class="text-xs text-red-600">{{
+                  t('roles.confirmDelete')
+                }}</span>
+                <IconButton
+                  icon="edit"
+                  :label="`${t('roles.edit')}: ${r.name}`"
                   :data-testid="`role-edit-${r.name}`"
                   @click="startEdit(r)"
-                >
-                  {{ t('roles.edit') }}
-                </button>
-                <button
-                  type="button"
-                  class="btn-danger"
+                />
+                <IconButton
+                  icon="trash"
+                  :label="
+                    confirmId === r.id
+                      ? t('roles.confirmDelete')
+                      : `${t('roles.delete')}: ${r.name}`
+                  "
                   :disabled="busy"
                   :data-testid="`role-delete-${r.name}`"
                   @click="remove(r)"
-                >
-                  {{ confirmId === r.id ? t('roles.confirmDelete') : t('roles.delete') }}
-                </button>
+                />
               </div>
             </td>
           </tr>

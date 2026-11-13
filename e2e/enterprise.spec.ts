@@ -97,12 +97,12 @@ test('было: подразделение прежним путём — гру�
   await c.click('menu-full');
   await c.click('admin-tab-circles');
   c.screen();
-  await c.fill('circle-name', name);
-  await c.click('circle-create');
-  await c.click(`circle-${name}`);
-  await c.fill('circle-add-user-input', headEmail(0));
-  await c.click(`circle-add-user-result-${headEmail(0)}`);
+  // группа создаётся в окне: название, руководитель из списка сотрудников, «Создать»
   await c.click('circle-add');
+  await c.fill('group-dialog-name', name);
+  await c.fill('group-everyone-find', headEmail(0));
+  await c.click(`group-add-${headEmail(0)}`);
+  await c.click('group-dialog-save');
   // 2. пространство и группа в нём
   await c.click('menu-toggle');
   await c.click('menu-vault');

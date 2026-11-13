@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from './stores/auth';
 import { useWorkspaceStore } from './stores/workspace';
+import MfaSetupDialog from './components/MfaSetupDialog.vue';
 import WhatsNewDialog from './components/WhatsNewDialog.vue';
 import ErrorBoundary from './components/ErrorBoundary.vue';
 import { cmpVersion, openWhatsNew, whatsNew } from './services/releases';
@@ -53,6 +54,12 @@ async function signOut(): Promise<void> {
   closeMenu();
   await auth.signOut();
   await router.replace('/login');
+}
+
+/** Второй фактор настроен: страница перечитывается, и закрытые до этого данные загружаются. */
+function mfaDone(): void {
+  auth.mfaSetupRequired = false;
+  window.location.reload();
 }
 
 function lockNow(): void {
@@ -377,6 +384,7 @@ const initial = () =>
         <RouterView />
       </ErrorBoundary>
     </main>
+    <MfaSetupDialog v-if="auth.mfaSetupRequired" @done="mfaDone" />
     <WhatsNewDialog v-if="whatsNew" :from="whatsNew.from" @close="whatsNew = null" />
   </div>
 </template>

@@ -87,7 +87,7 @@ import WizardsPanel from '../components/WizardsPanel.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
 import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
-import GroupDetail from '../components/GroupDetail.vue';
+import GroupsPanel from '../components/GroupsPanel.vue';
 import PageHeading from '../components/PageHeading.vue';
 import DirectoryGuide from '../components/DirectoryGuide.vue';
 import GroupsExplainer from '../components/GroupsExplainer.vue';
@@ -369,36 +369,9 @@ interface C {
   directoryLinks?: number;
 }
 const circles = ref<C[]>([]);
-const circleSearch = ref('');
-const visibleCircles = computed(() =>
-  circles.value.filter((c) =>
-    `${c.name} ${c.description}`.toLowerCase().includes(circleSearch.value.toLowerCase()),
-  ),
-);
-const editingCircle = ref<C | null>(null);
-const newCircle = ref({ name: '', description: '' });
-const openCircle = ref<string | null>(null);
 const loadCircles = async () => {
   circles.value = await api('GET', '/admin/circles');
 };
-const createCircle = () =>
-  run(async () => {
-    await api('POST', '/admin/circles', newCircle.value);
-    newCircle.value = { name: '', description: '' };
-  }, loadCircles);
-const deleteCircle = (c: C) =>
-  window.confirm(t('admin.confirmDelete')) &&
-  run(() => api('DELETE', `/admin/circles/${c.id}`), loadCircles);
-const showCircle = (c: C) => (openCircle.value = openCircle.value === c.id ? null : c.id);
-const updateCircle = () =>
-  run(async () => {
-    if (!editingCircle.value) return;
-    await api('PATCH', `/admin/circles/${editingCircle.value.id}`, {
-      name: editingCircle.value.name,
-      description: editingCircle.value.description,
-    });
-    editingCircle.value = null;
-  }, loadCircles);
 // действия со строкой — в меню «⋯» и по правой кнопке: строка таблицы не растёт на ноутбуке
 const userActions = (u: U): ActionItem[] => [
   {
@@ -1155,125 +1128,13 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             </div>
           </div>
 
-          <div v-else-if="tab === 'circles'" class="space-y-3">
-            <GroupsExplainer />
-            <input
-              v-model="circleSearch"
-              type="search"
-              class="input"
-              :aria-label="t('corporate.findGroups')"
-              :placeholder="t('corporate.findGroups')"
-              data-testid="admin-group-search"
-            />
-            <form class="form-grid" @submit.prevent="createCircle">
-              <input
-                v-model="newCircle.name"
-                required
-                maxlength="100"
-                class="input"
-                :placeholder="t('common.name')"
-                data-testid="circle-name"
-              />
-              <input
-                v-model="newCircle.description"
-                maxlength="500"
-                class="input"
-                :placeholder="t('admin.description')"
-              />
-              <div class="btn-row">
-                <button type="submit" class="btn-primary" data-testid="circle-create">
-                  {{ t('admin.create') }}
-                </button>
-              </div>
-            </form>
-            <ul
-              class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
-              data-testid="circles-list"
-            >
-              <li v-for="c in visibleCircles" :key="c.id" class="px-3 py-1">
-                <div class="list-row" :class="isFull() && adminRoles.length ? 'has-field' : ''">
-                  <button
-                    type="button"
-                    class="min-h-11 min-w-0 truncate text-left font-medium"
-                    :data-testid="`circle-${c.name}`"
-                    @click="showCircle(c)"
-                  >
-                    ◎ {{ c.name }}
-                    <span class="text-xs text-slate-500"
-                      >· {{ c.members }} {{ t('admin.membersN') }}</span
-                    >
-                  </button>
-                  <span
-                    v-if="isFull() && adminRoles.length"
-                    class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
-                  >
-                    <select
-                      :value="c.adminRoleId ?? ''"
-                      class="input w-full"
-                      :aria-label="`${t('admin.adminRole')}: ${c.name}`"
-                      :data-testid="`circle-admin-role-${c.name}`"
-                      @change="
-                        run(async () => {
-                          await api('PATCH', `/admin/circles/${c.id}`, {
-                            adminRoleId: ($event.target as HTMLSelectElement).value || null,
-                          });
-                          await loadCircles();
-                        })
-                      "
-                    >
-                      <option value="">{{ t('admin.noAdminRole') }}</option>
-                      <option v-for="r in adminRoles" :key="r.id" :value="r.id">
-                        {{ r.name }}
-                      </option>
-                    </select>
-                    <InfoHint
-                      :text="t('hint.groupAdminRole.text')"
-                      :details="t('hint.groupAdminRole.details')"
-                    />
-                  </span>
-                  <span class="row-actions">
-                    <button
-                      type="button"
-                      class="btn"
-                      :aria-label="`${t('vault.rename')}: ${c.name}`"
-                      @click="editingCircle = { ...c }"
-                    >
-                      {{ t('vault.rename') }}
-                    </button>
-                    <button type="button" class="btn-danger" @click="deleteCircle(c)">
-                      {{ t('common.delete') }}
-                    </button>
-                  </span>
-                </div>
-                <form
-                  v-if="editingCircle?.id === c.id"
-                  class="form-grid my-2"
-                  @submit.prevent="updateCircle"
-                >
-                  <input
-                    v-model="editingCircle.name"
-                    required
-                    maxlength="100"
-                    class="input"
-                    :aria-label="t('common.name')"
-                  />
-                  <input
-                    v-model="editingCircle.description"
-                    maxlength="500"
-                    class="input"
-                    :aria-label="t('admin.description')"
-                  />
-                  <div class="btn-row">
-                    <button type="submit" class="btn-primary">{{ t('common.save') }}</button
-                    ><button type="button" class="btn" @click="editingCircle = null">
-                      {{ t('common.cancel') }}
-                    </button>
-                  </div>
-                </form>
-                <GroupDetail v-if="openCircle === c.id" :circle="c" @changed="loadCircles" />
-              </li>
-            </ul>
-          </div>
+          <GroupsPanel
+            v-else-if="tab === 'circles'"
+            :circles="circles"
+            :admin-roles="adminRoles"
+            :full="isFull()"
+            @changed="loadCircles"
+          />
 
           <div v-else-if="tab === 'settings'" class="space-y-6">
             <h2 class="text-base font-semibold" data-testid="settings-title">
@@ -1769,6 +1630,22 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   @change="
                     saveSetting(
                       'storage.attachmentMaxMiB',
+                      Number(($event.target as HTMLInputElement).value),
+                    )
+                  "
+              /></label>
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('adminx.entryQuota') }}<InfoHint :text="t('hint.entryQuota.text')" /></span
+                ><input
+                  :value="settings['storage.entryQuotaMiB']"
+                  type="number"
+                  min="0"
+                  class="input"
+                  data-testid="set-entry-quota"
+                  @change="
+                    saveSetting(
+                      'storage.entryQuotaMiB',
                       Number(($event.target as HTMLInputElement).value),
                     )
                   "

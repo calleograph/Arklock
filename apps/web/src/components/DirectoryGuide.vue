@@ -34,6 +34,10 @@ const { t } = useI18n({
           t: 'Выбрать, кому разрешён вход',
           d: 'Все действующие учётные записи каталога или только участники выбранных групп домена. Без выбора вход выключен.',
         },
+        keys: {
+          t: 'Выбрать режим ключей (по желанию)',
+          d: 'Строгий (по умолчанию): сотрудник придумывает отдельный пароль разблокировки сейфов, а доступ к сейфу ждёт передачи ключа. «Простой вход»: доменный логин и второй фактор, и сразу доступ к назначенным сейфам, без отдельного пароля. Простой вход меняет модель доверия: сервер хранит секреты сотрудников.',
+        },
         departments: {
           t: 'Создать подразделения',
           d: 'Подразделение — это группа, закрытое пространство и сейф отдела, созданные вместе. Руководителя и участников выбирают поиском по каталогу.',
@@ -72,6 +76,10 @@ const { t } = useI18n({
           t: 'Choose who may sign in',
           d: 'All active directory accounts, or only members of chosen domain groups. Until you choose, sign-in stays off.',
         },
+        keys: {
+          t: 'Choose the key mode (optional)',
+          d: 'Strict (default): the employee invents a separate vault unlock password and access to a vault waits for a key hand-over. “Simple sign-in”: the domain login and the second factor, and at once access to the assigned vaults, with no separate password. Simple sign-in changes the trust model: the server stores the employees’ secrets.',
+        },
         departments: {
           t: 'Create departments',
           d: 'A department is a group, a private space and a department vault created together. Pick the head and members from the directory.',
@@ -92,9 +100,11 @@ const { t } = useI18n({
 });
 
 interface Step {
-  id: 'connect' | 'login' | 'access' | 'departments' | 'groups' | 'people';
+  id: 'connect' | 'login' | 'access' | 'keys' | 'departments' | 'groups' | 'people';
   done: boolean;
   to: string;
+  /** Не обязателен для настройки: не считается «текущим» и не помечается «не выполнено». */
+  optional?: boolean;
 }
 const steps = ref<Step[]>([]);
 const loaded = ref(false);
@@ -103,7 +113,7 @@ const signedIn = ref(0);
 
 onMounted(async () => {
   const ok = async <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null);
-  const [ldap, depts, people] = await Promise.all([
+  const [ldap, depts, people, settings] = await Promise.all([
     ok(
       api<{
         profiles: {
@@ -116,6 +126,7 @@ onMounted(async () => {
     ),
     ok(api<{ items: unknown[] }>('GET', '/admin/departments?limit=1')),
     ok(api<{ waiting: number; signedIn: number }>('GET', '/admin/people/summary')),
+    ok(api<Record<string, unknown>>('GET', '/admin/settings')),
   ]);
   const p = ldap?.profiles?.[0];
   waiting.value = people?.waiting ?? 0;
@@ -124,6 +135,12 @@ onMounted(async () => {
     { id: 'connect', done: !!p?.status.connection?.ok, to: '/admin/ldap#connection' },
     { id: 'login', done: !!p?.status.login?.ok, to: '/admin/ldap#login-check' },
     { id: 'access', done: !!p?.enabled && !!p.access, to: '/admin/ldap#access' },
+    {
+      id: 'keys',
+      done: settings?.['security.keyMode'] === 'managed',
+      optional: true,
+      to: '/admin/settings?section=security',
+    },
     { id: 'departments', done: (depts?.items.length ?? 0) > 0, to: '/admin/departments' },
     { id: 'groups', done: (p?.groups.length ?? 0) > 0, to: '/admin/circles' },
     { id: 'people', done: signedIn.value > 0, to: '/admin/users' },
@@ -131,7 +148,7 @@ onMounted(async () => {
   loaded.value = true;
 });
 /** Первый невыполненный шаг: идти нужно по порядку, поэтому «сейчас» только он. */
-const current = computed(() => steps.value.find((s) => !s.done)?.id ?? null);
+const current = computed(() => steps.value.find((s) => !s.done && !s.optional)?.id ?? null);
 void props;
 </script>
 
@@ -170,7 +187,7 @@ void props;
               {{ t(`step.${s.id}.t`) }}
               <span v-if="current === s.id" class="badge-brand ml-1 text-xs">{{ t('now') }}</span>
               <span
-                v-else-if="!s.done"
+                v-else-if="!s.done && !s.optional"
                 class="badge ml-1 text-xs text-amber-700 dark:text-amber-300"
                 :data-testid="`guide-todo-${s.id}`"
                 >{{ t('todo') }}</span

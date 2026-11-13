@@ -717,6 +717,7 @@ test('directory people: find an employee in the head field, add with "+", link a
   expect(made.status()).toBe(201);
   await tab(page, 'circles');
   await page.getByTestId('circle-Support team').click();
+  await page.getByTestId('group-tab-domain').click();
   await page.getByTestId('domain-group-input').fill('Supp');
   await page.getByTestId('domain-link-Support').click();
   await expect(page.getByTestId('domain-preview')).toBeVisible();
@@ -793,20 +794,20 @@ test('directory people: find an employee in the head field, add with "+", link a
   await boris.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await boris.getByTestId('recovery-continue').click();
   // доступ к сейфу отдела уже назначен, но ключа у него ещё нет: он передаётся, когда администратор открывает Arklock
-  await expect(boris.getByText(/not ready yet|ещё не готов/)).toBeVisible({ timeout: 90_000 });
+  await expect(boris.getByText(/Записи появятся|entries appear/)).toBeVisible({ timeout: 90_000 });
   await page.reload();
   await expect(page.getByTestId('menu-toggle')).toBeVisible({ timeout: 90_000 });
   // администратор открывает рабочую область: ключи ожидающим выдаются сами
   await page.getByRole('link', { name: 'Arklock', exact: true }).click();
   await expect(
-    page.getByTestId('add-entry').or(page.getByText(/not ready yet|ещё не готов/)),
+    page.getByTestId('add-entry').or(page.getByText(/Записи появятся|entries appear/)),
   ).toBeVisible({
     timeout: 90_000,
   });
   // ключ выдан: после перезагрузки сейф отдела открыт, и сотрудник может добавить запись
   await boris.reload();
   await expect(boris.getByTestId('add-entry').first()).toBeVisible({ timeout: 90_000 });
-  await expect(boris.getByText(/not ready yet|ещё не готов/)).toHaveCount(0);
+  await expect(boris.getByText(/Записи появятся|entries appear/)).toHaveCount(0);
   await boris.getByTestId('add-entry').first().click();
   await boris.getByTestId('f-title').fill('Отдел: запись руководителя');
   await boris.getByTestId('f-password').fill('Dept-Secret-9!x');
@@ -860,20 +861,21 @@ test('directory people: find an employee in the head field, add with "+", link a
   // «Простой вход»: главный администратор включает его при обязательном втором факторе; сотрудник каталога входит без
   // паролей разблокировки и ключей восстановления, а ключ сейфа ему выдаёт сервер сразу
   const { totp, parseTotpInput } = await import('../packages/crypto/dist/index.js');
-  const enableTotp = async (p: Page, unlockPassword?: string): Promise<string> => {
-    await p.goto('/security');
-    // после включения обязательного второго фактора сервер не отдаёт долю ключа для обновления страницы: строгий сотрудник вводит пароль
-    if (unlockPassword) {
-      await p.getByTestId('password').fill(unlockPassword);
-      await p.getByTestId('submit').click();
-    }
-    await p.getByTestId('mfa-start').click();
-    const secret = (await p.getByTestId('mfa-secret').innerText()).trim();
+  /**
+   * Настройка второго фактора. Добровольная (политика выключена) — на странице «Безопасность»; обязательная — в окне с
+   * инструкцией, которое открывается само, как только сервер отказывает в данных до настройки.
+   */
+  const enableTotp = async (p: Page, opts: { dialog?: boolean } = {}): Promise<string> => {
+    await p.goto(opts.dialog ? '/' : '/security');
+    const scope = opts.dialog ? p.getByTestId('mfa-setup-dialog') : p;
+    if (opts.dialog) await expect(scope).toBeVisible({ timeout: 90_000 });
+    await scope.getByTestId('mfa-start').click();
+    const secret = (await scope.getByTestId('mfa-secret').innerText()).trim();
     const code = await totp(parseTotpInput(secret), Date.now() - 30_000);
-    await p.getByTestId('mfa-enable-code').fill(code);
-    await p.getByTestId('mfa-enable').click();
-    await expect(p.getByTestId('mfa-backup-codes').locator('li')).toHaveCount(10);
-    await p.getByTestId('mfa-codes-saved').click();
+    await scope.getByTestId('mfa-enable-code').fill(code);
+    await scope.getByTestId('mfa-enable').click();
+    await expect(scope.getByTestId('mfa-backup-codes').locator('li')).toHaveCount(10);
+    await scope.getByTestId('mfa-codes-saved').click();
     return secret;
   };
   const adminSecret = await enableTotp(page);
@@ -883,7 +885,8 @@ test('directory people: find an employee in the head field, add with "+", link a
   await page.reload();
   await expect(page.getByTestId('set-keymode')).toHaveValue('managed');
   // руководитель отдела входил в строгом режиме: после включения его ключи переходят на секрет сервера при следующем открытии
-  await enableTotp(boris, 'boris-master-password-e2e-1');
+  // окно настройки открывается даже над окном разблокировки: пароль разблокировки для него не нужен
+  await enableTotp(boris, { dialog: true });
   // второй фактор настроен: обычная разблокировка паролем, и ключи переходят на секрет сервера
   await boris.goto('/');
   await boris.getByTestId('password').fill('boris-master-password-e2e-1');
@@ -906,14 +909,15 @@ test('directory people: find an employee in the head field, add with "+", link a
   await dmitri.getByTestId('email').fill('dmitri');
   await dmitri.getByTestId('password').fill('dmitri-ldap-e2e-pass');
   await dmitri.getByTestId('submit').click();
-  await expect(dmitri.getByTestId('mfa-start')).toBeVisible({ timeout: 90_000 });
+  // второй фактор обязателен: окно с инструкцией открывается само, пароля разблокировки нет
+  await expect(dmitri.getByTestId('mfa-setup-dialog')).toBeVisible({ timeout: 90_000 });
   await expect(dmitri.getByTestId('recovery-saved')).toHaveCount(0);
   await expect(dmitri.getByTestId('ldap-enroll-hint')).toHaveCount(0);
-  await enableTotp(dmitri);
+  await enableTotp(dmitri, { dialog: true });
   await dmitri.goto('/');
   // ключ сейфа выдан сервером: запись можно добавить сразу, ожидания «когда откроет Arklock администратор» нет
   await expect(dmitri.getByTestId('add-entry').first()).toBeVisible({ timeout: 90_000 });
-  await expect(dmitri.getByText(/not ready yet|ещё не готов/)).toHaveCount(0);
+  await expect(dmitri.getByText(/Записи появятся|entries appear/)).toHaveCount(0);
   await expect(dmitri.getByTestId('password')).toHaveCount(0);
 
   // дальше сценарии работают в строгом режиме и без второго фактора: возвращаем настройки и снимаем второй фактор с администратора
@@ -1102,15 +1106,15 @@ test('custom roles: an administrative role opens only its own sections for a del
   // та же роль через группу: снимаем прямое назначение, участник группы сохраняет доступ, исключение закрывает его
   await select.selectOption('');
   await tab(page, 'circles');
-  await page.getByTestId('circle-name').fill('Аудиторы журнала');
-  await page.getByTestId('circle-create').click();
+  await page.getByTestId('circle-add').click();
+  await page.getByTestId('group-dialog-name').fill('Аудиторы журнала');
+  await page.getByTestId('group-everyone-find').fill('invited.person');
+  await page.getByTestId('group-add-invited.person@example.com').click();
+  await page.getByTestId('group-dialog-save').click();
+  await expect(page.getByTestId('group-dialog')).toBeHidden();
   await page
     .getByTestId('circle-admin-role-Аудиторы журнала')
     .selectOption({ label: 'Аудитор журнала' });
-  await page.getByTestId('circle-Аудиторы журнала').click();
-  await page.getByTestId('circle-add-user-input').fill('invited.person');
-  await page.getByTestId('circle-add-user-result-invited.person@example.com').click();
-  await page.getByTestId('circle-add').click();
   // снятие прямой роли завершило сеанс: входим заново
   await guest.goto('/login');
   await guest.getByTestId('email').fill('invited.person@example.com');

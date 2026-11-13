@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { count, desc, eq } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
@@ -7,7 +7,7 @@ import { audit } from '../audit.js';
 import { adminGate, adminPermsOf, roleInUse } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { roles } from '../db/schema.js';
+import { circles, roles, users, vaultCircles, vaultMembers } from '../db/schema.js';
 import { AppError, notFound, parse } from '../errors.js';
 import { ADMIN_PERMS, BUILTIN_VAULT_ROLES, VAULT_PERMS, effective, expandRole } from '../perms.js';
 
@@ -65,6 +65,31 @@ export const registerRoleRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
 
   app.get('/admin/roles', async () => {
     const rows = await db.select().from(roles).orderBy(desc(roles.createdAt));
+    const uses = new Map<string, number>();
+    const add = (rows: { id: string | null; n: number }[]) => {
+      for (const r of rows) if (r.id) uses.set(r.id, (uses.get(r.id) ?? 0) + r.n);
+    };
+    add(
+      await db.select({ id: users.adminRoleId, n: count() }).from(users).groupBy(users.adminRoleId),
+    );
+    add(
+      await db
+        .select({ id: circles.adminRoleId, n: count() })
+        .from(circles)
+        .groupBy(circles.adminRoleId),
+    );
+    add(
+      await db
+        .select({ id: vaultMembers.customRoleId, n: count() })
+        .from(vaultMembers)
+        .groupBy(vaultMembers.customRoleId),
+    );
+    add(
+      await db
+        .select({ id: vaultCircles.customRoleId, n: count() })
+        .from(vaultCircles)
+        .groupBy(vaultCircles.customRoleId),
+    );
     return {
       roles: rows.map((r) => ({
         id: r.id,
@@ -74,6 +99,8 @@ export const registerRoleRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         allow: r.allow,
         deny: r.deny,
         parents: r.parents,
+        // сколько назначений: сотрудники и группы (административная роль) или участники и группы сейфов (роль сейфа)
+        uses: uses.get(r.id) ?? 0,
       })),
       vaultPermissions: VAULT_PERMS,
       adminPermissions: ADMIN_PERMS,

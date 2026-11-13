@@ -532,7 +532,13 @@ interface FileRow {
   problem?: boolean;
 }
 const files = ref<FileRow[] | null>(null);
-const storage = ref<{ enabled: boolean; maxMiB: number }>({ enabled: true, maxMiB: 25 });
+const storage = ref<{ enabled: boolean; maxMiB: number; quotaMiB: number }>({
+  enabled: true,
+  maxMiB: 50,
+  quotaMiB: 200,
+});
+const mib = (bytes: number): string => (bytes / 1048576).toFixed(bytes < 10_485_760 ? 1 : 0);
+const filesUsed = computed(() => (files.value ?? []).reduce((a, f) => a + f.size, 0));
 const confirmFile = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
 async function openFiles(): Promise<void> {
@@ -543,7 +549,8 @@ async function openFiles(): Promise<void> {
     const policy = await api<Record<string, unknown>>('GET', '/auth/policy');
     storage.value = {
       enabled: policy['storage.enabled'] !== false,
-      maxMiB: Number(policy['storage.attachmentMaxMiB'] ?? 25),
+      maxMiB: Number(policy['storage.attachmentMaxMiB'] ?? 50),
+      quotaMiB: Number(policy['storage.entryQuotaMiB'] ?? 200),
     };
     files.value = storage.value.enabled ? await ws.attachmentList(props.item) : [];
   } catch (e) {
@@ -565,6 +572,13 @@ async function addFile(ev: Event): Promise<void> {
     for (const f of picked) {
       if (f.size > storage.value.maxMiB * 1024 * 1024) {
         error.value = t('files.tooLarge');
+        continue;
+      }
+      if (
+        storage.value.quotaMiB > 0 &&
+        filesUsed.value + f.size > storage.value.quotaMiB * 1048576
+      ) {
+        error.value = t('files.entryQuota', { quota: storage.value.quotaMiB });
         continue;
       }
       progress.value = { label: f.name, done: 0, total: f.size || 1 };
@@ -992,8 +1006,16 @@ const fmt = (iso: string) => when(iso);
             </dl>
 
             <div v-else class="space-y-3 text-sm" data-testid="files-panel">
-              <p class="text-xs text-slate-500">
-                {{ t('files.encryptedNote') }} {{ t('files.max', { n: storage.maxMiB }) }}
+              <p class="text-xs text-slate-500" data-testid="files-usage">
+                {{
+                  storage.quotaMiB > 0
+                    ? t('files.usage', {
+                        used: mib(filesUsed),
+                        quota: storage.quotaMiB,
+                        max: storage.maxMiB,
+                      })
+                    : t('files.usageFree', { used: mib(filesUsed), max: storage.maxMiB })
+                }}
               </p>
               <p v-if="!storage.enabled" class="text-amber-700" role="alert">
                 {{ t('files.disabled') }}

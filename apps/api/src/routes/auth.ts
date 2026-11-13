@@ -49,7 +49,7 @@ import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { chiefRequired } from './chief.js';
-import { attachmentIdsOfVault } from './attachments.js';
+import { attachmentIdsOfVault, DEFAULT_ENTRY_QUOTA_MIB, DEFAULT_MAX_MIB } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
 import { managedPolicy } from '../managed-vaults.js';
@@ -381,7 +381,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'policy.password.maxRepeat': get('policy.password.maxRepeat', 0),
       'security.revealSeconds': get('security.revealSeconds', 0),
       'storage.enabled': config.BLOB_DIR !== '',
-      'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', 1024),
+      'storage.attachmentMaxMiB': get('storage.attachmentMaxMiB', DEFAULT_MAX_MIB),
+      'storage.entryQuotaMiB': get('storage.entryQuotaMiB', DEFAULT_ENTRY_QUOTA_MIB),
       'links.maxMinutes': get('links.maxMinutes', 0),
       'links.maxViews': get('links.maxViews', 100),
       'generator.length': get('generator.length', 20),

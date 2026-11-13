@@ -9,6 +9,8 @@ import { errorMessage } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { createCredential, webauthnSupported } from '../services/webauthn';
 
+/** Второй фактор включён и резервные коды сохранены: окно обязательной настройки закрывается. */
+const emit = defineEmits<{ enabled: [] }>();
 const { t } = useI18n();
 const auth = useAuthStore();
 
@@ -191,7 +193,12 @@ const copyCodes = () => navigator.clipboard.writeText(shownCodes.value.join('\n'
       </ul>
       <div class="flex gap-2">
         <button type="button" class="btn" @click="copyCodes">{{ t('common.copy') }}</button>
-        <button type="button" class="btn" data-testid="mfa-codes-saved" @click="shownCodes = []">
+        <button
+          type="button"
+          class="btn"
+          data-testid="mfa-codes-saved"
+          @click="((shownCodes = []), emit('enabled'))"
+        >
           {{ t('mfa.saved') }}
         </button>
       </div>

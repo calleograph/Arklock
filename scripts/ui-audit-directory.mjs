@@ -359,14 +359,15 @@ try {
       id: 'circles-link',
       run: async () => {
         await go('admin/circles');
-        // группа остаётся открытой между ширинами: повторный клик закрыл бы её
+        // окно группы остаётся открытым между ширинами: повторный клик по группе не нужен
         if (
           !(await page
-            .getByTestId('domain-group-input')
+            .getByTestId('group-dialog')
             .isVisible()
             .catch(() => false))
         )
           await page.getByTestId('circle-Support team').click();
+        await page.getByTestId('group-tab-domain').click();
         await page.getByTestId('domain-group-input').fill('Supp');
         if (
           !(await page
@@ -377,6 +378,36 @@ try {
           await page.getByTestId('domain-link-Support').click();
       },
       ready: 'domain-preview',
+    },
+    {
+      id: 'group-members',
+      run: async () => {
+        await go('admin/circles');
+        if (
+          !(await page
+            .getByTestId('group-dialog')
+            .isVisible()
+            .catch(() => false))
+        )
+          await page.getByTestId('circle-Поддержка').click();
+        await page.getByTestId('group-tab-members').click();
+      },
+      ready: 'group-members',
+    },
+    {
+      id: 'group-vaults',
+      run: async () => {
+        await go('admin/circles');
+        if (
+          !(await page
+            .getByTestId('group-dialog')
+            .isVisible()
+            .catch(() => false))
+        )
+          await page.getByTestId('circle-Поддержка').click();
+        await page.getByTestId('group-tab-vaults').click();
+      },
+      ready: 'group-vaults',
     },
   ];
   for (const sc of scenes) {

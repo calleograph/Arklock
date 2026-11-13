@@ -35,7 +35,17 @@ const ADMIN_TOPICS = [
   'integrations',
   'certificates',
 ] as const;
-const FAQ = ['find', 'create', 'copy', 'totp', 'share', 'locked', 'pending', 'forgot'] as const;
+const FAQ = [
+  'find',
+  'create',
+  'copy',
+  'totp',
+  'share',
+  'locked',
+  'pending',
+  'mfa',
+  'forgot',
+] as const;
 const TERMS = [
   'vault',
   'personalVault',
