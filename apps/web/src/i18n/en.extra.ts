@@ -154,6 +154,9 @@ export default {
     },
     yourAccess: 'Your permissions',
     actualAccess: 'Effective access',
+    waysHint:
+      'There are two ways to give a colleague access. “Give access”: pick a person from your or another department or from the domain; they see only this entry or folder, for the term you set, and administrators see the grant. “External link”: for a person without an account; the link is one-time, limited by time and number of openings, and the key lives only in the link itself.',
+    externalLink: 'External link',
     cryptoShort: 'A deny does not revoke an already issued vault key',
     cryptoNotice:
       'The server checks access. Entries share a vault encryption key: denying access cannot revoke previously received keys or copied secrets. Use separate vaults for cryptographic isolation.',
@@ -1403,6 +1406,7 @@ export default {
       webhooks: 'Webhooks',
       updates: 'Updates',
       departments: 'Departments',
+      access: 'Access',
       vaults: 'Vault inventory',
       wizards: 'Setup wizards',
       organization: 'Organization',

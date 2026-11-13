@@ -7,7 +7,7 @@ import { adminGate } from '../auth/adminperm.js';
 import { requireReauth } from '../auth/reauth.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import type { Db } from '../db/connect.js';
+import { rowsOf, type Db } from '../db/connect.js';
 import {
   circleMembers,
   circles,
@@ -387,6 +387,82 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     );
     await audit(db, `user:${user.id}`, 'admin.chief.decline', `user:${add.from}`);
     return reply.status(204).send();
+  });
+
+  /**
+   * Кто имеет доступ к сейфу: люди с прямой ролью, группы и гости (с числом выданных папок и записей и сроком). Только
+   * сведения о доступе: содержимого и ключей нет. Для главного администратора; личные сейфы не показываются.
+   */
+  app.get('/admin/vaults/:id/access', async (req) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    const { id } = parse(z.object({ id: uuid }), req.params);
+    const [v] = await db.select().from(vaults).where(eq(vaults.id, id));
+    if (!v || v.kind !== 'shared') throw notFound();
+    const [direct, groups, granted, keys, space] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          name: users.displayName,
+          email: users.email,
+          role: vaultMembers.role,
+          expiresAt: vaultMembers.expiresAt,
+        })
+        .from(vaultMembers)
+        .innerJoin(users, eq(users.id, vaultMembers.userId))
+        .where(eq(vaultMembers.vaultId, id)),
+      db
+        .select({
+          id: circles.id,
+          name: circles.name,
+          role: vaultCircles.role,
+          expiresAt: vaultCircles.expiresAt,
+          members: sql<number>`(select count(*)::int from circle_members cm where cm.circle_id = ${circles.id})`,
+        })
+        .from(vaultCircles)
+        .innerJoin(circles, eq(circles.id, vaultCircles.circleId))
+        .where(eq(vaultCircles.vaultId, id)),
+      db.execute<{
+        id: string;
+        name: string;
+        email: string;
+        rules: number;
+        until: Date | null;
+        guest: boolean;
+      }>(sql`
+        select u.id, u.display_name as name, u.email, count(*)::int as rules, min(g.expires_at) as until,
+          coalesce(bool_or(sm.guest), false) as guest
+        from grants g join users u on u.id = g.subject_id
+        left join space_members sm on sm.space_id = ${v.spaceId} and sm.user_id = u.id
+        where g.vault_id = ${id} and g.subject_type = 'user' and g.role <> 'none'
+        group by u.id, u.display_name, u.email order by u.display_name`),
+      db
+        .select({ userId: vaultKeys.userId })
+        .from(vaultKeys)
+        .where(and(eq(vaultKeys.vaultId, id), eq(vaultKeys.keyVersion, v.keyVersion))),
+      v.spaceId
+        ? db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, v.spaceId))
+        : Promise.resolve([]),
+    ]);
+    const hasKey = new Set(keys.map((k) => k.userId));
+    return {
+      name: v.name,
+      space: space[0]?.name ?? null,
+      direct: direct.map((d) => ({
+        ...d,
+        expiresAt: d.expiresAt?.toISOString() ?? null,
+        hasKey: hasKey.has(d.id),
+      })),
+      groups: groups.map((g) => ({ ...g, expiresAt: g.expiresAt?.toISOString() ?? null })),
+      grants: rowsOf<{
+        id: string;
+        name: string;
+        email: string;
+        rules: number;
+        until: Date | null;
+        guest: boolean;
+      }>(granted).map((g) => ({ ...g, until: g.until ? new Date(g.until).toISOString() : null })),
+    };
   });
 
   /**

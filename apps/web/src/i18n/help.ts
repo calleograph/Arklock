@@ -959,6 +959,13 @@ export const ruHelp = {
     donePending:
       'Права назначены: {n}. Ключ сейфа будет передан, как только участник с правом управления откроет Arklock.',
   },
+  dept: {
+    manage: 'Управлять подразделением',
+    page: 'Подразделение',
+    pageHint:
+      'Здесь руководитель управляет своим подразделением: название, руководители, состав, гости и сейфы отдела. Всё, что вы меняете, действует сразу. Состав подразделения — это люди, которые видят его сейфы.',
+    back: 'К паролям',
+  },
   ws: {
     department: 'Подразделение',
     departmentHint:
@@ -2006,6 +2013,13 @@ export const enHelp = {
       'Added to the department as guests: {names}. They see only what has been given to them; access is limited in time: until {date}.',
     donePending:
       'Rights assigned: {n}. The vault key will be passed on as soon as a member who can manage it opens Arklock.',
+  },
+  dept: {
+    manage: 'Manage the department',
+    page: 'Department',
+    pageHint:
+      'Here the head manages the department: name, heads, members, guests and department vaults. Everything you change applies at once. The department members are the people who see its vaults.',
+    back: 'Back to passwords',
   },
   ws: {
     department: 'Department',

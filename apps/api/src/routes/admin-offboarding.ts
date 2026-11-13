@@ -241,12 +241,24 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     const linkedGroups = new Set(
       (await readLdapProfiles(db)).flatMap((x) => x.groups.map((g) => g.circleId)),
     );
-    const memberOf: { id: string; name: string; isDefault: boolean; head: boolean }[] = [];
+    const memberOf: {
+      id: string;
+      name: string;
+      isDefault: boolean;
+      head: boolean;
+      guest: boolean;
+    }[] = [];
     for (const s of await db.select().from(spaces)) {
       const access = await spaceAccess(db, s.id, id);
       // head — администратор пространства (руководитель подразделения), в том числе через группу
       if (access.member)
-        memberOf.push({ id: s.id, name: s.name, isDefault: s.isDefault, head: access.admin });
+        memberOf.push({
+          id: s.id,
+          name: s.name,
+          isDefault: s.isDefault,
+          head: access.admin,
+          guest: access.guest,
+        });
     }
     return {
       user: {

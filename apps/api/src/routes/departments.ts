@@ -1,9 +1,8 @@
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { uuid } from '@arklock/contracts';
 import { audit } from '../audit.js';
-import { adminGate } from '../auth/adminperm.js';
 import { readLdapProfiles } from '../auth/ldap-profiles.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -20,6 +19,8 @@ import {
   vaults,
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { notifyUsers } from '../notifications.js';
+import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
 import { spaceAccess } from '../spaces.js';
 
 /** Разделитель в названии сейфа руководства: «Отдел · Руководство». */
@@ -37,11 +38,12 @@ export const registerDepartmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
 ) => {
   const { db } = ctx;
   app.addHook('preHandler', requireAuth(ctx));
-  app.addHook('preHandler', (req) => adminGate(ctx, req));
   const params = z.object({ id: uuid });
 
   /** Подразделение по пространству; право — полный администратор или администратор этого пространства. */
   async function load(conn: Db, id: string, user: typeof users.$inferSelect) {
+    // право проверяется до поиска: чужому и несуществующему подразделению отвечаем одинаково
+    if (user.role !== 'admin' && !(await spaceAccess(conn, id, user.id)).admin) throw forbidden();
     const [row] = await conn
       .select({ space: spaces, circle: circles })
       .from(spaces)
@@ -49,7 +51,6 @@ export const registerDepartmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       .innerJoin(circles, and(eq(circles.id, spaceCircles.circleId), eq(circles.name, spaces.name)))
       .where(and(eq(spaces.id, id), eq(spaces.isDefault, false), eq(spaces.publicToOrg, false)));
     if (!row) throw notFound();
-    if (user.role !== 'admin' && !(await spaceAccess(conn, id, user.id)).admin) throw forbidden();
     return row;
   }
 
@@ -116,6 +117,164 @@ export const registerDepartmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
         0,
       ),
     };
+  });
+
+  /**
+   * Состав подразделения (его группы): страницами, с поиском. Доступно администратору и руководителю подразделения;
+   * группу с административной ролью меняет только полный администратор (иначе руководитель мог бы выдать себе полномочия).
+   */
+  app.get('/admin/departments/:id/members', async (req) => {
+    const { user } = authOf(req);
+    const { id } = parse(params, req.params);
+    const { circle } = await load(db, id, user);
+    const o = parse(
+      z.object({
+        q: z.string().trim().max(100).default(''),
+        limit: z.coerce.number().int().min(1).max(200).default(20),
+        offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+      }),
+      req.query,
+    );
+    const p = `%${o.q.replace(/[\\%_]/g, '\\$&')}%`;
+    const where = and(
+      eq(circleMembers.circleId, circle.id),
+      o.q ? or(ilike(users.displayName, p), ilike(users.email, p)) : undefined,
+    );
+    const [rows, [total]] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          name: users.displayName,
+          email: users.email,
+          pending: users.pendingActivation,
+          disabled: sql<boolean>`${users.disabledAt} is not null`,
+        })
+        .from(circleMembers)
+        .innerJoin(users, eq(users.id, circleMembers.userId))
+        .where(where)
+        .orderBy(asc(users.displayName), asc(users.email))
+        .limit(o.limit)
+        .offset(o.offset),
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(circleMembers)
+        .innerJoin(users, eq(users.id, circleMembers.userId))
+        .where(where),
+    ]);
+    return { items: rows, total: total?.n ?? 0 };
+  });
+
+  app.patch('/admin/departments/:id/members', async (req) => {
+    const { user } = authOf(req);
+    const { id } = parse(params, req.params);
+    const { circle } = await load(db, id, user);
+    if (circle.adminRoleId && user.role !== 'admin') throw forbidden();
+    const body = parse(
+      z.object({
+        add: z.array(uuid).max(500).default([]),
+        remove: z.array(uuid).max(500).default([]),
+      }),
+      req.body,
+    );
+    const add = [...new Set(body.add)];
+    const remove = [...new Set(body.remove)];
+    if (add.some((uid) => remove.includes(uid)))
+      throw new AppError(400, 'validation_error', 'A user cannot be both added and removed');
+    const found = add.length
+      ? await db.select({ id: users.id }).from(users).where(inArray(users.id, add))
+      : [];
+    if (found.length !== add.length) throw notFound();
+    const vaultIds = remove.length ? await circleVaults(db, circle.id) : [];
+    const { result: changed, opened } = await rotateLostAccess(
+      db,
+      remove.flatMap((userId) => vaultIds.map((vaultId) => ({ vaultId, userId }))),
+      () =>
+        db.transaction(async (tx) => {
+          const added = add.length
+            ? await tx
+                .insert(circleMembers)
+                .values(add.map((userId) => ({ circleId: circle.id, userId })))
+                .onConflictDoNothing()
+                .returning({ userId: circleMembers.userId })
+            : [];
+          const removed = remove.length
+            ? await tx
+                .delete(circleMembers)
+                .where(
+                  and(eq(circleMembers.circleId, circle.id), inArray(circleMembers.userId, remove)),
+                )
+                .returning({ userId: circleMembers.userId })
+            : [];
+          const note = (event: string) => ({
+            category: 'access' as const,
+            event,
+            resourceType: 'circle',
+            resourceId: circle.id,
+          });
+          await notifyUsers(
+            tx,
+            added.map((r) => r.userId),
+            note('admin.circle.member.add'),
+          );
+          await notifyUsers(
+            tx,
+            removed.map((r) => r.userId),
+            note('admin.circle.member.remove'),
+          );
+          return { added: added.length, removed: removed.length };
+        }),
+      user.id,
+    );
+    await auditRotations(db, `user:${user.id}`, opened);
+    await audit(
+      db,
+      `user:${user.id}`,
+      'admin.circle.members.update',
+      `circle:${circle.id}`,
+      changed,
+    );
+    return changed;
+  });
+
+  /**
+   * Сейф отдела: название и роль, которую получает группа подразделения. Это изменение сведений о сейфе, а не доступ к
+   * содержимому: ключей оно не выдаёт, отдельным людям права не меняет (это делает администратор сейфа в его настройках).
+   */
+  app.patch('/admin/departments/:id/vaults/:vaultId', async (req) => {
+    const { user } = authOf(req);
+    const { id, vaultId } = parse(z.object({ id: uuid, vaultId: uuid }), req.params);
+    const body = parse(
+      z
+        .object({
+          name: z.string().trim().min(1).max(100).optional(),
+          role: z.enum(['admin', 'editor', 'reader', 'limited']).optional(),
+        })
+        .strict(),
+      req.body,
+    );
+    await db.transaction(async (tx) => {
+      const { circle } = await load(tx as unknown as Db, id, user);
+      const [vault] = await tx
+        .select({ id: vaults.id, kind: vaults.kind, managedFor: vaults.managedFor })
+        .from(vaults)
+        .where(and(eq(vaults.id, vaultId), eq(vaults.spaceId, id)));
+      if (!vault || vault.kind !== 'shared' || vault.managedFor) throw notFound();
+      if (body.name) await tx.update(vaults).set({ name: body.name }).where(eq(vaults.id, vaultId));
+      if (body.role)
+        await tx
+          .insert(vaultCircles)
+          .values({ vaultId, circleId: circle.id, role: body.role })
+          .onConflictDoUpdate({
+            target: [vaultCircles.vaultId, vaultCircles.circleId],
+            set: { role: body.role, customRoleId: null },
+          });
+      await audit(tx, `user:${user.id}`, 'admin.department.vault.update', `vault:${vaultId}`, {
+        space: id,
+        renamed: !!body.name,
+        role: body.role ?? null,
+      });
+    });
+    return { id: vaultId };
   });
 
   /** Название и описание: пространство, группа и сейфы отдела меняются вместе, чтобы подразделение осталось целым. */

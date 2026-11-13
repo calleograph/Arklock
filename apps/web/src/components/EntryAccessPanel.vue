@@ -21,7 +21,7 @@ const base = computed(
   () =>
     `/vaults/${props.vaultId}/${props.targetType === 'branch' ? 'branches' : 'entries'}/${props.entryId}`,
 );
-const emit = defineEmits<{ (e: 'changed'): void }>();
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'share'): void }>();
 const { t } = useI18n();
 const ws = useWorkspaceStore();
 interface Grant {
@@ -208,15 +208,26 @@ function sourceLabel(source: string): string {
           {{ t('entryPanel.yourAccess') }}:
           <strong>{{ t(`entryPanel.roles.${data.effectiveAccess}`) }}</strong>
         </p>
-        <button
-          v-if="data.canManage"
-          type="button"
-          class="btn-primary"
-          data-testid="grant-open"
-          @click="((notice = ''), (error = ''), (showGrant = true))"
-        >
-          <Icon name="share" /> {{ t('grantDlg.open') }}
-        </button>
+        <div v-if="data.canManage" class="flex flex-wrap items-center gap-2">
+          <InfoHint :text="t('entryPanel.waysHint')" />
+          <button
+            v-if="targetType === 'entry'"
+            type="button"
+            class="btn"
+            data-testid="grant-external"
+            @click="emit('share')"
+          >
+            {{ t('entryPanel.externalLink') }}
+          </button>
+          <button
+            type="button"
+            class="btn-primary"
+            data-testid="grant-open"
+            @click="((notice = ''), (error = ''), (showGrant = true))"
+          >
+            <Icon name="share" /> {{ t('grantDlg.open') }}
+          </button>
+        </div>
       </div>
       <!-- граница защиты видна всегда одной строкой, подробности раскрываются -->
       <details

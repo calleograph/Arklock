@@ -10,6 +10,7 @@ import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
+import AccessOverview from '../components/AccessOverview.vue';
 import DepartmentsPanel from '../components/DepartmentsPanel.vue';
 import SetupChecklist from '../components/SetupChecklist.vue';
 import ErrorBoundary from '../components/ErrorBoundary.vue';
@@ -58,6 +59,7 @@ const TAB_ICON: Record<string, IconName> = {
   transfer: 'transfer',
   shield: 'lock',
   departments: 'folder',
+  access: 'search',
   users: 'user',
   circles: 'users',
   roles: 'shield',
@@ -122,6 +124,7 @@ type Tab =
   | 'updates'
   | 'organization'
   | 'departments'
+  | 'access'
   | 'automation'
   | 'vaults'
   | 'wizards'
@@ -144,6 +147,7 @@ const TAB_PERM: Record<Tab, string> = {
   users: 'admin.users',
   organization: 'admin.users',
   departments: 'admin.circles',
+  access: 'admin.users',
   vaults: 'admin.users',
   wizards: 'admin.users',
   transfer: 'chief',
@@ -617,7 +621,14 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
   { id: 'overview', items: [nav('overview'), nav('organization')] },
   {
     id: 'people',
-    items: [nav('wizards'), nav('users'), nav('invitations'), nav('departments'), nav('circles')],
+    items: [
+      nav('wizards'),
+      nav('users'),
+      nav('invitations'),
+      nav('departments'),
+      nav('circles'),
+      nav('access'),
+    ],
   },
   { id: 'vaultsGroup', items: [nav('vaults'), nav('transfer')] },
   {
@@ -726,6 +737,7 @@ const ALL_TABS: Tab[] = [
   'updates',
   'organization',
   'departments',
+  'access',
   'automation',
   'vaults',
   'wizards',
@@ -874,6 +886,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <WizardsPanel v-else-if="tab === 'wizards'" />
           <TransferView v-else-if="tab === 'transfer'" />
           <DepartmentsPanel v-else-if="tab === 'departments'" />
+          <AccessOverview v-else-if="tab === 'access'" />
           <WebhookSettings v-else-if="tab === 'webhooks'" />
           <SsoSettings v-else-if="tab === 'sso'" />
           <SamlSettings v-else-if="tab === 'saml'" />

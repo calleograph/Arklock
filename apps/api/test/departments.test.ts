@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp, TestClient } from './helpers.js';
 
+const DEFAULT_SPACE = '00000000-0000-4000-8000-000000000001';
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
 let admin: TestClient;
 let bob: TestClient;
@@ -117,4 +118,71 @@ describe('department card, rename and delete', () => {
   });
 });
 
-const DEFAULT_SPACE = '00000000-0000-4000-8000-000000000001';
+describe('the head of a department manages it without the administration panel', () => {
+  let carol: TestClient;
+  it('a head (space administrator) opens the card, edits members, renames a vault and sets the group role', async () => {
+    carol = new TestClient(fixture.app, 'dept-carol@example.com', 'dept-carol-password-1234');
+    expect((await carol.register()).statusCode).toBe(201);
+    await carol.login();
+    // Боб — руководитель подразделения, но не администратор Arklock
+    await admin.req('PUT', `/spaces/${spaceId}/users/${bob.userId}`, { role: 'admin' });
+    expect((await bob.req('GET', `/admin/departments/${spaceId}`)).statusCode).toBe(200);
+    // обычный участник группы подразделения руководителем не является
+    expect((await carol.req('GET', `/admin/departments/${spaceId}`)).statusCode).toBe(403);
+    expect((await bob.req('GET', `/admin/departments/${DEFAULT_SPACE}`)).statusCode).toBe(403);
+    const add = await bob.req('PATCH', `/admin/departments/${spaceId}/members`, {
+      add: [carol.userId],
+    });
+    expect(add.json()).toEqual({ added: 1, removed: 0 });
+    const page = (
+      await bob.req('GET', `/admin/departments/${spaceId}/members?q=carol&limit=5`)
+    ).json();
+    expect(page.total).toBe(1);
+    const retail = (await bob.req('GET', `/admin/departments/${spaceId}`)).json();
+    const v = retail.vaults.find((x: { name: string }) => x.name === 'Retail')!;
+    const r = await bob.req('PATCH', `/admin/departments/${spaceId}/vaults/${v.id}`, {
+      name: 'Retail · Main',
+      role: 'reader',
+    });
+    expect(r.statusCode).toBe(200);
+    const after = (await bob.req('GET', `/admin/departments/${spaceId}`)).json();
+    expect(after.vaults.find((x: { id: string }) => x.id === v.id)).toMatchObject({
+      name: 'Retail · Main',
+      role: 'reader',
+    });
+    expect(
+      (
+        await bob.req('PATCH', `/admin/departments/${spaceId}/members`, { remove: [carol.userId] })
+      ).json(),
+    ).toEqual({ added: 0, removed: 1 });
+  });
+
+  it('a head cannot reach another department or change a group that carries an administrative role', async () => {
+    const other = (await admin.req('POST', '/spaces', { name: 'Other', publicToOrg: false })).json()
+      .id;
+    const oc = (
+      await admin.req('POST', '/admin/circles', { name: 'Other', description: '' })
+    ).json().id;
+    await admin.req('PUT', `/spaces/${other}/circles/${oc}`, { role: 'member' });
+    expect((await bob.req('GET', `/admin/departments/${other}`)).statusCode).toBe(403);
+    // группа подразделения несёт административную роль: состав меняет только полный администратор
+    const role = (
+      await admin.req('POST', '/admin/roles', {
+        name: 'Dept admins',
+        description: '',
+        scope: 'admin',
+        allow: ['admin.users'],
+        deny: [],
+        parents: [],
+      })
+    ).json();
+    expect(role.id).toBeTruthy();
+    {
+      await admin.req('PATCH', `/admin/circles/${circleId}`, { adminRoleId: role.id });
+      expect(
+        (await bob.req('PATCH', `/admin/departments/${spaceId}/members`, { add: [carol.userId] }))
+          .statusCode,
+      ).toBe(403);
+    }
+  });
+});

@@ -1124,6 +1124,7 @@ const fmt = (iso: string) => when(iso);
               :entry-id="item.id"
               :active="tab === 'access' && subTab !== 'share'"
               @changed="emit('changed')"
+              @share="openShare"
             />
             <div v-if="subTab === 'share'" class="space-y-3 text-sm">
               <p class="text-slate-500">{{ t('vault.shareHint') }}</p>

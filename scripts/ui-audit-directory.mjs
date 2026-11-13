@@ -256,6 +256,32 @@ try {
       ready: 'dept-member-directory-title',
     },
     {
+      id: 'access-user',
+      run: async () => {
+        await go('admin/access');
+        await page.getByTestId('access-mode-user').click();
+        await page.getByTestId('access-person-input').fill('boris');
+        await page.getByTestId('access-person-result-boris@example.com').click();
+      },
+      ready: 'access-user',
+    },
+    {
+      id: 'access-vault',
+      run: async () => {
+        await go('admin/access');
+        await page.getByTestId('access-mode-vault').click();
+        await page.getByTestId('access-vault-search').fill('Поддержка');
+        await page.locator('[data-testid^="access-vault-open-Поддержка"]').first().click();
+      },
+      ready: 'access-vault',
+    },
+    {
+      id: 'department-page',
+      run: async () =>
+        go(`department/${(await call('GET', '/admin/departments?limit=1')).items[0].spaceId}`),
+      ready: 'department-page',
+    },
+    {
       id: 'circles-link',
       run: async () => {
         await go('admin/circles');

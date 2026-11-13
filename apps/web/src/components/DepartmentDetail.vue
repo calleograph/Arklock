@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ApiError, api } from '../services/api';
 import { errorMessage } from '../services/helpers';
+import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
 import DomainGroupLinks from './DomainGroupLinks.vue';
 import PersonPicker, { type Person } from './PersonPicker.vue';
@@ -62,6 +63,8 @@ const { t } = useI18n({
       guestRemove: 'Убрать гостя: {name}',
       guestRemoved: 'Гость убран вместе с его доступами. Обновите ключ сейфа в настройках сейфа.',
       vaults: 'Сейфы отдела',
+      vaultName: 'Название сейфа',
+      vaultGroupRole: 'Роль группы отдела в сейфе',
       noVaults: 'Сейфов пока нет.',
       vaultRole: 'группа: {role}',
       vaultNoRole: 'группа без доступа',
@@ -132,6 +135,8 @@ const { t } = useI18n({
       guestRemoved:
         'The guest was removed together with their access. Renew the vault key in the vault settings.',
       vaults: 'Department vaults',
+      vaultName: 'Vault name',
+      vaultGroupRole: 'Role of the department group in the vault',
       noVaults: 'No vaults yet.',
       vaultRole: 'group: {role}',
       vaultNoRole: 'group has no access',
@@ -153,6 +158,9 @@ const { t } = useI18n({
   },
 });
 const ws = useWorkspaceStore();
+const auth = useAuthStore();
+/** Полный администратор видит всё; руководитель подразделения — свои сведения, поиск и состав без административных разделов. */
+const isAdmin = computed(() => auth.user?.role === 'admin');
 
 interface Card {
   id: string;
@@ -200,7 +208,7 @@ async function loadMembers(): Promise<void> {
   if (!card.value) return;
   const r = await api<{ items: Member[]; total: number }>(
     'GET',
-    `/admin/circles/${card.value.circleId}/members?limit=${PAGE}&offset=${offset.value}&q=${encodeURIComponent(find.value.trim())}`,
+    `/admin/departments/${props.spaceId}/members?limit=${PAGE}&offset=${offset.value}&q=${encodeURIComponent(find.value.trim())}`,
   );
   members.value = r.items;
   total.value = r.total;
@@ -270,7 +278,7 @@ const assignHead = (p: Person) =>
   run(async () => {
     const c = card.value!;
     await api('PUT', `/spaces/${props.spaceId}/users/${p.id}`, { role: 'admin' });
-    await api('PATCH', `/admin/circles/${c.circleId}/members`, { add: [p.id] });
+    await api('PATCH', `/admin/departments/${props.spaceId}/members`, { add: [p.id] });
     const rec = await keyRecord(p);
     let missed = '';
     for (const v of c.vaults)
@@ -313,7 +321,7 @@ const removeHead = (h: Card['heads'][number]) => {
 const addMembers = () =>
   run(async () => {
     const ids = newMembers.value.map((p) => p.id);
-    await api('PATCH', `/admin/circles/${card.value!.circleId}/members`, { add: ids });
+    await api('PATCH', `/admin/departments/${props.spaceId}/members`, { add: ids });
     newMembers.value = [];
     await reload();
     emit('changed');
@@ -327,7 +335,7 @@ const removeGuest = (g: Card['guests'][number]) =>
   });
 const removeMember = (m: Member) =>
   run(async () => {
-    await api('DELETE', `/admin/circles/${card.value!.circleId}/members/${m.id}`);
+    await api('PATCH', `/admin/departments/${props.spaceId}/members`, { remove: [m.id] });
     await reload();
     emit('changed');
   });
@@ -348,6 +356,28 @@ const createVault = () =>
     await reload();
     emit('changed');
   });
+const vaultDraft = ref<Record<string, { name?: string; role?: string }>>({});
+const draftOf = (v: Card['vaults'][number]) => (vaultDraft.value[v.id] ??= {});
+const vaultChanged = (v: Card['vaults'][number]) => {
+  const d = vaultDraft.value[v.id];
+  return (
+    !!d &&
+    ((d.name !== undefined && d.name.trim() !== v.name) ||
+      (d.role !== undefined && d.role !== '' && d.role !== v.role))
+  );
+};
+const saveVault = (v: Card['vaults'][number]) =>
+  run(async () => {
+    const d = vaultDraft.value[v.id] ?? {};
+    await api('PATCH', `/admin/departments/${props.spaceId}/vaults/${v.id}`, {
+      ...(d.name !== undefined && d.name.trim() !== v.name ? { name: d.name.trim() } : {}),
+      ...(d.role && d.role !== v.role ? { role: d.role } : {}),
+    });
+    delete vaultDraft.value[v.id];
+    await ws.loadVaults().catch(() => undefined);
+    await reload();
+    emit('changed');
+  }, t('saved'));
 const lastHead = computed(() => (card.value?.heads.length ?? 0) <= 1);
 const memberIds = computed(() => members.value.map((m) => m.id));
 </script>
@@ -449,6 +479,7 @@ const memberIds = computed(() => members.value.map((m) => m.id));
         </ul>
         <PersonPicker
           v-model="newHead"
+          :light="!isAdmin"
           :placeholder="t('headAdd')"
           :exclude="card.heads.map((h) => h.id)"
           testid="dept-newhead"
@@ -523,6 +554,7 @@ const memberIds = computed(() => members.value.map((m) => m.id));
         </div>
         <PersonPicker
           v-model="newMembers"
+          :light="!isAdmin"
           multiple
           :exclude="memberIds"
           :placeholder="t('membersAdd')"
@@ -537,7 +569,12 @@ const memberIds = computed(() => members.value.map((m) => m.id));
         >
           {{ t('add') }}<span v-if="newMembers.length"> ({{ newMembers.length }})</span>
         </button>
-        <DomainGroupLinks :circle-id="card.circleId" :circle-name="card.name" @changed="reload" />
+        <DomainGroupLinks
+          v-if="isAdmin"
+          :circle-id="card.circleId"
+          :circle-name="card.name"
+          @changed="reload"
+        />
       </div>
 
       <div v-if="card.guests.length" class="space-y-2" data-testid="dept-guests">
@@ -574,14 +611,42 @@ const memberIds = computed(() => members.value.map((m) => m.id));
           <li
             v-for="v in card.vaults"
             :key="v.id"
-            class="flex min-h-11 flex-wrap items-center justify-between gap-2"
+            class="grid items-end gap-x-3 gap-y-2 py-2 sm:grid-cols-[1fr_12rem_auto_auto]"
+            :data-testid="`dept-vault-row-${v.id}`"
           >
-            <span class="min-w-0"
-              >{{ v.name }}
-              <span class="text-xs text-slate-500">{{
-                v.role ? t('vaultRole', { role: t(`roles.${v.role}`) }) : t('vaultNoRole')
-              }}</span></span
+            <label class="block"
+              >{{ t('vaultName') }}
+              <input
+                :value="vaultDraft[v.id]?.name ?? v.name"
+                maxlength="100"
+                class="input"
+                :data-testid="`dept-vault-name-${v.id}`"
+                @input="draftOf(v).name = ($event.target as HTMLInputElement).value"
+              />
+            </label>
+            <label class="block"
+              >{{ t('vaultGroupRole') }}
+              <select
+                :value="vaultDraft[v.id]?.role ?? v.role ?? ''"
+                class="input"
+                :data-testid="`dept-vault-role-${v.id}`"
+                @change="draftOf(v).role = ($event.target as HTMLSelectElement).value"
+              >
+                <option v-if="!v.role" value="">{{ t('vaultNoRole') }}</option>
+                <option v-for="r in ['admin', 'editor', 'reader', 'limited']" :key="r" :value="r">
+                  {{ t(`roles.${r}`) }}
+                </option>
+              </select>
+            </label>
+            <button
+              type="button"
+              class="btn-primary"
+              :disabled="busy || !vaultChanged(v)"
+              :data-testid="`dept-vault-save-${v.id}`"
+              @click="saveVault(v)"
             >
+              {{ t('save') }}
+            </button>
             <RouterLink :to="`/vault/${v.id}/settings`" class="btn">{{ t('open') }}</RouterLink>
           </li>
         </ul>

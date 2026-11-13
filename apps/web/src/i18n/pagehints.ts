@@ -27,6 +27,8 @@ export const ruPageHints = {
     automation: '@:automation.hint',
     departments:
       'Подразделение — это люди (группа) и их сейф с паролями, созданные вместе. Выберите подразделение в списке, чтобы изменить название, руководителей, состав и сейфы. Новое создаётся ниже.',
+    access:
+      'Здесь видно, кто куда ходит. Введите имя сотрудника: сразу появятся его подразделения (руководитель, участник или гость), группы и сейфы с ролью и источником права: напрямую или через группу. Вкладка «По сейфу» (главный администратор) показывает обратное: кто имеет доступ к выбранному сейфу, кому выдан ключ и кому доступ дали на отдельные папки и записи, в том числе гостям. Здесь только сведения о доступе, пароли не показываются. Изменить доступ можно в карточке подразделения, в карточке сотрудника и в меню «Доступ» самой папки или записи.',
     vaults: '@:managed.inventoryHint',
     wizards: 'Пошаговые сценарии первоначальной настройки. Выполненные шаги отмечаются сами.',
     transfer: 'Перенос паролей: импорт из других менеджеров и экспорт.',
@@ -63,6 +65,8 @@ export const enPageHints = {
     automation: '@:automation.hint',
     departments:
       'A department is the people (a group) and their password storage, created together. Choose a department in the list to change its name, heads, members and storages. A new one is created below.',
+    access:
+      'See who goes where. Type an employee name: their departments (head, member or guest), groups and vaults appear at once, with the role and where it comes from: directly or through a group. The “By vault” tab (chief administrator) shows the opposite: who can access the chosen vault, who has the key and who was given single folders and entries, guests included. Only access information is shown here, never passwords. Access is changed in the department card, the employee card and the Access menu of the folder or entry itself.',
     vaults: '@:managed.inventoryHint',
     wizards: 'Step-by-step first-time setup. Finished steps are ticked by themselves.',
     transfer: 'Moving passwords: import from other managers and export.',

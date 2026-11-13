@@ -797,6 +797,26 @@ test('directory people: find an employee in the head field, add with "+", link a
   expect(people.filter((u) => u.email === 'boris@example.com')).toEqual([
     expect.objectContaining({ pending: false }),
   ]);
+
+  // руководитель без прав администратора управляет подразделением из рабочей области: состав и название сейфа
+  await boris.getByTestId('vault-actions').click();
+  await boris.getByTestId('btn-department').click();
+  await expect(boris.getByTestId('dept-detail-title')).toHaveText('Поддержка', { timeout: 30_000 });
+  await boris.getByTestId('dept-newmember-input').fill('dmitri');
+  await boris.getByTestId('dept-newmember-result-dmitri@example.com').click();
+  await boris.getByTestId('dept-members-add').click();
+  await expect(boris.getByTestId('dept-member-row-dmitri@example.com')).toBeVisible();
+
+  // «Доступы»: администратор вводит имя и сразу видит, кто куда ходит
+  await page.goto('/admin/access');
+  await page.getByTestId('access-person-input').fill('boris');
+  await page.getByTestId('access-person-result-boris@example.com').click();
+  await expect(page.getByTestId('access-dept-Поддержка')).toContainText(/руководитель|head/);
+  await expect(page.getByTestId('access-vaults')).toContainText('Поддержка');
+  await page.getByTestId('access-mode-vault').click();
+  await page.getByTestId('access-vault-search').fill('Поддержка');
+  await page.getByTestId('access-vault-open-Поддержка · Passwords').click();
+  await expect(page.getByTestId('access-vault')).toContainText('Поддержка');
   directory?.close();
 });
 

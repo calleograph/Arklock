@@ -245,3 +245,28 @@ describe('what a guest can and cannot see', () => {
     expect(member.json().expiresAt).toBeNull();
   });
 });
+
+describe('who goes where: the access list of a vault', () => {
+  it('lists the direct members, groups and guests with their rules, for the chief administrator only', async () => {
+    await share(carol, admin);
+    const r = (await admin.req('GET', `/admin/vaults/${vaultId}/access`)).json();
+    expect(r.name).toBe('Sales · Passwords');
+    expect(r.space).toBe('Sales');
+    expect(r.direct.map((d: { email: string }) => d.email)).toEqual(
+      expect.arrayContaining(['share-admin@example.com', 'share-alice@example.com']),
+    );
+    expect(
+      r.grants.find((g: { email: string }) => g.email === 'share-carol@example.com'),
+    ).toMatchObject({
+      guest: true,
+      rules: 1,
+    });
+    // обычному сотруднику список недоступен
+    expect(
+      (await alice.req('GET', `/admin/vaults/${vaultId}/access`)).statusCode,
+    ).toBeGreaterThanOrEqual(403);
+    // карточка сотрудника: гость отмечен
+    const p = (await admin.req('GET', `/admin/users/${carol.userId}/profile`)).json();
+    expect(p.spaces.find((x: { id: string }) => x.id === spaceId)).toMatchObject({ guest: true });
+  });
+});

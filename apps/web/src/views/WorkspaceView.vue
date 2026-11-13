@@ -603,6 +603,11 @@ function onEntryAction(id: string): void {
   else if (id === 'clone') newEntry(opened.value);
   else if (id === 'trash') void run(() => trashWithUndo(opened.value!));
 }
+/** Руководитель (или администратор) закрытого подразделения управляет им из рабочей области: состав, сейфы, гости. */
+const managesDepartment = computed(() => {
+  const sp = ws.spaces.find((x) => x.id === ws.currentSpaceId);
+  return !!sp && sp.canManage && !sp.isDefault && !sp.publicToOrg;
+});
 const vaultActions = computed<ActionItem[]>(() => [
   ...(isVaultAdmin.value && vault.value?.kind === 'shared'
     ? [
@@ -627,6 +632,16 @@ const vaultActions = computed<ActionItem[]>(() => [
         },
       ]
     : []),
+  ...(managesDepartment.value
+    ? [
+        {
+          id: 'department',
+          label: t('dept.manage'),
+          icon: 'users' as const,
+          testid: 'btn-department',
+        },
+      ]
+    : []),
   { id: 'spaces', label: t('spaces.manage'), icon: 'folder', testid: 'spaces-open' },
   { id: 'inspector', label: t('inspector.title'), icon: 'shield', testid: 'btn-inspector' },
 ]);
@@ -634,6 +649,7 @@ function onVaultAction(id: string): void {
   if (id === 'settings') void router.push(`/vault/${vault.value!.id}/settings`);
   else if (id === 'new') void newVault();
   else if (id === 'managed') showManaged.value = true;
+  else if (id === 'department') void router.push(`/department/${ws.currentSpaceId}`);
   else if (id === 'spaces') showSpaces.value = !showSpaces.value;
   else if (id === 'inspector') void router.push('/inspector');
 }
