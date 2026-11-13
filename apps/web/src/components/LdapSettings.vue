@@ -581,7 +581,7 @@ interface LoginResult {
   policy: { allowed: boolean | null };
   account: 'new' | 'linked' | 'pending' | 'local_conflict' | 'blocked' | null;
   detail: string;
-  user: { name: string; email: string; groups: number } | null;
+  user: { name: string; email: string; groups: number; groupList?: string[] } | null;
 }
 const loginResult = ref<LoginResult | null>(null);
 /** Текст этапа и причины из общего словаря. Неизвестная причина называется по коду, а не общей фразой. */
@@ -1409,6 +1409,19 @@ function allowGroup(dn: string): void {
             <p v-if="loginResult.user" class="text-xs text-slate-500">
               {{ t('dir.loginTest.found', loginResult.user) }}
             </p>
+            <details
+              v-if="loginResult.user?.groupList?.length"
+              class="text-xs"
+              :open="loginResult.policy.allowed === false"
+              data-testid="ldap-login-groups"
+            >
+              <summary class="cursor-pointer text-slate-500">
+                {{ t('dir.loginTest.groups', { n: loginResult.user.groups }) }}
+              </summary>
+              <ul class="mt-1 space-y-0.5 break-all font-mono text-slate-500">
+                <li v-for="g in loginResult.user.groupList" :key="g">{{ g }}</li>
+              </ul>
+            </details>
             <details v-if="loginResult.detail" class="text-xs">
               <summary class="cursor-pointer text-slate-500">{{ t('dir.check.details') }}</summary>
               <pre class="whitespace-pre-wrap break-all text-slate-500">{{

@@ -200,6 +200,9 @@ export interface DirectoryUser {
   groups: string[];
   /** Для Active Directory: учётная запись отключена (бит 2 в userAccountControl). */
   disabled: boolean;
+  /** Active Directory: основная группа (primaryGroupID, обычно «Пользователи домена», 513) и SID учётной записи. */
+  primaryGroupId: number;
+  sid: Buffer | null;
   /** Справочные поля карточки; пустая строка — в каталоге значения нет. */
   profile: { title: string; department: string; phone: string };
 }
@@ -238,6 +241,13 @@ export function guidOf(e: Record<string, unknown>): string {
     if (v) return v;
   }
   return '';
+}
+
+/** SID учётной записи (бинарный objectSid). */
+function sidOf(e: Record<string, unknown>): Buffer | null {
+  const v = pick(e, 'objectSid');
+  const b = Array.isArray(v) ? v[0] : v;
+  return Buffer.isBuffer(b) && b.length >= 12 ? b : null;
 }
 
 const str = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : String(v ?? ''));
@@ -323,6 +333,9 @@ function userAttrs(cfg: LdapConfig): string[] {
     cfg.nameAttr,
     'memberOf',
     'userAccountControl',
+    'primaryGroupID',
+    'objectSid',
+    'userPrincipalName',
     ...GUID_ATTRS,
     ...Object.values(profileAttrs(cfg)).filter(Boolean),
   ].map((a) => a.toLowerCase());
@@ -337,10 +350,16 @@ function userFromEntry(
   return {
     dn: e.dn,
     guid: guidOf(e),
-    email: str(pick(e, cfg.emailAttr)).toLowerCase(),
+    // у многих учётных записей Active Directory нет атрибута почты: тогда адресом служит имя пользователя (UPN)
+    email: (
+      str(pick(e, cfg.emailAttr)) ||
+      (cfg.directoryType === 'ad' ? str(pick(e, 'userPrincipalName')) : '')
+    ).toLowerCase(),
     name: str(pick(e, cfg.nameAttr)),
     groups: list(pick(e, 'memberOf')),
     disabled: (uac & 2) === 2,
+    primaryGroupId: Number(str(pick(e, 'primaryGroupID')) || 0),
+    sid: sidOf(e),
     profile: {
       title: pa.title ? str(pick(e, pa.title)).trim() : '',
       department: pa.department ? str(pick(e, pa.department)).trim() : '',
@@ -360,7 +379,7 @@ async function findUser(
       scope: 'sub',
       filter: buildUserFilter(cfg.userFilter, loginName(username)),
       attributes: userAttrs(cfg),
-      explicitBufferAttributes: ['objectguid'],
+      explicitBufferAttributes: ['objectguid', 'objectsid'],
       // ldapts hides SizeLimitExceeded with a positive client limit; authoritative lookups must surface it.
       sizeLimit: 0,
     });
@@ -376,22 +395,54 @@ async function findUser(
   return userFromEntry(cfg, res.searchEntries[0]!);
 }
 
+/**
+ * DN основной группы Active Directory. Её RID хранится в primaryGroupID, SID группы — это SID пользователя, у которого
+ * последний компонент (RID пользователя) заменён на этот RID.
+ */
+async function primaryGroupDn(
+  c: Client,
+  cfg: LdapConfig,
+  user: DirectoryUser,
+): Promise<string | null> {
+  if (!user.sid || !user.primaryGroupId) return null;
+  const sid = Buffer.from(user.sid);
+  sid.writeUInt32LE(user.primaryGroupId, sid.length - 4);
+  const hex = [...sid].map((x) => `\\${x.toString(16).padStart(2, '0')}`).join('');
+  const res = await c.search(cfg.baseDn, {
+    scope: 'sub',
+    filter: `(&(objectClass=group)(objectSid=${hex}))`,
+    attributes: ['dn'],
+    sizeLimit: 2,
+    paged: false,
+  });
+  return res.searchEntries.length === 1 ? res.searchEntries[0]!.dn : null;
+}
+
 /** Группы пользователя: атрибут memberOf или поиск групп, где он перечислен участником. */
 async function groupsOf(c: Client, cfg: LdapConfig, user: DirectoryUser): Promise<string[]> {
   const needed = cfg.groups.length > 0 || cfg.access === 'groups';
   if (cfg.directoryType === 'ad' && needed) {
     // Active Directory: группы с учётом вложенности одним запросом; при отказе — прямые группы из memberOf
-    try {
+    // основная группа («Пользователи домена») не входит ни в memberOf, ни в member группы: её находят по primaryGroupID
+    const primary = await primaryGroupDn(c, cfg, user).catch(() => null);
+    const chain = async (dn: string) => {
       const res = await c.search(cfg.baseDn, {
         scope: 'sub',
-        filter: `(&(objectClass=group)(member:${IN_CHAIN}:=${escapeFilter(user.dn)}))`,
+        filter: `(&(objectClass=group)(member:${IN_CHAIN}:=${escapeFilter(dn)}))`,
         attributes: ['dn'],
         sizeLimit: 0,
         paged: { pageSize: 500 },
       });
-      return [...new Set([...user.groups, ...res.searchEntries.map((e) => e.dn)])];
+      return res.searchEntries.map((e) => e.dn);
+    };
+    try {
+      const nested = await chain(user.dn);
+      // группы, в которые входит основная группа (например, «Все сотрудники» включает «Пользователи домена»)
+      const viaPrimary = primary ? [primary, ...(await chain(primary).catch(() => []))] : [];
+      return [...new Set([...user.groups, ...nested, ...viaPrimary])];
     } catch {
       /* каталог не поддерживает правило — остаются прямые группы */
+      return [...new Set([...user.groups, ...(primary ? [primary] : [])])];
     }
   }
   if (user.groups.length || !needed) return user.groups;
@@ -462,7 +513,7 @@ export async function ldapReadUser(
             ? '(&(objectCategory=person)(objectClass=user))'
             : '(objectClass=person)',
         attributes: userAttrs(cfg),
-        explicitBufferAttributes: ['objectguid'],
+        explicitBufferAttributes: ['objectguid', 'objectsid'],
         sizeLimit: 0,
       });
     } catch (e) {
@@ -502,8 +553,10 @@ export async function ldapGroupMembers(
       const res = await c.search(cfg.baseDn, {
         scope: 'sub',
         filter,
-        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, ...GUID_ATTRS].map((a) => a.toLowerCase()),
-        explicitBufferAttributes: ['objectguid'],
+        attributes: ['dn', cfg.nameAttr, cfg.emailAttr, 'userPrincipalName', ...GUID_ATTRS].map(
+          (a) => a.toLowerCase(),
+        ),
+        explicitBufferAttributes: ['objectguid', 'objectsid'],
         sizeLimit: limit + 1,
         paged: false,
       });
@@ -512,7 +565,10 @@ export async function ldapGroupMembers(
           dn: e.dn,
           guid: guidOf(e),
           name: str(pick(e, cfg.nameAttr)),
-          email: str(pick(e, cfg.emailAttr)).toLowerCase(),
+          email: (
+            str(pick(e, cfg.emailAttr)) ||
+            (cfg.directoryType === 'ad' ? str(pick(e, 'userPrincipalName')) : '')
+          ).toLowerCase(),
         })),
         truncated: res.searchEntries.length > limit,
       };
@@ -556,7 +612,7 @@ export async function ldapLookupByGuid(
         scope: 'sub',
         filter,
         attributes: userAttrs(cfg),
-        explicitBufferAttributes: ['objectguid'],
+        explicitBufferAttributes: ['objectguid', 'objectsid'],
         sizeLimit: 2,
         paged: false,
       });
@@ -753,12 +809,13 @@ export async function ldapBrowse(
           'ou',
           'userAccountControl',
           'sAMAccountName',
+          'userPrincipalName',
           'uid',
           ...GUID_ATTRS,
           pa.title,
           pa.department,
         ].map((a) => a.toLowerCase()),
-        explicitBufferAttributes: ['objectguid'],
+        explicitBufferAttributes: ['objectguid', 'objectsid'],
         sizeLimit: Math.min(offset + query.limit + 1, 501),
         paged: false,
       });
@@ -767,7 +824,9 @@ export async function ldapBrowse(
           dn: e.dn,
           guid: guidOf(e),
           name: str(pick(e, cfg.nameAttr)) || str(pick(e, 'ou')),
-          email: str(pick(e, cfg.emailAttr)),
+          email:
+            str(pick(e, cfg.emailAttr)) ||
+            (ad ? str(pick(e, 'userPrincipalName')).toLowerCase() : ''),
           login: str(pick(e, 'sAMAccountName')) || str(pick(e, 'uid')),
           title: pa.title ? str(pick(e, pa.title)).trim() : '',
           department: pa.department ? str(pick(e, pa.department)).trim() : '',

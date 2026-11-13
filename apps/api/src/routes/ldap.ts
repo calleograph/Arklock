@@ -570,7 +570,15 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       account,
       detail: !r.ok ? (r.detail ?? '') : '',
       user: u
-        ? { dn: u.dn, name: u.name, email: u.email, groups: u.groups.length, disabled: u.disabled }
+        ? {
+            dn: u.dn,
+            name: u.name,
+            email: u.email,
+            groups: u.groups.length,
+            // для разбора отказа по правилу «кто может входить»: в каких группах состоит сотрудник
+            groupList: u.groups.slice(0, 60),
+            disabled: u.disabled,
+          }
         : null,
     };
   });

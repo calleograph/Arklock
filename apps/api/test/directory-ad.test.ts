@@ -17,6 +17,16 @@ const SVC = 'CN=svc-ldap,OU=Service,DC=example,DC=com';
 const SVC_PASSWORD = 'Svc-ldap-Synthetic-1';
 const STAFF = 'CN=Staff,OU=Groups,DC=example,DC=com';
 const TEAM = 'CN=Team A,OU=Groups,DC=example,DC=com';
+/** «Пользователи домена»: основная группа у всех учётных записей (primaryGroupID 513), в memberOf её нет. */
+const DOMAIN_USERS = `CN=Domain Users,CN=Users,${BASE}`;
+/** Группа, в которую входит «Пользователи домена» (вложенность через основную группу). */
+const ALL_STAFF = `CN=All staff,OU=Groups,${BASE}`;
+/** SID домена и RID: все байты < 0x80, тестовый каталог читает значение фильтра как текст. */
+const sidOf = (rid: number) => {
+  const b = Buffer.from('01050000000000051500000064000000650000006600000000000000', 'hex');
+  b.writeUInt32LE(rid, b.length - 4);
+  return b;
+};
 const AD_52E =
   '80090308: LdapErr: DSID-0C090530, comment: AcceptSecurityContext error, data 52e, v4563';
 
@@ -67,6 +77,17 @@ const people: Person[] = [
     nested: [],
   },
   {
+    // в каталоге нет почты: адресом служит имя пользователя (UPN)
+    dn: `CN=No Mail,OU=Users,${BASE}`,
+    sam: 'nomail',
+    password: 'NoMail-Synthetic-1',
+    mail: '',
+    name: 'No Mail',
+    guid: Buffer.from('77665544332211000102030405060708', 'hex'),
+    memberOf: [],
+    nested: [],
+  },
+  {
     dn: `CN=Old Account,OU=Users,${BASE}`,
     sam: 'oldacc',
     password: 'Old-Synthetic-1',
@@ -101,6 +122,8 @@ function attrs(p: Person) {
     memberof: p.memberOf,
     useraccountcontrol: p.disabled ? '514' : '512',
     objectguid: p.guid,
+    primarygroupid: '513',
+    objectsid: sidOf(1100 + people.indexOf(p)),
     title: 'Engineer',
     department: 'Support',
   };
@@ -194,6 +217,9 @@ function startAd(): Promise<void> {
         const dn = chain[1]!.replace(/\\2c/gi, ',').replace(/\\20/g, ' ').toLowerCase();
         const p = people.find((x) => x.dn.toLowerCase() === dn);
         for (const g of p?.nested ?? []) res.send({ dn: g, attributes: { objectClass: 'group' } });
+        // «Пользователи домена» входит в «Все сотрудники»
+        if (dn === DOMAIN_USERS.toLowerCase())
+          res.send({ dn: ALL_STAFF, attributes: { objectClass: 'group' } });
         res.end();
         return next();
       }
@@ -223,6 +249,22 @@ function startAd(): Promise<void> {
         for (const p of people)
           if (!p.disabled && p.nested.some((g) => g.toLowerCase() === gdn))
             res.send({ dn: p.dn, attributes: attrs(p) });
+        res.end();
+        return next();
+      }
+      // основная группа по SID: (objectSid=\01\02…) — SID домена и RID группы
+      if (/objectSid=/i.test(f)) {
+        const raw = /objectSid=(.*?)\)\)?$/i.exec(f)?.[1] ?? '';
+        const bytes: number[] = [];
+        for (let i = 0; i < raw.length; i++) {
+          const esc = /^\\([0-9a-f]{2})/i.exec(raw.slice(i, i + 3));
+          if (esc) {
+            bytes.push(parseInt(esc[1]!, 16));
+            i += 2;
+          } else bytes.push(raw.charCodeAt(i));
+        }
+        if (Buffer.from(bytes).equals(sidOf(513)))
+          res.send({ dn: DOMAIN_USERS, attributes: { objectClass: 'group', cn: 'Domain Users' } });
         res.end();
         return next();
       }
@@ -1177,5 +1219,49 @@ describe('any employee finds domain people to share with, within the policy', ()
     expect(denied.statusCode).toBe(403);
     expect((await search(admin, 'sidorova')).json().items).toHaveLength(1);
     await admin.req('PUT', '/admin/settings', { 'sharing.outside': 'owners' });
+  });
+});
+
+describe('the common domain group (the primary group "Domain Users") lets employees in', () => {
+  const login = (username: string, password: string) =>
+    admin.req('POST', '/admin/ldap/login-test?profileId=ppl', { username, password });
+  const rule = (allowedGroups: string[]) =>
+    put(connection({ baseDn: BASE, enabled: true, access: 'groups', allowedGroups }), 'ppl');
+
+  it('"Domain Users" as the allowed group: everyone signs in (it is not in memberOf)', async () => {
+    expect((await rule([DOMAIN_USERS])).statusCode).toBe(200);
+    const r = (await login('csidorova', 'Clara-Synthetic-1')).json();
+    expect(r).toMatchObject({ ok: true, policy: { allowed: true } });
+    expect(r.user.groupList).toContain(DOMAIN_USERS);
+  });
+
+  it('a group that contains "Domain Users" works too', async () => {
+    expect((await rule([ALL_STAFF])).statusCode).toBe(200);
+    expect((await login('csidorova', 'Clara-Synthetic-1')).json()).toMatchObject({
+      ok: true,
+      policy: { allowed: true },
+    });
+  });
+
+  it('a refusal shows the groups of the employee, so the administrator sees what to choose', async () => {
+    expect((await rule([`CN=Nobody,OU=Groups,${BASE}`])).statusCode).toBe(200);
+    const r = (await login('csidorova', 'Clara-Synthetic-1')).json();
+    expect(r).toMatchObject({ ok: false, reason: 'not_allowed' });
+    expect(r.user.groupList).toEqual(expect.arrayContaining([DOMAIN_USERS, ALL_STAFF]));
+  });
+});
+
+describe('an account without the mail attribute', () => {
+  it('signs in with the user principal name as the address instead of being refused', async () => {
+    expect(
+      (await put(connection({ baseDn: BASE, enabled: true, access: 'all' }), 'ppl')).statusCode,
+    ).toBe(200);
+    const r = (
+      await admin.req('POST', '/admin/ldap/login-test?profileId=ppl', {
+        username: 'nomail',
+        password: 'NoMail-Synthetic-1',
+      })
+    ).json();
+    expect(r).toMatchObject({ ok: true, user: { email: 'nomail@example.com' } });
   });
 });

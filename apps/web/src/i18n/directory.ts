@@ -229,7 +229,7 @@ export const ruDirectory = {
         'сотрудник не найден: проверьте логин, Base DN и фильтр. Отключённые учётные записи не находятся',
       ambiguous_user: 'найдено несколько учётных записей: уточните логин',
       no_email:
-        'у учётной записи нет адреса почты в каталоге: Arklock не может создать учётную запись',
+        'у учётной записи нет ни адреса почты, ни имени пользователя (UPN) в каталоге: заполните одно из них, иначе Arklock не может создать учётную запись',
       password_missing: 'пароль не введён',
       insufficient_access:
         'служебной учётной записи не хватает прав на чтение этой части каталога: выдайте право чтения на Base DN и OU сотрудников',
@@ -261,7 +261,8 @@ export const ruDirectory = {
       cert_not_yet_valid: 'сертификат сервера ещё не действует: проверьте часы на серверах',
       cert_untrusted:
         'сертификат сервера не подтверждён: загрузите корневой и промежуточные центры или доверьте сертификат',
-      not_allowed: 'пароль верный, но учётная запись не входит в разрешённые группы',
+      not_allowed:
+        'пароль верный, но учётная запись не входит в разрешённые группы: ниже перечислены группы сотрудника, выберите одну из них',
       local_exists:
         'в Arklock уже есть локальная учётная запись с этим адресом: она не присоединяется автоматически',
       blocked_in_arklock: 'учётная запись заблокирована в Arklock',
@@ -339,6 +340,7 @@ export const ruDirectory = {
       run: 'Проверить вход',
       note: 'Пароль проверяет каталог; он не сохраняется и не записывается в журнал. Учётная запись в Arklock не создаётся.',
       needSave: 'Сначала сохраните подключение.',
+      groups: 'Группы сотрудника в каталоге: {n}',
       found: 'Найден: {name} <{email}>, групп: {groups}.',
       reason: {
         ok: 'Вход работает: сотрудник может войти в Arklock.',
@@ -633,7 +635,8 @@ export const enDirectory = {
       cert_not_yet_valid: 'the server certificate is not valid yet: check the clocks',
       cert_untrusted:
         'the server certificate is not trusted: upload the root and intermediate authorities or trust the certificate',
-      not_allowed: 'the password is right, but the account is not in an allowed group',
+      not_allowed:
+        'the password is right, but the account is not in an allowed group: the employee’s groups are listed below, choose one of them',
       local_exists:
         'a local account with this address already exists in Arklock: it is not joined automatically',
       blocked_in_arklock: 'the account is blocked in Arklock',
@@ -711,6 +714,7 @@ export const enDirectory = {
       run: 'Check sign-in',
       note: 'The directory checks the password; it is not stored or logged. No Arklock account is created.',
       needSave: 'Save the connection first.',
+      groups: 'Employee groups in the directory: {n}',
       found: 'Found: {name} <{email}>, groups: {groups}.',
       reason: {
         ok: 'Sign-in works: the employee can sign in to Arklock.',
