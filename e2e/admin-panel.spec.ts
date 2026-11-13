@@ -762,12 +762,26 @@ test('directory people: find an employee in the head field, add with "+", link a
   // первый вход человека, чей профиль создан заранее: ключи создаются для того же профиля, дубля нет
   const boris = await (await browser.newContext()).newPage();
   // доменный логин вводится в обычную форму входа: без выбора «корпоративная учётная запись»
+  // несуществующее имя через явный вход корпоративной учётной записью: отказ записан с причиной «не найдена по фильтру»
   const ghost = await (await browser.newContext()).newPage();
   await ghost.goto('/login');
-  await ghost.getByTestId('email').fill('ghost-employee');
+  await ghost.getByTestId('to-ldap').click();
+  await ghost.getByTestId('ldap-user').fill('ghost-employee');
   await ghost.getByTestId('password').fill('ghost-e2e-pass');
   await ghost.getByTestId('submit').click();
   await expect(ghost.getByTestId('error')).toBeVisible({ timeout: 30_000 });
+  // пароль локальной учётной записи (даже ошибочный) в каталог и на /auth/ldap/login открытым не уходит
+  const local = await (await browser.newContext()).newPage();
+  const ldapCalls: string[] = [];
+  local.on('request', (r) => {
+    if (r.url().includes('/auth/ldap/login')) ldapCalls.push(r.url());
+  });
+  await local.goto('/login');
+  await local.getByTestId('email').fill(ADMIN.email);
+  await local.getByTestId('password').fill('wrong-local-master-password');
+  await local.getByTestId('submit').click();
+  await expect(local.getByTestId('error')).toBeVisible({ timeout: 30_000 });
+  expect(ldapCalls).toEqual([]);
   await boris.goto('/login');
   await boris.getByTestId('email').fill('boris');
   await boris.getByTestId('password').fill('boris-ldap-e2e-pass');

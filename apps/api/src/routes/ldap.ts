@@ -1,4 +1,11 @@
-import { grantPendingKeysForUser, keyModeOf, newManagedSecret } from '../managed-keys.js';
+import { AttemptLimiter } from '../rateLimit.js';
+import { safeLogin } from '../signin-log.js';
+import {
+  grantPendingKeysForUser,
+  keyModeOf,
+  logGrantFailure,
+  newManagedSecret,
+} from '../managed-keys.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -646,6 +653,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   });
 
   /** Причина отказа при входе: пишется в журнал и показывается в диагностике (без паролей, только введённое имя). */
+  const routeLimiter = new AttemptLimiter(60, 600_000);
   const reasons = new WeakMap<
     object,
     { reason: string; extra?: Record<string, string | number> }
@@ -662,7 +670,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   const signinHook = async (req: FastifyRequest, _reply: unknown, error: Error) => {
     if (!(error instanceof AppError) || !SIGNIN_CODES.has(error.code)) return;
     const r = reasons.get(req);
-    const login = String((req.body as { username?: unknown } | null)?.username ?? '').slice(0, 80);
+    const login = safeLogin((req.body as { username?: unknown } | null)?.username);
     await audit(db, 'anonymous', 'auth.ldap.denied', null, {
       login,
       reason: r?.reason ?? error.code,
@@ -670,6 +678,43 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       ...r?.extra,
     }).catch(() => undefined);
   };
+
+  /**
+   * Каким путём входить с главной формы. Пароль уходит в каталог только для имени, которое там есть: пароль локальной
+   * учётной записи (в том числе с опечаткой в имени) каталог не получает. Ответ «есть в каталоге или нет» — узнаваемое
+   * свойство, поэтому запросов с одного адреса не больше 60 за 10 минут.
+   */
+  app.post('/auth/login-route', async (req) => {
+    const body = parse(z.object({ login: z.string().trim().min(1).max(256) }), req.body);
+    const ip = ipOf(req) ?? 'unknown';
+    const wait = routeLimiter.retryAfter(ip);
+    if (wait > 0)
+      throw new AppError(429, 'too_many_attempts', 'Too many attempts, try again later', {
+        retryAfterSeconds: wait,
+      });
+    routeLimiter.fail(ip);
+    const profiles = (await readLdapProfiles(db)).filter((p) => p.enabled);
+    if (!profiles.length) return { via: 'password' as const };
+    const [local] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          eq(users.email, body.login.toLowerCase()),
+          eq(users.authSource, 'local'),
+          eq(users.pendingActivation, false),
+        ),
+      )
+      .limit(1);
+    if (local) return { via: 'password' as const };
+    for (const p of profiles) {
+      const found = await ldapLookup(p, ldapBindSecret(p, config.APP_SECRET), body.login).catch(
+        () => null,
+      );
+      if (found) return { via: 'directory' as const, profileId: p.id };
+    }
+    return { via: 'password' as const };
+  });
 
   app.post(
     '/auth/ldap/login',
@@ -826,7 +871,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       // «Простой вход»: доступ мог быть назначен после прошлого входа — ключи выдаём сразу
       if (linked.managedSecret)
         await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, linked.id).catch(
-          () => 0,
+          logGrantFailure,
         );
       if (await isEnrolled(ctx, linked.id)) {
         reply.status(200);

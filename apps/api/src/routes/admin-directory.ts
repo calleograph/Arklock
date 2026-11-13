@@ -42,7 +42,7 @@ import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 import { syncManagedGuardians } from '../managed-vaults.js';
-import { grantAllPendingKeys, KEY_MODE_KEY } from '../managed-keys.js';
+import { grantAllPendingKeys, KEY_MODE_KEY, logGrantFailure } from '../managed-keys.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
 const SETTINGS: Record<string, z.ZodType> = {
@@ -845,7 +845,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         });
       if (key === 'security.mfaRequired') resetMfaPolicyCache(ctx);
       if (key === 'security.keyMode' && value === 'managed')
-        void grantAllPendingKeys({ db, appSecret: ctx.config.APP_SECRET }).catch(() => 0);
+        void grantAllPendingKeys({ db, appSecret: ctx.config.APP_SECRET }).catch(logGrantFailure);
       if (key === 'vaults.managedGuardians' || key === 'vaults.managedRole')
         await syncManagedGuardians(db, user.id);
       if (key === 'session.idleHours' || key === 'session.maxHours') resetSessionLimitsCache(ctx);
@@ -1005,7 +1005,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       const esc = (v: unknown) =>
         `"${String(v ?? '')
           .replace(/"/g, '""')
-          .replace(/^([=+\-@])/, "'$1")}"`;
+          .replace(/^([=+\-@\t\r])/, "'$1")}"`;
       const csv = [
         'id,at,actor,actor_name,action,target,target_name,detail,level',
         ...items.map((i) =>

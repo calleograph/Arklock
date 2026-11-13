@@ -1,4 +1,4 @@
-import { grantAllPendingKeys } from './managed-keys.js';
+import { grantAllPendingKeys, logGrantFailure } from './managed-keys.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -273,7 +273,9 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     if (!GRANT_ROUTES.test(req.url) || grantTimer) return;
     grantTimer = setTimeout(() => {
       grantTimer = null;
-      void grantAllPendingKeys({ db: database.db, appSecret: config.APP_SECRET }).catch(() => 0);
+      void grantAllPendingKeys({ db: database.db, appSecret: config.APP_SECRET }).catch(
+        logGrantFailure,
+      );
     }, 800);
     grantTimer.unref();
   });

@@ -225,6 +225,7 @@ async function notifyAuditRaw(db: Db, audit: AuditSinkEvent): Promise<void> {
     [
       'auth.password.change',
       'auth.recovery.complete',
+      'auth.managed.secret.new_ip',
       'auth.mfa.enable',
       'auth.mfa.disable',
       'auth.webauthn.add',
@@ -239,6 +240,11 @@ async function notifyAuditRaw(db: Db, audit: AuditSinkEvent): Promise<void> {
   } else if (action === 'admin.user.update' || action === 'admin.user.revoke-sessions') {
     category = 'security';
     if (resourceId) recipients = [resourceId];
+  } else if (action === 'auth.managed.enroll') {
+    category = 'security';
+    recipients = (await db.select({ id: users.id }).from(users).where(eq(users.role, 'admin'))).map(
+      (row) => row.id,
+    );
   } else if (
     action === 'admin.ldap.sync.failed' ||
     (['admin.smtp.test', 'admin.smtp.send-test'].includes(action) && detail?.ok === false)

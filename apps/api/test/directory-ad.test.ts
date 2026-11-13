@@ -23,7 +23,9 @@ import {
   wrapPrivateKeyForRecovery,
   wrapSignPrivateKey,
 } from '@arklock/crypto';
-import { ledger, settings, users, vaultKeys } from '../src/db/schema.js';
+import { ledger, settings, userNotifications, users, vaultKeys } from '../src/db/schema.js';
+import { setAuditSink } from '../src/audit.js';
+import { grantPendingKeys, sealManagedSecret } from '../src/managed-keys.js';
 import {
   APP_SECRET,
   cheapCaptcha,
@@ -131,6 +133,16 @@ const people: Person[] = [
     mail: 'yuri.quill@example.com',
     name: 'Yuri Quill',
     guid: Buffer.from('21212121434343436565656587878787', 'hex'),
+    memberOf: [],
+    nested: [],
+  },
+  {
+    dn: `CN=Wen Tarn,OU=Users,${BASE}`,
+    sam: 'wtarn',
+    password: 'Wen-Synthetic-1',
+    mail: 'wen.tarn@example.com',
+    name: 'Wen Tarn',
+    guid: Buffer.from('31313131535353537171717191919191', 'hex'),
     memberOf: [],
     nested: [],
   },
@@ -1421,7 +1433,7 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
       .onConflictDoUpdate({ target: settings.key, set: { value: 'managed' } });
 
   /** Первый вход в режиме «простой вход»: браузер оборачивает ключи секретом сервера и пароля не придумывает. */
-  async function enrollManaged(username: string, password: string) {
+  async function enrollManaged(username: string, password: string, wrongWrap = false) {
     const first = await attempt(username, password);
     expect(first.statusCode).toBe(200);
     const body = first.json() as {
@@ -1432,7 +1444,10 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
     };
     expect(body.managedSecret).toBeTruthy();
     const userId = body.userId ?? crypto.randomUUID();
-    const wrapKey = await managedWrapKey(fromBase64Url(body.managedSecret!));
+    // wrongWrap: ключи обёрнуты не секретом сервера (ошибка или подмена в браузере)
+    const wrapKey = wrongWrap
+      ? crypto.getRandomValues(new Uint8Array(32))
+      : await managedWrapKey(fromBase64Url(body.managedSecret!));
     const kp = await generateAccountKeyPair();
     const sk = await generateSigningKeyPair();
     const recovery = await generateRecoveryKey();
@@ -1469,6 +1484,7 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
         },
       },
     });
+    if (wrongWrap) return { res } as never;
     expect(res.statusCode).toBe(201);
     const client = new TestClient(fixture.app, `${username}@managed.test`, '');
     client.token = res.json().token;
@@ -1479,6 +1495,8 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
     client.signPublicKey = sk.publicKey;
     return { client, secret: body.managedSecret!, session: res.json() };
   }
+
+  let shared: { id: string; ownerId: string; zedId: string } | null = null;
 
   it('is turned on only by the chief administrator and only with the second factor required for everyone', async () => {
     const refused = await admin.req('PUT', '/admin/settings', { 'security.keyMode': 'managed' });
@@ -1513,6 +1531,31 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
     expect(mine.statusCode).toBe(200);
     expect(mine.json().secret).toBe(secret);
     expect(mine.headers['cache-control']).toBe('no-store');
+    // чтение секрета с другого адреса, чем вход в сеанс, записывается и показывается сотруднику
+    const elsewhere = await fixture.app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/managed-secret',
+      remoteAddress: '192.0.2.77',
+      headers: { authorization: `Bearer ${client.token}` },
+    });
+    expect(elsewhere.statusCode).toBe(200);
+    const alerts = (await fixture.database.db.select().from(ledger)).filter(
+      (e) => e.action === 'auth.managed.secret.new_ip' && e.actor === `user:${client.userId}`,
+    );
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.detail).toMatchObject({ ip: '192.0.2.77' });
+    // повторные чтения того же сеанса запись не плодят
+    await fixture.app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/managed-secret',
+      remoteAddress: '192.0.2.77',
+      headers: { authorization: `Bearer ${client.token}` },
+    });
+    expect(
+      (await fixture.database.db.select().from(ledger)).filter(
+        (e) => e.action === 'auth.managed.secret.new_ip' && e.actor === `user:${client.userId}`,
+      ),
+    ).toHaveLength(1);
     // у обычной учётной записи секрета нет
     expect((await admin.req('GET', '/auth/managed-secret')).statusCode).toBe(404);
     // в базе секрет только в зашифрованном виде; пароль сменить нельзя: его нет
@@ -1545,6 +1588,7 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
     // его первый вход: учётная запись создаётся и ключ сейфа выдан до того, как кто-либо снова открыл Arklock
     const boris = (await enrollManaged('zquartz', 'Zed-Synthetic-1')).client;
     expect(boris.userId).toBe(borisId);
+    shared = { id, ownerId: owner.userId, zedId: boris.userId };
     const mine = (await boris.vaults()).find((v) => v.id === id)!;
     expect(mine.key).toBeTruthy();
     const key = await boris.openVault(mine);
@@ -1576,6 +1620,92 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
     expect(
       log.some((e) => e.action === 'vault.keys.auto' && e.actor === 'system:managed-keys'),
     ).toBe(true);
+  });
+
+  it('refuses wraps that do not open with the secret, tells administrators about a first sign-in, and keeps the secret away from API tokens', async () => {
+    const bad = (await enrollManaged('wtarn', 'Wen-Synthetic-1', true)) as unknown as {
+      res: { statusCode: number; json: () => { error: { code: string } } };
+    };
+    expect(bad.res.statusCode).toBe(400);
+    expect(bad.res.json().error.code).toBe('bad_wrap');
+    // каждый первый вход в простом режиме записан (кто, откуда) и показан администраторам
+    const [clara] = await fixture.database.db
+      .select()
+      .from(users)
+      .where(eq(users.email, 'clara.sidorova@example.com'));
+    const log = await fixture.database.db.select().from(ledger);
+    expect(
+      log.find((e) => e.action === 'auth.managed.enroll' && e.target === `user:${clara!.id}`),
+    ).toMatchObject({
+      detail: { source: 'ldap' },
+    });
+    const adminRow = (
+      await fixture.database.db.select().from(users).where(eq(users.email, 'ad-admin@example.com'))
+    )[0]!;
+    const inbox = await fixture.database.db
+      .select()
+      .from(userNotifications)
+      .where(eq(userNotifications.userId, adminRow.id));
+    expect(inbox.some((n) => n.event === 'auth.managed.enroll')).toBe(true);
+    // токен API секрет не получает
+    const token = (
+      await admin.req('POST', '/auth/tokens', {
+        name: 'ci',
+        scope: 'write',
+        expiresInDays: 1,
+        authKey: toBase64Url((await admin.derive()).keys.authKey),
+      })
+    ).json().token as string;
+    const viaToken = await fixture.app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/managed-secret',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(viaToken.statusCode).toBe(403);
+  });
+
+  it('strict mode issues nothing; a holder with broken keys is skipped in favour of the next one', async () => {
+    const { id, ownerId, zedId } = shared!;
+    const db = fixture.database.db;
+    const [clara] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, 'clara.sidorova@example.com'));
+    const waiting = () =>
+      db
+        .select()
+        .from(vaultKeys)
+        .where(and(eq(vaultKeys.vaultId, id), eq(vaultKeys.userId, clara!.id)));
+    await db
+      .delete(vaultKeys)
+      .where(and(eq(vaultKeys.vaultId, id), eq(vaultKeys.userId, clara!.id)));
+    const deps = { db, appSecret: APP_SECRET };
+    const setMode = (v: string) =>
+      db
+        .insert(settings)
+        .values({ key: 'security.keyMode', value: v })
+        .onConflictDoUpdate({ target: settings.key, set: { value: v } });
+    await setMode('strict');
+    expect(await grantPendingKeys(deps, id)).toBe(0);
+    expect(await waiting()).toHaveLength(0);
+    await setMode('managed');
+    // у владельца сейфа секрет не тот: его ключи не открываются, ключ выдаёт второй держатель
+    const [owner] = await db.select().from(users).where(eq(users.id, ownerId));
+    await db
+      .update(users)
+      .set({
+        managedSecret: sealManagedSecret(
+          APP_SECRET,
+          toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
+        ),
+      })
+      .where(eq(users.id, ownerId));
+    expect(await grantPendingKeys(deps, id)).toBe(1);
+    expect((await waiting())[0]).toMatchObject({ grantedBy: zedId });
+    await db
+      .update(users)
+      .set({ managedSecret: owner!.managedSecret })
+      .where(eq(users.id, ownerId));
   });
 });
 
@@ -1666,6 +1796,70 @@ describe('an account without the mail attribute', () => {
       })
     ).json();
     expect(r).toMatchObject({ ok: true, user: { email: 'nomail@example.com' } });
+  });
+});
+
+describe('the sign-in route: which way a typed name goes', () => {
+  const route = (login: string) => admin.req('POST', '/auth/login-route', { login });
+  it('sends the password to the directory only for a name the directory knows', async () => {
+    expect(
+      (
+        await put(
+          connection({ baseDn: BASE, enabled: true, access: 'all', autoProvision: true }),
+          'ppl',
+        )
+      ).statusCode,
+    ).toBe(200);
+    // локальная учётная запись, даже с опечаткой в имени, в каталог не идёт
+    expect((await route('ad-admin@example.com')).json()).toEqual({ via: 'password' });
+    expect((await route('ad-adminn@example.com')).json()).toEqual({ via: 'password' });
+    expect((await route('nobody-in-directory')).json()).toEqual({ via: 'password' });
+    // имя из каталога: логин, DOMAIN\\логин и почта
+    const known = (await route('apetrova')).json();
+    expect(known.via).toBe('directory');
+    expect(['ad', 'ppl']).toContain(known.profileId);
+    expect((await route('EXAMPLE\\apetrova')).json()).toMatchObject({ via: 'directory' });
+  });
+
+  it('is limited per address (the answer "known or not" must not be an oracle)', async () => {
+    const hit = () =>
+      fixture.app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login-route',
+        remoteAddress: '192.0.2.99',
+        payload: { login: 'someone' },
+      });
+    let last = 200;
+    for (let i = 0; i < 65 && last === 200; i++) last = (await hit()).statusCode;
+    expect(last).toBe(429);
+  });
+
+  it('keeps a password pasted into the login field out of the ledger and out of external sinks', async () => {
+    const outward: { detail: Record<string, unknown> | null; action: string }[] = [];
+    setAuditSink(fixture.database.db, (ev) => outward.push(ev));
+    const res = await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+      username: 'my secret pass 1',
+      password: 'whatever-1234',
+      profileId: 'ppl',
+    });
+    expect(res.statusCode).toBe(401);
+    const rows = await fixture.database.db.select().from(ledger);
+    const row = rows.filter((e) => e.action === 'auth.ldap.denied').at(-1)!;
+    expect((row.detail as { login: string }).login).toBe('*** (16)');
+    const sent = outward.find((e) => e.action === 'auth.ldap.denied');
+    expect(sent).toBeTruthy();
+    expect(sent!.detail).not.toHaveProperty('login');
+    // обычное имя в журнале остаётся и пригодно для разбора, но наружу тоже не уходит
+    await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+      username: 'ghost-user',
+      password: 'x',
+      profileId: 'ppl',
+    });
+    const again = (await fixture.database.db.select().from(ledger))
+      .filter((e) => e.action === 'auth.ldap.denied')
+      .at(-1)!;
+    expect((again.detail as { login: string }).login).toBe('ghost-user');
+    expect(outward.at(-1)!.detail).not.toHaveProperty('login');
   });
 });
 

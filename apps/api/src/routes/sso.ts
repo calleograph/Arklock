@@ -1,6 +1,8 @@
 import {
+  assertWrapsOpen,
   grantPendingKeysForUser,
   keyModeOf,
+  logGrantFailure,
   newManagedSecret,
   sealManagedSecret,
 } from '../managed-keys.js';
@@ -312,7 +314,9 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       const [u] = await db.select().from(users).where(eq(users.id, out.userId));
       if (!u || u.disabledAt) throw new AppError(401, 'invalid_ticket', 'The sign-in step expired');
       if (u.managedSecret)
-        await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, u.id).catch(() => 0);
+        await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, u.id).catch(
+          logGrantFailure,
+        );
       if (await isEnrolled(ctx, u.id)) {
         reply.status(200);
         return mfaChallenge(ctx, u.id);
@@ -365,6 +369,17 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         throw new AppError(403, 'not_provisioned', 'Directory identity is no longer authorized');
       ident.groups = found.groups;
     }
+    // «Простой вход»: ключи, не открывающиеся секретом, заперли бы сотрудника навсегда; сервер проверяет это сразу
+    if (
+      ident.managedSecret &&
+      !(await assertWrapsOpen(
+        ident.managedSecret,
+        body.userId,
+        body.wrappedPrivateKey,
+        body.wrappedSignPrivateKey,
+      ))
+    )
+      throw new AppError(400, 'bad_wrap', 'The wrapped keys do not open with the unlock secret');
     const full = { ...body, email: ident.email, displayName: ident.name || ident.email };
     await db.transaction(async (tx) => {
       if (ident.source === 'ldap') {
@@ -419,7 +434,7 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     // «Простой вход»: доступ уже назначен (группа подразделения, прямые роли), ключи сейфов выдаём сразу
     if (ident.managedSecret)
       await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, body.userId).catch(
-        () => 0,
+        logGrantFailure,
       );
     const [u] = await db.select().from(users).where(eq(users.id, body.userId));
     const sess = await createSession(
@@ -429,6 +444,14 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       req.headers['user-agent'] ?? null,
     );
     await audit(db, `user:${body.userId}`, `auth.${ident.source}.enroll`, `user:${body.userId}`);
+    // «Простой вход»: доменный пароль — единственное доказательство личности при первом входе, поэтому администраторы
+    // узнают о каждом таком входе (кто, откуда) и могут проверить, что это сам сотрудник
+    if (ident.managedSecret)
+      await audit(db, `user:${body.userId}`, 'auth.managed.enroll', `user:${body.userId}`, {
+        ip: ipOf(req),
+        source: ident.source,
+        precreated: !!ident.claimUserId,
+      });
     reply.status(201);
     return {
       token: sess.token,

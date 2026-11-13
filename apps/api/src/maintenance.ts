@@ -1,4 +1,4 @@
-import { grantAllPendingKeys } from './managed-keys.js';
+import { grantAllPendingKeys, logGrantFailure } from './managed-keys.js';
 import { pruneGuests } from './sharing-policy.js';
 import { eq, lt, or, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import { MAX_EVENTS } from './shield/events.js';
@@ -35,7 +35,7 @@ export async function runMaintenance(
   const expired = (await expireAccounts(db, now)).length;
   // гости, у которых закончились все выданные доступы, выходят из подразделений
   const guestsPruned = await pruneGuests(db);
-  if (appSecret) await grantAllPendingKeys({ db, appSecret }).catch(() => 0);
+  if (appSecret) await grantAllPendingKeys({ db, appSecret }).catch(logGrantFailure);
   const [ret] = await db.select().from(settings).where(eq(settings.key, 'trash.retentionDays'));
   const days = typeof ret?.value === 'number' ? ret.value : 30;
   const trash = await purgeExpiredTrash(db, days, now, blobs);

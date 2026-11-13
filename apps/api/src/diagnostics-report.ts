@@ -212,7 +212,9 @@ async function importantEvents(ctx: AppContext): Promise<DiagnosticReport['event
 }
 
 const top = (xs: SigninGroup[], n = 3) =>
-  [...new Set(xs.map((x) => x.login).filter(Boolean))].slice(0, n).join(', ');
+  [...new Set(xs.map((x) => x.login).filter((l) => l && !l.startsWith('***')))]
+    .slice(0, n)
+    .join(', ');
 
 /** Недочёты настройки и входа: из конфигурации, результатов проверки каталога и причин недавних отказов. */
 export function findingsOf(

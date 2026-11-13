@@ -2,12 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { and, count, eq, ne, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import {
-  assertKdfParams,
-  managedWrapKey,
-  unwrapAccountPrivateKey,
-  unwrapSignPrivateKey,
-} from '@arklock/crypto';
+import { assertKdfParams } from '@arklock/crypto';
 import {
   authParamsQuery,
   changePasswordRequest,
@@ -30,6 +25,7 @@ import type {
   UserBundle,
 } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { safeLogin } from '../signin-log.js';
 import { publicUrlOf } from '../public-url.js';
 import { adminPermsOf } from '../auth/adminperm.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
@@ -57,7 +53,12 @@ import { attachmentIdsOfVault } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
 import { managedPolicy } from '../managed-vaults.js';
-import { keyModeOf, openManagedSecret, sealManagedSecret } from '../managed-keys.js';
+import {
+  assertWrapsOpen,
+  keyModeOf,
+  openManagedSecret,
+  sealManagedSecret,
+} from '../managed-keys.js';
 import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
 import { DEFAULT_SPACE_ID, spaceAccess } from '../spaces.js';
 
@@ -250,6 +251,9 @@ export function recordFailure(ctx: AppContext, req: FastifyRequest, email: strin
   ctx.attempts.byEmail.fail(email);
   ctx.attempts.byIp.fail(ipOf(req) ?? 'unknown');
 }
+
+// shortcut: памяти процесса достаточно: при нескольких экземплярах предупреждение придёт по разу от каждого
+const secretAlerted = new Set<string>();
 
 export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (app, { ctx }) => {
   const { db, config } = ctx;
@@ -591,7 +595,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         u ? `user:${u.id}` : null,
         {
           ip: ipOf(req),
-          login: body.email.slice(0, 80),
+          login: safeLogin(body.email),
           reason: !u ? 'unknown_account' : u.disabledAt ? 'account_disabled' : 'bad_password',
         },
       );
@@ -676,10 +680,20 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
    * фактора; сеанс без второго фактора, когда он обязателен, сюда не попадает (его отсекает политика). Ответ не кэшируется.
    */
   app.get('/auth/managed-secret', { preHandler: auth }, async (req, reply) => {
-    const { user } = authOf(req);
+    const { user, session } = authOf(req);
     if (!user.managedSecret)
       throw new AppError(404, 'not_managed', 'This account unlocks with its own password');
     reply.header('cache-control', 'no-store');
+    // секрет открывает все данные сотрудника, поэтому чтение с другого адреса, чем при входе, видно ему и администраторам
+    const ip = ipOf(req);
+    if (session.ip && ip && session.ip !== ip && !secretAlerted.has(session.id)) {
+      if (secretAlerted.size > 10_000) secretAlerted.clear();
+      secretAlerted.add(session.id);
+      await audit(db, `user:${user.id}`, 'auth.managed.secret.new_ip', `user:${user.id}`, {
+        ip,
+        sessionIp: session.ip,
+      });
+    }
     return { secret: openManagedSecret(ctx.config.APP_SECRET, user.managedSecret) };
   });
 
@@ -703,15 +717,15 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       }),
       req.body,
     );
-    const wrapKey = await managedWrapKey(fromBase64Url(body.secret));
-    try {
-      (await unwrapAccountPrivateKey(wrapKey, body.wrappedPrivateKey, user.id)).fill(0);
-      (await unwrapSignPrivateKey(wrapKey, body.wrappedSignPrivateKey, user.id)).fill(0);
-    } catch {
+    if (
+      !(await assertWrapsOpen(
+        body.secret,
+        user.id,
+        body.wrappedPrivateKey,
+        body.wrappedSignPrivateKey,
+      ))
+    )
       throw new AppError(400, 'bad_wrap', 'The wrapped keys do not open with this secret');
-    } finally {
-      wrapKey.fill(0);
-    }
     const authSalt = randomB64url(16);
     await db
       .update(users)

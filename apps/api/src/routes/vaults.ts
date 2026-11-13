@@ -17,6 +17,7 @@ import type { Db } from '../db/connect.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole } from '../perms.js';
 import { audit } from '../audit.js';
 import { managedPolicy } from '../managed-vaults.js';
+import { pendingKeyUsers } from '../managed-keys.js';
 import { enforceDenyRules } from '../automation.js';
 import { notifyUsers } from '../notifications.js';
 import { authOf, requireAuth } from '../auth/session.js';
@@ -759,20 +760,7 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const access = await requireVault(db, vaultId, user.id);
     if (!access.isAdmin) throw forbidden();
     const v = await getVault(vaultId);
-    const ids = await db.execute<{ id: string }>(sql`
-      select distinct u.id from users u
-      where u.disabled_at is null and not u.pending_activation and (
-        exists (select 1 from vault_members m where m.vault_id = ${vaultId} and m.user_id = u.id)
-        or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
-                   where vc.vault_id = ${vaultId} and cm.user_id = u.id)
-        or exists (select 1 from grants g where g.vault_id = ${vaultId} and (
-          (g.subject_type = 'user' and g.subject_id = u.id) or
-          (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = u.id))))
-      ) and not exists (select 1 from vault_keys k where k.vault_id = ${vaultId} and k.user_id = u.id and k.key_version = ${v.keyVersion})`);
-    const rows = rowsOf<{ id: string }>(ids);
-    const list: string[] = [];
-    for (const r of rows) if ((await loadAccess(db, vaultId, r.id)).isMember) list.push(r.id);
-    const us = list.length ? await db.select().from(users).where(inArray(users.id, list)) : [];
+    const us = await pendingKeyUsers(db, vaultId, v.keyVersion);
     return {
       keyVersion: v.keyVersion,
       users: us.map((u) => ({

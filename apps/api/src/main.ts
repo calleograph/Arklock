@@ -72,6 +72,7 @@ async function main(): Promise<void> {
   }, 30 * 60_000);
   directoryTimer.unref();
   // «Простой вход»: ключи сейфов тем, кому доступ дан сменой состава групп или сверкой с каталогом, выдаются раз в две минуты.
+  // shortcut: таймер в каждом процессе; при нескольких экземплярах выдачу делает каждый (повтор безвреден: вставка идемпотентна)
   let granting = false;
   const grantTimer = setInterval(() => {
     if (granting) return;

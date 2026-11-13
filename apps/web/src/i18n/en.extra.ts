@@ -65,6 +65,10 @@ export default {
       auth_mfa_disable: 'Second factor disabled',
       auth_webauthn_add: 'Passkey added',
       auth_webauthn_remove: 'Passkey removed',
+      auth_managed_secret_new_ip:
+        'The keys of your “Simple sign-in” were requested from another address than the one that signed this session in. If it was not you, end the sessions under “Security”',
+      auth_managed_enroll:
+        'An employee signed in for the first time in “Simple sign-in” mode: check in the ledger who and from where (event “auth.managed.enroll”)',
       auth_token_create: 'API token created',
       auth_token_revoke: 'API token revoked',
       auth_session_revoke_others: 'Other sessions ended',
@@ -381,7 +385,7 @@ export default {
     keyModeHint:
       'Strict: only employees hold keys. A directory employee invents a vault unlock password and keeps a recovery key, and access to a vault waits until a trusted employee opens Arklock and passes the key on. The server cannot read the data. Simple sign-in: a directory employee signs in with the domain login and the second factor and gets the assigned vaults and entries at once; no unlock password or recovery key, the server issues the vault keys itself. The cost: the unlock secret is stored on the server encrypted with the installation key, so whoever controls the server and its database can decrypt the data of such employees. Turned on only with the second factor required for everyone and applies to new accounts; existing employees keep signing in the old way. Only the chief administrator changes it.',
     keyModeConfirm:
-      'Turn on “Simple sign-in”?\n\nThe server will store employees’ unlock secrets and issue vault keys itself. Whoever controls the server and its database will be able to decrypt the data of employees created in this mode. The second factor becomes required for everyone. The strict mode cannot be restored for accounts already created in the simple mode.',
+      'Turn on “Simple sign-in”?\n\nThe server will store employees’ unlock secrets and issue vault keys itself. Whoever controls the server and its database will be able to decrypt the data of employees created in this mode. The second factor becomes required for everyone. Keys are issued right after the first sign-in, and at the first sign-in the domain password is the only proof of identity (administrators are notified of every such sign-in). Any live session of the employee receives the unlock secret: a stolen session token opens all of that employee’s data. The strict mode cannot be restored for accounts already created in the simple mode.',
     attachMax: 'Maximum file size, MB (0 disables attachments)',
     vaultQuota: 'File quota per vault, MB (0 = unlimited)',
     resetMfa: 'Reset 2FA',

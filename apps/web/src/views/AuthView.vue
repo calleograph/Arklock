@@ -247,46 +247,44 @@ async function startEnroll(): Promise<void> {
 }
 
 /**
- * Вход с главной формы. Сотрудник вводит то, что знает: доменный логин или почту. Без «@» сначала проверяется каталог
- * (локальные записи входят по почте), с «@» — сначала локальная запись; при отказе пробуется второй путь, чтобы
- * сотруднику не приходилось выбирать «корпоративная учётная запись» самому.
+ * Вход с главной формы. Сервер говорит, куда относить введённое имя: в каталог оно идёт только если такое имя там есть
+ * (и нет локальной учётной записи с таким именем). Пароль локальной учётной записи, в том числе с опечаткой в имени,
+ * в каталог и на сервер открытым не уходит.
  */
 async function signInAnywhere(): Promise<void> {
   const login = email.value.trim();
-  const retry = (e: unknown) =>
-    e instanceof ApiError &&
-    (e.code === 'invalid_credentials' || e.code === 'external_login_required');
-  const local = async (): Promise<void> => {
+  const route = ldapAvailable.value
+    ? await api<{ via: 'password' | 'directory'; profileId?: string }>(
+        'POST',
+        '/auth/login-route',
+        { login },
+        { auth: false },
+      ).catch((e: unknown) => {
+        if (e instanceof ApiError && e.status === 429) throw e;
+        return { via: 'password' as const, profileId: undefined };
+      })
+    : { via: 'password' as const, profileId: undefined };
+  if (route.via === 'password') {
     if ((await auth.signIn(login.toLowerCase(), password.value)) === 'mfa') {
       mfaStep.value = true;
       password.value = '';
       return;
     }
     await router.replace('/');
-  };
-  const domain = async (): Promise<void> => {
-    const next = await auth.signInLdap(login, password.value, ldapProfileId.value);
+    return;
+  }
+  try {
+    const next = await auth.signInLdap(
+      login,
+      password.value,
+      route.profileId ?? ldapProfileId.value,
+    );
     password.value = '';
     if (next === 'mfa') mfaStep.value = true;
     else if (next === 'enroll') await startEnroll();
     else await router.replace(auth.unlocked ? '/' : '/unlock');
-  };
-  if (!ldapAvailable.value) return local();
-  const first = login.includes('@') ? local : domain;
-  const second = login.includes('@') ? domain : local;
-  try {
-    await first();
   } catch (e) {
-    if (!retry(e)) {
-      error.value = first === domain ? ldapMessage(e) : errorMessage(e, t);
-      return;
-    }
-    try {
-      await second();
-    } catch (e2) {
-      // отказ каталога точнее общего «неверный пароль»: показываем его, если он не «неверные данные»
-      error.value = second === domain || !retry(e2) ? ldapMessage(e2) : errorMessage(e2, t);
-    }
+    error.value = ldapMessage(e);
   }
 }
 async function submit(): Promise<void> {

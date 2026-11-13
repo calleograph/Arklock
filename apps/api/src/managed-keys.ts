@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import {
   fromBase64Url,
   managedWrapKey,
@@ -47,29 +47,70 @@ export const sealManagedSecret = (appSecret: string, secret: string): string =>
 export const openManagedSecret = (appSecret: string, sealed: string): string =>
   openSetting(appSecret, PURPOSE, sealed);
 
-/** Сотрудники, у которых есть доступ к сейфу, но нет ключа его текущей версии (и у которых уже есть открытый ключ). */
+/**
+ * «У сотрудника есть доступ к сейфу»: прямая роль, роль через группу или правило на папку или запись. Единое условие
+ * для всех выборок: выдача сервером и список «ожидают ключ» в панели не должны расходиться.
+ */
+const hasAccess = (vault: SQL, user: SQL) => sql`(
+  exists (select 1 from vault_members m where m.vault_id = ${vault} and m.user_id = ${user})
+  or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
+             where vc.vault_id = ${vault} and cm.user_id = ${user})
+  or exists (select 1 from grants g where g.vault_id = ${vault} and (
+    (g.subject_type = 'user' and g.subject_id = ${user}) or
+    (g.subject_type = 'circle' and exists (select 1 from circle_members cm
+                                           where cm.circle_id = g.subject_id and cm.user_id = ${user}))))
+)`;
+const lacksKey = (vault: SQL, user: SQL, version: SQL) =>
+  sql`not exists (select 1 from vault_keys k where k.vault_id = ${vault} and k.user_id = ${user} and k.key_version = ${version})`;
+
+/** Сотрудники, у которых есть доступ к сейфу, но нет ключа его текущей версии. */
 export async function pendingKeyUsers(db: Db, vaultId: string, keyVersion: number) {
   const ids = await db.execute<{ id: string }>(sql`
     select distinct u.id from users u
-    where u.disabled_at is null and not u.pending_activation and (
-      exists (select 1 from vault_members m where m.vault_id = ${vaultId} and m.user_id = u.id)
-      or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
-                 where vc.vault_id = ${vaultId} and cm.user_id = u.id)
-      or exists (select 1 from grants g where g.vault_id = ${vaultId} and (
-        (g.subject_type = 'user' and g.subject_id = u.id) or
-        (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = u.id))))
-    ) and not exists (select 1 from vault_keys k where k.vault_id = ${vaultId} and k.user_id = u.id and k.key_version = ${keyVersion})`);
+    where u.disabled_at is null and not u.pending_activation
+      and ${hasAccess(sql`${vaultId}`, sql`u.id`)}
+      and ${lacksKey(sql`${vaultId}`, sql`u.id`, sql`${keyVersion}`)}`);
   const list: string[] = [];
   for (const r of rowsOf<{ id: string }>(ids))
     if ((await loadAccess(db, vaultId, r.id)).isMember) list.push(r.id);
   return list.length ? db.select().from(users).where(inArray(users.id, list)) : [];
 }
 
+/** Есть ли вообще участники с секретом на сервере: без них выдавать ключи некому и сверка не нужна. */
+const hasManagedHolders = async (db: Db): Promise<boolean> =>
+  (await db.select({ id: users.id }).from(users).where(isNotNull(users.managedSecret)).limit(1))
+    .length > 0;
+
+/** Сбой выдачи ключей не прерывает основное действие, но не должен оставаться незамеченным. */
+export function logGrantFailure(e: unknown): number {
+  process.stderr.write(`managed key grant failed: ${String(e)}\n`);
+  return 0;
+}
+
+/** Обёртки закрытых ключей должны открываться секретом: иначе человек запер бы себя сам. */
+export async function assertWrapsOpen(
+  secret: string,
+  userId: string,
+  wrappedPrivateKey: string,
+  wrappedSignPrivateKey: string,
+): Promise<boolean> {
+  const wrapKey = await managedWrapKey(fromBase64Url(secret));
+  try {
+    (await unwrapAccountPrivateKey(wrapKey, wrappedPrivateKey, userId)).fill(0);
+    (await unwrapSignPrivateKey(wrapKey, wrappedSignPrivateKey, userId)).fill(0);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    wrapKey.fill(0);
+  }
+}
+
 /**
  * Выдача ключей сервером (только в режиме «managed»): ключ сейфа открывает один из держателей ключа с секретом на сервере,
  * запечатывает его открытым ключом каждого, кому ключ ещё не выдан, и подписывает выдачу. Ротацию ключа сейфа это не заменяет:
  * она остаётся за клиентом администратора. Возвращает число выданных ключей; без подходящего держателя ничего не делает,
- * ключи выдаст клиент администратора, как в строгом режиме.
+ * ключи выдаст клиент администратора, как в строгом режиме. Если держатели есть, но ни один не подошёл, пишет предупреждение.
  */
 export async function grantPendingKeys(deps: ManagedDeps, vaultId: string): Promise<number> {
   const { db } = deps;
@@ -134,21 +175,24 @@ export async function grantPendingKeys(deps: ManagedDeps, vaultId: string): Prom
         .values(rows)
         .onConflictDoNothing()
         .returning({ id: vaultKeys.userId });
-      await notifyUsers(
-        db,
-        issued.map((x) => x.id),
-        {
-          category: 'access',
-          event: 'vault.key.issued',
-          vaultId,
-          resourceType: 'vault',
-          resourceId: vaultId,
-        },
-      );
-      await audit(db, 'system:managed-keys', 'vault.keys.auto', `vault:${vaultId}`, {
-        count: issued.length,
-        holder: h.user.id,
-      });
+      // параллельный запуск мог выдать те же ключи раньше: в журнал пишет тот, кто выдал
+      if (issued.length) {
+        await notifyUsers(
+          db,
+          issued.map((x) => x.id),
+          {
+            category: 'access',
+            event: 'vault.key.issued',
+            vaultId,
+            resourceType: 'vault',
+            resourceId: vaultId,
+          },
+        );
+        await audit(db, 'system:managed-keys', 'vault.keys.auto', `vault:${vaultId}`, {
+          count: issued.length,
+          holder: h.user.id,
+        });
+      }
       return issued.length;
     } catch {
       // этот держатель не подошёл (ключ не открылся): пробуем следующего
@@ -159,47 +203,41 @@ export async function grantPendingKeys(deps: ManagedDeps, vaultId: string): Prom
       privateKey?.fill(0);
     }
   }
+  if (holders.length)
+    process.stderr.write(
+      `managed key grant: no holder could open the key of vault ${vaultId} (${pending.length} waiting)\n`,
+    );
   return 0;
 }
 
 /** Все сейфы, к которым у сотрудника есть доступ без ключа: выдача сразу после создания учётной записи и при входе. */
 export async function grantPendingKeysForUser(deps: ManagedDeps, userId: string): Promise<number> {
-  if ((await keyModeOf(deps.db)) !== 'managed') return 0;
+  if ((await keyModeOf(deps.db)) !== 'managed' || !(await hasManagedHolders(deps.db))) return 0;
   const rows = await deps.db.execute<{ id: string }>(sql`
     select v.id from vaults v
-    where v.kind = 'shared' and (
-      exists (select 1 from vault_members m where m.vault_id = v.id and m.user_id = ${userId})
-      or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
-                 where vc.vault_id = v.id and cm.user_id = ${userId})
-      or exists (select 1 from grants g where g.vault_id = v.id and (
-        (g.subject_type = 'user' and g.subject_id = ${userId}) or
-        (g.subject_type = 'circle' and exists (select 1 from circle_members cm where cm.circle_id = g.subject_id and cm.user_id = ${userId}))))
-    ) and not exists (select 1 from vault_keys k where k.vault_id = v.id and k.user_id = ${userId} and k.key_version = v.key_version)`);
+    where v.kind = 'shared'
+      and ${hasAccess(sql`v.id`, sql`${userId}::uuid`)}
+      and ${lacksKey(sql`v.id`, sql`${userId}::uuid`, sql`v.key_version`)}`);
   let n = 0;
   for (const r of rowsOf<{ id: string }>(rows)) n += await grantPendingKeys(deps, r.id);
   return n;
 }
 
-/** Сейфы, где у кого-то есть доступ без ключа (обслуживание: догоняет изменения состава групп и каталога). */
+/**
+ * Сейфы, где у кого-то есть доступ без ключа (догоняет изменения состава групп и каталога). За один запуск не больше 20
+ * сейфов: сразу после включения режима проверка доступа по людям не должна занимать базу минутами, остальные — в следующий раз.
+ */
 export async function grantAllPendingKeys(deps: ManagedDeps): Promise<number> {
-  if ((await keyModeOf(deps.db)) !== 'managed') return 0;
+  if ((await keyModeOf(deps.db)) !== 'managed' || !(await hasManagedHolders(deps.db))) return 0;
   const rows = await deps.db.execute<{ id: string }>(sql`
     select distinct v.id from vaults v
     where v.kind = 'shared' and exists (
-      select 1 from users u where u.disabled_at is null and not u.pending_activation and u.public_key <> '' and (
-        exists (select 1 from vault_members m where m.vault_id = v.id and m.user_id = u.id)
-        or exists (select 1 from vault_circles vc join circle_members cm on cm.circle_id = vc.circle_id
-                   where vc.vault_id = v.id and cm.user_id = u.id)
-      ) and not exists (select 1 from vault_keys k where k.vault_id = v.id and k.user_id = u.id and k.key_version = v.key_version))`);
+      select 1 from users u
+      where u.disabled_at is null and not u.pending_activation and u.public_key <> ''
+        and ${hasAccess(sql`v.id`, sql`u.id`)}
+        and ${lacksKey(sql`v.id`, sql`u.id`, sql`v.key_version`)})
+    limit 20`);
   let n = 0;
   for (const r of rowsOf<{ id: string }>(rows)) n += await grantPendingKeys(deps, r.id);
   return n;
-}
-
-/** Выдача без права мешать основному действию: сбой записывается в журнал процесса, запрос не отменяется. */
-export async function autoGrant(deps: ManagedDeps, vaultIds: string[]): Promise<void> {
-  for (const id of new Set(vaultIds))
-    await grantPendingKeys(deps, id).catch((e: unknown) => {
-      process.stderr.write(`managed key grant failed for vault ${id}: ${String(e)}\n`);
-    });
 }

@@ -28,20 +28,18 @@ export async function audit(
     .insert(ledger)
     .values({ actor, action, target: target ?? null, detail: detail ?? null })
     .returning({ at: ledger.at });
-  sinks.get(db)?.({
-    at: row?.at ?? new Date(),
-    actor,
-    action,
-    target: target ?? null,
-    detail: detail ?? null,
-  });
+  // введённое при входе имя остаётся только в журнале: во внешние системы (syslog, вебхуки, правила) оно не уходит
+  const outward = detail
+    ? Object.fromEntries(Object.entries(detail).filter(([k]) => k !== 'login'))
+    : null;
   const ev = {
     at: row?.at ?? new Date(),
     actor,
     action,
     target: target ?? null,
-    detail: detail ?? null,
+    detail: outward,
   };
+  sinks.get(db)?.(ev);
   await notifyAudit(db, ev);
   // правила автоматизации — в своей точке сохранения: их сбой не отменяет действие, вызвавшее событие
   if (triggersOf(action).length)
