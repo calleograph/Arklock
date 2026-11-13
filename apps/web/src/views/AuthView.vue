@@ -65,6 +65,14 @@ watch(
   },
 );
 
+/** «Простой вход»: окно разблокировки без пароля — ключи открываются сами. */
+const managedUnlock = computed(() => mode.value === 'unlock' && !!auth.user?.managed);
+onMounted(async () => {
+  if (managedUnlock.value) {
+    await auth.autoUnlock();
+    if (auth.unlocked) await router.replace('/');
+  }
+});
 onMounted(async () => {
   try {
     const status = await account.registrationStatus();
@@ -99,10 +107,8 @@ onMounted(async () => {
       { auth: false },
     ).catch(() => saml.value);
     // возврат со страницы SSO: продолжаем начатый внешний вход
-    if (route.query.external === 'enroll' && auth.ldapIdentity()) {
-      ldapMode.value = true;
-      ldapEnrollStep.value = true;
-    } else if (route.query.external === 'mfa' && auth.hasLdapChallenge()) {
+    if (route.query.external === 'enroll' && auth.ldapIdentity()) await startEnroll();
+    else if (route.query.external === 'mfa' && auth.hasLdapChallenge()) {
       ldapMode.value = true;
       mfaStep.value = true;
     }
@@ -226,6 +232,21 @@ onMounted(async () => {
   }
 });
 /**
+ * Первый вход сотрудника каталога или единого входа. В режиме «простой вход» пароль не нужен: учётная запись создаётся сразу,
+ * ключи оборачиваются секретом сервера. В строгом режиме показывается шаг «придумайте пароль разблокировки сейфов».
+ */
+async function startEnroll(): Promise<void> {
+  if (auth.ldapIdentity()?.managedSecret) {
+    await auth.enrollManaged();
+    leaveLdap();
+    await router.replace('/');
+    return;
+  }
+  ldapMode.value = true;
+  ldapEnrollStep.value = true;
+}
+
+/**
  * Вход с главной формы. Сотрудник вводит то, что знает: доменный логин или почту. Без «@» сначала проверяется каталог
  * (локальные записи входят по почте), с «@» — сначала локальная запись; при отказе пробуется второй путь, чтобы
  * сотруднику не приходилось выбирать «корпоративная учётная запись» самому.
@@ -247,10 +268,8 @@ async function signInAnywhere(): Promise<void> {
     const next = await auth.signInLdap(login, password.value, ldapProfileId.value);
     password.value = '';
     if (next === 'mfa') mfaStep.value = true;
-    else if (next === 'enroll') {
-      ldapMode.value = true;
-      ldapEnrollStep.value = true;
-    } else await router.replace('/unlock');
+    else if (next === 'enroll') await startEnroll();
+    else await router.replace(auth.unlocked ? '/' : '/unlock');
   };
   if (!ldapAvailable.value) return local();
   const first = login.includes('@') ? local : domain;
@@ -303,17 +322,21 @@ async function submit(): Promise<void> {
       );
       password.value = '';
       if (next === 'mfa') mfaStep.value = true;
-      else if (next === 'enroll') ldapEnrollStep.value = true;
+      else if (next === 'enroll') await startEnroll();
       else {
         leaveLdap();
-        await router.replace('/unlock');
+        await router.replace(auth.unlocked ? '/' : '/unlock');
       }
       return;
     } else if (mode.value === 'signin') {
       await signInAnywhere();
       return;
     } else if (mode.value === 'unlock') {
-      await auth.unlock(password.value);
+      if (auth.user?.managed) {
+        // «простой вход»: пароля нет, ключи открывает секрет, выдаваемый сервером сеансу
+        await auth.autoUnlock();
+        if (!auth.unlocked) throw new Error(t('auth.managedWait'));
+      } else await auth.unlock(password.value);
       await router.replace('/');
     } else if (mode.value === 'activate') {
       await activate();
@@ -706,7 +729,10 @@ async function copyRecovery(): Promise<void> {
           />
           <span class="mt-1 block text-xs text-slate-500">{{ t('mfa.codeHint') }}</span>
         </label>
-        <label v-if="!mfaStep && mode !== 'activate'" class="block text-sm">
+        <p v-if="managedUnlock" class="text-sm text-slate-500" data-testid="managed-unlock">
+          {{ t('auth.managedUnlock') }}
+        </p>
+        <label v-if="!mfaStep && mode !== 'activate' && !managedUnlock" class="block text-sm">
           <span class="mb-1 block">{{
             ldapMode && !ldapEnrollStep
               ? t('ldap.password')

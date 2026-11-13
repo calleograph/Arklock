@@ -187,6 +187,11 @@ export const users = pgTable(
      * человек при первом входе), поля ключей — пустые, войти по такой записи нельзя. Первый вход заполняет эту же строку.
      */
     pendingActivation: boolean('pending_activation').notNull().default(false),
+    /**
+     * Режим «простой вход»: секрет, из которого выводится ключ обёртки закрытых ключей, зашифрованный ключом сервера.
+     * Выдаётся только владельцу после входа и второго фактора; пусто — строгий режим (ключ из пароля разблокировки).
+     */
+    managedSecret: text('managed_secret'),
     recoverySalt: text('recovery_salt').notNull(),
     recoveryHash: text('recovery_hash').notNull(),
     recoveryWrappedPrivateKey: text('recovery_wrapped_private_key').notNull(),

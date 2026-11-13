@@ -42,6 +42,7 @@ import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 import { syncManagedGuardians } from '../managed-vaults.js';
+import { grantAllPendingKeys, KEY_MODE_KEY } from '../managed-keys.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
 const SETTINGS: Record<string, z.ZodType> = {
@@ -72,6 +73,8 @@ const SETTINGS: Record<string, z.ZodType> = {
   'session.maxHours': z.number().min(0).max(8760),
   'security.passwordMaxAgeDays': z.number().int().min(0).max(3650),
   'security.mfaRequired': z.enum(['off', 'admins', 'all']),
+  /** Режим ключей: strict — пароль разблокировки у сотрудника; managed — «простой вход», секрет разблокировки хранит сервер. */
+  'security.keyMode': z.enum(['strict', 'managed']),
   'storage.attachmentMaxMiB': z.number().int().min(0).max(102_400),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
   'notifications.security': z.boolean(),
@@ -117,6 +120,7 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'session.maxHours': 0,
   'security.passwordMaxAgeDays': 365,
   'security.mfaRequired': 'off',
+  'security.keyMode': 'strict',
   'storage.attachmentMaxMiB': 1024,
   'storage.vaultQuotaMiB': 0,
   'notifications.security': true,
@@ -813,6 +817,24 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
         'mfa_admin_not_enrolled',
         'Set up two-factor authentication for yourself first',
       );
+    // «Простой вход»: меняет модель доверия (сервер хранит секреты разблокировки), поэтому только главный администратор,
+    // и только при обязательном втором факторе для всех: иначе вход одним доменным паролем открывал бы сейфы
+    const touchesMode = 'security.keyMode' in body || 'security.mfaRequired' in body;
+    if (touchesMode) {
+      const [modeRow, mfaRow] = await Promise.all([
+        db.select().from(settings).where(eq(settings.key, KEY_MODE_KEY)),
+        db.select().from(settings).where(eq(settings.key, 'security.mfaRequired')),
+      ]);
+      const mode = body['security.keyMode'] ?? modeRow[0]?.value ?? 'strict';
+      const mfa = body['security.mfaRequired'] ?? mfaRow[0]?.value ?? 'off';
+      if ('security.keyMode' in body && !user.chief) throw chiefRequired();
+      if (mode === 'managed' && mfa !== 'all')
+        throw new AppError(
+          409,
+          'mfa_required_for_managed',
+          'Simple sign-in requires two-factor authentication for everyone',
+        );
+    }
     for (const [key, value] of Object.entries(body)) {
       await db
         .insert(settings)
@@ -822,6 +844,8 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
           set: { value: value as never, updatedAt: new Date(), updatedBy: user.id },
         });
       if (key === 'security.mfaRequired') resetMfaPolicyCache(ctx);
+      if (key === 'security.keyMode' && value === 'managed')
+        void grantAllPendingKeys({ db, appSecret: ctx.config.APP_SECRET }).catch(() => 0);
       if (key === 'vaults.managedGuardians' || key === 'vaults.managedRole')
         await syncManagedGuardians(db, user.id);
       if (key === 'session.idleHours' || key === 'session.maxHours') resetSessionLimitsCache(ctx);

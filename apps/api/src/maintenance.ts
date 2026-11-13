@@ -1,3 +1,4 @@
+import { grantAllPendingKeys } from './managed-keys.js';
 import { pruneGuests } from './sharing-policy.js';
 import { eq, lt, or, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import { MAX_EVENTS } from './shield/events.js';
@@ -24,10 +25,17 @@ import { sweepBlobs } from './routes/attachments.js';
 import { purgeExpiredTrash } from './routes/content.js';
 
 /** Плановое обслуживание. Возвращает число удалённых объектов по категориям (для журнала и тестов). */
-export async function runMaintenance(db: Db, now = new Date(), blobs?: BlobStore) {
+export async function runMaintenance(
+  db: Db,
+  now = new Date(),
+  blobs?: BlobStore,
+  /** Ключ установки: нужен, чтобы в режиме «простой вход» выдать ключи сейфов, пока никого нет онлайн. */
+  appSecret?: string,
+) {
   const expired = (await expireAccounts(db, now)).length;
   // гости, у которых закончились все выданные доступы, выходят из подразделений
   const guestsPruned = await pruneGuests(db);
+  if (appSecret) await grantAllPendingKeys({ db, appSecret }).catch(() => 0);
   const [ret] = await db.select().from(settings).where(eq(settings.key, 'trash.retentionDays'));
   const days = typeof ret?.value === 'number' ? ret.value : 30;
   const trash = await purgeExpiredTrash(db, days, now, blobs);

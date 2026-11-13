@@ -100,6 +100,10 @@ export const userBundle = z.object({
   seenRelease: z.string().nullable().optional(),
   /** Пространство, которое открывается при входе: id, «personal» или пусто — пространство организации по умолчанию. */
   homeSpace: z.string().nullable().optional(),
+  /** «Простой вход»: ключи разблокируются секретом, который выдаёт сервер после входа; пароля разблокировки нет. */
+  managed: z.boolean().optional(),
+  /** Режим «простой вход» включён, а ключи этой учётной записи ещё открываются паролем: при следующей разблокировке они переходят на секрет сервера. */
+  managedUpgrade: z.boolean().optional(),
   publicKey,
   signPublicKey: publicKey,
   wrappedPrivateKey: wrappedKey,

@@ -477,6 +477,23 @@ const saveSetting = (key: string, value: unknown) =>
       useWorkspaceStore().generator = generatorFrom({ ...settings.value, [key]: value });
     notice.value = t('admin.saved');
   }, loadSettings);
+/** «Простой вход» включается вместе с обязательным вторым фактором и только после явного подтверждения. */
+const setKeyMode = (mode: string) => {
+  if (mode === 'managed') {
+    if (!window.confirm(t('adminx.keyModeConfirm'))) {
+      void loadSettings();
+      return;
+    }
+    return run(async () => {
+      await api('PUT', '/admin/settings', {
+        'security.mfaRequired': 'all',
+        'security.keyMode': 'managed',
+      });
+      notice.value = t('admin.saved');
+    }, loadSettings);
+  }
+  return saveSetting('security.keyMode', mode);
+};
 const testRange = () =>
   run(async () => {
     const out: string[] = [];
@@ -1390,6 +1407,20 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <option value="off">{{ t('adminx.mfaOff') }}</option>
                   <option value="admins">{{ t('adminx.mfaAdmins') }}</option>
                   <option value="all">{{ t('adminx.mfaAll') }}</option>
+                </select></label
+              >
+              <label class="setting-row"
+                ><span class="inline-flex items-center gap-1"
+                  >{{ t('adminx.keyMode') }}<InfoHint :text="t('adminx.keyModeHint')" /></span
+                ><select
+                  :value="settings['security.keyMode'] ?? 'strict'"
+                  class="input"
+                  :disabled="!auth.user?.chief"
+                  data-testid="set-keymode"
+                  @change="setKeyMode(($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="strict">{{ t('adminx.keyModeStrict') }}</option>
+                  <option value="managed">{{ t('adminx.keyModeManaged') }}</option>
                 </select></label
               >
               <label class="check-row"

@@ -7,6 +7,7 @@ import {
   generateRecoveryKey,
   generateSalt,
   generateSigningKeyPair,
+  managedWrapKey,
   parseRecoveryCode,
   rewrapAccountPrivateKey,
   sealVaultKeyFor,
@@ -55,11 +56,19 @@ export async function createAccount(
   /** Вход через каталог: адрес и имя задаёт сервер по данным каталога, запись создаётся по токену. */
   directory?: { enrollToken: string; userId?: string },
   inviteToken?: string,
+  /** «Простой вход»: секрет разблокировки от сервера вместо пароля (ключ обёртки выводится из него). */
+  managedSecret?: string,
 ): Promise<{ recoveryCode: string; session?: SessionResponse }> {
   // профиль создан администратором заранее: ключи создаются для его идентификатора, а не для нового
   const userId = directory?.userId ?? crypto.randomUUID();
   const salt = generateSalt();
-  const keys = await deriveKeys(password, salt, userId, DEFAULT_KDF, signal);
+  const keys = managedSecret
+    ? {
+        wrapKey: await managedWrapKey(fromBase64Url(managedSecret)),
+        // пароля нет: вход только через каталог, доказательство знания пароля никому не известно
+        authKey: crypto.getRandomValues(new Uint8Array(32)),
+      }
+    : await deriveKeys(password, salt, userId, DEFAULT_KDF, signal);
   const kp = await generateAccountKeyPair();
   const sk = await generateSigningKeyPair();
   const recovery = await generateRecoveryKey();
@@ -135,6 +144,16 @@ async function keysFor(email: string, password: string, signal?: AbortSignal) {
     signal,
   );
   return { params, keys };
+}
+
+/** «Простой вход»: ключи открываются секретом, который выдал сервер после входа и второго фактора. */
+export async function unlockManaged(user: UserBundle, secret: string): Promise<UnlockedAccount> {
+  const wrapKey = await managedWrapKey(fromBase64Url(secret));
+  try {
+    return await unwrapAll(user, wrapKey);
+  } finally {
+    wrapKey.fill(0);
+  }
 }
 
 async function unwrapAll(user: UserBundle, wrapKey: Uint8Array): Promise<UnlockedAccount> {

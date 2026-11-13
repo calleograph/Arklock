@@ -375,6 +375,13 @@ export default {
     mfaOff: 'Not required',
     mfaAdmins: 'For administrators',
     mfaAll: 'For everyone',
+    keyMode: 'Encryption keys of directory employees',
+    keyModeStrict: 'Strict: the employee holds the unlock password',
+    keyModeManaged: 'Simple sign-in: the server holds the keys',
+    keyModeHint:
+      'Strict: only employees hold keys. A directory employee invents a vault unlock password and keeps a recovery key, and access to a vault waits until a trusted employee opens Arklock and passes the key on. The server cannot read the data. Simple sign-in: a directory employee signs in with the domain login and the second factor and gets the assigned vaults and entries at once; no unlock password or recovery key, the server issues the vault keys itself. The cost: the unlock secret is stored on the server encrypted with the installation key, so whoever controls the server and its database can decrypt the data of such employees. Turned on only with the second factor required for everyone and applies to new accounts; existing employees keep signing in the old way. Only the chief administrator changes it.',
+    keyModeConfirm:
+      'Turn on “Simple sign-in”?\n\nThe server will store employees’ unlock secrets and issue vault keys itself. Whoever controls the server and its database will be able to decrypt the data of employees created in this mode. The second factor becomes required for everyone. The strict mode cannot be restored for accounts already created in the simple mode.',
     attachMax: 'Maximum file size, MB (0 disables attachments)',
     vaultQuota: 'File quota per vault, MB (0 = unlimited)',
     resetMfa: 'Reset 2FA',
@@ -627,7 +634,7 @@ export default {
       'The password is correct, but sign-in is allowed only for members of certain domain groups and your account is not in them. Contact your administrator: the reason is recorded in the diagnostics.',
     noEmail: 'Your directory account has no e-mail address, contact your administrator',
     enrollHint:
-      'This is your first sign-in. Choose a vault unlock password: it encrypts your data on this device and is not the directory password. It cannot be recovered.',
+      'This is your first sign-in. Choose a vault unlock password: it encrypts your data and is not the directory password. You need it on every new device. If you forget it, only the recovery key shown on the next step can restore access: save it.',
     section: 'Active Directory / LDAPS',
     enabled: 'Enable directory sign-in',
     url: 'Address (ldaps://host:636 or ldap://host:389)',

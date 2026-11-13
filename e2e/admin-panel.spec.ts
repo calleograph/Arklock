@@ -610,6 +610,7 @@ test('directory people: find an employee in the head field, add with "+", link a
   page,
   browser,
 }) => {
+  test.setTimeout(420_000);
   await page.goto('/login');
   await page.getByTestId('email').fill(ADMIN.email);
   await page.getByTestId('password').fill(ADMIN.password);
@@ -841,6 +842,81 @@ test('directory people: find an employee in the head field, add with "+", link a
   await page.getByTestId('access-vault-search').fill('Поддержка');
   await page.getByTestId('access-vault-open-Поддержка · Passwords').click();
   await expect(page.getByTestId('access-vault')).toContainText('Поддержка');
+
+  // «Простой вход»: главный администратор включает его при обязательном втором факторе; сотрудник каталога входит без
+  // паролей разблокировки и ключей восстановления, а ключ сейфа ему выдаёт сервер сразу
+  const { totp, parseTotpInput } = await import('../packages/crypto/dist/index.js');
+  const enableTotp = async (p: Page, unlockPassword?: string): Promise<string> => {
+    await p.goto('/security');
+    // после включения обязательного второго фактора сервер не отдаёт долю ключа для обновления страницы: строгий сотрудник вводит пароль
+    if (unlockPassword) {
+      await p.getByTestId('password').fill(unlockPassword);
+      await p.getByTestId('submit').click();
+    }
+    await p.getByTestId('mfa-start').click();
+    const secret = (await p.getByTestId('mfa-secret').innerText()).trim();
+    const code = await totp(parseTotpInput(secret), Date.now() - 30_000);
+    await p.getByTestId('mfa-enable-code').fill(code);
+    await p.getByTestId('mfa-enable').click();
+    await expect(p.getByTestId('mfa-backup-codes').locator('li')).toHaveCount(10);
+    await p.getByTestId('mfa-codes-saved').click();
+    return secret;
+  };
+  const adminSecret = await enableTotp(page);
+  await page.goto('/admin/settings?section=security');
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('set-keymode').selectOption('managed');
+  await page.reload();
+  await expect(page.getByTestId('set-keymode')).toHaveValue('managed');
+  // руководитель отдела входил в строгом режиме: после включения его ключи переходят на секрет сервера при следующем открытии
+  await enableTotp(boris, 'boris-master-password-e2e-1');
+  // второй фактор настроен: обычная разблокировка паролем, и ключи переходят на секрет сервера
+  await boris.goto('/');
+  await boris.getByTestId('password').fill('boris-master-password-e2e-1');
+  await boris.getByTestId('submit').click();
+  await expect
+    .poll(
+      async () =>
+        boris.evaluate(async () => {
+          const r = await fetch('/api/v1/auth/me', {
+            headers: { authorization: `Bearer ${sessionStorage.getItem('arklock.token')}` },
+          });
+          return ((await r.json()) as { user: { managed?: boolean } }).user.managed === true;
+        }),
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+  // сотрудник, добавленный в подразделение, но ещё не входивший: доменный логин, пароль домена и второй фактор — больше ничего
+  const dmitri = await (await browser.newContext()).newPage();
+  await dmitri.goto('/login');
+  await dmitri.getByTestId('email').fill('dmitri');
+  await dmitri.getByTestId('password').fill('dmitri-ldap-e2e-pass');
+  await dmitri.getByTestId('submit').click();
+  await expect(dmitri.getByTestId('mfa-start')).toBeVisible({ timeout: 90_000 });
+  await expect(dmitri.getByTestId('recovery-saved')).toHaveCount(0);
+  await expect(dmitri.getByTestId('ldap-enroll-hint')).toHaveCount(0);
+  await enableTotp(dmitri);
+  await dmitri.goto('/');
+  // ключ сейфа выдан сервером: запись можно добавить сразу, ожидания «когда откроет Arklock администратор» нет
+  await expect(dmitri.getByTestId('add-entry').first()).toBeVisible({ timeout: 90_000 });
+  await expect(dmitri.getByText(/not ready yet|ещё не готов/)).toHaveCount(0);
+  await expect(dmitri.getByTestId('password')).toHaveCount(0);
+
+  // дальше сценарии работают в строгом режиме и без второго фактора: возвращаем настройки и снимаем второй фактор с администратора
+  expect(
+    (
+      await page.request.put('/api/v1/admin/settings', {
+        headers,
+        data: { 'security.mfaRequired': 'off', 'security.keyMode': 'strict' },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.goto('/security');
+  await page.getByTestId('mfa-disable').click();
+  await page.getByTestId('mfa-password').fill(ADMIN.password);
+  await page.getByTestId('mfa-action-code').fill(await totp(parseTotpInput(adminSecret)));
+  await page.getByTestId('mfa-confirm').click();
+  await expect(page.getByTestId('mfa-start')).toBeVisible();
   directory?.close();
 });
 

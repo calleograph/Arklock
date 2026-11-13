@@ -82,6 +82,8 @@ const MFA_EXEMPT = [
   '/api/v1/auth/me',
   '/api/v1/auth/logout',
   '/api/v1/auth/policy',
+  // «Простой вход»: секрет лишь открывает ключи в браузере, данные при этом по-прежнему закрыты политикой
+  '/api/v1/auth/managed-secret',
 ];
 const TOKEN_RE = /^Bearer (aks_[A-Za-z0-9_-]{43})$/;
 const API_TOKEN_RE = /^Bearer (akt_[A-Za-z0-9_-]{43})$/;

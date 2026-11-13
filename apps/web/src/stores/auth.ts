@@ -13,7 +13,13 @@ import * as account from '../services/account';
 import * as pinService from '../services/pin';
 import * as reload from '../services/reload';
 import { clearStepUp } from '../services/stepup';
-import { fromBase64Url } from '@arklock/crypto';
+import {
+  fromBase64Url,
+  managedWrapKey,
+  toBase64Url,
+  wrapAccountPrivateKey,
+  wrapSignPrivateKey,
+} from '@arklock/crypto';
 import { useWorkspaceStore } from './workspace';
 import { withCaptcha } from '../services/captcha';
 import { applyTheme, type ThemeId } from '../services/theme';
@@ -122,6 +128,9 @@ export const useAuthStore = defineStore('auth', () => {
     signPublicKey = acc.signPublicKey;
     unlocked.value = true;
     startIdleCheck();
+    // «Простой вход» включён, а у этой учётной записи ключи ещё под паролем: переводим их на секрет сервера
+    // (без шума: если сервер сейчас откажет, например до настройки второго фактора, попытка повторится при следующей разблокировке)
+    if (user.value?.managedUpgrade) void upgradeToManaged().catch(() => undefined);
     if (rememberForReload && user.value)
       void reload.remember(user.value.id, {
         privateKey: acc.privateKey,
@@ -167,7 +176,14 @@ export const useAuthStore = defineStore('auth', () => {
   // Вход через каталог (LDAP): пароль каталога проверяет сервер, мастер-пароль нужен только для ключей
   let ldapChallenge: string | null = null;
   let mfaMethods: { totp: boolean; webauthn: boolean } = { totp: true, webauthn: false };
-  let ldapEnroll: { token: string; email: string; name: string; userId?: string } | null = null;
+  let ldapEnroll: {
+    token: string;
+    email: string;
+    name: string;
+    userId?: string;
+    /** «Простой вход»: секрет разблокировки от сервера. */
+    managedSecret?: string;
+  } | null = null;
 
   /** ok — сессия есть, нужна разблокировка; mfa — нужен код; enroll — нужно создать мастер-пароль. */
   async function signInLdap(
@@ -179,11 +195,24 @@ export const useAuthStore = defineStore('auth', () => {
       api<
         | SessionResponse
         | MfaChallengeResponse
-        | { enroll: true; enrollToken: string; email: string; name: string; userId?: string }
+        | {
+            enroll: true;
+            enrollToken: string;
+            email: string;
+            name: string;
+            userId?: string;
+            managedSecret?: string;
+          }
       >('POST', '/auth/ldap/login', { username, password, profileId, captcha }, { auth: false }),
     );
     if ('enroll' in res) {
-      ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name, userId: res.userId };
+      ldapEnroll = {
+        token: res.enrollToken,
+        email: res.email,
+        name: res.name,
+        userId: res.userId,
+        managedSecret: res.managedSecret,
+      };
       return 'enroll';
     }
     if ('mfaRequired' in res) {
@@ -194,7 +223,22 @@ export const useAuthStore = defineStore('auth', () => {
     setToken(res.token);
     hasToken.value = true;
     user.value = res.user;
+    await autoUnlock();
     return 'unlock';
+  }
+
+  /**
+   * «Простой вход»: ключи открываются секретом, который выдаёт сервер сеансу после входа и второго фактора. Если сервер
+   * секрет пока не отдаёт (второй фактор ещё не настроен), сотрудника ведёт на настройку, а ключи откроются после неё.
+   */
+  async function autoUnlock(): Promise<void> {
+    if (!user.value?.managed || unlocked.value) return;
+    try {
+      const r = await api<{ secret: string }>('GET', '/auth/managed-secret');
+      setUnlocked(await account.unlockManaged(user.value, r.secret));
+    } catch {
+      /* секрет недоступен до настройки второго фактора; повторится при следующем открытии */
+    }
   }
 
   const ldapIdentity = () => ldapEnroll;
@@ -207,10 +251,15 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api<
       | SessionResponse
       | MfaChallengeResponse
-      | { enroll: true; enrollToken: string; email: string; name: string }
+      | { enroll: true; enrollToken: string; email: string; name: string; managedSecret?: string }
     >('POST', '/auth/sso/exchange', { ticket, verifier }, { auth: false });
     if ('enroll' in res) {
-      ldapEnroll = { token: res.enrollToken, email: res.email, name: res.name };
+      ldapEnroll = {
+        token: res.enrollToken,
+        email: res.email,
+        name: res.name,
+        managedSecret: res.managedSecret,
+      };
       return 'enroll';
     }
     if ('mfaRequired' in res) {
@@ -245,6 +294,28 @@ export const useAuthStore = defineStore('auth', () => {
     return { recoveryCode: made.recoveryCode };
   }
 
+  /** «Простой вход»: учётная запись создаётся без пароля, ключи оборачиваются секретом сервера и открываются сразу. */
+  async function enrollManaged(): Promise<void> {
+    if (!ldapEnroll?.managedSecret) throw new Error('no pending enrolment');
+    const secret = ldapEnroll.managedSecret;
+    const made = await account.createAccount(
+      ldapEnroll.email,
+      ldapEnroll.name,
+      '',
+      undefined,
+      undefined,
+      { enrollToken: ldapEnroll.token, userId: ldapEnroll.userId },
+      undefined,
+      secret,
+    );
+    ldapEnroll = null;
+    if (!made.session) throw new Error('enrolment failed');
+    setToken(made.session.token);
+    hasToken.value = true;
+    user.value = made.session.user;
+    setUnlocked(await account.unlockManaged(made.session.user, secret));
+  }
+
   async function completeLdapMfa(code: string): Promise<void> {
     if (!ldapChallenge) throw new Error('no pending sign-in');
     const session = await api<SessionResponse>(
@@ -257,6 +328,7 @@ export const useAuthStore = defineStore('auth', () => {
     setToken(session.token);
     hasToken.value = true;
     user.value = session.user;
+    await autoUnlock();
   }
   const hasLdapChallenge = () => ldapChallenge !== null;
 
@@ -278,6 +350,7 @@ export const useAuthStore = defineStore('auth', () => {
       setToken(session.token);
       hasToken.value = true;
       user.value = session.user;
+      await autoUnlock();
       return;
     }
     if (!pendingMfa) throw new Error('no pending sign-in');
@@ -298,6 +371,32 @@ export const useAuthStore = defineStore('auth', () => {
   async function unlock(password: string): Promise<void> {
     if (!user.value) throw new Error('no user');
     setUnlocked(await account.unlock(user.value, password));
+  }
+
+  /** Ключи, открытые паролем, оборачиваются секретом, который сохраняет сервер; пароль разблокировки больше не нужен. */
+  async function upgradeToManaged(): Promise<void> {
+    const u = user.value;
+    if (!u?.managedUpgrade || !privateKey || !signPrivateKey) return;
+    const secret = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const wrapKey = await managedWrapKey(fromBase64Url(secret));
+    try {
+      const wrappedPrivateKey = await wrapAccountPrivateKey(wrapKey, privateKey, u.id);
+      const wrappedSignPrivateKey = await wrapSignPrivateKey(wrapKey, signPrivateKey, u.id);
+      await api('PUT', '/auth/managed-upgrade', {
+        secret,
+        wrappedPrivateKey,
+        wrappedSignPrivateKey,
+      });
+      user.value = {
+        ...u,
+        managed: true,
+        managedUpgrade: false,
+        wrappedPrivateKey,
+        wrappedSignPrivateKey,
+      };
+    } finally {
+      wrapKey.fill(0);
+    }
   }
 
   async function unlockWithPin(pin: string): Promise<void> {
@@ -357,6 +456,7 @@ export const useAuthStore = defineStore('auth', () => {
             },
             false,
           );
+        else await autoUnlock();
       } catch (e) {
         // сеанс завершается только если сервер его отверг; недоступный сервер (обновление, сеть) — не повод выходить
         if (e instanceof ApiError && e.status === 401) clearSession();
@@ -403,6 +503,8 @@ export const useAuthStore = defineStore('auth', () => {
     mfaOffers,
     cancelMfa,
     signInLdap,
+    enrollManaged,
+    autoUnlock,
     exchangeSso,
     enrollLdap,
     ldapIdentity,

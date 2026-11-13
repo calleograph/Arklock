@@ -4,6 +4,7 @@ import { createContext } from './context.js';
 import { loadConfig } from './config.js';
 import { connect } from './db/connect.js';
 import { BlobStore } from './blobs.js';
+import { grantAllPendingKeys } from './managed-keys.js';
 import { runMaintenance } from './maintenance.js';
 import { sampleMetrics } from './metrics.js';
 import os from 'node:os';
@@ -29,9 +30,12 @@ async function main(): Promise<void> {
   // Плановое обслуживание: очистка корзины по сроку хранения, старых сеансов и журналов.
   const timer = setInterval(
     () =>
-      void runMaintenance(database.db, new Date(), new BlobStore(config.BLOB_DIR)).catch(
-        (e: unknown) => app.log.error({ err: String(e) }, 'maintenance failed'),
-      ),
+      void runMaintenance(
+        database.db,
+        new Date(),
+        new BlobStore(config.BLOB_DIR),
+        config.APP_SECRET,
+      ).catch((e: unknown) => app.log.error({ err: String(e) }, 'maintenance failed')),
     6 * 3_600_000,
   );
   timer.unref();
@@ -67,6 +71,16 @@ async function main(): Promise<void> {
       .finally(() => (syncing = false));
   }, 30 * 60_000);
   directoryTimer.unref();
+  // «Простой вход»: ключи сейфов тем, кому доступ дан сменой состава групп или сверкой с каталогом, выдаются раз в две минуты.
+  let granting = false;
+  const grantTimer = setInterval(() => {
+    if (granting) return;
+    granting = true;
+    grantAllPendingKeys({ db: database.db, appSecret: config.APP_SECRET })
+      .catch((e: unknown) => app.log.error({ err: String(e) }, 'managed key grant failed'))
+      .finally(() => (granting = false));
+  }, 2 * 60_000);
+  grantTimer.unref();
   await app.listen({ host: config.HOST, port: config.PORT });
 }
 

@@ -3,9 +3,36 @@ import { createRequire } from 'node:module';
 import { webcrypto } from 'node:crypto';
 import * as x509 from '@peculiar/x509';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
-import { settings, users } from '../src/db/schema.js';
-import { APP_SECRET, cheapCaptcha, createTestApp, postSolving, TestClient } from './helpers.js';
+import { and, eq } from 'drizzle-orm';
+import {
+  createVaultKey,
+  deriveMasterKeys,
+  unwrapAccountPrivateKey,
+  unwrapSignPrivateKey,
+  deriveRecoveryProof,
+  fromBase64Url,
+  generateAccountKeyPair,
+  generateRecoveryKey,
+  generateSalt,
+  generateSigningKeyPair,
+  managedWrapKey,
+  sealVaultKeyFor,
+  signKeyGrant,
+  toBase64Url,
+  wrapAccountPrivateKey,
+  wrapPrivateKeyForRecovery,
+  wrapSignPrivateKey,
+} from '@arklock/crypto';
+import { ledger, settings, users, vaultKeys } from '../src/db/schema.js';
+import {
+  APP_SECRET,
+  cheapCaptcha,
+  createTestApp,
+  FAST,
+  LOW_FLOOR,
+  postSolving,
+  TestClient,
+} from './helpers.js';
 
 // Тестовый каталог, отвечающий как Active Directory; все имена и пароли вымышленные
 const require = createRequire(import.meta.url);
@@ -84,6 +111,26 @@ const people: Person[] = [
     mail: '',
     name: 'No Mail',
     guid: Buffer.from('77665544332211000102030405060708', 'hex'),
+    memberOf: [],
+    nested: [],
+  },
+  {
+    dn: `CN=Zed Quartz,OU=Users,${BASE}`,
+    sam: 'zquartz',
+    password: 'Zed-Synthetic-1',
+    mail: 'zed.quartz@example.com',
+    name: 'Zed Quartz',
+    guid: Buffer.from('12121212343434345656565678787878', 'hex'),
+    memberOf: [],
+    nested: [],
+  },
+  {
+    dn: `CN=Yuri Quill,OU=Users,${BASE}`,
+    sam: 'yquill',
+    password: 'Yuri-Synthetic-1',
+    mail: 'yuri.quill@example.com',
+    name: 'Yuri Quill',
+    guid: Buffer.from('21212121434343436565656587878787', 'hex'),
     memberOf: [],
     nested: [],
   },
@@ -1361,6 +1408,249 @@ describe('the certificates page: "make trusted" for the LDAPS certificate', () =
         })
       ).statusCode,
     ).toBe(403);
+  });
+});
+
+describe('simple sign-in: the server holds the unlock secret and issues vault keys', () => {
+  const attempt = (username: string, password: string) =>
+    postSolving(fixture.app, '/api/v1/auth/ldap/login', { username, password, profileId: 'ppl' });
+  const turnOn = () =>
+    fixture.database.db
+      .insert(settings)
+      .values({ key: 'security.keyMode', value: 'managed' })
+      .onConflictDoUpdate({ target: settings.key, set: { value: 'managed' } });
+
+  /** Первый вход в режиме «простой вход»: браузер оборачивает ключи секретом сервера и пароля не придумывает. */
+  async function enrollManaged(username: string, password: string) {
+    const first = await attempt(username, password);
+    expect(first.statusCode).toBe(200);
+    const body = first.json() as {
+      enroll: true;
+      enrollToken: string;
+      userId?: string;
+      managedSecret?: string;
+    };
+    expect(body.managedSecret).toBeTruthy();
+    const userId = body.userId ?? crypto.randomUUID();
+    const wrapKey = await managedWrapKey(fromBase64Url(body.managedSecret!));
+    const kp = await generateAccountKeyPair();
+    const sk = await generateSigningKeyPair();
+    const recovery = await generateRecoveryKey();
+    const lockerId = crypto.randomUUID();
+    const sealedKey = await sealVaultKeyFor(createVaultKey(), kp.publicKey, lockerId, userId, 1);
+    const res = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/external/enroll',
+      payload: {
+        userId,
+        enrollToken: body.enrollToken,
+        kdf: { memoryKiB: 19456, iterations: 2, parallelism: 1 },
+        salt: toBase64Url(generateSalt()),
+        authKey: toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
+        publicKey: toBase64Url(kp.publicKey),
+        signPublicKey: toBase64Url(sk.publicKey),
+        wrappedPrivateKey: await wrapAccountPrivateKey(wrapKey, kp.privateKey, userId),
+        wrappedSignPrivateKey: await wrapSignPrivateKey(wrapKey, sk.privateKey, userId),
+        recoveryProof: toBase64Url(await deriveRecoveryProof(recovery.key, userId)),
+        recoveryWrappedPrivateKey: await wrapPrivateKeyForRecovery(
+          recovery.key,
+          kp.privateKey,
+          userId,
+        ),
+        recoveryWrappedSignPrivateKey: await wrapPrivateKeyForRecovery(
+          recovery.key,
+          sk.privateKey,
+          userId,
+        ),
+        locker: {
+          vaultId: lockerId,
+          sealedKey,
+          signature: await signKeyGrant(sk.privateKey, lockerId, userId, 1, sealedKey),
+        },
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const client = new TestClient(fixture.app, `${username}@managed.test`, '');
+    client.token = res.json().token;
+    client.userId = userId;
+    client.privateKey = kp.privateKey;
+    client.publicKey = kp.publicKey;
+    client.signPrivateKey = sk.privateKey;
+    client.signPublicKey = sk.publicKey;
+    return { client, secret: body.managedSecret!, session: res.json() };
+  }
+
+  it('is turned on only by the chief administrator and only with the second factor required for everyone', async () => {
+    const refused = await admin.req('PUT', '/admin/settings', { 'security.keyMode': 'managed' });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe('mfa_required_for_managed');
+    const eve = new TestClient(fixture.app, 'eve-managed@example.com', 'eve-managed-password-1234');
+    expect((await eve.register()).statusCode).toBe(201);
+    await eve.login();
+    expect(
+      (await eve.req('PUT', '/admin/settings', { 'security.keyMode': 'managed' })).statusCode,
+    ).toBe(403);
+  });
+
+  it('the first domain sign-in creates the account without a password; the secret reaches only its owner and is never stored in the clear', async () => {
+    expect(
+      (
+        await put(
+          connection({ baseDn: BASE, enabled: true, access: 'all', autoProvision: true }),
+          'ppl',
+        )
+      ).statusCode,
+    ).toBe(200);
+    // в строгом режиме секрета нет: сотрудник придумывает пароль сам
+    const strict = await attempt('apetrova', 'Anna-Synthetic-1');
+    expect(strict.json().managedSecret).toBeUndefined();
+
+    await turnOn();
+    const { client, secret, session } = await enrollManaged('csidorova', 'Clara-Synthetic-1');
+    expect(session.user.managed).toBe(true);
+    // секрет отдаётся владельцу сеанса и совпадает с выданным при входе
+    const mine = await client.req('GET', '/auth/managed-secret');
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json().secret).toBe(secret);
+    expect(mine.headers['cache-control']).toBe('no-store');
+    // у обычной учётной записи секрета нет
+    expect((await admin.req('GET', '/auth/managed-secret')).statusCode).toBe(404);
+    // в базе секрет только в зашифрованном виде; пароль сменить нельзя: его нет
+    const [row] = await fixture.database.db.select().from(users).where(eq(users.id, client.userId));
+    expect(row!.managedSecret).toBeTruthy();
+    expect(row!.managedSecret).not.toContain(secret);
+    expect((await client.req('POST', '/auth/change-password', {})).statusCode).toBe(409);
+    // повторный вход: сервер узнаёт учётную запись, пароль разблокировки не запрашивается
+    const again = await attempt('csidorova', 'Clara-Synthetic-1');
+    expect(again.statusCode).toBe(200);
+    expect(again.json().user.managed).toBe(true);
+  });
+
+  it('the server issues the vault key to a new member at once, with a signature the member can verify', async () => {
+    // владелец с секретом на сервере создаёт сейф; подразделение уже назначило доступ сотруднику, который ещё не входил
+    await admin.req('PUT', '/admin/settings', { 'vaults.creators': 'members' });
+    const owner = (await enrollManaged('nomail', 'NoMail-Synthetic-1')).client;
+    const { res, id } = await owner.createSharedVault('Dept vault');
+    expect(res.statusCode).toBe(201);
+    const pending = await admin.req('POST', '/admin/people/directory/provision', {
+      profileId: 'ppl',
+      dn: `CN=Zed Quartz,OU=Users,${BASE}`,
+    });
+    expect([200, 201]).toContain(pending.statusCode);
+    const borisId = pending.json().id as string;
+    expect(
+      (await owner.req('PUT', `/vaults/${id}/members/${borisId}`, { role: 'editor' })).statusCode,
+    ).toBe(204);
+
+    // его первый вход: учётная запись создаётся и ключ сейфа выдан до того, как кто-либо снова открыл Arklock
+    const boris = (await enrollManaged('zquartz', 'Zed-Synthetic-1')).client;
+    expect(boris.userId).toBe(borisId);
+    const mine = (await boris.vaults()).find((v) => v.id === id)!;
+    expect(mine.key).toBeTruthy();
+    const key = await boris.openVault(mine);
+    const holder = (await owner.vaults()).find((v) => v.id === id)!;
+    expect(Buffer.from(await owner.openVault(holder)).equals(Buffer.from(key))).toBe(true);
+    // сотрудник, который уже входил, получает ключ после назначения доступа без чьих-либо действий
+    const clara = (
+      await fixture.database.db
+        .select()
+        .from(users)
+        .where(eq(users.email, 'clara.sidorova@example.com'))
+    )[0]!;
+    expect(
+      (await owner.req('PUT', `/vaults/${id}/members/${clara.id}`, { role: 'reader' })).statusCode,
+    ).toBe(204);
+    let issued = 0;
+    for (let i = 0; i < 40 && !issued; i++) {
+      issued = (
+        await fixture.database.db
+          .select()
+          .from(vaultKeys)
+          .where(and(eq(vaultKeys.vaultId, id), eq(vaultKeys.userId, clara.id)))
+      ).length;
+      if (!issued) await new Promise((r) => setTimeout(r, 250));
+    }
+    expect(issued).toBe(1);
+    // выдача записана в журнал как действие сервера, а не человека
+    const log = await fixture.database.db.select().from(ledger);
+    expect(
+      log.some((e) => e.action === 'vault.keys.auto' && e.actor === 'system:managed-keys'),
+    ).toBe(true);
+  });
+});
+
+describe('simple sign-in: an existing directory account moves to the server secret', () => {
+  it('re-wraps its own keys; refuses wraps that do not open and local accounts', async () => {
+    const setMode = (v: string) =>
+      fixture.database.db
+        .insert(settings)
+        .values({ key: 'security.keyMode', value: v })
+        .onConflictDoUpdate({ target: settings.key, set: { value: v } });
+    await setMode('strict');
+    // сотрудник создан в строгом режиме: ключи под его паролем
+    const first = await postSolving(fixture.app, '/api/v1/auth/ldap/login', {
+      username: 'yquill',
+      password: 'Yuri-Synthetic-1',
+      profileId: 'ppl',
+    });
+    expect(first.json().enroll).toBe(true);
+    const client = new TestClient(fixture.app, 'yuri.quill@example.com', 'yuri-master-pass-12');
+    const userId = crypto.randomUUID();
+    const { payload } = await client.registerBody(undefined, undefined, userId);
+    const { email: _e, displayName: _d, setupToken: _s, ...rest } = payload;
+    void _e;
+    void _d;
+    void _s;
+    const done = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/external/enroll',
+      payload: { ...rest, enrollToken: first.json().enrollToken },
+    });
+    expect(done.statusCode).toBe(201);
+    client.token = done.json().token;
+    client.userId = userId;
+    expect(done.json().user.managed).toBeFalsy();
+    expect(done.json().user.managedUpgrade).toBeFalsy();
+    // у строгой организации перевод закрыт
+    expect((await client.req('PUT', '/auth/managed-upgrade', {})).statusCode).toBe(409);
+
+    await setMode('managed');
+    const me = (await client.req('GET', '/auth/me')).json();
+    expect(me.user.managedUpgrade).toBe(true);
+    const wrapKey = await deriveMasterKeys(
+      'yuri-master-pass-12',
+      fromBase64Url(payload.salt),
+      userId,
+      FAST,
+      LOW_FLOOR,
+    );
+    const priv = await unwrapAccountPrivateKey(wrapKey.wrapKey, payload.wrappedPrivateKey, userId);
+    const sign = await unwrapSignPrivateKey(wrapKey.wrapKey, payload.wrappedSignPrivateKey, userId);
+    const secret = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const managedKey = await managedWrapKey(fromBase64Url(secret));
+    // обёртки, которые не открываются этим секретом, сервер не принимает: человек запер бы себя сам
+    const bad = await client.req('PUT', '/auth/managed-upgrade', {
+      secret,
+      wrappedPrivateKey: payload.wrappedPrivateKey,
+      wrappedSignPrivateKey: payload.wrappedSignPrivateKey,
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.code).toBe('bad_wrap');
+    const good = await client.req('PUT', '/auth/managed-upgrade', {
+      secret,
+      wrappedPrivateKey: await wrapAccountPrivateKey(managedKey, priv, userId),
+      wrappedSignPrivateKey: await wrapSignPrivateKey(managedKey, sign, userId),
+    });
+    expect(good.statusCode).toBe(200);
+    expect((await client.req('GET', '/auth/managed-secret')).json().secret).toBe(secret);
+    expect((await client.req('GET', '/auth/me')).json().user).toMatchObject({
+      managed: true,
+      managedUpgrade: false,
+    });
+    expect((await client.req('PUT', '/auth/managed-upgrade', {})).statusCode).toBe(409);
+    // локальная учётная запись остаётся с паролем разблокировки
+    expect((await admin.req('GET', '/auth/me')).json().user.managedUpgrade).toBe(false);
+    expect((await admin.req('PUT', '/auth/managed-upgrade', {})).statusCode).toBe(409);
   });
 });
 

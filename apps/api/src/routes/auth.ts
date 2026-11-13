@@ -2,7 +2,12 @@ import { timingSafeEqual } from 'node:crypto';
 import { and, count, eq, ne, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { assertKdfParams } from '@arklock/crypto';
+import {
+  assertKdfParams,
+  managedWrapKey,
+  unwrapAccountPrivateKey,
+  unwrapSignPrivateKey,
+} from '@arklock/crypto';
 import {
   authParamsQuery,
   changePasswordRequest,
@@ -52,6 +57,7 @@ import { attachmentIdsOfVault } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
 import { managedPolicy } from '../managed-vaults.js';
+import { keyModeOf, openManagedSecret, sealManagedSecret } from '../managed-keys.js';
 import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
 import { DEFAULT_SPACE_ID, spaceAccess } from '../spaces.js';
 
@@ -82,6 +88,8 @@ export async function insertAccount(
     release: string;
     /** Заполнить ключами уже созданный администратором профиль без ключей (его идентификатор — body.userId). */
     claim?: boolean;
+    /** «Простой вход»: секрет разблокировки, уже зашифрованный ключом установки (`sealManagedSecret`). */
+    managedSecret?: string;
   },
 ): Promise<void> {
   const authSalt = randomB64url(16);
@@ -99,6 +107,7 @@ export async function insertAccount(
     recoveryHash: hashProof(recoverySalt, body.recoveryProof),
     recoveryWrappedPrivateKey: body.recoveryWrappedPrivateKey,
     recoveryWrappedSignPrivateKey: body.recoveryWrappedSignPrivateKey,
+    managedSecret: opts.managedSecret ?? null,
   };
   if (opts.claim) {
     // профиль создан администратором заранее (без ключей): первый вход заполняет ту же строку, дубля не появляется
@@ -209,6 +218,9 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     theme: normalizeTheme(u.theme) ?? (await defaultTheme(ctx.db)),
     seenRelease: u.seenRelease,
     homeSpace: u.homeSpace,
+    managed: !!u.managedSecret,
+    managedUpgrade:
+      !u.managedSecret && u.authSource !== 'local' && (await keyModeOf(ctx.db)) === 'managed',
     publicKey: u.publicKey,
     signPublicKey: u.signPublicKey,
     wrappedPrivateKey: u.wrappedPrivateKey,
@@ -659,6 +671,64 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     };
   });
 
+  /**
+   * «Простой вход»: секрет разблокировки отдаётся его владельцу. Сеанс существует только после входа через каталог и второго
+   * фактора; сеанс без второго фактора, когда он обязателен, сюда не попадает (его отсекает политика). Ответ не кэшируется.
+   */
+  app.get('/auth/managed-secret', { preHandler: auth }, async (req, reply) => {
+    const { user } = authOf(req);
+    if (!user.managedSecret)
+      throw new AppError(404, 'not_managed', 'This account unlocks with its own password');
+    reply.header('cache-control', 'no-store');
+    return { secret: openManagedSecret(ctx.config.APP_SECRET, user.managedSecret) };
+  });
+
+  /**
+   * «Простой вход» для уже созданной учётной записи каталога: браузер, открыв ключи паролем, оборачивает их секретом,
+   * сервер сохраняет секрет зашифрованным и отключает вход по паролю разблокировки. Новые обёртки должны открываться этим
+   * секретом (иначе человек запер бы себя сам): сервер это проверяет.
+   */
+  app.put('/auth/managed-upgrade', { preHandler: auth }, async (req) => {
+    const { user } = authOf(req);
+    if ((await keyModeOf(db)) !== 'managed')
+      throw new AppError(409, 'key_mode_strict', 'Simple sign-in is not turned on');
+    if (user.authSource === 'local')
+      throw new AppError(409, 'local_account', 'Local accounts keep their unlock password');
+    if (user.managedSecret) throw new AppError(409, 'already_managed', 'Already simple sign-in');
+    const body = parse(
+      z.object({
+        secret: z.string().length(43),
+        wrappedPrivateKey: z.string().min(1).max(4000),
+        wrappedSignPrivateKey: z.string().min(1).max(4000),
+      }),
+      req.body,
+    );
+    const wrapKey = await managedWrapKey(fromBase64Url(body.secret));
+    try {
+      (await unwrapAccountPrivateKey(wrapKey, body.wrappedPrivateKey, user.id)).fill(0);
+      (await unwrapSignPrivateKey(wrapKey, body.wrappedSignPrivateKey, user.id)).fill(0);
+    } catch {
+      throw new AppError(400, 'bad_wrap', 'The wrapped keys do not open with this secret');
+    } finally {
+      wrapKey.fill(0);
+    }
+    const authSalt = randomB64url(16);
+    await db
+      .update(users)
+      .set({
+        managedSecret: sealManagedSecret(config.APP_SECRET, body.secret),
+        wrappedPrivateKey: body.wrappedPrivateKey,
+        wrappedSignPrivateKey: body.wrappedSignPrivateKey,
+        // входа по паролю разблокировки больше нет: прежнее доказательство заменяется случайным
+        authSalt,
+        authHash: hashProof(authSalt, randomB64url(32)),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
+    await audit(db, `user:${user.id}`, 'auth.managed.upgrade', `user:${user.id}`);
+    return { ok: true };
+  });
+
   /** Сведения о себе для страницы «Мой профиль»: карточка сотрудника только для чтения (поля из каталога меняет каталог). */
   app.get('/auth/profile', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
@@ -722,6 +792,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
 
   app.post('/auth/change-password', { preHandler: auth }, async (req, reply) => {
     const { user, session } = authOf(req);
+    if (user.managedSecret)
+      throw new AppError(409, 'managed_account', 'This account has no unlock password');
     const body = parse(changePasswordRequest, req.body);
     checkKdf(ctx, body.kdf);
     throttle(ctx, req, user.email);

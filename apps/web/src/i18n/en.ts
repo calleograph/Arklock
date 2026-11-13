@@ -33,6 +33,10 @@ export default {
     register: 'Create account',
     recover: 'Recover access',
     unlock: 'Unlock',
+    managedUnlock:
+      'The vaults open automatically after sign-in and the second factor. If this window does not close, press the button below.',
+    managedWait:
+      'The keys are not available yet: set up the second factor first (the “Security” section), then try again.',
     unlockHint:
       'Your session is open, but access to your data is locked. Enter your vault unlock password to continue.',
     loginPassword: 'Sign-in password',

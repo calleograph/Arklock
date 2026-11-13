@@ -1,3 +1,4 @@
+import { grantAllPendingKeys } from './managed-keys.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -262,6 +263,23 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     void runMail();
   }, 10_000);
   mailTimer.unref();
+  // «Простой вход»: после изменения состава сейфов, групп и подразделений сервер сразу выдаёт ключи тем, кому назначен доступ
+  // (проверка объединяется: серия правок запускает её один раз). В строгом режиме функция ничего не делает.
+  const GRANT_ROUTES =
+    /\/(vaults\/[^/]+\/(members|circles|grants)|admin\/circles\/[^/]+\/members|admin\/departments|admin\/directory|spaces\/[^/]+\/(users|circles)|admin\/ldap\/sync)/;
+  let grantTimer: NodeJS.Timeout | null = null;
+  app.addHook('onResponse', async (req, reply) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || reply.statusCode >= 300) return;
+    if (!GRANT_ROUTES.test(req.url) || grantTimer) return;
+    grantTimer = setTimeout(() => {
+      grantTimer = null;
+      void grantAllPendingKeys({ db: database.db, appSecret: config.APP_SECRET }).catch(() => 0);
+    }, 800);
+    grantTimer.unref();
+  });
+  app.addHook('onClose', async () => {
+    if (grantTimer) clearTimeout(grantTimer);
+  });
   app.addHook('onReady', async () => {
     await runMail();
   });

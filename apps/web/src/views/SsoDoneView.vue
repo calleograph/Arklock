@@ -52,7 +52,7 @@ onMounted(async () => {
   }
   try {
     const next = await auth.exchangeSso(ticket, takeVerifier());
-    if (next === 'unlock') await router.replace('/unlock');
+    if (next === 'unlock') await router.replace(auth.unlocked ? '/' : '/unlock');
     else await router.replace({ path: '/login', query: { external: next } });
   } catch {
     error.value = t('sso.error.other');

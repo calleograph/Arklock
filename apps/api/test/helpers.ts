@@ -77,7 +77,7 @@ export async function cheapCaptcha(
 }
 
 export const FAST = { memoryKiB: 64, iterations: 1, parallelism: 1 };
-const LOW_FLOOR = { memoryKiB: 8, iterations: 1, parallelism: 1 };
+export const LOW_FLOOR = { memoryKiB: 8, iterations: 1, parallelism: 1 };
 export const APP_SECRET = 'test-secret-test-secret-test-secret-123';
 
 /**

@@ -1,3 +1,4 @@
+import { grantPendingKeysForUser, keyModeOf, newManagedSecret } from '../managed-keys.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -679,7 +680,14 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     ): Promise<
       | SessionResponse
       | MfaChallengeResponse
-      | { enroll: true; enrollToken: string; email: string; name: string; userId?: string }
+      | {
+          enroll: true;
+          enrollToken: string;
+          email: string;
+          name: string;
+          userId?: string;
+          managedSecret?: string;
+        }
     > => {
       const body = parse(loginSchema, req.body);
       const s = await stored(body.profileId ?? 'default');
@@ -777,6 +785,8 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
               'Your account has not been created yet — contact an administrator',
             );
         }
+        // «Простой вход»: секрет разблокировки создаёт сервер, сотрудник получает его вместе с токеном и пароля не придумывает
+        const managedSecret = (await keyModeOf(db)) === 'managed' ? newManagedSecret() : undefined;
         const token = ctx.enroll.issue({
           source: 'ldap',
           externalId: directoryExternalId(s.id, ident),
@@ -785,6 +795,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           name: ident.name,
           groups: ident.groups,
           ...(linked ? { claimUserId: linked.id } : {}),
+          ...(managedSecret ? { managedSecret } : {}),
         });
         return {
           enroll: true,
@@ -792,6 +803,7 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           email: ident.email,
           name: ident.name || ident.email,
           ...(linked ? { userId: linked.id } : {}),
+          ...(managedSecret ? { managedSecret } : {}),
         };
       }
       if (linked.disabledAt) {
@@ -811,6 +823,11 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         await syncCirclesFor(tx, linked.id, current, ident.groups);
         await syncProfileFor(tx, linked.id, ident, current);
       });
+      // «Простой вход»: доступ мог быть назначен после прошлого входа — ключи выдаём сразу
+      if (linked.managedSecret)
+        await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, linked.id).catch(
+          () => 0,
+        );
       if (await isEnrolled(ctx, linked.id)) {
         reply.status(200);
         return mfaChallenge(ctx, linked.id);

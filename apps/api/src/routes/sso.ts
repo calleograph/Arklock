@@ -1,3 +1,9 @@
+import {
+  grantPendingKeysForUser,
+  keyModeOf,
+  newManagedSecret,
+  sealManagedSecret,
+} from '../managed-keys.js';
 import { randomBytes } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
@@ -272,7 +278,13 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     ): Promise<
       | SessionResponse
       | MfaChallengeResponse
-      | { enroll: true; enrollToken: string; email: string; name: string }
+      | {
+          enroll: true;
+          enrollToken: string;
+          email: string;
+          name: string;
+          managedSecret?: string;
+        }
     > => {
       const body = parse(
         z.object({
@@ -284,16 +296,23 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
       const out = ctx.tickets.take(body.ticket, body.verifier);
       if (!out) throw new AppError(401, 'invalid_ticket', 'The sign-in step expired, start again');
       if (out.kind === 'enroll') {
-        const token = ctx.enroll.issue(out.identity);
+        // «Простой вход»: секрет разблокировки создаёт сервер, сотрудник пароля не придумывает
+        const managedSecret = (await keyModeOf(db)) === 'managed' ? newManagedSecret() : undefined;
+        const token = ctx.enroll.issue(
+          managedSecret ? { ...out.identity, managedSecret } : out.identity,
+        );
         return {
           enroll: true,
           enrollToken: token,
           email: out.identity.email,
           name: out.identity.name,
+          ...(managedSecret ? { managedSecret } : {}),
         };
       }
       const [u] = await db.select().from(users).where(eq(users.id, out.userId));
       if (!u || u.disabledAt) throw new AppError(401, 'invalid_ticket', 'The sign-in step expired');
+      if (u.managedSecret)
+        await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, u.id).catch(() => 0);
       if (await isEnrolled(ctx, u.id)) {
         reply.status(200);
         return mfaChallenge(ctx, u.id);
@@ -383,6 +402,9 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         authSource: ident.source,
         externalId: ident.externalId,
         claim: !!ident.claimUserId,
+        ...(ident.managedSecret
+          ? { managedSecret: sealManagedSecret(config.APP_SECRET, ident.managedSecret) }
+          : {}),
       });
       if (ident.source === 'ldap')
         await syncCirclesFor(tx, body.userId, cfg as unknown as LdapConfig, ident.groups);
@@ -393,6 +415,11 @@ export const registerSsoRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
         body.userId,
         samlGroupMap(cfg as unknown as SamlConfig),
         ident.groups,
+      );
+    // «Простой вход»: доступ уже назначен (группа подразделения, прямые роли), ключи сейфов выдаём сразу
+    if (ident.managedSecret)
+      await grantPendingKeysForUser({ db, appSecret: config.APP_SECRET }, body.userId).catch(
+        () => 0,
       );
     const [u] = await db.select().from(users).where(eq(users.id, body.userId));
     const sess = await createSession(
