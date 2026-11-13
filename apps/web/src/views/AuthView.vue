@@ -225,6 +225,51 @@ onMounted(async () => {
     /* подсказка без публичного адреса остаётся полезной */
   }
 });
+/**
+ * Вход с главной формы. Сотрудник вводит то, что знает: доменный логин или почту. Без «@» сначала проверяется каталог
+ * (локальные записи входят по почте), с «@» — сначала локальная запись; при отказе пробуется второй путь, чтобы
+ * сотруднику не приходилось выбирать «корпоративная учётная запись» самому.
+ */
+async function signInAnywhere(): Promise<void> {
+  const login = email.value.trim();
+  const retry = (e: unknown) =>
+    e instanceof ApiError &&
+    (e.code === 'invalid_credentials' || e.code === 'external_login_required');
+  const local = async (): Promise<void> => {
+    if ((await auth.signIn(login.toLowerCase(), password.value)) === 'mfa') {
+      mfaStep.value = true;
+      password.value = '';
+      return;
+    }
+    await router.replace('/');
+  };
+  const domain = async (): Promise<void> => {
+    const next = await auth.signInLdap(login, password.value, ldapProfileId.value);
+    password.value = '';
+    if (next === 'mfa') mfaStep.value = true;
+    else if (next === 'enroll') {
+      ldapMode.value = true;
+      ldapEnrollStep.value = true;
+    } else await router.replace('/unlock');
+  };
+  if (!ldapAvailable.value) return local();
+  const first = login.includes('@') ? local : domain;
+  const second = login.includes('@') ? domain : local;
+  try {
+    await first();
+  } catch (e) {
+    if (!retry(e)) {
+      error.value = first === domain ? ldapMessage(e) : errorMessage(e, t);
+      return;
+    }
+    try {
+      await second();
+    } catch (e2) {
+      // отказ каталога точнее общего «неверный пароль»: показываем его, если он не «неверные данные»
+      error.value = second === domain || !retry(e2) ? ldapMessage(e2) : errorMessage(e2, t);
+    }
+  }
+}
 async function submit(): Promise<void> {
   error.value = '';
   if (!hasWebCrypto()) {
@@ -265,12 +310,8 @@ async function submit(): Promise<void> {
       }
       return;
     } else if (mode.value === 'signin') {
-      if ((await auth.signIn(email.value.trim().toLowerCase(), password.value)) === 'mfa') {
-        mfaStep.value = true;
-        password.value = '';
-        return;
-      }
-      await router.replace('/');
+      await signInAnywhere();
+      return;
     } else if (mode.value === 'unlock') {
       await auth.unlock(password.value);
       await router.replace('/');
@@ -363,6 +404,8 @@ function ldapMessage(e: unknown): string {
     if (e.code === 'ldap_unavailable') return t('ldap.unavailable');
     if (e.code === 'ldap_not_provisioned') return t('ldap.notProvisioned');
     if (e.code === 'account_exists_local') return t('ldap.localExists');
+    if (e.code === 'ldap_not_allowed') return t('ldap.notAllowed');
+    if (e.code === 'ldap_no_email') return t('ldap.noEmail');
     if (e.code === 'too_many_attempts') return t('auth.locked');
   }
   return errorMessage(e, t);

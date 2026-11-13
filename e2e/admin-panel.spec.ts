@@ -760,9 +760,15 @@ test('directory people: find an employee in the head field, add with "+", link a
 
   // первый вход человека, чей профиль создан заранее: ключи создаются для того же профиля, дубля нет
   const boris = await (await browser.newContext()).newPage();
+  // доменный логин вводится в обычную форму входа: без выбора «корпоративная учётная запись»
+  const ghost = await (await browser.newContext()).newPage();
+  await ghost.goto('/login');
+  await ghost.getByTestId('email').fill('ghost-employee');
+  await ghost.getByTestId('password').fill('ghost-e2e-pass');
+  await ghost.getByTestId('submit').click();
+  await expect(ghost.getByTestId('error')).toBeVisible({ timeout: 30_000 });
   await boris.goto('/login');
-  await boris.getByTestId('to-ldap').click();
-  await boris.getByTestId('ldap-user').fill('boris');
+  await boris.getByTestId('email').fill('boris');
   await boris.getByTestId('password').fill('boris-ldap-e2e-pass');
   await boris.getByTestId('submit').click();
   await expect(boris.getByTestId('ldap-enroll-hint')).toBeVisible({ timeout: 30_000 });
@@ -806,6 +812,24 @@ test('directory people: find an employee in the head field, add with "+", link a
   await boris.getByTestId('dept-newmember-result-dmitri@example.com').click();
   await boris.getByTestId('dept-members-add').click();
   await expect(boris.getByTestId('dept-member-row-dmitri@example.com')).toBeVisible();
+
+  // отчёт для разбора: отказ при входе записан с причиной и показан недочётом, файл HTML выгружается
+  await page.goto('/admin/diagnostics');
+  await page.getByTestId('diag-run').click();
+  await expect(page.getByTestId('diag-finding-signin.user_not_found')).toContainText(
+    'ghost-employee',
+    {
+      timeout: 60_000,
+    },
+  );
+  const downloading = page.waitForEvent('download');
+  await page.getByTestId('diag-download').click();
+  const file = await downloading;
+  expect(file.suggestedFilename()).toMatch(/^arklock-diagnostics-.*\.html$/);
+  const html = await (await import('node:fs/promises')).readFile((await file.path())!, 'utf8');
+  expect(html).toContain('ghost-employee');
+  expect(html).not.toContain('boris-ldap-e2e-pass');
+  expect(html).not.toContain('svc-e2e');
 
   // «Доступы»: администратор вводит имя и сразу видит, кто куда ходит
   await page.goto('/admin/access');

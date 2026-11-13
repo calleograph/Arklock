@@ -8,6 +8,8 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { DiagnosticState } from '@arklock/contracts';
 import { audit } from '../audit.js';
+import { buildReport } from '../diagnostics-report.js';
+import { chiefRequired } from './chief.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
@@ -301,7 +303,7 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   // ------------------------------------------------------------------ диагностика
 
-  app.get('/admin/diagnostics', async () => {
+  async function systemChecks() {
     const checks: Check[] = [];
     const add = (
       id: string,
@@ -438,6 +440,22 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         ? 'warn'
         : 'ok';
     return { level: worst, checks, at: new Date().toISOString() };
+  }
+  app.get('/admin/diagnostics', systemChecks);
+
+  /**
+   * Отчёт для разбора проблем (настройки без секретов, недочёты, этапы проверки каталога, причины отказов при входе).
+   * Только главный администратор: в отчёте имена входа и сведения о настройке каталога.
+   */
+  app.get('/admin/diagnostics/report', async (req) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    const system = await systemChecks();
+    const report = await buildReport(ctx, system, publicUrlOf(ctx) ?? null);
+    await audit(db, `user:${user.id}`, 'admin.diagnostics.report', null, {
+      findings: report.findings.length,
+    });
+    return report;
   });
 
   // ------------------------------------------------------------------ сертификаты

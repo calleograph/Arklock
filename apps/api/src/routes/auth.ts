@@ -579,6 +579,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         u ? `user:${u.id}` : null,
         {
           ip: ipOf(req),
+          login: body.email.slice(0, 80),
+          reason: !u ? 'unknown_account' : u.disabledAt ? 'account_disabled' : 'bad_password',
         },
       );
       throw new AppError(401, 'invalid_credentials', 'Invalid email or password');

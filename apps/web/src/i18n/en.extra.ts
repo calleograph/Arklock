@@ -608,6 +608,9 @@ export default {
     unavailable: 'The directory is unavailable, contact your administrator',
     notProvisioned: 'Your account has not been created yet, contact your administrator',
     localExists: 'A local account with this address already exists',
+    notAllowed:
+      'The password is correct, but sign-in is allowed only for members of certain domain groups and your account is not in them. Contact your administrator: the reason is recorded in the diagnostics.',
+    noEmail: 'Your directory account has no e-mail address, contact your administrator',
     enrollHint:
       'This is your first sign-in. Choose a vault unlock password: it encrypts your data on this device and is not the directory password. It cannot be recovered.',
     section: 'Active Directory / LDAPS',

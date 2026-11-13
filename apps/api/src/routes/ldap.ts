@@ -644,8 +644,35 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
     };
   });
 
+  /** Причина отказа при входе: пишется в журнал и показывается в диагностике (без паролей, только введённое имя). */
+  const reasons = new WeakMap<
+    object,
+    { reason: string; extra?: Record<string, string | number> }
+  >();
+  const SIGNIN_CODES = new Set([
+    'invalid_credentials',
+    'ldap_unavailable',
+    'ldap_not_allowed',
+    'ldap_no_email',
+    'account_exists_local',
+    'ldap_not_provisioned',
+    'not_provisioned',
+  ]);
+  const signinHook = async (req: FastifyRequest, _reply: unknown, error: Error) => {
+    if (!(error instanceof AppError) || !SIGNIN_CODES.has(error.code)) return;
+    const r = reasons.get(req);
+    const login = String((req.body as { username?: unknown } | null)?.username ?? '').slice(0, 80);
+    await audit(db, 'anonymous', 'auth.ldap.denied', null, {
+      login,
+      reason: r?.reason ?? error.code,
+      ip: ipOf(req),
+      ...r?.extra,
+    }).catch(() => undefined);
+  };
+
   app.post(
     '/auth/ldap/login',
+    { onError: signinHook },
     async (
       req,
       reply,
@@ -663,6 +690,10 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         ident = await ldapAuthenticate(s, bindSecret(s), body.username, body.password);
       } catch (e) {
         // недоступность каталога — не ошибка пароля и не должна копить неудачные попытки
+        reasons.set(req, {
+          reason: 'unavailable',
+          extra: { code: e instanceof LdapError ? e.code : 'error' },
+        });
         throw new AppError(
           503,
           'ldap_unavailable',
@@ -670,7 +701,20 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
         );
       }
       if (!ident) {
-        const disabled = await ldapLookup(s, bindSecret(s), body.username).catch(() => null);
+        let lookupFailed = false;
+        const disabled = await ldapLookup(s, bindSecret(s), body.username).catch(() => {
+          lookupFailed = true;
+          return null;
+        });
+        reasons.set(req, {
+          reason: lookupFailed
+            ? 'lookup_failed'
+            : !disabled
+              ? 'user_not_found'
+              : disabled.disabled
+                ? 'disabled_in_directory'
+                : 'bad_password',
+        });
         if (disabled?.disabled) {
           const linked = await linkedLdapUser(db, s.id, disabled);
           if (linked) {
@@ -691,6 +735,10 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       ctx.shield.recordSuccess(req, 'directory', body.username);
       // пароль верный, но администратор ограничил вход группами каталога
       if (!accessAllowed(s, ident.groups)) {
+        reasons.set(req, {
+          reason: 'not_allowed',
+          extra: { groups: ident.groups.length, allowed: s.allowedGroups?.length ?? 0 },
+        });
         await audit(db, 'anonymous', 'auth.ldap.not_allowed', null, { ip: ipOf(req) });
         throw new AppError(
           403,
@@ -698,14 +746,18 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           'Directory sign-in is not allowed for this account',
         );
       }
-      if (!ident.email)
+      if (!ident.email) {
+        reasons.set(req, { reason: 'no_email' });
         throw new AppError(403, 'ldap_no_email', 'The directory entry has no e-mail address');
+      }
 
       const linked = await linkedLdapUser(db, s.id, ident);
       // профиль создан администратором заранее: ключей ещё нет, первый вход их создаёт в этой же строке
       if (!linked || linked.pendingActivation) {
-        if (linked?.disabledAt)
+        if (linked?.disabledAt) {
+          reasons.set(req, { reason: 'account_disabled' });
           throw new AppError(401, 'invalid_credentials', 'Invalid username or password');
+        }
         // созданный администратором профиль уже разрешён явно; для новых людей действуют проверки
         if (!linked) {
           const [clash] = await db
@@ -742,8 +794,10 @@ export const registerLdapRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           ...(linked ? { userId: linked.id } : {}),
         };
       }
-      if (linked.disabledAt)
+      if (linked.disabledAt) {
+        reasons.set(req, { reason: 'account_disabled' });
         throw new AppError(401, 'invalid_credentials', 'Invalid username or password');
+      }
       await db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext('arklock.ldap.profiles'))`);
         const current = (await readLdapProfiles(tx)).find((p) => p.id === s.id);

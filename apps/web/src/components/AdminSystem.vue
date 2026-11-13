@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DiagnosticsReport from './DiagnosticsReport.vue';
 import { errorMessage, when } from '../services/helpers';
 import InfoHint from './InfoHint.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -984,6 +985,7 @@ const DIAG_LINK: Record<string, string> = {
 
     <!-- Диагностика -->
     <div v-else-if="section === 'diagnostics'" class="space-y-3">
+      <DiagnosticsReport />
       <div class="flex items-center gap-3 text-sm">
         <span class="font-medium">{{ t('sys.diag.total') }}:</span
         ><span :class="levelClass(data.level)" data-testid="diag-level">{{
@@ -1007,7 +1009,7 @@ const DIAG_LINK: Record<string, string> = {
           <RouterLink
             v-if="c.level !== 'ok' && DIAG_LINK[c.id]"
             :to="DIAG_LINK[c.id]!"
-            class="mt-1 inline-block text-xs font-medium text-brand-600 underline"
+            class="mt-1 inline-flex min-h-11 items-center text-xs font-medium text-brand-600 underline"
             :data-testid="`diag-go-${c.id}`"
             :aria-label="`${t('sys.diag.go')}: ${diagTitle(c)}`"
             >{{ t('sys.diag.go') }} →</RouterLink

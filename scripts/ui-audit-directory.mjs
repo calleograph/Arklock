@@ -256,6 +256,14 @@ try {
       ready: 'dept-member-directory-title',
     },
     {
+      id: 'diagnostics',
+      run: async () => {
+        await go('admin/diagnostics');
+        await page.getByTestId('diag-run').click();
+      },
+      ready: 'diag-findings',
+    },
+    {
       id: 'access-user',
       run: async () => {
         await go('admin/access');
@@ -342,6 +350,32 @@ try {
         errors: [...errors],
       });
     }
+  }
+  // выгруженный файл отчёта открывается как обычная страница: сетка и тап-цели те же, горизонтальной прокрутки нет
+  await go('admin/diagnostics');
+  await page.getByTestId('diag-run').click();
+  await page.getByTestId('diag-findings').waitFor();
+  const dl = page.waitForEvent('download');
+  await page.getByTestId('diag-download').click();
+  const reportFile = path.join(OUT, 'diagnostics-report.html');
+  await (await dl).saveAs(reportFile);
+  for (const width of [390, 1280]) {
+    const view = await ctx.newPage();
+    await view.setViewportSize({ width, height: 900 });
+    await view.goto(`file://${reportFile}`);
+    const overflow = await view.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    if (SHOTS)
+      await view.screenshot({ path: path.join(OUT, `report-html-${width}.png`), fullPage: true });
+    report.push({
+      scene: 'report-html',
+      width,
+      problems: overflow > 0 ? ['горизонтальная прокрутка'] : [],
+      smallTargets: [],
+      errors: [],
+    });
+    await view.close();
   }
   await browser.close();
 } finally {

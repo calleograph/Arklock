@@ -16,6 +16,8 @@ const { t } = useI18n({
       title: 'Сотрудники из каталога: шаги по порядку',
       lead: 'Пройдите шаги сверху вниз. Выполненные отмечаются сами, по настройкам.',
       now: 'Сейчас',
+      todo: 'не выполнено',
+      why: 'Почему не входят',
       open: 'Открыть',
       allDone:
         'Все шаги выполнены. Новых сотрудников добавляйте через поиск по каталогу в любом поле выбора человека.',
@@ -52,6 +54,8 @@ const { t } = useI18n({
       title: 'Directory employees: steps in order',
       lead: 'Go through the steps from top to bottom. Finished ones are ticked by themselves from the settings.',
       now: 'Now',
+      todo: 'not done',
+      why: 'Why sign-in fails',
       open: 'Open',
       allDone:
         'All steps are done. Add new employees through the directory search in any person field.',
@@ -165,6 +169,12 @@ void props;
             <h3 class="font-medium">
               {{ t(`step.${s.id}.t`) }}
               <span v-if="current === s.id" class="badge-brand ml-1 text-xs">{{ t('now') }}</span>
+              <span
+                v-else-if="!s.done"
+                class="badge ml-1 text-xs text-amber-700 dark:text-amber-300"
+                :data-testid="`guide-todo-${s.id}`"
+                >{{ t('todo') }}</span
+              >
             </h3>
             <RouterLink
               v-if="current === s.id"
@@ -180,6 +190,13 @@ void props;
           <p class="max-w-prose text-xs text-slate-600 dark:text-slate-300">
             {{ t(`step.${s.id}.d`) }}
           </p>
+          <RouterLink
+            v-if="s.id === 'people' && !s.done"
+            to="/admin/diagnostics"
+            class="inline-flex min-h-11 items-center text-xs font-medium text-brand-600 underline"
+            data-testid="guide-why"
+            >{{ t('why') }} →</RouterLink
+          >
           <p v-if="s.id === 'people' && (waiting || signedIn)" class="text-xs text-slate-500">
             <span v-if="waiting">{{ t('waiting', { n: waiting }) }}</span
             ><span v-if="waiting && signedIn"> · </span

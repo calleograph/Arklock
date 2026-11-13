@@ -10,6 +10,7 @@ import { ruShield, enShield } from './shield';
 import { ruMail, enMail } from './mail';
 import { ruAccess, enAccess } from './access';
 import { ruDirectory, enDirectory } from './directory';
+import { ruDiag, enDiag } from './diagnostics';
 import { ruPageHints, enPageHints } from './pagehints';
 
 type Tree = { [k: string]: string | Tree };
@@ -47,7 +48,7 @@ export const i18n = createI18n({
       ),
       merge(
         merge(ruMail as Tree, ruAccess as Tree),
-        merge(ruDirectory as Tree, ruPageHints as Tree),
+        merge(merge(ruDirectory as Tree, ruPageHints as Tree), ruDiag as Tree),
       ),
     ),
     en: merge(
@@ -57,7 +58,7 @@ export const i18n = createI18n({
       ),
       merge(
         merge(enMail as Tree, enAccess as Tree),
-        merge(enDirectory as Tree, enPageHints as Tree),
+        merge(merge(enDirectory as Tree, enPageHints as Tree), enDiag as Tree),
       ),
     ),
   },

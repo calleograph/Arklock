@@ -5,7 +5,7 @@ import * as x509 from '@peculiar/x509';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { settings, users } from '../src/db/schema.js';
-import { cheapCaptcha, createTestApp, postSolving, TestClient } from './helpers.js';
+import { APP_SECRET, cheapCaptcha, createTestApp, postSolving, TestClient } from './helpers.js';
 
 // Тестовый каталог, отвечающий как Active Directory; все имена и пароли вымышленные
 const require = createRequire(import.meta.url);
@@ -1263,5 +1263,101 @@ describe('an account without the mail attribute', () => {
       })
     ).json();
     expect(r).toMatchObject({ ok: true, user: { email: 'nomail@example.com' } });
+  });
+});
+
+describe('the diagnostics report: why employees cannot sign in, without secrets', () => {
+  const attempt = (username: string, password: string) =>
+    postSolving(fixture.app, '/api/v1/auth/ldap/login', { username, password, profileId: 'ppl' });
+  const report = () => admin.req('GET', '/admin/diagnostics/report');
+
+  it('records the reason of every refusal and shows it as a finding', async () => {
+    // вход разрешён только группе, в которой сотрудника нет
+    expect(
+      (
+        await put(
+          connection({
+            baseDn: BASE,
+            enabled: true,
+            access: 'groups',
+            allowedGroups: [`CN=Nobody,OU=Groups,${BASE}`],
+          }),
+          'ppl',
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect((await attempt('ghost-user', 'Ghost-Synthetic-1')).statusCode).toBe(401);
+    expect((await attempt('apetrova', 'Wrong-Synthetic-1')).statusCode).toBe(401);
+    const denied = await attempt('csidorova', 'Clara-Synthetic-1');
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe('ldap_not_allowed');
+
+    const res = await report();
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const codes = body.findings.map((f: { code: string }) => f.code);
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        'signin.user_not_found',
+        'signin.bad_password',
+        'signin.not_allowed',
+      ]),
+    );
+    expect(
+      body.findings.find((f: { code: string }) => f.code === 'signin.user_not_found'),
+    ).toMatchObject({
+      level: 'fail',
+      params: { logins: 'ghost-user' },
+    });
+    expect(body.signin.find((s: { login: string }) => s.login === 'csidorova')).toMatchObject({
+      kind: 'directory',
+      reason: 'not_allowed',
+      n: 1,
+    });
+    const ppl = body.directories.find((d: { id: string }) => d.id === 'ppl');
+    expect(ppl.stages.length).toBeGreaterThan(0);
+    expect(ppl.config).toMatchObject({ access: 'groups', bindDn: SVC });
+    // секретов в отчёте нет: ни пароля служебной записи, ни введённых паролей, ни ключа шифрования настроек
+    const text = JSON.stringify(body);
+    for (const secret of [
+      SVC_PASSWORD,
+      'Clara-Synthetic-1',
+      'Wrong-Synthetic-1',
+      'Ghost-Synthetic-1',
+      APP_SECRET,
+    ])
+      expect(text).not.toContain(secret);
+  });
+
+  it('flags a configuration where nobody can sign in', async () => {
+    expect(
+      (
+        await put(
+          connection({ baseDn: BASE, enabled: true, access: 'groups', allowedGroups: [STAFF] }),
+          'ppl',
+        )
+      ).statusCode,
+    ).toBe(200);
+    // принудительно «группы выбраны, но список пуст»: так бывает после ручной правки настроек
+    const [row] = await fixture.database.db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, 'ldap.profiles'));
+    const list = (row!.value as { id: string; allowedGroups?: string[] }[]).map((p) =>
+      p.id === 'ppl' ? { ...p, allowedGroups: [] } : p,
+    );
+    await fixture.database.db
+      .update(settings)
+      .set({ value: list })
+      .where(eq(settings.key, 'ldap.profiles'));
+    const codes = (await report()).json().findings.map((f: { code: string }) => f.code);
+    expect(codes).toContain('directory.groups_empty');
+  });
+
+  it('is available only to the chief administrator', async () => {
+    const eve = new TestClient(fixture.app, 'eve-report@example.com', 'eve-report-password-1234');
+    expect((await eve.register()).statusCode).toBe(201);
+    await eve.login();
+    expect((await eve.req('GET', '/admin/diagnostics/report')).statusCode).toBe(403);
   });
 });
