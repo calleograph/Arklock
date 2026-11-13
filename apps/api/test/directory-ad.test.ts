@@ -1251,6 +1251,119 @@ describe('the common domain group (the primary group "Domain Users") lets employ
   });
 });
 
+describe('the certificates page: "make trusted" for the LDAPS certificate', () => {
+  it('shows the untrusted certificate, trusts it by fingerprint after re-reading it, and can take the trust back', async () => {
+    const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' } as const;
+    const keys = (await webcrypto.subtle.generateKey(alg, true, [
+      'sign',
+      'verify',
+    ])) as unknown as CryptoKeyPair;
+    const cert = await x509.X509CertificateGenerator.createSelfSigned({
+      serialNumber: '4d',
+      name: 'CN=dc02',
+      notBefore: new Date(Date.now() - 86_400_000),
+      notAfter: new Date(Date.now() + 365 * 86_400_000),
+      signingAlgorithm: alg,
+      keys,
+      extensions: [new x509.BasicConstraintsExtension(false)],
+    });
+    const der = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', keys.privateKey));
+    const label = ['PRIVATE', 'KEY'].join(' ');
+    const tlsServer = ldap.createServer({
+      certificate: cert.toString('pem'),
+      key: `-----BEGIN ${label}-----\n${der.toString('base64')}\n-----END ${label}-----\n`,
+    });
+    tlsServer.bind(SVC, (_req: unknown, res: { end: () => void }, next: (e?: unknown) => void) => {
+      res.end();
+      return next();
+    });
+    tlsServer.search(
+      '',
+      (_req: unknown, res: { send: (e: object) => void; end: () => void }, next: () => void) => {
+        res.send({ dn: BASE, attributes: { objectClass: 'domain', defaultNamingContext: BASE } });
+        res.end();
+        return next();
+      },
+    );
+    const port: number = await new Promise((r) =>
+      tlsServer.listen(0, '127.0.0.1', () => r(tlsServer.address().port)),
+    );
+    try {
+      const draft = connection({
+        url: `ldaps://127.0.0.1:${port}`,
+        allowPlaintext: false,
+        bindDn: SVC,
+        baseDn: BASE,
+      });
+      expect((await put(draft, 'trustme')).statusCode).toBe(200);
+      const row = async () =>
+        (await admin.req('GET', '/admin/certificates'))
+          .json()
+          .items.find((i: { profileId?: string }) => i.profileId === 'trustme');
+      const before = await row();
+      expect(before).toMatchObject({ purpose: 'ldaps', trusted: false, pinned: false });
+      const fp = before.chain[0].fingerprint256;
+
+      // отпечаток, который администратор не видел, не принимается: сертификат мог смениться
+      const wrong = await admin.req('POST', '/admin/certificates/trust', {
+        profileId: 'trustme',
+        fingerprint256: Array(32).fill('AB').join(':'),
+      });
+      expect(wrong.statusCode).toBe(409);
+      expect(wrong.json().error.code).toBe('certificate_changed');
+      expect((await row()).pinned).toBe(false);
+
+      const ok = await admin.req('POST', '/admin/certificates/trust', {
+        profileId: 'trustme',
+        fingerprint256: fp,
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(await row()).toMatchObject({
+        trusted: true,
+        pinned: true,
+        pinStale: false,
+        level: 'ok',
+      });
+      const check = (await admin.req('POST', '/admin/ldap/test?profileId=trustme')).json();
+      expect(check.stages.find((s: { stage: string }) => s.stage === 'tls')).toMatchObject({
+        ok: true,
+        code: 'pinned',
+      });
+
+      expect(
+        (await admin.req('POST', '/admin/certificates/untrust', { profileId: 'trustme' }))
+          .statusCode,
+      ).toBe(200);
+      expect(await row()).toMatchObject({ trusted: false, pinned: false });
+      // только LDAPS и только сохранённое подключение: произвольный узел указать нельзя
+      expect(
+        (
+          await admin.req('POST', '/admin/certificates/trust', {
+            profileId: 'nope',
+            fingerprint256: fp,
+          })
+        ).statusCode,
+      ).toBe(404);
+    } finally {
+      tlsServer.close();
+    }
+  });
+
+  it('is for the chief administrator only', async () => {
+    const eve = new TestClient(fixture.app, 'eve-cert@example.com', 'eve-cert-password-1234');
+    expect((await eve.register()).statusCode).toBe(201);
+    await eve.login();
+    expect(
+      (
+        await eve.req('POST', '/admin/certificates/trust', {
+          profileId: 'trustme',
+          fingerprint256: 'x',
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
+});
+
 describe('an account without the mail attribute', () => {
   it('signs in with the user principal name as the address instead of being refused', async () => {
     expect(

@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { access, constants, rm, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
@@ -13,12 +14,12 @@ import { chiefRequired } from './chief.js';
 import { adminGate } from '../auth/adminperm.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { rowsOf } from '../db/connect.js';
+import { rowsOf, type Db } from '../db/connect.js';
 import { publicUrlOf } from '../public-url.js';
 import { attachments, entries, handoffs, sessions, settings, users, vaults } from '../db/schema.js';
-import { parse } from '../errors.js';
+import { AppError, parse } from '../errors.js';
 import type { SmtpConfig } from '../mail/smtp.js';
-import { LDAP_PROFILES_KEY, readLdapProfiles } from '../auth/ldap-profiles.js';
+import { LDAP_PROFILES_KEY, readLdapProfiles, writeLdapProfiles } from '../auth/ldap-profiles.js';
 import { SAML_SETTING_KEY } from '../auth/saml.js';
 import { metricsHistory } from '../metrics.js';
 import { SYSLOG_KEY } from '../syslog.js';
@@ -460,7 +461,14 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   // ------------------------------------------------------------------ сертификаты
 
-  type CertTarget = { label: string; purpose: string; host: string; port: number };
+  type CertTarget = {
+    label: string;
+    purpose: string;
+    host: string;
+    port: number;
+    /** Подключение каталога, которому принадлежит узел: к нему применяется «доверять сертификату». */
+    profileId?: string;
+  };
   /**
    * Адреса, чьи сертификаты Arklock проверяет: публичный HTTPS, LDAPS каталога, защищённая почта, провайдер единого входа и
    * журнал syslog по TLS. Только узлы, настроенные в системе, а не произвольные.
@@ -486,6 +494,7 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
             purpose: 'ldaps',
             host: u.hostname,
             port: Number(u.port || 636),
+            profileId: p.id,
           });
       } catch {
         /* адрес профиля неверен: его покажет сам раздел каталога */
@@ -516,13 +525,134 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     const [row] = await db.select().from(settings).where(eq(settings.key, SMTP_KEY));
     // Проверяются только адреса, известные системе (публичный адрес и настроенные серверы), а не произвольные узлы
     const targets = await certTargets((row?.value as StoredSmtp | undefined) ?? null);
+    const profiles = await readLdapProfiles(db);
     const items = await Promise.all(
-      targets.map(async (t) => ({
-        label: t.label,
-        purpose: t.purpose,
-        ...(await probeCertificate(t.host, t.port)),
-      })),
+      targets.map(async (t) => {
+        const info = await probeCertificate(t.host, t.port);
+        if (!t.profileId) return { label: t.label, purpose: t.purpose, ...info };
+        // каталог: сертификат может быть доверен по отпечатку, который закрепил главный администратор
+        const pin = profiles.find((p) => p.id === t.profileId)?.pinnedFingerprint ?? '';
+        const leaf = info.chain[0];
+        const pinned = !!pin && leaf?.fingerprint256 === pin;
+        const level: Level =
+          !leaf || leaf.daysLeft < 0 ? 'fail' : leaf.daysLeft < 30 ? 'warn' : 'ok';
+        return {
+          label: t.label,
+          purpose: t.purpose,
+          ...info,
+          ...(pinned ? { trusted: true, level } : {}),
+          profileId: t.profileId,
+          pinned,
+          // закреплённый сертификат заменили: прежнее доверие больше не действует
+          pinStale: !!pin && !!leaf && !pinned,
+        };
+      }),
     );
     return { items, publicUrl: publicUrlOf(ctx) || null };
+  });
+
+  /** Сертификат, который сервер Arklock видит у узла сейчас: доверие даётся ему, а не присланному клиентом тексту. */
+  function presentedCertificate(
+    host: string,
+    port: number,
+  ): Promise<{ pem: string; fingerprint256: string }> {
+    return new Promise((resolve, reject) => {
+      const socket = tls.connect(
+        { host, port, servername: net.isIP(host) ? undefined : host, rejectUnauthorized: false },
+        () => {
+          const c = socket.getPeerCertificate();
+          socket.end();
+          if (!c?.raw) return reject(new Error('no certificate'));
+          const b64 = c.raw
+            .toString('base64')
+            .match(/.{1,64}/g)!
+            .join('\n');
+          resolve({
+            pem: `-----BEGIN CERTIFICATE-----\n${b64}\n-----END CERTIFICATE-----\n`,
+            fingerprint256: c.fingerprint256,
+          });
+        },
+      );
+      socket.setTimeout(8000, () => socket.destroy(new Error('timeout')));
+      socket.on('error', reject);
+    });
+  }
+
+  async function ldapsProfileOf(id: string) {
+    const p = (await readLdapProfiles(db)).find((x) => x.id === id);
+    if (!p) throw new AppError(404, 'ldap_not_saved', 'The directory connection is not saved');
+    let u: URL;
+    try {
+      u = new URL(p.url);
+    } catch {
+      throw new AppError(409, 'not_ldaps', 'The directory address is not valid');
+    }
+    if (u.protocol !== 'ldaps:')
+      throw new AppError(409, 'not_ldaps', 'Only LDAPS certificates can be trusted here');
+    return { profile: p, host: u.hostname, port: Number(u.port || 636) };
+  }
+
+  async function savePin(
+    profileId: string,
+    pin: { pem: string; fingerprint256: string } | null,
+    actor: string,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('arklock.ldap.profiles'))`);
+      const profiles = await readLdapProfiles(tx as unknown as Db);
+      await writeLdapProfiles(
+        tx as unknown as Db,
+        profiles.map((p) =>
+          p.id === profileId
+            ? { ...p, pinnedPem: pin?.pem ?? '', pinnedFingerprint: pin?.fingerprint256 ?? '' }
+            : p,
+        ),
+        actor,
+      );
+      // подключение изменилось по существу: прежние отметки «проверено» к нему больше не относятся
+      await tx
+        .insert(settings)
+        .values({ key: `ldap.status.${profileId}`, value: {} })
+        .onConflictDoUpdate({ target: settings.key, set: { value: {}, updatedAt: new Date() } });
+      await audit(
+        tx as unknown as Db,
+        actor,
+        pin ? 'admin.ldap.trust' : 'admin.ldap.untrust',
+        `ldap:${profileId}`,
+        {
+          fingerprint: pin?.fingerprint256 ?? null,
+        },
+      );
+    });
+  }
+
+  /**
+   * «Сделать доверенным»: сертификат сервера каталога закрепляется по отпечатку. Сервер заново читает сертификат узла из
+   * сохранённого адреса каталога и сверяет отпечаток с тем, что видел администратор; изменение — только главный администратор.
+   */
+  app.post('/admin/certificates/trust', async (req) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    const body = parse(
+      z.object({ profileId: z.string().min(1).max(64), fingerprint256: z.string().max(200) }),
+      req.body,
+    );
+    const { host, port } = await ldapsProfileOf(body.profileId);
+    const seen = await presentedCertificate(host, port).catch(() => {
+      throw new AppError(502, 'cert_unreachable', 'The directory did not present a certificate');
+    });
+    if (seen.fingerprint256 !== body.fingerprint256)
+      throw new AppError(409, 'certificate_changed', 'The certificate changed; check it again');
+    await savePin(body.profileId, seen, `user:${user.id}`);
+    return { ok: true, fingerprint256: seen.fingerprint256 };
+  });
+
+  app.post('/admin/certificates/untrust', async (req) => {
+    const { user } = authOf(req);
+    if (!user.chief) throw chiefRequired();
+    const body = parse(z.object({ profileId: z.string().min(1).max(64) }), req.body);
+    await ldapsProfileOf(body.profileId);
+    await savePin(body.profileId, null, `user:${user.id}`);
+    return { ok: true };
   });
 };

@@ -571,6 +571,21 @@ export default {
       empty: "Nothing to check: set the server's public HTTPS address in the installation settings",
       days: 'days',
       untrusted: 'The certificate is not trusted by this server (self-signed or incomplete chain).',
+      trust: 'Make trusted',
+      untrust: 'Remove trust',
+      pinned: 'Trusted by fingerprint',
+      pinStale:
+        'The server certificate was replaced: the earlier trust no longer applies. Check the new one and trust it again.',
+      chiefOnly: 'Only the chief administrator can trust a certificate.',
+      trustHint:
+        'Arklock remembers the fingerprint of exactly this certificate and accepts it for the directory connection even if it is self-signed or issued by an internal certificate authority. Before agreeing, compare the fingerprint with what the domain controller itself shows: a fake server on the network would get the same trust. After the certificate is replaced on the directory server the trust must be given again. More reliable: upload the root certificate of your certificate authority under “Directory” → “Connection”: then replacing certificates needs no action.',
+      trustConfirm:
+        'Trust the certificate “{subject}” (issuer “{issuer}”) of the directory server?\nSHA-256 fingerprint:\n{fingerprint}\nCompare it with the fingerprint on the domain controller itself.',
+      untrustConfirm:
+        'Remove trust in the directory server certificate? The directory connection stops working until the certificate is accepted another way.',
+      trusted: 'The certificate is trusted.',
+      untrusted2: 'Trust in the certificate was removed.',
+      changed: 'The server certificate changed meanwhile. Reload the page and check it again.',
     },
     smtp: {
       host: 'Server',

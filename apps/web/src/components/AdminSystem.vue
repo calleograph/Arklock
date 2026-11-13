@@ -105,6 +105,56 @@ const AUTO: Partial<Record<Section, number>> = {
   overview: 15_000,
 };
 
+type CertRow = {
+  profileId?: string;
+  chain: { subject: string; issuer: string; fingerprint256: string }[];
+};
+/** «Сделать доверенным»: администратор видит отпечаток и подтверждает; сервер сверяет его с тем, что видит сам. */
+async function trustCert(i: CertRow): Promise<void> {
+  const leaf = i.chain[0];
+  if (!leaf || !i.profileId || busy.value) return;
+  if (
+    !window.confirm(
+      t('sys.certs.trustConfirm', {
+        subject: leaf.subject,
+        issuer: leaf.issuer,
+        fingerprint: leaf.fingerprint256,
+      }),
+    )
+  )
+    return;
+  await changeTrust(
+    'trust',
+    { profileId: i.profileId, fingerprint256: leaf.fingerprint256 },
+    'trusted',
+  );
+}
+async function untrustCert(i: CertRow): Promise<void> {
+  if (!i.profileId || busy.value || !window.confirm(t('sys.certs.untrustConfirm'))) return;
+  await changeTrust('untrust', { profileId: i.profileId }, 'untrusted2');
+}
+async function changeTrust(
+  action: 'trust' | 'untrust',
+  body: Record<string, string>,
+  done: string,
+): Promise<void> {
+  busy.value = true;
+  error.value = '';
+  notice.value = '';
+  try {
+    await api('POST', `/admin/certificates/${action}`, body);
+    notice.value = t(`sys.certs.${done}`);
+    await load();
+  } catch (e) {
+    error.value =
+      e instanceof ApiError && e.code === 'certificate_changed'
+        ? t('sys.certs.changed')
+        : failMessage(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function load(): Promise<void> {
   if (timer) clearTimeout(timer);
   const section = props.section;
@@ -1063,6 +1113,40 @@ const DIAG_LINK: Record<string, string> = {
                 <span :class="levelClass(i.level)">{{ levelText(i.level) }}</span>
                 <div v-if="i.ok && !i.trusted" class="text-xs text-amber-700">
                   {{ t('sys.certs.untrusted') }}
+                </div>
+                <div v-if="i.pinned" class="text-xs text-emerald-700 dark:text-emerald-300">
+                  {{ t('sys.certs.pinned') }}
+                </div>
+                <div v-if="i.pinStale" class="text-xs text-amber-700">
+                  {{ t('sys.certs.pinStale') }}
+                </div>
+                <div v-if="i.profileId" class="mt-1 flex flex-wrap items-center gap-2">
+                  <template v-if="auth.user?.chief">
+                    <button
+                      v-if="i.ok && !i.trusted"
+                      type="button"
+                      class="btn min-h-11"
+                      :disabled="busy"
+                      data-testid="cert-trust"
+                      @click="trustCert(i)"
+                    >
+                      {{ t('sys.certs.trust') }}
+                    </button>
+                    <button
+                      v-if="i.pinned"
+                      type="button"
+                      class="btn min-h-11"
+                      :disabled="busy"
+                      data-testid="cert-untrust"
+                      @click="untrustCert(i)"
+                    >
+                      {{ t('sys.certs.untrust') }}
+                    </button>
+                    <InfoHint v-if="!i.trusted || i.pinned" :text="t('sys.certs.trustHint')" />
+                  </template>
+                  <span v-else-if="!i.trusted" class="text-xs text-slate-500">{{
+                    t('sys.certs.chiefOnly')
+                  }}</span>
                 </div>
               </td>
             </tr>
