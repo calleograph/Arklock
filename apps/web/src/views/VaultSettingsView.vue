@@ -675,14 +675,24 @@ void decryptEntry;
     <!-- Ключ и удаление -->
     <div class="space-y-2">
       <h2 class="font-medium">{{ t('settings.keyTitle') }}</h2>
-      <p class="text-sm text-slate-500">
-        {{ t('settings.keyVersion', { v: info?.keyVersion ?? vault.keyVersion }) }} ·
-        {{ t('settings.rotateHint') }}
-      </p>
-      <button type="button" class="btn" :disabled="busy" data-testid="btn-rotate" @click="rotate">
-        {{ t('settings.rotate') }}
-      </button>
-      <div v-if="isOwner && heirs.length" class="card max-w-xl space-y-2 p-3 text-sm">
+      <div class="card space-y-3 p-4 text-sm">
+        <p class="text-slate-500">
+          {{ t('settings.keyVersion', { v: info?.keyVersion ?? vault.keyVersion }) }} ·
+          {{ t('settings.rotateHint') }}
+        </p>
+        <div class="btn-row">
+          <button
+            type="button"
+            class="btn"
+            :disabled="busy"
+            data-testid="btn-rotate"
+            @click="rotate"
+          >
+            {{ t('settings.rotate') }}
+          </button>
+        </div>
+      </div>
+      <div v-if="isOwner && heirs.length" class="card form-grid p-4 text-sm">
         <h3 class="font-medium">
           {{ t('settings.transferTitle')
           }}<InfoHint class="ml-1" :text="t('settings.transferHint')" />
@@ -699,30 +709,34 @@ void decryptEntry;
           :placeholder="t('settings.transferConfirm', { name: vault.name })"
           data-testid="heir-confirm"
         />
-        <button
-          type="button"
-          class="btn-danger"
-          :disabled="busy || !heir || heirConfirm !== vault.name"
-          data-testid="heir-go"
-          @click="transfer"
-        >
-          {{ t('settings.transfer') }}
-        </button>
+        <div class="btn-row">
+          <button
+            type="button"
+            class="btn-danger"
+            :disabled="busy || !heir || heirConfirm !== vault.name"
+            data-testid="heir-go"
+            @click="transfer"
+          >
+            {{ t('settings.transfer') }}
+          </button>
+        </div>
       </div>
-      <div class="flex flex-wrap gap-2 pt-4">
-        <input v-model="newName" class="input max-w-xs" maxlength="100" />
-        <button type="button" class="btn" :disabled="busy || !newName.trim()" @click="rename">
-          {{ t('vault.rename') }}
-        </button>
-        <button
-          v-if="isOwner"
-          type="button"
-          class="btn-danger"
-          data-testid="btn-delete-vault"
-          @click="removeVault"
-        >
-          {{ t('settings.deleteVault') }}
-        </button>
+      <div class="card form-grid p-4 text-sm">
+        <input v-model="newName" class="input" maxlength="100" :aria-label="t('vault.rename')" />
+        <div class="btn-row">
+          <button type="button" class="btn" :disabled="busy || !newName.trim()" @click="rename">
+            {{ t('vault.rename') }}
+          </button>
+          <button
+            v-if="isOwner"
+            type="button"
+            class="btn-danger"
+            data-testid="btn-delete-vault"
+            @click="removeVault"
+          >
+            {{ t('settings.deleteVault') }}
+          </button>
+        </div>
       </div>
     </div>
     <GrantDialog

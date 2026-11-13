@@ -296,9 +296,9 @@ export default {
   prefs: {
     title: 'My settings',
     autoLock: 'Lock after inactivity',
-    homeTitle: 'Space after sign-in',
+    homeTitle: 'Department after sign-in',
     homeHint: 'Which space opens after you sign in — on all your devices.',
-    homeDefault: 'Organization default space',
+    homeDefault: 'Organization (default)',
     homePersonal: 'Personal space',
     homeSaved: 'Saved',
     autoLockHint:

@@ -50,7 +50,7 @@ watch(
       <button
         v-if="canCreate"
         type="button"
-        class="btn"
+        class="btn sm:min-w-44 sm:justify-center"
         :title="createLabel"
         data-testid="btn-create-folder"
         @click="emit('create')"

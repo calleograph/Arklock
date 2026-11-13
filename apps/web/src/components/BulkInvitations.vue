@@ -212,7 +212,7 @@ function download(): void {
 </script>
 
 <template>
-  <details class="card p-4 text-sm">
+  <details class="card text-sm">
     <summary class="cursor-pointer font-medium" data-testid="bulk-invite">{{ t('title') }}</summary>
     <div class="mt-3 space-y-3">
       <p class="max-w-prose text-xs text-slate-500">{{ t('hint') }}</p>

@@ -377,7 +377,7 @@ async function cancel(): Promise<void> {
         <div
           class="mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 dark:border-slate-700"
         >
-          <table class="min-w-full text-sm">
+          <table class="w-full table-fixed text-sm">
             <thead class="sticky top-0 bg-white text-left text-xs text-slate-500 dark:bg-slate-900">
               <tr>
                 <th class="px-2 py-1">{{ t('chief.rank') }}</th>
@@ -433,7 +433,7 @@ async function cancel(): Promise<void> {
         </h3>
         <p v-if="!s.vaults.length" class="text-xs text-slate-500">{{ t('chief.noVaults') }}</p>
         <div v-else class="mt-1 overflow-x-auto">
-          <table class="min-w-full text-sm">
+          <table class="w-full table-fixed text-sm">
             <thead class="text-left text-xs text-slate-500">
               <tr>
                 <th class="py-1 pr-3">{{ t('chief.vault') }}</th>

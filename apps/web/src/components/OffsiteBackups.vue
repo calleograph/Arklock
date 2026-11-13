@@ -222,7 +222,7 @@ const where = computed(() => {
     <h2 class="text-base font-semibold">
       {{ t('offsite.title') }}<InfoHint class="ml-1" :text="t('offsite.hint')" />
     </h2>
-    <p v-if="!helperAlive" class="text-sm text-amber-700">{{ t('offsite.noHelper') }}</p>
+    <p v-if="!helperAlive" class="notice notice-warn">{{ t('offsite.noHelper') }}</p>
     <p
       v-if="error"
       class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -261,7 +261,7 @@ const where = computed(() => {
     <form class="card form-grid p-4 text-sm" @submit.prevent="save">
       <label class="block"
         >{{ t('offsite.type') }}
-        <select v-model="form.type" class="input w-auto" data-testid="offsite-type">
+        <select v-model="form.type" class="input" data-testid="offsite-type">
           <option value="s3">S3</option>
           <option value="smb">SMB</option>
         </select>
@@ -276,86 +276,86 @@ const where = computed(() => {
             placeholder="https://s3.example.com"
             data-testid="offsite-endpoint"
         /></label>
-        <div class="flex flex-wrap gap-3">
-          <label class="flex-1"
-            >{{ t('offsite.region') }}<input v-model="form.region" class="input"
-          /></label>
-          <label class="flex-1"
-            >{{ t('offsite.bucket')
-            }}<input v-model="form.bucket" class="input" data-testid="offsite-bucket"
-          /></label>
-        </div>
-        <div class="flex flex-wrap gap-3">
-          <label class="flex-1"
-            >{{ t('offsite.accessKey')
-            }}<input v-model="form.accessKey" class="input font-mono" data-testid="offsite-access"
-          /></label>
-          <label class="flex-1"
-            >{{ t('offsite.secretKey')
-            }}<input
-              v-model="form.secretKey"
-              type="password"
-              autocomplete="new-password"
-              class="input"
-              :placeholder="snap?.configured ? t('offsite.keepSecret') : ''"
-              data-testid="offsite-secret"
-          /></label>
-        </div>
+        <label class="block"
+          >{{ t('offsite.region') }}<input v-model="form.region" class="input"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.bucket')
+          }}<input v-model="form.bucket" class="input" data-testid="offsite-bucket"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.accessKey')
+          }}<input v-model="form.accessKey" class="input font-mono" data-testid="offsite-access"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.secretKey')
+          }}<input
+            v-model="form.secretKey"
+            type="password"
+            autocomplete="new-password"
+            class="input"
+            :placeholder="snap?.configured ? t('offsite.keepSecret') : ''"
+            data-testid="offsite-secret"
+        /></label>
         <details class="text-xs">
           <summary class="cursor-pointer">{{ t('offsite.advanced') }}</summary>
-          <label class="mt-2 flex items-center gap-2"
-            ><input v-model="form.pathStyle" type="checkbox" /> {{ t('offsite.pathStyle') }}</label
+          <label class="check-row mt-2"
+            ><input v-model="form.pathStyle" type="checkbox" /><span class="check-text">{{
+              t('offsite.pathStyle')
+            }}</span></label
           >
           <label class="mt-2 block"
             >{{ t('offsite.ca') }}
             <textarea v-model="form.caPem" rows="3" class="input font-mono text-xs" />
           </label>
-          <label class="mt-2 flex items-center gap-2"
-            ><input v-model="form.insecureTls" type="checkbox" />
-            {{ t('offsite.insecureTls') }}</label
+          <label class="check-row mt-2"
+            ><input v-model="form.insecureTls" type="checkbox" /><span class="check-text">{{
+              t('offsite.insecureTls')
+            }}</span></label
           >
-          <label class="mt-2 flex items-center gap-2"
-            ><input v-model="form.allowHttp" type="checkbox" data-testid="offsite-allow-http" />
-            {{ t('offsite.allowHttp') }}</label
+          <label class="check-row mt-2"
+            ><input
+              v-model="form.allowHttp"
+              type="checkbox"
+              data-testid="offsite-allow-http"
+            /><span class="check-text">{{ t('offsite.allowHttp') }}</span></label
           >
         </details>
       </template>
 
       <template v-else>
-        <div class="flex flex-wrap gap-3">
-          <label class="flex-1"
-            >{{ t('offsite.host')
-            }}<input v-model="form.host" class="input" data-testid="offsite-host"
-          /></label>
-          <label class="w-24"
-            >{{ t('offsite.port') }}<input v-model.number="form.port" type="number" class="input"
-          /></label>
-          <label class="flex-1"
-            >{{ t('offsite.share')
-            }}<input v-model="form.share" class="input" data-testid="offsite-share"
-          /></label>
-        </div>
-        <div class="flex flex-wrap gap-3">
-          <label class="flex-1"
-            >{{ t('offsite.user')
-            }}<input v-model="form.user" class="input" data-testid="offsite-user"
-          /></label>
-          <label class="flex-1"
-            >{{ t('offsite.smbPassword')
-            }}<input
-              v-model="form.smbPassword"
-              type="password"
-              autocomplete="new-password"
-              class="input"
-              :placeholder="snap?.configured ? t('offsite.keepSecret') : ''"
-              data-testid="offsite-smb-password"
-          /></label>
-          <label class="flex-1"
-            >{{ t('offsite.domain') }}<input v-model="form.domain" class="input"
-          /></label>
-        </div>
-        <label class="flex items-center gap-2"
-          ><input v-model="form.encrypt" type="checkbox" /> {{ t('offsite.smbEncrypt') }}</label
+        <label class="block"
+          >{{ t('offsite.host')
+          }}<input v-model="form.host" class="input" data-testid="offsite-host"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.port') }}<input v-model.number="form.port" type="number" class="input"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.share')
+          }}<input v-model="form.share" class="input" data-testid="offsite-share"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.user')
+          }}<input v-model="form.user" class="input" data-testid="offsite-user"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.smbPassword')
+          }}<input
+            v-model="form.smbPassword"
+            type="password"
+            autocomplete="new-password"
+            class="input"
+            :placeholder="snap?.configured ? t('offsite.keepSecret') : ''"
+            data-testid="offsite-smb-password"
+        /></label>
+        <label class="block"
+          >{{ t('offsite.domain') }}<input v-model="form.domain" class="input"
+        /></label>
+        <label class="check-row"
+          ><input v-model="form.encrypt" type="checkbox" /><span class="check-text">{{
+            t('offsite.smbEncrypt')
+          }}</span></label
         >
       </template>
 
@@ -363,21 +363,16 @@ const where = computed(() => {
         >{{ t('offsite.prefix')
         }}<input v-model="form.prefix" class="input" placeholder="arklock/server1"
       /></label>
-      <div class="flex flex-wrap items-center gap-4">
-        <label class="flex items-center gap-2"
-          ><input v-model="form.auto" type="checkbox" data-testid="offsite-auto" />
-          {{ t('offsite.auto') }}</label
-        >
-        <label
-          >{{ t('offsite.keep')
-          }}<input
-            v-model.number="form.keep"
-            type="number"
-            min="1"
-            max="365"
-            class="input ml-2 w-24"
-        /></label>
-      </div>
+      <label class="block"
+        >{{ t('offsite.keep')
+        }}<input v-model.number="form.keep" type="number" min="1" max="365" class="input"
+      /></label>
+      <label class="check-row"
+        ><input v-model="form.auto" type="checkbox" data-testid="offsite-auto" /><span
+          class="check-text"
+          >{{ t('offsite.auto') }}</span
+        ></label
+      >
 
       <label class="block"
         >{{ t('offsite.confirmPassword') }}
@@ -390,7 +385,7 @@ const where = computed(() => {
           data-testid="offsite-password"
         />
       </label>
-      <div class="flex flex-wrap gap-2">
+      <div class="btn-row">
         <button type="submit" class="btn-primary" :disabled="busy" data-testid="offsite-save">
           {{ t('common.save') }}
         </button>

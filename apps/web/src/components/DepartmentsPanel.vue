@@ -438,7 +438,7 @@ async function create(): Promise<void> {
 
 <template>
   <section class="space-y-6 text-sm" data-testid="departments">
-    <details class="card p-4" :open="depts !== null && !depts.length" data-testid="dept-explain">
+    <details class="card" :open="depts !== null && !depts.length" data-testid="dept-explain">
       <summary class="min-h-11 cursor-pointer font-medium">{{ t('whatTitle') }}</summary>
       <dl class="mt-2 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-[8rem_1fr]">
         <dt class="font-medium">{{ t('dtPeople') }}</dt>

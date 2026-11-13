@@ -24,6 +24,7 @@ const LAYOUT_JS = readFileSync(
   path.join(process.env.HOME ?? '', '.claude/design-standard/layout-audit.js'),
   'utf8',
 );
+const ALIGN_JS = readFileSync(new URL('./layout-alignment.js', import.meta.url), 'utf8');
 const PORT = 18199;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SETUP = 'ui-audit-setup-code-ui-audit-code-2';
@@ -178,6 +179,17 @@ try {
     description: 'Группа для проверки',
   });
 
+  // данные как в живой установке: группы с названиями разной длины и пользовательская роль (у групп появляется выбор роли)
+  for (const name of ['ИБ', 'ИТ', 'ИТ дирекция общая'])
+    await call('POST', '/admin/circles', { name, description: '' });
+  await call('POST', '/admin/roles', {
+    name: 'Оператор',
+    scope: 'admin',
+    allow: ['admin.users'],
+    deny: [],
+    parents: [],
+  });
+
   const go = (route) =>
     page.evaluate((r) => {
       globalThis.history.pushState({}, '', `/${r}`);
@@ -255,6 +267,60 @@ try {
       },
       ready: 'dept-member-directory-title',
     },
+    ...(argv.includes('--tabs')
+      ? [
+          ['workspace', ''],
+          ['profile-settings', 'settings'],
+          ['help', 'help'],
+          ['inspector', 'inspector'],
+          ['notifications', 'notifications'],
+        ].map(([id, route]) => ({ id: `page-${id}`, run: async () => go(route), ready: null }))
+      : []),
+    ...(argv.includes('--tabs')
+      ? [
+          {
+            id: 'page-vault-settings',
+            run: async () => {
+              const list = await call('GET', '/vaults');
+              const v = list.find((x) => x.name?.includes('Пароли')) ?? list[0];
+              await go(`vault/${v.id}/settings`);
+            },
+            ready: null,
+          },
+        ]
+      : []),
+    ...(argv.includes('--tabs')
+      ? [
+          'overview',
+          'organization',
+          'wizards',
+          'users',
+          'invitations',
+          'departments',
+          'circles',
+          'access',
+          'vaults',
+          'transfer',
+          'roles',
+          'settings',
+          'ledger',
+          'resources',
+          'containers',
+          'backups',
+          'logs',
+          'storage',
+          'certificates',
+          'smtp',
+          'ldap',
+          'sso',
+          'saml',
+          'syslog',
+          'webhooks',
+          'updates',
+          'automation',
+          'shield',
+        ].map((tab) => ({ id: `tab-${tab}`, run: async () => go(`admin/${tab}`), ready: null }))
+      : []),
     {
       id: 'diagnostics',
       run: async () => {
@@ -318,12 +384,14 @@ try {
       await page.setViewportSize({ width, height: 900 });
       errors.length = 0;
       await sc.run();
-      await page.getByTestId(sc.ready).first().waitFor({ timeout: 20_000 });
-      await page.waitForTimeout(400);
+      if (sc.ready) await page.getByTestId(sc.ready).first().waitFor({ timeout: 20_000 });
+      await page.waitForTimeout(sc.ready ? 400 : 1200);
       const name = `${sc.id}-${width}`;
       if (SHOTS) await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: true });
       const raw = await page.evaluate(LAYOUT_JS);
       const layout = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const align = await page.evaluate(ALIGN_JS);
+      layout.problems = [...layout.problems, ...align.problems.map((x) => `ровность: ${x}`)];
       const smallTargets =
         width <= 560
           ? await page.evaluate(() =>

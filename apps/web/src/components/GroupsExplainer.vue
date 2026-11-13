@@ -22,7 +22,7 @@ const { t } = useI18n({
 </script>
 
 <template>
-  <details class="card p-4 text-sm" data-testid="groups-explain">
+  <details class="card text-sm" data-testid="groups-explain">
     <summary class="min-h-11 cursor-pointer font-medium">{{ t('title') }}</summary>
     <div class="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
       <p class="max-w-prose">{{ t('what') }}</p>

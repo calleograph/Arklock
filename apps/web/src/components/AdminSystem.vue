@@ -666,7 +666,9 @@ const DIAG_LINK: Record<string, string> = {
       <div class="card space-y-3 p-4" data-testid="res-history">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h3 class="text-sm font-semibold">{{ t('sys.res.history') }}</h3>
-          <div class="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800">
+          <div
+            class="flex max-w-full flex-wrap gap-1 rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800"
+          >
             <button
               v-for="h in [6, 24, 168, 336]"
               :key="h"
@@ -809,8 +811,8 @@ const DIAG_LINK: Record<string, string> = {
 
     <!-- Резервные копии -->
     <div v-else-if="section === 'backups'" class="space-y-4">
-      <p v-if="!data.helperAlive" class="text-sm text-amber-700">{{ t('updates.errHelper') }}</p>
-      <div class="card flex flex-wrap items-center gap-2 p-3 text-sm">
+      <p v-if="!data.helperAlive" class="notice notice-warn">{{ t('updates.errHelper') }}</p>
+      <div class="card flex flex-wrap items-center gap-2 p-4 text-sm">
         <input
           v-model="label"
           maxlength="20"
@@ -931,59 +933,58 @@ const DIAG_LINK: Record<string, string> = {
           </button>
         </div>
       </form>
-      <form
-        class="card flex flex-wrap items-center gap-3 p-3 text-sm"
-        @submit.prevent="saveSchedule"
-      >
-        <label class="flex items-center gap-1"
-          ><input v-model="sched.enabled" type="checkbox" data-testid="sched-enabled" />
-          {{ t('sys.backups.scheduleOn') }}</label
+      <form class="card form-grid p-4 text-sm" @submit.prevent="saveSchedule">
+        <label class="check-row"
+          ><input v-model="sched.enabled" type="checkbox" data-testid="sched-enabled" /><span
+            class="check-text"
+            >{{ t('sys.backups.scheduleOn') }}</span
+          ></label
         >
-        <label
-          >{{ t('sys.backups.hour') }}
-          <input v-model.number="sched.hour" type="number" min="0" max="23" class="input w-20"
+        <label class="block"
+          >{{ t('sys.backups.hour')
+          }}<input v-model.number="sched.hour" type="number" min="0" max="23" class="input"
         /></label>
-        <label
-          >{{ t('sys.backups.keep') }}
-          <input v-model.number="sched.keep" type="number" min="1" max="90" class="input w-20"
+        <label class="block"
+          >{{ t('sys.backups.keep')
+          }}<input v-model.number="sched.keep" type="number" min="1" max="90" class="input"
         /></label>
-        <button type="submit" class="btn" :disabled="busy" data-testid="sched-save">
-          {{ t('common.save') }}
-        </button>
-        <span v-if="data.schedule?.lastAt" class="text-xs text-slate-500"
-          >{{ t('sys.backups.lastRun') }}: {{ fmtDate(data.schedule.lastAt) }} ({{
-            data.schedule.lastResult
-          }})</span
-        >
+        <div class="btn-row">
+          <button type="submit" class="btn" :disabled="busy" data-testid="sched-save">
+            {{ t('common.save') }}
+          </button>
+          <span v-if="data.schedule?.lastAt" class="text-xs text-slate-500"
+            >{{ t('sys.backups.lastRun') }}: {{ fmtDate(data.schedule.lastAt) }} ({{
+              data.schedule.lastResult
+            }})</span
+          >
+        </div>
       </form>
       <OffsiteBackups />
     </div>
 
     <!-- Журналы системы -->
     <div v-else-if="section === 'logs'" class="space-y-3">
-      <form class="flex flex-wrap items-center gap-2 text-sm" @submit.prevent="fetchLogs">
-        <select v-model="logForm.service" class="input w-auto" data-testid="log-service">
+      <form class="filter-grid text-sm" @submit.prevent="fetchLogs">
+        <select v-model="logForm.service" class="input" data-testid="log-service">
           <option value="app">app</option>
           <option value="db">db</option>
         </select>
-        <input
-          v-model.number="logForm.lines"
-          type="number"
-          min="10"
-          max="2000"
-          class="input w-24"
-        />
-        <button
-          type="submit"
-          class="btn-primary"
-          :disabled="busy || !data.helperAlive"
-          data-testid="log-fetch"
-        >
-          {{ t('sys.logs.fetch') }}
-        </button>
-        <RouterLink to="/admin/ledger" class="text-xs underline">{{
-          t('admin.tab.ledger')
-        }}</RouterLink>
+        <input v-model.number="logForm.lines" type="number" min="10" max="2000" class="input" />
+        <div class="btn-row">
+          <button
+            type="submit"
+            class="btn-primary"
+            :disabled="busy || !data.helperAlive"
+            data-testid="log-fetch"
+          >
+            {{ t('sys.logs.fetch') }}
+          </button>
+          <RouterLink
+            to="/admin/ledger"
+            class="inline-flex min-h-11 items-center text-xs underline"
+            >{{ t('admin.tab.ledger') }}</RouterLink
+          >
+        </div>
       </form>
       <p class="text-xs text-slate-500">{{ t('sys.logs.hint') }}</p>
       <LogViewer v-if="data.log" :text="data.log.text" />
@@ -1153,7 +1154,7 @@ const DIAG_LINK: Record<string, string> = {
           </tbody>
         </table>
       </div>
-      <details class="card p-3 text-sm" data-testid="certs-help">
+      <details class="card text-sm" data-testid="certs-help">
         <summary class="cursor-pointer font-medium">{{ t('sys.certs.helpTitle') }}</summary>
         <dl class="mt-2 space-y-2">
           <div v-for="u in ['https', 'ldaps', 'smtp', 'sso', 'syslog']" :key="u">

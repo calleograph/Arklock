@@ -1433,7 +1433,7 @@ function allowGroup(dn: string): void {
       </section>
 
       <!-- 3. Дополнительно -->
-      <details class="card p-4 text-sm" data-testid="ldap-step-advanced">
+      <details class="card text-sm" data-testid="ldap-step-advanced">
         <summary class="cursor-pointer">
           <span class="font-semibold">{{ t('dir.steps.advanced') }}</span>
           <InfoHint class="ml-1" :text="t('dir.steps.advancedHint')" />

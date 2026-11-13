@@ -456,7 +456,7 @@ const memberIds = computed(() => members.value.map((m) => m.id));
           <li
             v-for="h in card.heads"
             :key="h.id"
-            class="flex min-h-11 flex-wrap items-center justify-between gap-2"
+            class="list-row"
             :data-testid="`dept-head-row-${h.email}`"
           >
             <span class="min-w-0"
@@ -519,7 +519,7 @@ const memberIds = computed(() => members.value.map((m) => m.id));
           <li
             v-for="m in members"
             :key="m.id"
-            class="flex min-h-11 flex-wrap items-center justify-between gap-2"
+            class="list-row"
             :data-testid="`dept-member-row-${m.email}`"
           >
             <span class="min-w-0"
@@ -585,7 +585,7 @@ const memberIds = computed(() => members.value.map((m) => m.id));
           <li
             v-for="g in card.guests"
             :key="g.id"
-            class="flex min-h-11 flex-wrap items-center justify-between gap-2"
+            class="list-row"
             :data-testid="`dept-guest-row-${g.email}`"
           >
             <span class="min-w-0"
@@ -611,7 +611,7 @@ const memberIds = computed(() => members.value.map((m) => m.id));
           <li
             v-for="v in card.vaults"
             :key="v.id"
-            class="grid items-end gap-x-3 gap-y-2 py-2 sm:grid-cols-[1fr_12rem_auto_auto]"
+            class="grid items-end gap-x-3 gap-y-2 py-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_12rem_auto_auto]"
             :data-testid="`dept-vault-row-${v.id}`"
           >
             <label class="block"
@@ -650,11 +650,11 @@ const memberIds = computed(() => members.value.map((m) => m.id));
             <RouterLink :to="`/vault/${v.id}/settings`" class="btn">{{ t('open') }}</RouterLink>
           </li>
         </ul>
-        <div class="flex flex-wrap gap-2">
+        <div class="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <input
             v-model="vaultName"
             maxlength="100"
-            class="input max-w-xs"
+            class="input"
             :placeholder="t('vaultNew')"
             :aria-label="t('vaultNew')"
             data-testid="dept-vault-name"

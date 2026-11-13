@@ -101,7 +101,7 @@ const fmt = (s: string) => when(s);
     <BulkInvitations :circles="circles" @created="load" />
 
     <form class="card form-grid p-4 text-sm" @submit.prevent="create">
-      <h2 class="text-base font-semibold">{{ t('invite.newUser') }}</h2>
+      <h2 class="font-medium">{{ t('invite.newUser') }}</h2>
       <label class="block"
         >{{ t('invite.name')
         }}<input
@@ -157,25 +157,25 @@ const fmt = (s: string) => when(s);
           :placeholder="t('invite.circleFilter')"
           data-testid="invite-circle-filter"
         />
-        <div class="flex max-h-28 flex-wrap gap-x-3 gap-y-1 overflow-y-auto">
+        <div class="grid max-h-36 gap-x-6 gap-y-1 overflow-y-auto sm:grid-cols-2">
           <label
             v-for="c in shownCircles"
             :key="c.id"
-            class="inline-flex items-center gap-1"
+            class="check-row"
             :data-testid="`invite-circle-${c.name}`"
           >
-            <input v-model="form.circleIds" type="checkbox" :value="c.id" /> {{ c.name }}
+            <input v-model="form.circleIds" type="checkbox" :value="c.id" /><span
+              class="check-text"
+              >{{ c.name }}</span
+            >
           </label>
         </div>
       </fieldset>
-      <button
-        type="submit"
-        class="btn-primary sm:col-span-2"
-        :disabled="busy"
-        data-testid="invite-create"
-      >
-        {{ t('invite.createAction') }}
-      </button>
+      <div class="btn-row">
+        <button type="submit" class="btn-primary" :disabled="busy" data-testid="invite-create">
+          {{ t('invite.createAction') }}
+        </button>
+      </div>
     </form>
 
     <div v-if="created" class="card space-y-2 p-4 text-sm" data-testid="invite-created">

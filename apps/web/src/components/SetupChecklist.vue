@@ -112,14 +112,17 @@ function hide(): void {
       <li
         v-for="s in steps"
         :key="s.id"
-        class="flex flex-wrap items-center justify-between gap-2 py-1.5"
+        class="list-row"
         :data-testid="`setup-${s.id}`"
         :data-done="state?.[s.id] ? '1' : '0'"
       >
         <span class="min-w-0">
-          <span :class="state?.[s.id] ? 'text-emerald-600' : 'text-slate-400'" aria-hidden="true">{{
-            state?.[s.id] ? '✓' : '○'
-          }}</span>
+          <span
+            class="inline-block w-5 text-center"
+            :class="state?.[s.id] ? 'text-emerald-600' : 'text-slate-400'"
+            aria-hidden="true"
+            >{{ state?.[s.id] ? '✓' : '○' }}</span
+          >
           <span class="sr-only">{{ state?.[s.id] ? t('done') : '' }}</span>
           {{ t(s.id) }}
           <span v-if="'hint' in s && !state?.[s.id]" class="block pl-5 text-xs text-slate-500">{{

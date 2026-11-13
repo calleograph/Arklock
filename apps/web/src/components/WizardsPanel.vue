@@ -31,6 +31,14 @@ const { t } = useI18n({
         backupRestore: 'Проверка восстановления во временную базу (в списке копий)',
         recRecipient: 'Назначен получатель офлайн-пакета',
         recVaults: 'Корпоративные сейфы подключены ({n} из {m})',
+        setupHttps: 'Публичный адрес с HTTPS',
+        setupMail: 'Почта (SMTP) настроена',
+        setupMfa: 'Двухфакторная защита обязательна',
+        deptCreated: 'Создано хотя бы одно подразделение',
+        deptHeads: 'У каждого подразделения есть руководитель',
+        deptVaults: 'У каждого подразделения есть сейф',
+        peopleCreated: 'Сотрудники добавлены',
+        peopleSignedIn: 'Хотя бы один сотрудник уже вошёл',
       },
       setup: 'Первоначальная настройка',
       setupText:
@@ -69,6 +77,14 @@ const { t } = useI18n({
         backupRestore: 'Restore test into a temporary database (in the backup list)',
         recRecipient: 'An offline-package recipient is set',
         recVaults: 'Corporate vaults connected ({n} of {m})',
+        setupHttps: 'Public address with HTTPS',
+        setupMail: 'E-mail (SMTP) is set up',
+        setupMfa: 'Two-factor protection is required',
+        deptCreated: 'At least one department is created',
+        deptHeads: 'Every department has a head',
+        deptVaults: 'Every department has a vault',
+        peopleCreated: 'Employees are added',
+        peopleSignedIn: 'At least one employee has already signed in',
       },
       setup: 'First-time setup',
       setupText:
@@ -100,7 +116,7 @@ interface Step {
 const steps = ref<Record<string, Step[]>>({});
 const ok = async <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null);
 onMounted(async () => {
-  const [ldap, backups, offsite, recovery] = await Promise.all([
+  const [ldap, backups, offsite, recovery, diag, depts, people] = await Promise.all([
     ok(
       api<{
         profiles: {
@@ -127,10 +143,42 @@ onMounted(async () => {
         '/admin/corporate-recovery',
       ),
     ),
+    ok(api<{ checks: { id: string; level: string }[] }>('GET', '/admin/diagnostics')),
+    ok(
+      api<{ items: { heads: unknown[]; vaults: number }[] }>('GET', '/admin/departments?limit=200'),
+    ),
+    ok(api<{ waiting: number; signedIn: number }>('GET', '/admin/people/summary')),
   ]);
+  const good = (id: string) => diag?.checks.find((c) => c.id === id)?.level === 'ok';
   const p = ldap?.profiles?.[0];
   const secure = !!p && (/^ldaps:/i.test(p.url) || p.startTls) && !p.insecureTls;
   steps.value = {
+    setup: [
+      { id: 'setupHttps', done: good('public-url'), to: '/admin/settings?section=network' },
+      { id: 'setupMail', done: good('smtp'), to: '/admin/smtp' },
+      { id: 'setupMfa', done: good('mfa-policy'), to: '/admin/settings?section=security' },
+    ],
+    dept: [
+      { id: 'deptCreated', done: (depts?.items.length ?? 0) > 0, to: '/admin/departments' },
+      {
+        id: 'deptHeads',
+        done: !!depts?.items.length && depts.items.every((d) => d.heads.length > 0),
+        to: '/admin/departments',
+      },
+      {
+        id: 'deptVaults',
+        done: !!depts?.items.length && depts.items.every((d) => d.vaults > 0),
+        to: '/admin/departments',
+      },
+    ],
+    people: [
+      {
+        id: 'peopleCreated',
+        done: (people?.waiting ?? 0) + (people?.signedIn ?? 0) > 0,
+        to: '/admin/invitations',
+      },
+      { id: 'peopleSignedIn', done: (people?.signedIn ?? 0) > 0, to: '/admin/users' },
+    ],
     ldap: [
       { id: 'ldapConn', done: !!p?.url && !!p.bindDn && p.hasBindPassword, to: '/admin/ldap' },
       { id: 'ldapTls', done: secure, to: '/admin/ldap' },
@@ -170,9 +218,10 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
   { id: 'setup', to: '/admin/overview', icon: 'check' },
   { id: 'dept', to: '/admin/departments', icon: 'building' },
   { id: 'people', to: '/admin/invitations', icon: 'user-plus' },
+  // порядок по парам с одинаковым числом шагов: карточки в ряду одной высоты без пустот
+  { id: 'recovery', to: '/admin/settings?section=security', icon: 'shield' },
   { id: 'ldap', to: '/admin/ldap', icon: 'idcard' },
   { id: 'backup', to: '/admin/backups', icon: 'database' },
-  { id: 'recovery', to: '/admin/settings?section=security', icon: 'shield' },
 ];
 </script>
 
@@ -192,7 +241,7 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
           <ol class="space-y-1 text-xs">
             <li v-for="st in steps[c.id]" :key="st.id" class="flex items-start gap-2">
               <span
-                class="mt-0.5 inline-block size-3.5 shrink-0 rounded-full border text-center text-xs leading-3"
+                class="mt-3.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border text-[10px] leading-none"
                 :class="
                   st.done
                     ? 'border-emerald-600 bg-emerald-600 text-white'
@@ -202,7 +251,7 @@ const CARDS: { id: string; to: string; icon: IconName }[] = [
                 :aria-label="st.done ? t('done') : st.done === null ? '' : t('todo')"
                 >✓</span
               >
-              <RouterLink :to="st.to" class="inline-flex min-h-11 items-center hover:underline">{{
+              <RouterLink :to="st.to" class="block min-h-11 py-3.5 leading-4 hover:underline">{{
                 t(`step.${st.id}`, st.params ?? {})
               }}</RouterLink>
             </li>

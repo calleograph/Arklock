@@ -897,23 +897,23 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
 
           <div v-else-if="tab === 'users'" class="card overflow-x-auto">
-            <div class="flex flex-wrap gap-2 p-3">
+            <div class="filter-grid p-4">
               <input
                 v-model="userSearch"
                 type="search"
-                class="input max-w-sm"
+                class="input"
                 :aria-label="t('corporate.findUsers')"
                 :placeholder="t('corporate.findUsers')"
                 data-testid="admin-user-search"
               />
-              <select v-model="userStatus" class="input w-auto" :aria-label="t('admin.status')">
+              <select v-model="userStatus" class="input" :aria-label="t('admin.status')">
                 <option value="">{{ t('corporate.allStatuses') }}</option>
                 <option value="active">{{ t('admin.active') }}</option>
                 <option value="disabled">{{ t('admin.disabled') }}</option>
               </select>
               <select
                 v-model="userRole"
-                class="input w-auto max-w-full"
+                class="input"
                 :aria-label="t('admin.role')"
                 data-testid="users-role-filter"
               >
@@ -1143,36 +1143,38 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             <input
               v-model="circleSearch"
               type="search"
-              class="input max-w-sm"
+              class="input"
               :aria-label="t('corporate.findGroups')"
               :placeholder="t('corporate.findGroups')"
               data-testid="admin-group-search"
             />
-            <form class="flex flex-wrap gap-2" @submit.prevent="createCircle">
+            <form class="form-grid" @submit.prevent="createCircle">
               <input
                 v-model="newCircle.name"
                 required
                 maxlength="100"
-                class="input max-w-xs"
+                class="input"
                 :placeholder="t('common.name')"
                 data-testid="circle-name"
               />
               <input
                 v-model="newCircle.description"
                 maxlength="500"
-                class="input max-w-sm"
+                class="input"
                 :placeholder="t('admin.description')"
               />
-              <button type="submit" class="btn-primary" data-testid="circle-create">
-                {{ t('admin.create') }}
-              </button>
+              <div class="btn-row">
+                <button type="submit" class="btn-primary" data-testid="circle-create">
+                  {{ t('admin.create') }}
+                </button>
+              </div>
             </form>
             <ul
               class="card divide-y divide-slate-200 text-sm dark:divide-slate-800"
               data-testid="circles-list"
             >
-              <li v-for="c in visibleCircles" :key="c.id" class="px-3 py-2">
-                <div class="flex items-center justify-between gap-2">
+              <li v-for="c in visibleCircles" :key="c.id" class="px-3 py-1">
+                <div class="list-row" :class="isFull() && adminRoles.length ? 'has-field' : ''">
                   <button
                     type="button"
                     class="min-h-11 min-w-0 truncate text-left font-medium"
@@ -1184,10 +1186,13 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       >· {{ c.members }} {{ t('admin.membersN') }}</span
                     >
                   </button>
-                  <span v-if="isFull() && adminRoles.length" class="inline-flex items-center gap-1">
+                  <span
+                    v-if="isFull() && adminRoles.length"
+                    class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+                  >
                     <select
                       :value="c.adminRoleId ?? ''"
-                      class="input w-auto"
+                      class="input w-full"
                       :aria-label="`${t('admin.adminRole')}: ${c.name}`"
                       :data-testid="`circle-admin-role-${c.name}`"
                       @change="
@@ -1209,21 +1214,23 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       :details="t('hint.groupAdminRole.details')"
                     />
                   </span>
-                  <button
-                    type="button"
-                    class="btn"
-                    :aria-label="`${t('vault.rename')}: ${c.name}`"
-                    @click="editingCircle = { ...c }"
-                  >
-                    {{ t('vault.rename') }}
-                  </button>
-                  <button type="button" class="btn-danger" @click="deleteCircle(c)">
-                    {{ t('common.delete') }}
-                  </button>
+                  <span class="row-actions">
+                    <button
+                      type="button"
+                      class="btn"
+                      :aria-label="`${t('vault.rename')}: ${c.name}`"
+                      @click="editingCircle = { ...c }"
+                    >
+                      {{ t('vault.rename') }}
+                    </button>
+                    <button type="button" class="btn-danger" @click="deleteCircle(c)">
+                      {{ t('common.delete') }}
+                    </button>
+                  </span>
                 </div>
                 <form
                   v-if="editingCircle?.id === c.id"
-                  class="my-2 flex flex-wrap gap-2"
+                  class="form-grid my-2"
                   @submit.prevent="updateCircle"
                 >
                   <input
@@ -1239,10 +1246,12 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     class="input"
                     :aria-label="t('admin.description')"
                   />
-                  <button type="submit" class="btn-primary">{{ t('common.save') }}</button
-                  ><button type="button" class="btn" @click="editingCircle = null">
-                    {{ t('common.cancel') }}
-                  </button>
+                  <div class="btn-row">
+                    <button type="submit" class="btn-primary">{{ t('common.save') }}</button
+                    ><button type="button" class="btn" @click="editingCircle = null">
+                      {{ t('common.cancel') }}
+                    </button>
+                  </div>
                 </form>
                 <GroupDetail v-if="openCircle === c.id" :circle="c" @changed="loadCircles" />
               </li>
@@ -1812,10 +1821,10 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           </div>
 
           <div v-else class="space-y-3">
-            <form class="flex flex-wrap gap-2" @submit.prevent="loadLedger()">
+            <form class="filter-grid" @submit.prevent="loadLedger()">
               <select
                 v-model="filter.action"
-                class="input w-auto"
+                class="input"
                 :aria-label="t('admin.actionPrefix')"
                 data-testid="ledger-action"
               >
@@ -1825,7 +1834,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               </select>
               <select
                 v-model="filter.level"
-                class="input w-auto"
+                class="input"
                 :aria-label="t('admin.ledgerLevel.label')"
                 data-testid="ledger-level"
               >
@@ -1837,22 +1846,24 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
               <input
                 v-model="filter.q"
                 type="search"
-                class="input w-72"
+                class="input"
                 :placeholder="t('admin.ledgerSearch')"
                 :aria-label="t('admin.ledgerSearch')"
                 data-testid="ledger-search"
               />
-              <input v-model="filter.from" type="date" class="input w-auto" /><input
+              <input v-model="filter.from" type="date" class="input" /><input
                 v-model="filter.to"
                 type="date"
-                class="input w-auto"
+                class="input"
               />
-              <button type="submit" class="btn" data-testid="ledger-apply">
-                {{ t('admin.apply') }}
-              </button>
-              <button type="button" class="btn" data-testid="ledger-export" @click="exportLedger">
-                CSV
-              </button>
+              <div class="btn-row">
+                <button type="submit" class="btn" data-testid="ledger-apply">
+                  {{ t('admin.apply') }}
+                </button>
+                <button type="button" class="btn" data-testid="ledger-export" @click="exportLedger">
+                  CSV
+                </button>
+              </div>
             </form>
             <p v-if="ledgerUser" class="flex items-center gap-2 text-sm" data-testid="ledger-user">
               <span class="badge-brand">{{

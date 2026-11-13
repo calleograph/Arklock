@@ -143,8 +143,10 @@ function setLocale(value: 'ru' | 'en'): void {
       </div>
     </div>
 
-    <div>
-      <h2>{{ t('prefs.autoLock') }}<InfoHint class="ml-1" :text="t('prefs.autoLockHint')" /></h2>
+    <div class="card space-y-3 p-4 text-sm">
+      <h2 class="font-medium">
+        {{ t('prefs.autoLock') }}<InfoHint class="ml-1" :text="t('prefs.autoLockHint')" />
+      </h2>
       <div class="flex flex-wrap gap-2" role="radiogroup" :aria-label="t('prefs.autoLock')">
         <button
           v-for="m in AUTO_LOCK_OPTIONS"
@@ -165,9 +167,9 @@ function setLocale(value: 'ru' | 'en'): void {
 
     <PinSettings />
 
-    <div>
-      <h2>{{ t('prefs.language') }}</h2>
-      <div class="mt-3 flex gap-2">
+    <div class="card space-y-3 p-4 text-sm">
+      <h2 class="font-medium">{{ t('prefs.language') }}</h2>
+      <div class="flex gap-2">
         <button
           v-for="l in ['ru', 'en'] as const"
           :key="l"
@@ -181,12 +183,14 @@ function setLocale(value: 'ru' | 'en'): void {
       </div>
     </div>
 
-    <div>
-      <h2>{{ t('prefs.homeTitle') }}<InfoHint class="ml-1" :text="t('prefs.homeHint')" /></h2>
-      <div class="mt-3 flex flex-wrap items-center gap-3">
+    <div class="card space-y-3 p-4 text-sm">
+      <h2 class="font-medium">
+        {{ t('prefs.homeTitle') }}<InfoHint class="ml-1" :text="t('prefs.homeHint')" />
+      </h2>
+      <div class="form-grid">
         <select
           :value="homeSpace"
-          class="input w-auto max-w-full"
+          class="input"
           data-testid="home-space"
           @change="chooseHome(($event.target as HTMLSelectElement).value)"
         >
@@ -204,9 +208,11 @@ function setLocale(value: 'ru' | 'en'): void {
     </div>
 
     <NotificationPreferences />
-    <div>
-      <h2>{{ t('prefs.account') }}</h2>
-      <RouterLink to="/security" class="btn mt-3">{{ t('prefs.security') }}</RouterLink>
+    <div class="card space-y-3 p-4 text-sm">
+      <h2 class="font-medium">{{ t('prefs.account') }}</h2>
+      <div class="btn-row">
+        <RouterLink to="/security" class="btn">{{ t('prefs.security') }}</RouterLink>
+      </div>
     </div>
   </section>
 </template>

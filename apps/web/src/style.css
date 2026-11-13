@@ -544,6 +544,16 @@ dialog::backdrop {
       min-height: 2.75rem;
       align-content: center;
     }
+    /* пункты навигации и оглавления: строка нажимается по всей высоте */
+    .nav-link {
+      min-height: 2.75rem;
+      display: flex;
+      align-items: center;
+    }
+    /* вкладки, названия-кнопки и прочие кнопки рабочей области */
+    main :is(button, [role='tab']):not(.seg) {
+      min-height: 2.75rem;
+    }
   }
   .input:focus-visible,
   .field:focus-visible {
@@ -754,10 +764,51 @@ dialog::backdrop {
    * поэтому видно, к какому параметру оно относится. На телефоне — одна колонка.
    */
   .setting-row {
-    @apply grid grid-cols-[minmax(0,1fr)] items-center gap-x-3 gap-y-1 sm:grid-cols-[minmax(0,24rem)_minmax(10rem,18rem)];
+    @apply grid grid-cols-[minmax(0,1fr)] items-center gap-x-6 gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,22rem)];
   }
-  .setting-row > :not(span) {
+  /* все выпадающие списки и поля параметров заполняют колонку: одна ширина, а не по длине текста */
+  .setting-row > :is(select, input:not([type='checkbox'], [type='radio']), textarea) {
+    @apply w-full max-w-full;
+  }
+  .setting-row > :not(span, select, input, textarea) {
     @apply max-w-full justify-self-start;
+  }
+  /*
+   * Строка списка: название слева, выбор роли и прочее — в колонках одной ширины, действия прижаты вправо и стоят на одной
+   * линии во всех строках. На узком экране всё идёт столбиком, действия под названием слева.
+   */
+  .list-row {
+    @apply grid min-h-11 grid-cols-1 items-center gap-x-4 gap-y-2 py-1 sm:grid-cols-[minmax(0,1fr)_auto];
+  }
+  .list-row.has-field {
+    @apply sm:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)_auto];
+  }
+  .row-actions {
+    @apply flex flex-wrap items-center gap-2 sm:justify-end;
+  }
+  /* строка фильтров списка: поля одной ширины в сетке, а не по длине текста; кнопки в конце */
+  .filter-grid {
+    @apply grid items-center gap-3 sm:grid-cols-2 lg:grid-cols-3;
+  }
+  .filter-grid > :is(.input, select, input) {
+    @apply w-full;
+  }
+  /* таблицы: один размер текста и одинаковые отступы ячеек и заголовков во всех разделах */
+  main table {
+    @apply text-sm;
+  }
+  main table :is(th, td) {
+    @apply px-3 py-2 text-left;
+  }
+  /* раскрывающийся блок-карточка: заголовок по центру высоты нажатия, отступ снизу есть только у раскрытого содержимого */
+  details.card {
+    @apply p-0;
+  }
+  details.card > summary {
+    @apply flex min-h-11 items-center px-4;
+  }
+  details.card > :not(summary) {
+    @apply px-4 pb-4;
   }
   /* строка параметра: флажок слева рядом с названием, пояснение под названием и с тем же отступом */
   .check-row {

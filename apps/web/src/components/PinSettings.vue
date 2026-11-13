@@ -65,8 +65,8 @@ const remove = (id: string) =>
 </script>
 
 <template>
-  <div data-testid="pin-settings">
-    <h2>{{ t('pin.title') }}<InfoHint class="ml-1" :text="t('pin.hint')" /></h2>
+  <div class="card space-y-3 p-4 text-sm" data-testid="pin-settings">
+    <h2 class="font-medium">{{ t('pin.title') }}<InfoHint class="ml-1" :text="t('pin.hint')" /></h2>
     <p v-if="error" class="notice notice-error mb-3" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice notice-ok mb-3" role="status">{{ notice }}</p>
     <p v-if="!policy" class="text-sm text-slate-500">{{ t('pin.off') }}</p>

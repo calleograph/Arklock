@@ -1055,7 +1055,7 @@ void router;
           <button
             v-if="canWrite && scope !== 'trash'"
             type="button"
-            class="btn-primary sm:ml-auto"
+            class="btn-primary sm:ml-auto sm:min-w-44 sm:justify-center"
             :aria-label="t('vault.add')"
             data-testid="add-entry"
             @click="newEntry()"

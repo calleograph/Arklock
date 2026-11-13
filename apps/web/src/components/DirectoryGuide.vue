@@ -179,13 +179,16 @@ void props;
             <RouterLink
               v-if="current === s.id"
               :to="s.to"
-              class="btn-primary shrink-0"
+              class="btn-primary min-w-24 shrink-0 justify-center"
               :data-testid="`guide-open-${s.id}`"
               >{{ t('open') }}</RouterLink
             >
-            <RouterLink v-else-if="!s.done" :to="s.to" class="btn shrink-0">{{
-              t('open')
-            }}</RouterLink>
+            <RouterLink
+              v-else-if="!s.done"
+              :to="s.to"
+              class="btn min-w-24 shrink-0 justify-center"
+              >{{ t('open') }}</RouterLink
+            >
           </div>
           <p class="max-w-prose text-xs text-slate-600 dark:text-slate-300">
             {{ t(`step.${s.id}.d`) }}

@@ -312,24 +312,19 @@ const ROLES = ['admin', 'editor', 'reader', 'limited'];
       </h3>
       <p v-if="!vaults.length" class="text-slate-500">{{ t('vaultsNone') }}</p>
       <ul v-else>
-        <li
-          v-for="v in vaults"
-          :key="v.id"
-          class="flex min-h-11 flex-wrap items-center justify-between gap-2"
-          :data-testid="`group-vault-${v.name}`"
-        >
+        <li v-for="v in vaults" :key="v.id" class="list-row" :data-testid="`group-vault-${v.name}`">
           <span class="min-w-0"
             >{{ vaultLabel(v, t) }}
             <span v-if="v.expiresAt" class="text-slate-500">
               · {{ t('until', { date: when(v.expiresAt) }) }}</span
             ></span
           >
-          <span class="flex items-center gap-2">
+          <span class="row-actions">
             <span v-if="v.customRoleId" class="text-slate-500">{{ t('customRole') }}</span>
             <select
               v-else
               :value="v.role"
-              class="input w-auto"
+              class="input w-40"
               :disabled="busy"
               :aria-label="`${t('assignRole')}: ${v.name}`"
               @change="setRole(v, ($event.target as HTMLSelectElement).value)"

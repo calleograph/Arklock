@@ -329,11 +329,7 @@ async function openVault(v: VRow): Promise<void> {
             data-testid="access-vault-search"
           />
           <ul class="divide-y divide-slate-200 dark:divide-slate-800">
-            <li
-              v-for="v in vaultRows"
-              :key="v.id"
-              class="flex min-h-11 flex-wrap items-center justify-between gap-2"
-            >
+            <li v-for="v in vaultRows" :key="v.id" class="list-row">
               <span
                 >{{ vaultLabel({ name: v.name, kind: 'shared' }, t) }}
                 <span class="text-xs text-slate-500">{{ v.space ?? '' }}</span></span
@@ -359,11 +355,7 @@ async function openVault(v: VRow): Promise<void> {
               {{ t('people') }}<InfoHint class="ml-1" :text="t('peopleHint')" />
             </h4>
             <ul class="space-y-1">
-              <li
-                v-for="d in vaultAccess.direct"
-                :key="d.id"
-                class="flex min-h-11 flex-wrap items-center justify-between gap-2"
-              >
+              <li v-for="d in vaultAccess.direct" :key="d.id" class="list-row">
                 <span
                   >{{ d.name }} <span class="text-xs text-slate-500">{{ d.email }}</span></span
                 >
@@ -379,11 +371,7 @@ async function openVault(v: VRow): Promise<void> {
           <div>
             <h4 class="mb-1 font-medium">{{ t('groupsTitle') }}</h4>
             <ul class="space-y-1">
-              <li
-                v-for="g in vaultAccess.groups"
-                :key="g.id"
-                class="flex min-h-11 flex-wrap items-center justify-between gap-2"
-              >
+              <li v-for="g in vaultAccess.groups" :key="g.id" class="list-row">
                 <span>{{ g.name }}</span>
                 <span class="text-xs text-slate-600 dark:text-slate-300"
                   >{{ role(g.role) }} · {{ t('members', { n: g.members }) }}</span
@@ -396,11 +384,7 @@ async function openVault(v: VRow): Promise<void> {
               {{ t('guests') }}<InfoHint class="ml-1" :text="t('guestsHint')" />
             </h4>
             <ul class="space-y-1">
-              <li
-                v-for="g in vaultAccess.grants"
-                :key="g.id"
-                class="flex min-h-11 flex-wrap items-center justify-between gap-2"
-              >
+              <li v-for="g in vaultAccess.grants" :key="g.id" class="list-row">
                 <span
                   >{{ g.name }} <span class="text-xs text-slate-500">{{ g.email }}</span
                   ><span v-if="g.guest" class="badge ml-2">{{ t('guestMark') }}</span></span
