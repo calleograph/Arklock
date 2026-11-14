@@ -53,7 +53,7 @@ export const router = createRouter({
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
     { path: '/sso/done', name: 'sso-done', component: SsoDoneView },
     {
-      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|saml|syslog|webhooks|invitations|roles|updates|organization|automation|departments|access|vaults|wizards|transfer|shield)?',
+      path: '/admin/:tab(users|circles|settings|ledger|overview|resources|containers|backups|logs|storage|diagnostics|certificates|smtp|ldap|sso|saml|syslog|webhooks|invitations|roles|updates|organization|automation|departments|access|vaults|wizards|transfer|shield|keys)?',
       name: 'admin',
       component: AdminView,
       meta: { requiresUnlock: true, requiresAdmin: true },

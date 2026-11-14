@@ -34,6 +34,7 @@ import UserProfilePanel from '../components/UserProfilePanel.vue';
 import NetworkSettings from '../components/NetworkSettings.vue';
 import OrganizationPanel from '../components/OrganizationPanel.vue';
 import AdminCorporateRecovery from '../components/AdminCorporateRecovery.vue';
+import KeyModePanel from '../components/KeyModePanel.vue';
 
 /** Значки разделов админки: по смыслу раздела, подпись остаётся для доступности и подсказки. */
 /** Вкладки настроек: карточки разложены по разделам, как в образце настроек. */
@@ -58,6 +59,7 @@ const TAB_ICON: Record<string, IconName> = {
   wizards: 'check',
   transfer: 'transfer',
   shield: 'lock',
+  keys: 'key',
   departments: 'folder',
   access: 'search',
   users: 'user',
@@ -130,6 +132,7 @@ type Tab =
   | 'wizards'
   | 'transfer'
   | 'shield'
+  | 'keys'
   | SysTab;
 const SYS_TABS: SysTab[] = [
   'overview',
@@ -152,6 +155,7 @@ const TAB_PERM: Record<Tab, string> = {
   wizards: 'admin.users',
   transfer: 'chief',
   shield: 'chief',
+  keys: 'admin.settings',
   circles: 'admin.circles',
   settings: 'admin.settings',
   ledger: 'admin.ledger',
@@ -451,22 +455,6 @@ const saveSetting = (key: string, value: unknown) =>
     notice.value = t('admin.saved');
   }, loadSettings);
 /** «Простой вход» включается вместе с обязательным вторым фактором и только после явного подтверждения. */
-const setKeyMode = (mode: string) => {
-  if (mode === 'managed') {
-    if (!window.confirm(t('adminx.keyModeConfirm'))) {
-      void loadSettings();
-      return;
-    }
-    return run(async () => {
-      await api('PUT', '/admin/settings', {
-        'security.mfaRequired': 'all',
-        'security.keyMode': 'managed',
-      });
-      notice.value = t('admin.saved');
-    }, loadSettings);
-  }
-  return saveSetting('security.keyMode', mode);
-};
 const testRange = () =>
   run(async () => {
     const out: string[] = [];
@@ -626,6 +614,7 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
     items: [
       nav('settings', 'security', 'shield'),
       nav('shield'),
+      nav('keys'),
       nav('roles'),
       nav('automation'),
       nav('ledger'),
@@ -733,6 +722,7 @@ const ALL_TABS: Tab[] = [
   'wizards',
   'transfer',
   'shield',
+  'keys',
 ];
 onMounted(async () => {
   try {
@@ -868,6 +858,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <RolesPanel v-else-if="tab === 'roles'" />
           <InvitationsPanel v-else-if="tab === 'invitations'" />
           <ShieldPanel v-else-if="tab === 'shield'" />
+          <KeyModePanel v-else-if="tab === 'keys'" />
           <MailSettings v-else-if="tab === 'smtp'" />
           <SyslogSettings v-else-if="tab === 'syslog'" />
           <UpdatesView v-else-if="tab === 'updates'" />
@@ -1270,20 +1261,17 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   <option value="all">{{ t('adminx.mfaAll') }}</option>
                 </select></label
               >
-              <label class="setting-row"
-                ><span class="inline-flex items-center gap-1"
-                  >{{ t('adminx.keyMode') }}<InfoHint :text="t('adminx.keyModeHint')" /></span
-                ><select
-                  :value="settings['security.keyMode'] ?? 'strict'"
-                  class="input"
-                  :disabled="!auth.user?.chief"
-                  data-testid="set-keymode"
-                  @change="setKeyMode(($event.target as HTMLSelectElement).value)"
+              <div class="setting-row" data-testid="set-keymode">
+                <span>{{ t('adminx.keyMode') }}</span>
+                <RouterLink
+                  to="/admin/keys"
+                  class="text-brand-600 hover:underline dark:text-brand-400"
+                  data-testid="set-keymode-link"
+                  >{{
+                    `${t(settings['security.keyMode'] === 'managed' ? 'adminx.keyModeManaged' : 'adminx.keyModeStrict')} · ${t('adminx.keyModeChange')}`
+                  }}</RouterLink
                 >
-                  <option value="strict">{{ t('adminx.keyModeStrict') }}</option>
-                  <option value="managed">{{ t('adminx.keyModeManaged') }}</option>
-                </select></label
-              >
+              </div>
               <label class="check-row"
                 ><input
                   type="checkbox"

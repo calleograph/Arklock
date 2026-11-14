@@ -879,11 +879,16 @@ test('directory people: find an employee in the head field, add with "+", link a
     return secret;
   };
   const adminSecret = await enableTotp(page);
+  // переключатель режима ключей — отдельный раздел; в настройках безопасности есть ссылка на него
   await page.goto('/admin/settings?section=security');
+  await page.getByTestId('set-keymode-link').click();
+  await expect(page).toHaveURL(/\/admin\/keys$/);
+  await expect(page.getByTestId('keymode-status')).toContainText(/Строгий|Strict/);
   page.once('dialog', (d) => void d.accept());
-  await page.getByTestId('set-keymode').selectOption('managed');
+  await page.getByTestId('keymode-managed').click();
   await page.reload();
-  await expect(page.getByTestId('set-keymode')).toHaveValue('managed');
+  await expect(page.getByTestId('keymode-status')).toContainText(/Простой вход|Simple sign-in/);
+  await expect(page.getByTestId('keymode-managed')).toBeDisabled();
   // руководитель отдела входил в строгом режиме: после включения его ключи переходят на секрет сервера при следующем открытии
   // окно настройки открывается даже над окном разблокировки: пароль разблокировки для него не нужен
   await enableTotp(boris, { dialog: true });
@@ -919,6 +924,18 @@ test('directory people: find an employee in the head field, add with "+", link a
   await expect(dmitri.getByTestId('add-entry').first()).toBeVisible({ timeout: 90_000 });
   await expect(dmitri.getByText(/Записи появятся|entries appear/)).toHaveCount(0);
   await expect(dmitri.getByTestId('password')).toHaveCount(0);
+
+  // возврат к строгому режиму честно говорит, что секреты уже созданных сотрудников остаются на сервере
+  await page.goto('/admin/keys');
+  await expect(page.getByTestId('keymode-held')).toContainText(/\d+/);
+  let asked = '';
+  page.once('dialog', (d) => {
+    asked = d.message();
+    void d.dismiss();
+  });
+  await page.getByTestId('keymode-strict').click();
+  await expect.poll(() => asked).toMatch(/останутся на сервере|stay on the server/);
+  await expect(page.getByTestId('keymode-status')).toContainText(/Простой вход|Simple sign-in/);
 
   // дальше сценарии работают в строгом режиме и без второго фактора: возвращаем настройки и снимаем второй фактор с администратора
   expect(

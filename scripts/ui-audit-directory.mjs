@@ -318,6 +318,7 @@ try {
           'webhooks',
           'updates',
           'automation',
+          'keys',
           'shield',
         ].map((tab) => ({ id: `tab-${tab}`, run: async () => go(`admin/${tab}`), ready: null }))
       : []),

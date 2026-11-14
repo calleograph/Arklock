@@ -25,6 +25,7 @@ export const ruPageHints = {
     updates: 'Версия Arklock, проверка и установка обновлений, откат на прежнюю версию.',
     organization: '@:chief.intro',
     automation: '@:automation.hint',
+    keys: 'Кто хранит ключи шифрования сотрудников из каталога: сами сотрудники (строгий режим) или сервер (простой вход). Выберите режим и прочитайте, что он меняет.',
     departments:
       'Подразделение — это люди (группа) и их сейф с паролями, созданные вместе. Выберите подразделение в списке, чтобы изменить название, руководителей, состав и сейфы. Новое создаётся ниже.',
     access:
@@ -63,6 +64,7 @@ export const enPageHints = {
     updates: 'The Arklock version, checking and installing updates, rolling back.',
     organization: '@:chief.intro',
     automation: '@:automation.hint',
+    keys: 'Who holds the encryption keys of directory employees: the employees themselves (strict mode) or the server (simple sign-in). Pick a mode and read what it changes.',
     departments:
       'A department is the people (a group) and their password storage, created together. Choose a department in the list to change its name, heads, members and storages. A new one is created below.',
     access:

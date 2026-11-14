@@ -260,6 +260,25 @@ describe('attachments', () => {
         )
       ).statusCode,
     ).toBe(201);
+    // параллельные регистрации в одну запись не обходят квоту: 16 файлов по 100 КБ, в 1 МБ помещаются десять
+    const third = await admin.createEntry(
+      { title: 'third' },
+      { vaultId: quotaVault.id, vaultKey: quotaVault.key },
+    );
+    const bodies = await Promise.all(Array.from({ length: 16 }, () => mk(100 * 1024)));
+    const codes = await Promise.all(
+      bodies.map(
+        async (b) =>
+          (
+            await admin.req(
+              'POST',
+              `/vaults/${quotaVault.id}/entries/${third.entryId}/attachments`,
+              b,
+            )
+          ).statusCode,
+      ),
+    );
+    expect(codes.filter((c) => c === 201)).toHaveLength(10);
     // политика отдаёт предел клиенту: он показывает занятое и оставшееся
     expect((await admin.req('GET', '/auth/policy')).json()['storage.entryQuotaMiB']).toBe(1);
     await database.db.delete(settings);

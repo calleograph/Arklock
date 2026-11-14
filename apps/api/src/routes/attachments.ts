@@ -147,30 +147,6 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
       throw new AppError(413, 'attachment_too_large', 'The file exceeds the allowed size', {
         maxBytes: limits.maxBytes,
       });
-    if (limits.entryQuotaBytes > 0) {
-      const [used] = await db
-        .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })
-        .from(attachments)
-        .where(eq(attachments.entryId, entryId));
-      if ((used?.n ?? 0) + body.size > limits.entryQuotaBytes)
-        throw new AppError(
-          413,
-          'entry_quota_exceeded',
-          'The files of this entry exceed its quota',
-          {
-            quotaBytes: limits.entryQuotaBytes,
-            usedBytes: used?.n ?? 0,
-          },
-        );
-    }
-    if (limits.vaultQuotaBytes > 0) {
-      const [used] = await db
-        .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })
-        .from(attachments)
-        .where(eq(attachments.vaultId, vaultId));
-      if ((used?.n ?? 0) + body.size > limits.vaultQuotaBytes)
-        throw new AppError(413, 'quota_exceeded', 'The vault storage quota is exhausted');
-    }
     const [dup] = await db
       .select({ id: attachments.id })
       .from(attachments)
@@ -178,6 +154,31 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     if (dup) throw new AppError(409, 'conflict', 'Attachment already exists');
     await db.transaction(async (tx) => {
       await lockVaultForWrite(tx, vaultId, body.keyVersion);
+      // суммы читаются под блокировкой сейфа: параллельные регистрации не пройдут проверку все разом
+      if (limits.entryQuotaBytes > 0) {
+        const [used] = await tx
+          .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })
+          .from(attachments)
+          .where(eq(attachments.entryId, entryId));
+        if ((used?.n ?? 0) + body.size > limits.entryQuotaBytes)
+          throw new AppError(
+            413,
+            'entry_quota_exceeded',
+            'The files of this entry exceed its quota',
+            {
+              quotaBytes: limits.entryQuotaBytes,
+              usedBytes: used?.n ?? 0,
+            },
+          );
+      }
+      if (limits.vaultQuotaBytes > 0) {
+        const [used] = await tx
+          .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })
+          .from(attachments)
+          .where(eq(attachments.vaultId, vaultId));
+        if ((used?.n ?? 0) + body.size > limits.vaultQuotaBytes)
+          throw new AppError(413, 'quota_exceeded', 'The vault storage quota is exhausted');
+      }
       await tx.insert(attachments).values({
         id: body.id,
         vaultId,

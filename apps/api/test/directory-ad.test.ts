@@ -1707,6 +1707,16 @@ describe('simple sign-in: the server holds the unlock secret and issues vault ke
       .set({ managedSecret: owner!.managedSecret })
       .where(eq(users.id, ownerId));
   });
+
+  it('the key-mode section shows the mode and how many employees keep a secret on the server, for the chief only', async () => {
+    const view = (await admin.req('GET', '/admin/settings/key-mode')).json();
+    expect(['strict', 'managed']).toContain(view.mode);
+    expect(view.managedUsers).toBeGreaterThan(0);
+    expect(view.canChange).toBe(true);
+    const eve = new TestClient(fixture.app, 'eve-managed@example.com', 'eve-managed-password-1234');
+    await eve.login();
+    expect((await eve.req('GET', '/admin/settings/key-mode')).statusCode).toBe(403);
+  });
 });
 
 describe('simple sign-in: an existing directory account moves to the server secret', () => {

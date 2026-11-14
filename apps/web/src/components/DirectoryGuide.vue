@@ -139,7 +139,7 @@ onMounted(async () => {
       id: 'keys',
       done: settings?.['security.keyMode'] === 'managed',
       optional: true,
-      to: '/admin/settings?section=security',
+      to: '/admin/keys',
     },
     { id: 'departments', done: (depts?.items.length ?? 0) > 0, to: '/admin/departments' },
     { id: 'groups', done: (p?.groups.length ?? 0) > 0, to: '/admin/circles' },

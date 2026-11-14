@@ -383,12 +383,9 @@ export default {
     mfaAdmins: 'For administrators',
     mfaAll: 'For everyone',
     keyMode: 'Encryption keys of directory employees',
-    keyModeStrict: 'Strict: the employee holds the unlock password',
-    keyModeManaged: 'Simple sign-in: the server holds the keys',
-    keyModeHint:
-      'Strict: only employees hold keys. A directory employee invents a vault unlock password and keeps a recovery key, and access to a vault waits until a trusted employee opens Arklock and passes the key on. The server cannot read the data. Simple sign-in: a directory employee signs in with the domain login and the second factor and gets the assigned vaults and entries at once; no unlock password or recovery key, the server issues the vault keys itself. The cost: the unlock secret is stored on the server encrypted with the installation key, so whoever controls the server and its database can decrypt the data of such employees. Turned on only with the second factor required for everyone and applies to new accounts; existing employees keep signing in the old way. Only the chief administrator changes it.',
-    keyModeConfirm:
-      'Turn on “Simple sign-in”?\n\nThe server will store employees’ unlock secrets and issue vault keys itself. Whoever controls the server and its database will be able to decrypt the data of employees created in this mode. The second factor becomes required for everyone. Keys are issued right after the first sign-in, and at the first sign-in the domain password is the only proof of identity (administrators are notified of every such sign-in). Any live session of the employee receives the unlock secret: a stolen session token opens all of that employee’s data. The strict mode cannot be restored for accounts already created in the simple mode.',
+    keyModeStrict: 'Strict',
+    keyModeManaged: 'Simple sign-in',
+    keyModeChange: 'change in the “Key mode” section',
     attachMax: 'Maximum file size, MB (0 disables attachments)',
     vaultQuota: 'File quota per vault, MB (0 = unlimited)',
     entryQuota: 'Files of one entry, MB (0 = unlimited)',
@@ -1430,6 +1427,7 @@ export default {
       settings: 'Settings',
       ledger: 'Activity log',
       automation: 'Automation',
+      keys: 'Key mode',
       overview: 'Server status',
       resources: 'Server resources',
       containers: 'Services',

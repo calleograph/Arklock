@@ -7,6 +7,7 @@ import {
   eq,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   ne,
   or,
@@ -42,7 +43,8 @@ import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
 import { syncManagedGuardians } from '../managed-vaults.js';
-import { grantAllPendingKeys, KEY_MODE_KEY, logGrantFailure } from '../managed-keys.js';
+import { DEFAULT_ENTRY_QUOTA_MIB, DEFAULT_MAX_MIB } from './attachments.js';
+import { grantAllPendingKeys, KEY_MODE_KEY, keyModeOf, logGrantFailure } from '../managed-keys.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
 const SETTINGS: Record<string, z.ZodType> = {
@@ -123,8 +125,8 @@ export const SETTING_DEFAULTS: Record<string, unknown> = {
   'security.passwordMaxAgeDays': 365,
   'security.mfaRequired': 'off',
   'security.keyMode': 'strict',
-  'storage.attachmentMaxMiB': 50,
-  'storage.entryQuotaMiB': 200,
+  'storage.attachmentMaxMiB': DEFAULT_MAX_MIB,
+  'storage.entryQuotaMiB': DEFAULT_ENTRY_QUOTA_MIB,
   'storage.vaultQuotaMiB': 0,
   'notifications.security': true,
   'security.pinUnlock': false,
@@ -785,6 +787,22 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     const out: Record<string, unknown> = { ...SETTING_DEFAULTS };
     for (const r of rows) if (r.key in SETTINGS) out[r.key] = r.value;
     return out;
+  });
+
+  /** Режим ключей и сколько сотрудников хранит секрет разблокировки на сервере (их данные сервер может расшифровать). */
+  app.get('/admin/settings/key-mode', async (req) => {
+    const { user } = authOf(req);
+    const [mode, mfa, held] = await Promise.all([
+      keyModeOf(db),
+      db.select().from(settings).where(eq(settings.key, 'security.mfaRequired')),
+      db.select({ n: count() }).from(users).where(isNotNull(users.managedSecret)),
+    ]);
+    return {
+      mode,
+      mfaRequired: (mfa[0]?.value as string | undefined) ?? 'off',
+      managedUsers: held[0]?.n ?? 0,
+      canChange: user.chief,
+    };
   });
 
   app.put('/admin/settings', async (req) => {
