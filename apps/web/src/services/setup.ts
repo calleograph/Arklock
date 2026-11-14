@@ -37,17 +37,12 @@ interface LdapProfile {
 }
 
 export async function loadSetup(): Promise<SetupState> {
-  const [diag, settings, ldap, depts, people, backups, offsite, recovery, active, invites] =
+  const [diag, settings, ldap, groups, people, backups, offsite, recovery, active, invites] =
     await Promise.all([
       ok(api<{ checks: { id: string; level: string }[] }>('GET', '/admin/diagnostics')),
       ok(api<Record<string, unknown>>('GET', '/admin/settings')),
       ok(api<{ profiles: LdapProfile[] }>('GET', '/admin/ldap/profiles')),
-      ok(
-        api<{ items: { heads: unknown[]; vaults: number }[] }>(
-          'GET',
-          '/admin/departments?limit=200',
-        ),
-      ),
+      ok(api<{ items: { vaults: number }[] }>('GET', '/admin/circles?limit=200')),
       ok(api<{ waiting: number; signedIn: number }>('GET', '/admin/people/summary')),
       ok(
         api<{ backups: { items: unknown[] } | null; schedule?: { enabled: boolean } | null }>(
@@ -72,7 +67,7 @@ export async function loadSetup(): Promise<SetupState> {
   // подключение каталога уже есть — значит, выбор сделан, даже если его не отмечали
   const signIn: SignIn =
     chosen === 'directory' || chosen === 'local' ? chosen : p ? 'directory' : null;
-  const deptList = depts?.items ?? [];
+  const groupList = groups?.items ?? [];
   // сводка по людям считает сотрудников каталога; при входе по приглашениям — приглашения и действующие учётные записи
   const waiting =
     signIn === 'directory'
@@ -126,21 +121,21 @@ export async function loadSetup(): Promise<SetupState> {
         params: { mode: settings?.['security.keyMode'] === 'managed' ? 'managed' : 'strict' },
       },
     );
+  // группы — это отделы: группе открывают сейфы, и доступ получают все её участники
   steps.push({
-    id: 'departments',
+    id: 'groups',
     group: 'structure',
     kind: 'required',
-    done: deptList.length > 0 && deptList.every((d) => d.heads.length > 0 && d.vaults > 0),
-    to: '/admin/departments',
+    done: groupList.some((g) => g.vaults > 0),
+    to: '/admin/circles',
     parts: [
-      { id: 'deptCreated', done: deptList.length > 0 },
-      { id: 'deptHeads', done: deptList.length > 0 && deptList.every((d) => d.heads.length > 0) },
-      { id: 'deptVaults', done: deptList.length > 0 && deptList.every((d) => d.vaults > 0) },
+      { id: 'groupCreated', done: groupList.length > 0 },
+      { id: 'groupVaults', done: groupList.some((g) => g.vaults > 0) },
     ],
   });
   if (signIn === 'directory')
     steps.push({
-      id: 'groups',
+      id: 'domainGroups',
       group: 'structure',
       kind: 'recommended',
       done: (p?.groups.length ?? 0) > 0,

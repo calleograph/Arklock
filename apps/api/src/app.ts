@@ -37,7 +37,6 @@ import { registerSamlRoutes } from './routes/saml.js';
 import { registerLdapRoutes } from './routes/ldap.js';
 import { registerDirectoryPeopleRoutes } from './routes/directory-people.js';
 import { registerDirectoryGroupRoutes } from './routes/directory-groups.js';
-import { registerDepartmentRoutes } from './routes/departments.js';
 import { registerMfaRoutes } from './routes/mfa.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerSystemRoutes } from './routes/system.js';
@@ -46,7 +45,6 @@ import { registerSecurityRoutes } from './routes/security.js';
 import { registerSharingRoutes } from './routes/sharing.js';
 import { registerVaultRoutes } from './routes/vaults.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
-import { registerSpaceRoutes } from './routes/spaces.js';
 
 export interface AppDeps {
   config: Config;
@@ -199,7 +197,6 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerMfaRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerVaultRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerNotificationRoutes, { prefix: API_PREFIX, ctx });
-  await app.register(registerSpaceRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContentRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAttachmentRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerSharingRoutes, { prefix: API_PREFIX, ctx });
@@ -220,7 +217,6 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
   await app.register(registerAdminDirectoryRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerDirectoryPeopleRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerDirectoryGroupRoutes, { prefix: API_PREFIX, ctx });
-  await app.register(registerDepartmentRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerAdminShieldRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerContinuityRoutes, { prefix: API_PREFIX, ctx });
   await app.register(registerOffboardingRoutes, { prefix: API_PREFIX, ctx });
@@ -263,10 +259,10 @@ export async function buildApp({ config, database }: AppDeps): Promise<FastifyIn
     void runMail();
   }, 10_000);
   mailTimer.unref();
-  // «Простой вход»: после изменения состава сейфов, групп и подразделений сервер сразу выдаёт ключи тем, кому назначен доступ
+  // «Простой вход»: после изменения состава сейфов и групп сервер сразу выдаёт ключи тем, кому назначен доступ
   // (проверка объединяется: серия правок запускает её один раз). В строгом режиме функция ничего не делает.
   const GRANT_ROUTES =
-    /\/(vaults\/[^/]+\/(members|circles|grants)|admin\/circles\/[^/]+\/members|admin\/departments|admin\/directory|spaces\/[^/]+\/(users|circles)|admin\/ldap\/sync)/;
+    /\/(vaults\/[^/]+\/(members|circles|grants)|admin\/circles\/[^/]+\/members|admin\/directory|admin\/ldap\/sync)/;
   let grantTimer: NodeJS.Timeout | null = null;
   app.addHook('onResponse', async (req, reply) => {
     if (req.method === 'GET' || req.method === 'HEAD' || reply.statusCode >= 300) return;

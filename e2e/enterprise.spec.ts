@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { fromBase64Url } from '@arklock/crypto';
 import { TestClient } from '../apps/api/test/helpers.js';
 import {
   Counter,
@@ -12,8 +13,8 @@ import {
 } from './support/org.js';
 
 /**
- * Сквозной сценарий внедрения в компании на 20 подразделений: администратор и 60 синтетических сотрудников,
- * подразделения создаются через интерфейс; число действий фиксируется для отчёта docs/UX_ENTERPRISE_JOURNEY_AUDIT.md.
+ * Сквозной сценарий внедрения в компании на 20 отделов: администратор и 60 синтетических сотрудников. Отдел — это группа
+ * и её сейфы; первый отдел создаётся через интерфейс, число действий фиксируется для отчёта docs/UX_ENTERPRISE_JOURNEY_AUDIT.md.
  */
 test.describe.configure({ mode: 'serial' });
 test.use({ locale: 'ru-RU' });
@@ -86,67 +87,60 @@ test('первоначальная настройка: полоса «что д�
   await expect(page).toHaveURL(/\/admin\/wizards$/);
   await expect(page.getByTestId('setup-guide')).toBeVisible();
   await expect(page.getByTestId('setup-progress')).toContainText(/Готово \d+ из \d+/);
-  // состояние берётся из настройки: сотрудники заведены, подразделений ещё нет
+  // состояние берётся из настройки: сотрудники заведены, групп с сейфами ещё нет
   await expect(page.getByTestId('setup-step-peopleLocal')).toHaveAttribute('data-state', 'done');
-  await expect(page.getByTestId('setup-step-departments')).toHaveAttribute(
-    'data-state',
-    /now|todo/,
-  );
+  await expect(page.getByTestId('setup-step-groups')).toHaveAttribute('data-state', /now|todo/);
   // способ входа выбирается здесь же и сохраняется на сервере
   await page.getByTestId('setup-signin-local').click();
   await expect(page.getByTestId('setup-step-signIn')).toHaveAttribute('data-state', 'done');
   await expect(page.getByTestId('setup-signin-chosen')).toBeVisible();
   await page.reload();
   await expect(page.getByTestId('setup-step-signIn')).toHaveAttribute('data-state', 'done');
-  await page.getByTestId('setup-open-departments').click();
-  await expect(page).toHaveURL(/\/admin\/departments$/);
+  await page.getByTestId('setup-open-groups').click();
+  await expect(page).toHaveURL(/\/admin\/circles$/);
 });
 
-test('было: подразделение прежним путём — группа, пространство, сейф, права по отдельности', async () => {
-  const c = new Counter(page, 'Создать подразделение (прежний путь)');
-  const name = 'Старый отдел';
-  // 1. группа и руководитель
-  await c.click('menu-toggle');
-  await c.click('menu-full');
-  await c.click('admin-tab-circles');
+/** Ключ сейфа тем, у кого есть доступ, но нет ключа, — как это делает браузер администратора сейфа. */
+async function distribute(ac: TestClient, vaultId: string, key: Uint8Array): Promise<void> {
+  const { users } = (await ac.req('GET', `/vaults/${vaultId}/pending-keys`)).json() as {
+    users: { userId: string; publicKey: string }[];
+  };
+  const keys = [];
+  for (const u of users) {
+    const to = { userId: u.userId, publicKey: fromBase64Url(u.publicKey) } as TestClient;
+    keys.push({ userId: u.userId, ...(await ac.keyFor(to, vaultId, key)) });
+  }
+  if (keys.length) await ac.req('POST', `/vaults/${vaultId}/keys`, { keys });
+}
+
+test('отдел через интерфейс: группа с руководителем, сейф, доступ группы в настройках сейфа — замер', async () => {
+  const c = new Counter(page, 'Отдел: группа и сейф с доступом группы');
+  const name = 'Бухгалтерия';
+  const vault = `${name} · Пароли`;
+  // раздел «Группы» открыт из первоначальной настройки
   c.screen();
-  // группа создаётся в окне: название, руководитель из списка сотрудников, «Создать»
   await c.click('circle-add');
   await c.fill('group-dialog-name', name);
-  await c.fill('group-everyone-find', headEmail(0));
-  await c.click(`group-add-${headEmail(0)}`);
+  await c.fill('group-everyone-find', headEmail(4));
+  await c.click(`group-add-${headEmail(4)}`);
   await c.click('group-dialog-save');
-  // 2. пространство и группа в нём
-  await c.click('menu-toggle');
-  await c.click('menu-vault');
+  await expect(page.getByTestId('group-dialog')).not.toBeVisible();
+  // сейф создаётся в рабочей области, доступ — в его настройках
+  await c.click('header-admin');
   c.screen();
-  await c.click('vault-actions');
-  await c.click('spaces-open');
-  c.screen();
-  await c.click('space-new');
-  await c.fill('space-name', name);
-  await c.click('space-save');
-  c.inputs++;
-  await page.getByLabel(/Группы|Groups/).selectOption({ label: name });
-  c.clicks++;
-  await page
-    .getByRole('button', { name: /^(Добавить|Add)$/ })
-    .first()
-    .click();
-  // 3. сейф в пространстве
-  c.screen();
-  await c.pick('space-select', { label: name });
   await c.click('vault-actions');
   await c.click('btn-new-vault');
-  await c.fill('name-input', name);
+  await c.fill('name-input', vault);
   await c.click('name-ok');
-  // 4. права на сейф: группа и руководитель
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(vault, {
+    timeout: 30_000,
+  });
   await c.click('vault-actions');
   await c.click('btn-vault-settings');
   c.screen();
   for (const [q, level] of [
     [name, 'builtin:editor'],
-    [headEmail(0), 'builtin:admin'],
+    [headEmail(4), 'builtin:admin'],
   ] as const) {
     await c.click('grant-open');
     await c.fill('grant-search', q);
@@ -155,151 +149,66 @@ test('было: подразделение прежним путём — гру�
     await c.click('grant-submit');
     await expect(page.getByTestId('grant-dialog')).not.toBeVisible();
   }
+  await expect(page.getByTestId('circle-row').filter({ hasText: name })).toHaveCount(1);
   record(c);
-  expect(c.actions).toBeGreaterThan(20);
-});
+  expect(c.actions).toBeLessThanOrEqual(22);
 
-test('стало: подразделение мастером — одно окно', async () => {
-  const c = new Counter(page, 'Создать подразделение (мастер)');
-  await c.click('menu-toggle');
-  await c.click('menu-full');
-  await c.click('admin-tab-departments');
-  c.screen();
-  await c.fill('dept-name', 'Бухгалтерия');
-  // руководитель находится поиском на сервере, а не выбирается из списка в тысячи человек
-  await c.fill('dept-head-input', headEmail(4));
-  await c.click(`dept-head-result-${headEmail(4)}`);
-  // сейф руководства — по желанию: включаем, чтобы проверить и его
-  await page.getByTestId('dept-lead').check();
-  await c.click('dept-create');
-  await expect(page.getByTestId('dept-state')).toHaveText('Готово', { timeout: 120_000 });
-  record(c);
-
-  // независимая проверка структуры по API
+  // независимая проверка по API: группа с руководителем, у группы роль в сейфе, руководитель — администратор сейфа
   const circles = (await api('GET', '/admin/circles')).json as { id: string; name: string }[];
-  const circle = circles.find((x) => x.name === 'Бухгалтерия')!;
-  // руководитель — администратор сейфа напрямую, а не только участник группы
-  const vs = (await api('GET', '/vaults')).json as { id: string; name: string }[];
-  const dv = vs.find((x) => x.name === 'Бухгалтерия · Пароли')!;
-  const mem = (await api('GET', `/vaults/${dv.id}/members`)).json as {
-    members: { email: string; directRole: string | null }[];
-  };
-  expect(mem.members.find((m) => m.email === headEmail(4))?.directRole).toBe('admin');
-  expect(circle).toBeTruthy();
+  const circle = circles.find((x) => x.name === name)!;
   const members = (await api('GET', `/admin/circles/${circle.id}/members`)).json as {
     email: string;
   }[];
   expect(members.map((m) => m.email)).toEqual([headEmail(4)]);
-  const spaces = (await api('GET', '/spaces')).json as { id: string; name: string }[];
-  const space = spaces.find((s) => s.name === 'Бухгалтерия')!;
-  expect(space).toBeTruthy();
-  const vaults = (await api('GET', '/vaults')).json as {
-    id: string;
-    name: string;
-    spaceId: string;
-  }[];
-  expect(
-    vaults
-      .filter((x) => x.spaceId === space.id)
-      .map((x) => x.name)
-      .sort(),
-  ).toEqual(['Бухгалтерия · Пароли', 'Бухгалтерия · Руководство']);
-  expect(c.actions).toBeLessThanOrEqual(8);
+  const vs = (await api('GET', '/vaults')).json as { id: string; name: string }[];
+  const dv = vs.find((x) => x.name === vault)!;
+  const mem = (await api('GET', `/vaults/${dv.id}/members`)).json as {
+    members: { email: string; directRole: string | null }[];
+    circles: { name: string; role: string }[];
+  };
+  expect(mem.members.find((m) => m.email === headEmail(4))?.directRole).toBe('admin');
+  expect(mem.circles).toEqual([expect.objectContaining({ name, role: 'editor' })]);
 });
 
-test('стало: остальные 19 подразделений списком, повтор не создаёт дублей', async () => {
+test('остальные отделы: группа с руководителем, сейф отдела и сейф руководства (через API)', async () => {
   test.setTimeout(600_000);
-  const c = new Counter(page, 'Создать 19 подразделений (список)');
-  const rest = DEPARTMENTS.filter((d) => d !== 'Бухгалтерия');
-  const lines = rest.map((d) => `${d}; ${headEmail(DEPARTMENTS.indexOf(d))}`);
-  c.screen();
-  await c.click('dept-mode-many');
-  await page.getByTestId('dept-lead').check();
-  await c.fill('dept-list', lines.join('\n'));
-  await expect(page.getByTestId('dept-row')).toHaveCount(19);
-  // предпросмотр до создания: никаких конфликтов
-  await expect(
-    page.getByTestId('dept-state').filter({ hasText: /не найден|нет названия|повтор/ }),
-  ).toHaveCount(0);
-  await c.click('dept-create');
-  await expect(page.getByTestId('dept-state').filter({ hasText: 'Готово' })).toHaveCount(19, {
-    timeout: 540_000,
-  });
-  record(c);
-
-  const circles = (await api('GET', '/admin/circles')).json as { name: string }[];
-  const spaces = (await api('GET', '/spaces')).json as { id: string; name: string }[];
-  const vaults = (await api('GET', '/vaults')).json as { name: string; spaceId: string }[];
+  const ac = new TestClient(httpApp(BASE), ADMIN.email, ADMIN.password);
+  await ac.login();
+  const users = (await api('GET', '/admin/users')).json as { id: string; email: string }[];
+  const idOf = (e: string) => users.find((u) => u.email === e)!.id;
+  const circles = (await api('GET', '/admin/circles')).json as { id: string; name: string }[];
+  for (const [i, d] of DEPARTMENTS.entries()) {
+    const head = idOf(headEmail(i));
+    const vaults: { name: string; group: boolean }[] = [
+      { name: `${d} · Руководство`, group: false },
+    ];
+    let circleId = circles.find((x) => x.name === d)?.id;
+    if (!circleId) {
+      circleId = (await ac.req('POST', '/admin/circles', { name: d, description: '' })).json()
+        .id as string;
+      await ac.req('PATCH', `/admin/circles/${circleId}/members`, { add: [head] });
+      vaults.unshift({ name: `${d} · Пароли`, group: true });
+    }
+    for (const v of vaults) {
+      const created = await ac.createSharedVault(v.name);
+      expect(created.res.statusCode, v.name).toBe(201);
+      if (v.group)
+        await ac.req('PUT', `/vaults/${created.id}/circles/${circleId}`, { role: 'editor' });
+      await ac.req('PUT', `/vaults/${created.id}/members/${head}`, { role: 'admin' });
+      await distribute(ac, created.id, created.key);
+    }
+  }
+  const all = (await api('GET', '/vaults')).json as { name: string }[];
   for (const d of DEPARTMENTS) {
     expect(
-      circles.filter((x) => x.name === d),
+      all.filter((x) => x.name === `${d} · Пароли`),
       d,
     ).toHaveLength(1);
     expect(
-      spaces.filter((x) => x.name === d),
-      d,
-    ).toHaveLength(1);
-    expect(
-      vaults.filter((x) => x.name === `${d} · Пароли`),
+      all.filter((x) => x.name === `${d} · Руководство`),
       d,
     ).toHaveLength(1);
   }
-
-  // повтор того же списка: всё «есть», дублей не появляется
-  await expect(page.getByTestId('dept-row').first()).toContainText('есть');
-  await page.getByTestId('dept-create').click();
-  await expect(page.getByTestId('dept-state').filter({ hasText: 'Готово' })).toHaveCount(19, {
-    timeout: 540_000,
-  });
-  const again = (await api('GET', '/vaults')).json as { name: string }[];
-  expect(again.length).toBe(vaults.length);
-});
-
-test('мастер: участники и начальные папки в сейфе отдела', async () => {
-  test.setTimeout(300_000);
-  await page.getByTestId('dept-mode-one').click();
-  await page.getByTestId('dept-name').fill('Отдел с папками');
-  // руководитель прошлого прохода остаётся в форме: снимаем его
-  while (
-    await page
-      .getByTestId('dept-head')
-      .getByRole('button', { name: /Убрать/ })
-      .count()
-  )
-    await page
-      .getByTestId('dept-head')
-      .getByRole('button', { name: /Убрать/ })
-      .first()
-      .click();
-  await page.getByTestId('dept-member-input').fill(staffEmail(2));
-  await page.getByTestId(`dept-member-result-${staffEmail(2)}`).click();
-  await page.getByTestId('dept-folders').fill('Серверы, Сеть');
-  await page.getByTestId('dept-create').click();
-  await expect(page.getByTestId('dept-state')).toHaveText('Готово', { timeout: 120_000 });
-  const circles = (await api('GET', '/admin/circles')).json as { id: string; name: string }[];
-  const c = circles.find((x) => x.name === 'Отдел с папками')!;
-  const members = (await api('GET', `/admin/circles/${c.id}/members`)).json as { email: string }[];
-  expect(members.map((m) => m.email)).toEqual([staffEmail(2)]);
-  // папки созданы в сейфе отдела (названия зашифрованы — проверяется через интерфейс)
-  await page.getByTestId('menu-toggle').click();
-  await page.getByTestId('menu-vault').click();
-  await page.getByTestId('space-select').selectOption({ label: 'Отдел с папками' });
-  await expect(page.getByTestId('branch-row').filter({ hasText: 'Серверы' })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.getByTestId('branch-row').filter({ hasText: 'Сеть' })).toBeVisible();
-  // вернуться в мастер для следующих сценариев
-  await page.getByTestId('menu-toggle').click();
-  await page.getByTestId('menu-full').click();
-  await page.getByTestId('admin-tab-departments').click();
-  await page.getByTestId('dept-mode-many').click();
-});
-
-test('неверная строка блокирует создание и объясняет причину', async () => {
-  await page.getByTestId('dept-list').fill('Новый отдел; nobody@corp.example\nНовый отдел');
-  await expect(page.getByTestId('dept-create')).toBeDisabled();
-  await expect(page.getByTestId('dept-state').first()).toContainText('руководитель не найден');
-  await expect(page.getByTestId('dept-state').nth(1)).toContainText('повтор');
 });
 
 async function login(browser: Browser, email: string, password = PASSWORD): Promise<Page> {
@@ -308,7 +217,7 @@ async function login(browser: Browser, email: string, password = PASSWORD): Prom
   await p.getByTestId('email').fill(email);
   await p.getByTestId('password').fill(password);
   await p.getByTestId('submit').click();
-  await expect(p.getByTestId('space-select')).toBeVisible({ timeout: 90_000 });
+  await expect(p.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
   return p;
 }
 
@@ -331,12 +240,11 @@ test('руководитель отдела: структура папок, за
   await page.reload();
   await expect(page.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
 
-  // первый вход руководителя: сразу открыт его отдел, а не пустая «Организация»
+  // первый вход руководителя: в списке сейфов только сейфы его отдела, первым открыт сейф отдела
   const head = await login(browser, headEmail(4));
-  await expect(head.getByTestId('space-select').locator('option:checked')).toHaveText(
-    'Бухгалтерия',
+  await expect(head.getByTestId('vault-select').locator('option:checked')).toHaveText(
+    'Бухгалтерия · Пароли',
   );
-  await head.getByTestId('vault-select').selectOption({ label: 'Бухгалтерия · Пароли' });
 
   // подпапки до пяти уровней
   const f = new Counter(head, 'Создать подпапку внутри выбранной папки');
@@ -428,11 +336,11 @@ test('новый сотрудник отдела: приглашение, акт
   n.clicks++;
   await n.click('recovery-continue');
   record(n);
-  await expect(guest.getByTestId('space-select')).toBeVisible({ timeout: 90_000 });
+  await expect(guest.getByTestId('vault-select')).toBeVisible({ timeout: 90_000 });
   await guest.screenshot({ path: 'test-results/new-employee-first-screen.png' });
-  // сразу открыт отдел
-  await expect(guest.getByTestId('space-select').locator('option:checked')).toHaveText(
-    'Бухгалтерия',
+  // приглашён в группу отдела: сейф отдела виден сразу (ключ придёт от администратора сейфа)
+  await expect(guest.getByTestId('vault-select').locator('option:checked')).toContainText(
+    'Бухгалтерия · Пароли',
   );
   await guest.context().close();
 });
@@ -441,11 +349,6 @@ test('сотрудник видит только свой отдел; сейф �
   test.setTimeout(300_000);
   // руководитель открыл Arklock — клиент выдал ключи сейфа участникам группы; ждём, пока они появятся
   const staff = await login(browser, staffEmail(0));
-  await expect(staff.getByTestId('space-select').locator('option:checked')).toHaveText(
-    'Бухгалтерия',
-  );
-  const spaces = await staff.getByTestId('space-select').locator('option').allTextContents();
-  expect(spaces).not.toContain('Продажи');
   const vaultsShown = await staff.getByTestId('vault-select').locator('option').allTextContents();
   expect(vaultsShown.map((v) => v.replace(/[^\p{L}\p{N}· ]/gu, '').trim())).toEqual([
     'Бухгалтерия · Пароли',
@@ -500,7 +403,9 @@ test('перевод сотрудника из бухгалтерии в зак�
   expect(card.access.map((a) => a.name)).toEqual(['Закупки · Пароли']);
   // старый доступ закрыт на сервере, по потерянным записям — «смените пароль»
   const s2 = await login(browser, staffEmail(1));
-  await expect(s2.getByTestId('space-select').locator('option:checked')).toHaveText('Закупки');
+  await expect(s2.getByTestId('vault-select').locator('option:checked')).toContainText(
+    'Закупки · Пароли',
+  );
   await s2.context().close();
   const old = ((await api('GET', '/vaults')).json as { id: string; name: string }[]).find(
     (v) => v.name === 'Бухгалтерия · Пароли',
@@ -785,14 +690,11 @@ test('безопасность: слабые пароли отдела видн�
   await expect(head.getByTestId('inspector-reported')).toBeVisible();
   await head.context().close();
 
-  await page.goto('/admin/organization');
-  // рейтинг: подразделение с событиями выше остальных; нажатие на название открывает подробности
-  const rank = page.getByTestId('structure-rank-row');
-  await expect(rank.first()).toBeVisible({ timeout: 30_000 });
-  await expect(rank.first()).toContainText('Бухгалтерия'); // 1501 событие высокого риска после увольнения
-  await rank.filter({ hasText: 'Финансы' }).getByRole('button', { name: 'Финансы' }).click();
-  const row = page.getByTestId('structure-vault').filter({ hasText: 'Финансы' }).first();
-  await expect(row.getByTestId('structure-security')).toContainText('3', { timeout: 30_000 });
+  // сводка главного администратора — в списке сейфов: события безопасности по каждому сейфу
+  await page.goto('/admin/vaults');
+  await page.getByTestId('vaults-search').fill('Финансы · Пароли');
+  const row = page.getByTestId('vault-row').filter({ hasText: 'Финансы · Пароли' });
+  await expect(row.getByTestId('vault-row-security')).toContainText('3', { timeout: 30_000 });
   await page.screenshot({ path: 'docs/screenshots/ux-organization-security.png' });
 });
 
@@ -1025,46 +927,16 @@ test('несколько главных администраторов: приг
   await guest.context().close();
 });
 
-test('два режима персональных сейфов: сотрудник видит условия, хранители получают доступ, администратор видит тип в инвентаризации', async ({
-  browser,
-}) => {
-  test.setTimeout(300_000);
-  // администратор включает режим и выбирает группу-хранителя
-  await page.goto('/admin/settings?section=storage');
-  await expect(page.getByTestId('managed-settings')).toBeVisible();
-  await page.getByTestId('managed-enabled').check();
-  await page.getByTestId('managed-guardians-pick-input').fill('Информационная');
-  await page.getByTestId('managed-guardians-pick-result-Информационная безопасность').click();
-  await page.getByTestId('managed-save').click();
-  await expect(page.getByTestId('managed-settings').getByRole('status')).toBeVisible();
-
-  // сотрудник: условия показаны до создания, без подтверждения создать нельзя
-  const emp = await login(browser, staffEmail(9));
-  await emp.getByTestId('vault-actions').click();
-  await emp.getByTestId('btn-new-managed').click();
-  await expect(emp.getByTestId('managed-guardians')).toContainText('Информационная безопасность');
-  await expect(emp.getByTestId('managed-create')).toBeDisabled();
-  await emp.getByTestId('managed-understood').check();
-  await emp.getByTestId('managed-create').click();
-  await expect(emp.getByTestId('managed-dialog')).toHaveCount(0, { timeout: 90_000 });
-  await expect(emp.getByTestId('vault-select')).toContainText('Персональный');
-  // повторно пункт не предлагается; в настройках сейфа условие названо и не снимается владельцем
-  await emp.getByTestId('vault-actions').click();
-  await expect(emp.getByTestId('btn-new-managed')).toHaveCount(0);
-  await emp.keyboard.press('Escape');
-  await emp.getByTestId('vault-actions').click();
-  await emp.getByTestId('btn-vault-settings').click();
-  await expect(emp.getByTestId('managed-banner')).toContainText('Информационная безопасность');
-  await expect(emp.getByTestId('circle-row').getByRole('button')).toHaveCount(0);
-  await emp.context().close();
-
-  // инвентаризация главного администратора: тип и хранители, без содержимого
+test('список сейфов у главного администратора: группы с доступом и переход в настройки сейфа', async () => {
   await page.goto('/admin/vaults');
-  await page.getByTestId('vaults-kind-managed').click();
-  await expect(page.getByTestId('vault-row')).toHaveCount(1);
-  await expect(page.getByTestId('vault-row')).toContainText('Информационная безопасность');
-  await page.getByTestId('vaults-kind-private').click();
-  await expect(page.getByTestId('vaults-range')).toBeVisible();
+  await page.getByTestId('vaults-search').fill('Бухгалтерия · Пароли');
+  const row = page.getByTestId('vault-row').filter({ hasText: 'Бухгалтерия · Пароли' });
+  await expect(row).toHaveCount(1, { timeout: 30_000 });
+  await expect(row.getByTestId('vault-row-groups')).toContainText('Бухгалтерия');
+  await row.getByRole('link', { name: 'Настройки' }).click();
+  await expect(page).toHaveURL(/\/vault\/[^/]+\/settings$/);
+  // доступ групп меняется здесь: группа отдела уже в списке с ролью
+  await expect(page.getByTestId('circle-row').filter({ hasText: 'Бухгалтерия' })).toHaveCount(1);
 });
 
 test('ссылка на запись: кнопка копирует адрес, у коллеги с доступом запись открывается, у остальных — нет, и это неотличимо от несуществующей', async ({
@@ -1151,12 +1023,12 @@ test('«Первоначальная настройка»: четыре этап
   await expect(page.getByTestId('setup-guide')).toBeVisible();
   for (const id of ['server', 'signin', 'structure', 'protection'])
     await expect(page.getByTestId(`setup-group-${id}`)).toBeVisible();
-  // подразделения созданы раньше в этом прогоне: подпункт «создано» отмечен
-  await expect(page.getByTestId('setup-step-departments')).toContainText('✓');
+  // группы с сейфами созданы раньше в этом прогоне: шаг выполнен
+  await expect(page.getByTestId('setup-step-groups')).toHaveAttribute('data-state', 'done');
   await expect(page.getByTestId('setup-step-backup')).toContainText(/Первая копия/);
-  await page.getByTestId('setup-open-departments').click();
-  await expect(page).toHaveURL(/\/admin\/departments$/);
-  await expect(page.getByTestId('departments')).toBeVisible();
+  await page.getByTestId('setup-open-groups').click();
+  await expect(page).toHaveURL(/\/admin\/circles$/);
+  await expect(page.getByTestId('groups-panel')).toBeVisible();
 });
 
 test('визуальный аудит: экраны администрирования, переноса и справки на шести размерах без прокрутки вбок', async () => {
@@ -1164,7 +1036,7 @@ test('визуальный аудит: экраны администрирова
   const pages = [
     '/admin/overview',
     '/admin/users',
-    '/admin/departments',
+    '/admin/circles',
     '/admin/wizards',
     '/admin/vaults',
     '/admin/organization',

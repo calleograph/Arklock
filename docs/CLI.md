@@ -31,7 +31,7 @@ node apps/cli/dist/main.js help        # или: npm link -w @arklock/cli  → �
 | `arklock list [-q текст] [--vault имя] [--json]`                                  | список записей (с путём папок)                        |
 | `arklock get <запись> [--field password\|username\|url\|notes\|totp\|имя] [--json]` | прочитать запись или поле                             |
 | `arklock totp <запись>`                                                           | текущий код TOTP                                      |
-| `arklock add --title T [--username U] [--password P \| --generate] [--folder A/B]` | создать запись (нужен токен с записью)                |
+| `arklock add --title T [--vault имя] [--username U] [--password P \| --generate] [--folder A/B]` | создать запись (нужен токен с записью). Без `--vault` — в единственный доступный сейф; если сейфов несколько, `--vault` обязателен |
 | `arklock generate [--length N] [--phrase]`                                        | пароль или парольная фраза                            |
 
 Пароль разблокировки сейфов берётся из `ARKLOCK_PASSWORD` или запрашивается в терминале (без эха). Адрес и токен можно задать переменными `ARKLOCK_SERVER` и `ARKLOCK_TOKEN`; код второго фактора для `login` — `ARKLOCK_MFA_CODE`. Файл настроек: `~/.config/arklock/config.json` (права 600, каталог `ARKLOCK_CONFIG_DIR` переопределяет).

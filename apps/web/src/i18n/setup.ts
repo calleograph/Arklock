@@ -6,7 +6,7 @@ export const setupMessages = {
     continue: 'Продолжить',
     all: 'Все шаги',
     start:
-      'Arklock установлен. Настройте его для работы компании: адрес, почта, вход сотрудников, подразделения и резервные копии.',
+      'Arklock установлен. Настройте его для работы компании: адрес, почта, вход сотрудников, группы с сейфами и резервные копии.',
     startBtn: 'Начать настройку',
     hide: 'Скрыть',
     why: 'Почему сотрудники не входят',
@@ -22,7 +22,7 @@ export const setupMessages = {
     group: {
       server: 'Сервер',
       signin: 'Как входят сотрудники',
-      structure: 'Подразделения и сотрудники',
+      structure: 'Группы, сейфы и сотрудники',
       protection: 'Защита и сохранность',
     },
     step: {
@@ -54,11 +54,11 @@ export const setupMessages = {
         t: 'Режим ключей шифрования',
         d: 'Строгий: у сотрудника свой пароль разблокировки. Простой вход: доменный логин и второй фактор, пароль разблокировки не нужен.',
       },
-      departments: {
-        t: 'Создать подразделения',
-        d: 'Подразделение — это сотрудники отдела и их общий сейф с паролями. У каждого подразделения есть руководитель.',
-      },
       groups: {
+        t: 'Создать группы и открыть им сейфы',
+        d: 'Группа — сотрудники отдела, назовите её по отделу. Создайте сейф и в его настройках откройте его группе: доступ получат все участники группы.',
+      },
+      domainGroups: {
         t: 'Связать группы домена',
         d: 'Состав группы домена сам попадает в группу Arklock, а с ней и доступ к сейфам.',
       },
@@ -84,9 +84,8 @@ export const setupMessages = {
       },
     },
     part: {
-      deptCreated: 'Подразделение создано',
-      deptHeads: 'У каждого есть руководитель',
-      deptVaults: 'У каждого есть сейф',
+      groupCreated: 'Группа создана',
+      groupVaults: 'Группе открыт сейф',
       backupFirst: 'Первая копия',
       backupSchedule: 'Расписание',
       backupOffsite: 'Копии на S3 или SMB (по желанию)',
@@ -105,7 +104,7 @@ export const setupMessages = {
     continue: 'Continue',
     all: 'All steps',
     start:
-      'Arklock is installed. Set it up for your company: address, mail, how employees sign in, departments and backups.',
+      'Arklock is installed. Set it up for your company: address, mail, how employees sign in, groups with vaults and backups.',
     startBtn: 'Start setup',
     hide: 'Hide',
     why: 'Why employees cannot sign in',
@@ -121,7 +120,7 @@ export const setupMessages = {
     group: {
       server: 'Server',
       signin: 'How employees sign in',
-      structure: 'Departments and employees',
+      structure: 'Groups, vaults and employees',
       protection: 'Protection and safety',
     },
     step: {
@@ -153,11 +152,11 @@ export const setupMessages = {
         t: 'Encryption key mode',
         d: 'Strict: each employee has an unlock password. Simple sign-in: domain login and a second factor, no unlock password.',
       },
-      departments: {
-        t: 'Create departments',
-        d: 'A department is the employees of a team and their shared password vault. Every department has a head.',
-      },
       groups: {
+        t: 'Create groups and open vaults to them',
+        d: 'A group is the employees of a team; name it after the team. Create a vault and open it to the group in the vault settings: every member of the group gets access.',
+      },
+      domainGroups: {
         t: 'Link domain groups',
         d: 'Members of a domain group join an Arklock group by themselves, and with it get vault access.',
       },
@@ -183,9 +182,8 @@ export const setupMessages = {
       },
     },
     part: {
-      deptCreated: 'A department is created',
-      deptHeads: 'Each has a head',
-      deptVaults: 'Each has a vault',
+      groupCreated: 'A group is created',
+      groupVaults: 'A vault is open to the group',
       backupFirst: 'First backup',
       backupSchedule: 'Schedule',
       backupOffsite: 'Copies to S3 or SMB (optional)',

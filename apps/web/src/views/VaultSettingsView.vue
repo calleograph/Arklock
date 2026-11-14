@@ -7,7 +7,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { decryptEntry, fingerprint, fromBase64Url } from '@arklock/crypto';
-import { ApiError, api } from '../services/api';
+import { api } from '../services/api';
 import { errorMessage, vaultLabel, day, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore, type MemberInfo } from '../stores/workspace';
@@ -32,7 +32,6 @@ const info = ref<{
     role: string;
     customRoleId?: string | null;
     expiresAt?: string | null;
-    managed?: boolean;
   }[];
 } | null>(null);
 const fingerprints = ref<Record<string, string>>({});
@@ -222,22 +221,15 @@ const grantMany = (list: Recipient[], expiresAt: string | null) =>
     async () => {
       for (const r of list) {
         if (r.kind === 'user')
-          try {
-            await ws.addMember(
-              id,
-              {
-                id: r.id,
-                publicKey: r.publicKey ?? '',
-                signPublicKey: r.signPublicKey ?? '',
-              },
-              roleBody(r.level, expiresAt ?? undefined),
-            );
-          } catch (e) {
-            // человека нет в закрытом пространстве сейфа: сервер отвечает «не найдено», не раскрывая устройство пространства
-            if (e instanceof ApiError && e.code === 'not_found')
-              throw new Error(`${r.name}: ${t('error.notInSpace')}`);
-            throw e;
-          }
+          await ws.addMember(
+            id,
+            {
+              id: r.id,
+              publicKey: r.publicKey ?? '',
+              signPublicKey: r.signPublicKey ?? '',
+            },
+            roleBody(r.level, expiresAt ?? undefined),
+          );
         else
           await api(
             'PUT',
@@ -508,17 +500,6 @@ void decryptEntry;
       <p class="text-xs text-slate-500">{{ t('settings.signedKeyHint') }}</p>
     </div>
 
-    <p v-if="vault.managed" class="notice notice-warn" data-testid="managed-banner">
-      {{
-        t('managed.banner', {
-          groups: (info?.circles ?? [])
-            .filter((c) => c.managed)
-            .map((c) => c.name)
-            .join(', '),
-        })
-      }}
-    </p>
-
     <!-- Круги -->
     <div class="space-y-2">
       <h2 class="font-medium">
@@ -536,10 +517,8 @@ void decryptEntry;
         >
           <span class="flex min-w-0 items-center gap-2 font-medium">
             <Icon name="users" class="text-slate-400" /><span class="truncate">{{ c.name }}</span>
-            <span v-if="c.managed" class="badge">{{ t('managed.byPolicy') }}</span>
           </span>
           <select
-            v-if="!c.managed"
             :value="roleValue(c.role, c.customRoleId ?? null)"
             class="input"
             :disabled="busy"
@@ -551,16 +530,13 @@ void decryptEntry;
               {{ l.label }}
             </option>
           </select>
-          <span v-else class="text-slate-500">{{ t(`role.${c.role}`) }}</span>
           <IconButton
-            v-if="!c.managed"
             class="justify-self-end"
             icon="trash"
             :label="`${t('settings.remove')}: ${c.name}`"
             :data-testid="`circle-remove-${c.name}`"
             @click="removeCircle(c.id)"
           />
-          <span v-else />
         </div>
         <p v-if="!info?.circles.length" class="px-4 py-3 text-slate-500">
           {{ t('settings.noCircles') }}

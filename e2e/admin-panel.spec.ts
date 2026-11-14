@@ -91,6 +91,30 @@ async function register(page: Page): Promise<void> {
 }
 
 const tab = (page: Page, name: string) => page.getByTestId(`admin-tab-${name}`).click();
+/** Новый сейф в рабочей области; он сразу открывается. */
+async function newVault(page: Page, name: string): Promise<void> {
+  await page.goto('/');
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill(name);
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(name, {
+    timeout: 30_000,
+  });
+}
+/** Доступ к сейфу сотруднику: в настройках сейфа, ключ запечатывает этот браузер. */
+async function shareVault(page: Page, name: string, email: string): Promise<void> {
+  await page.goto('/');
+  await page.getByTestId('vault-select').selectOption({ label: name });
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-vault-settings').click();
+  await page.getByTestId('grant-open').click();
+  await page.getByTestId('grant-search').fill(email);
+  await page.getByTestId(`grant-option-${email}`).click();
+  await page.getByTestId('grant-level').selectOption('builtin:editor');
+  await page.getByTestId('grant-submit').click();
+  await expect(page.getByTestId('grant-dialog')).not.toBeVisible();
+}
 
 test('administration sections show real data and perform real operations', async ({ page }) => {
   await register(page);
@@ -100,7 +124,6 @@ test('administration sections show real data and perform real operations', async
   // обзор
   await tab(page, 'overview');
   await expect(page.getByTestId('ov-users')).toHaveText('1');
-  await expect(page.getByTestId('ov-lockers')).toHaveText('0');
   await expect(page.getByTestId('ov-version')).not.toHaveText('');
 
   // ресурсы
@@ -504,6 +527,7 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   page,
   browser,
 }) => {
+  test.setTimeout(240_000);
   await startDirectory();
   // администратор входит и настраивает каталог
   await page.goto('/login');
@@ -511,12 +535,6 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  const token = await page.evaluate(() => sessionStorage.getItem('arklock.token'));
-  const personalPolicy = await page.request.put('/api/v1/admin/settings', {
-    headers: { authorization: `Bearer ${token}` },
-    data: { 'vaults.personalLockers': true },
-  });
-  expect(personalPolicy.status()).toBe(200);
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
   await tab(page, 'ldap');
@@ -569,6 +587,11 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await user.getByTestId('submit').click();
   await user.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await user.getByTestId('recovery-continue').click();
+  // личных сейфов нет: пока администратор не откроет сотруднику сейф, видно объяснение
+  await expect(user.getByTestId('no-vaults')).toBeVisible({ timeout: 90_000 });
+  await newVault(page, 'Каталог');
+  await shareVault(page, 'Каталог', 'alice@example.com');
+  await user.getByTestId('no-vaults-recheck').click();
   await expect(user.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
   await user.getByTestId('add-entry').click();
   await user.getByTestId('f-title').fill('Каталог: запись');
@@ -577,6 +600,8 @@ test('directory sign-in: configure LDAP, first sign-in creates the account, late
   await expect(user.getByTestId('view-title')).toHaveText('Каталог: запись');
 
   // предпросмотр сверки: учётная запись связана с каталогом, отключать некого, ничего не записывается
+  await page.goto('/admin/ldap');
+  await page.getByTestId('ldap-step-advanced').locator('summary').first().click();
   await page.getByTestId('ldap-sync-preview').click();
   await expect(page.getByTestId('ldap-preview')).toContainText(
     /Связано с каталогом: 1\. Будет отключено: 0|Linked to the directory: 1\. Will be disabled: 0/,
@@ -626,17 +651,21 @@ test('directory people: find an employee in the head field, add with "+", link a
   await expect(page.getByTestId('setup-banner')).toBeVisible();
   await tab(page, 'wizards');
   await expect(page.getByTestId('setup-step-connect')).toHaveAttribute('data-state', 'done');
-  await expect(page.getByTestId('setup-step-departments')).toHaveAttribute(
-    'data-state',
-    /now|todo/,
-  );
+  await expect(page.getByTestId('setup-step-groups')).toHaveAttribute('data-state', /now|todo/);
 
-  // руководитель подразделения ищется в каталоге: поиск → «+» → профиль создан без входа человека
-  await tab(page, 'departments');
-  await page.getByTestId('dept-head-input').fill('boris');
-  await expect(page.getByTestId('dept-head-directory-title')).toBeVisible();
-  await page.getByTestId('dept-head-add-boris@example.com').click();
-  await expect(page.getByTestId('dept-head-chip-boris@example.com')).toContainText(
+  // отдел — это группа: создаётся в разделе «Группы»
+  await tab(page, 'circles');
+  await page.getByTestId('circle-add').click();
+  await page.getByTestId('group-dialog-name').fill('Поддержка');
+  await page.getByTestId('group-dialog-save').click();
+  await expect(page.getByTestId('circle-Поддержка')).toBeVisible();
+
+  // сотрудник домена находится поиском и сразу включается в группу: поиск → «+» → профиль создан без входа человека
+  await page.goto('/admin/invitations');
+  await page.getByTestId('dir-invite-person-input').fill('boris');
+  await expect(page.getByTestId('dir-invite-person-directory-title')).toBeVisible();
+  await page.getByTestId('dir-invite-person-add-boris@example.com').click();
+  await expect(page.getByTestId('dir-invite-person-chip-boris@example.com')).toContainText(
     /ждёт первого входа|waiting for first sign-in/,
   );
   const found = await page.request.get('/api/v1/admin/people?q=boris', { headers });
@@ -644,75 +673,35 @@ test('directory people: find an employee in the head field, add with "+", link a
     email: 'boris@example.com',
     pending: true,
   });
-  // повторный поиск показывает его уже среди сотрудников Arklock, а не каталога
-  await page.getByTestId('dept-member-input').fill('boris');
-  await expect(page.getByTestId('dept-member-result-boris@example.com')).toContainText(
-    /ждёт первого входа|waiting for first sign-in/,
+  await page.getByTestId('dir-invite-group-input').fill('Подд');
+  await page.getByTestId('dir-invite-group-result-Поддержка').click();
+  await page.getByTestId('dir-invite-submit').click();
+  await expect(page.getByTestId('dir-invite-done')).toBeVisible({ timeout: 30_000 });
+
+  // сейф отдела: создаётся в рабочей области, доступ группе — в настройках сейфа
+  await page.goto('/');
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Поддержка · Passwords');
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(
+    'Поддержка · Passwords',
+    { timeout: 30_000 },
   );
-  await expect(page.getByTestId('dept-member-directory-title')).toHaveCount(0);
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-vault-settings').click();
+  await page.getByTestId('grant-open').click();
+  await page.getByTestId('grant-search').fill('Поддержка');
+  await page.getByTestId('grant-option-Поддержка').click();
+  await page.getByTestId('grant-level').selectOption('builtin:editor');
+  await page.getByTestId('grant-submit').click();
+  await expect(page.getByTestId('circle-row').filter({ hasText: 'Поддержка' })).toHaveCount(1);
 
-  await page.getByTestId('dept-name').fill('Поддержка');
-  await expect(page.getByTestId('dept-create')).toBeEnabled({ timeout: 30_000 });
-  await page.getByTestId('dept-create').click();
-  await expect(page.getByTestId('dept-state').first()).toContainText(/Готово|Done/, {
-    timeout: 60_000,
-  });
-  // созданное подразделение сразу открывается: руководитель в списке, участник ждёт первого входа
-  await expect(page.getByTestId('dept-detail-title')).toHaveText('Поддержка');
-  await expect(page.getByTestId('dept-head-row-boris@example.com')).toBeVisible();
-  await expect(page.getByTestId('dept-member-row-boris@example.com')).toContainText(
-    /ждёт первого входа|waiting for first sign-in/,
-  );
-  const deptNames = async () =>
-    (
-      (await (await page.request.get('/api/v1/vaults', { headers })).json()) as {
-        name: string | null;
-      }[]
-    )
-      .map((v) => v.name)
-      .filter((n) => n?.startsWith('Поддержка'));
-  // у отдела один сейф с понятным названием, а не сейф с таким же именем, как у отдела
-  expect(await deptNames()).toEqual(['Поддержка · Passwords']);
-
-  // переименование меняет пространство, группу и сейф вместе; обратно — так же
-  await page.getByTestId('dept-edit-name').fill('Служба поддержки');
-  await page.getByTestId('dept-edit-save').click();
-  await expect(page.getByTestId('dept-detail-title')).toHaveText('Служба поддержки');
-  expect(
-    ((await (await page.request.get('/api/v1/vaults', { headers })).json()) as { name: string }[])
-      .map((v) => v.name)
-      .filter((n) => n?.startsWith('Служба')),
-  ).toEqual(['Служба поддержки · Passwords']);
-  await page.getByTestId('dept-edit-name').fill('Поддержка');
-  await page.getByTestId('dept-edit-save').click();
-  await expect(page.getByTestId('dept-detail-title')).toHaveText('Поддержка');
-
-  // состав: человек из каталога добавляется прямо в карточке (поиск → «+» → «Добавить»)
-  await page.getByTestId('dept-newmember-input').fill('elena');
-  await page.getByTestId('dept-newmember-add-elena@example.com').click();
-  await page.getByTestId('dept-members-add').click();
-  await expect(page.getByTestId('dept-member-row-elena@example.com')).toBeVisible();
-  // смена руководителя: назначить, затем снять (с подтверждением)
-  await page.getByTestId('dept-newhead-input').fill('elena');
-  await page.getByTestId('dept-newhead-result-elena@example.com').click();
-  await page.getByTestId('dept-head-assign').click();
-  await expect(page.getByTestId('dept-head-row-elena@example.com')).toBeVisible();
-  page.once('dialog', (d) => void d.accept());
-  await page.getByTestId('dept-head-remove-elena@example.com').click();
-  await expect(page.getByTestId('dept-head-row-elena@example.com')).toHaveCount(0);
-  await expect(page.getByTestId('dept-head-row-boris@example.com')).toBeVisible();
-
-  // принадлежность видна и меняется в карточке сотрудника
+  // принадлежность к группам видна и меняется в карточке сотрудника
   await page.goto('/admin/users');
-  await page.getByTestId('admin-user-search').fill('elena');
-  await page.getByTestId('profile-open-elena@example.com').click();
-  await expect(page.getByTestId('profile-dept-Поддержка')).toBeVisible();
-  await page.getByTestId('profile-dept-leave-Поддержка').click();
-  await expect(page.getByTestId('profile-dept-Поддержка')).toHaveCount(0);
-  await page.getByTestId('profile-dept-pick').selectOption({ label: 'Поддержка' });
-  await page.getByTestId('profile-dept-add').click();
-  await expect(page.getByTestId('profile-dept-Поддержка')).toBeVisible();
-  await page.goto('/admin/departments');
+  await page.getByTestId('admin-user-search').fill('boris');
+  await page.getByTestId('profile-open-boris@example.com').click();
+  await expect(page.getByTestId('profile-groups')).toContainText('Поддержка');
 
   // группа домена связывается с группой Arklock: сначала предпросмотр, потом связь
   const made = await page.request.post('/api/v1/admin/circles', {
@@ -732,8 +721,8 @@ test('directory people: find an employee in the head field, add with "+", link a
   await expect(page.getByTestId('domain-links-notice')).toBeVisible();
   await expect(page.getByTestId('domain-links-list')).toContainText('Support');
 
-  // ко всему сейфу доступ выдаётся людям подразделения: человека из каталога здесь не предлагают
-  // (ему доступ выдают на папку или запись: он становится гостем)
+  // ко всему сейфу доступ выдаётся сотрудникам Arklock: человека из каталога здесь не предлагают
+  // (его заводят в «Создание и приглашение» или выдают ему папку или запись)
   const vaults = await (await page.request.get('/api/v1/vaults', { headers })).json();
   const dept = vaults.find((v: { name: string }) => v.name === 'Поддержка · Passwords');
   await page.goto(`/vault/${dept.id}/settings`);
@@ -754,6 +743,9 @@ test('directory people: find an employee in the head field, add with "+", link a
   await page.getByTestId('dir-invite-group-input').fill('Help');
   await page.getByTestId('dir-invite-group-add-Helpdesk').click();
   await expect(page.getByTestId('dir-invite-group-chip-Helpdesk')).toBeVisible();
+  // и в группу отдела: доступ к его сейфу придёт через неё
+  await page.getByTestId('dir-invite-group-input').fill('Подд');
+  await page.getByTestId('dir-invite-group-result-Поддержка').click();
   await page.getByTestId('dir-invite-submit').click();
   await expect(page.getByTestId('dir-invite-done')).toBeVisible({ timeout: 30_000 });
   const helpdesk = await (
@@ -798,7 +790,7 @@ test('directory people: find an employee in the head field, add with "+", link a
   await boris.getByTestId('submit').click();
   await boris.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await boris.getByTestId('recovery-continue').click();
-  // доступ к сейфу отдела уже назначен, но ключа у него ещё нет: он передаётся, когда администратор открывает Arklock
+  // доступ к сейфу отдела уже есть через группу, но ключа ещё нет: его передаёт браузер администратора сейфа
   await expect(boris.getByText(/Записи появятся|entries appear/)).toBeVisible({ timeout: 90_000 });
   await page.reload();
   await expect(page.getByTestId('menu-toggle')).toBeVisible({ timeout: 90_000 });
@@ -825,15 +817,6 @@ test('directory people: find an employee in the head field, add with "+", link a
     expect.objectContaining({ pending: false }),
   ]);
 
-  // руководитель без прав администратора управляет подразделением из рабочей области: состав и название сейфа
-  await boris.getByTestId('vault-actions').click();
-  await boris.getByTestId('btn-department').click();
-  await expect(boris.getByTestId('dept-detail-title')).toHaveText('Поддержка', { timeout: 30_000 });
-  await boris.getByTestId('dept-newmember-input').fill('dmitri');
-  await boris.getByTestId('dept-newmember-result-dmitri@example.com').click();
-  await boris.getByTestId('dept-members-add').click();
-  await expect(boris.getByTestId('dept-member-row-dmitri@example.com')).toBeVisible();
-
   // отчёт для разбора: отказ при входе записан с причиной и показан недочётом, файл HTML выгружается
   await page.goto('/admin/diagnostics');
   await page.getByTestId('diag-run').click();
@@ -856,7 +839,7 @@ test('directory people: find an employee in the head field, add with "+", link a
   await page.goto('/admin/access');
   await page.getByTestId('access-person-input').fill('boris');
   await page.getByTestId('access-person-result-boris@example.com').click();
-  await expect(page.getByTestId('access-dept-Поддержка')).toContainText(/руководитель|head/);
+  await expect(page.getByTestId('access-user')).toContainText('Поддержка');
   await expect(page.getByTestId('access-vaults')).toContainText('Поддержка');
   await page.getByTestId('access-mode-vault').click();
   await page.getByTestId('access-vault-search').fill('Поддержка');
@@ -913,7 +896,7 @@ test('directory people: find an employee in the head field, add with "+", link a
       { timeout: 60_000 },
     )
     .toBe(true);
-  // сотрудник, добавленный в подразделение, но ещё не входивший: доменный логин, пароль домена и второй фактор — больше ничего
+  // сотрудник, добавленный в группу отдела, но ещё не входивший: доменный логин, пароль домена и второй фактор — больше ничего
   const dmitri = await (await browser.newContext()).newPage();
   await dmitri.goto('/login');
   await dmitri.getByTestId('email').fill('dmitri');
@@ -1006,6 +989,11 @@ test('SSO: configure the provider, first sign-in creates the account, later sign
     await bob.getByTestId('submit').click();
     await bob.getByTestId('recovery-saved').check({ timeout: 90_000 });
     await bob.getByTestId('recovery-continue').click();
+    // личных сейфов нет: доступ открывает администратор, «Проверить сейчас» показывает сейф сразу
+    await expect(bob.getByTestId('no-vaults')).toBeVisible({ timeout: 90_000 });
+    await newVault(page, 'SSO');
+    await shareVault(page, 'SSO', 'bob@example.com');
+    await bob.getByTestId('no-vaults-recheck').click();
     await expect(bob.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
     await bob.getByTestId('add-entry').click();
     await bob.getByTestId('f-title').fill('SSO: запись');
@@ -1072,33 +1060,16 @@ test('an administrator creates a local user; the person activates with a one-tim
   await guest.getByTestId('password').fill('invited-master-password-e2e-1');
   await guest.getByTestId('repeat').fill('invited-master-password-e2e-1');
   await guest.getByTestId('submit').click();
-  // без личных сейфов и без выданного доступа сотрудник видит объяснение, а не пустой экран
-  const headers = {
-    authorization: `Bearer ${await page.evaluate(() => sessionStorage.getItem('arklock.token'))}`,
-  };
-  const before = (await (await page.request.get('/api/v1/admin/settings', { headers })).json())[
-    'vaults.personalLockers'
-  ];
-  await page.request.put('/api/v1/admin/settings', {
-    headers,
-    data: { 'vaults.personalLockers': false },
-  });
+  // без выданного доступа сотрудник видит объяснение, а не пустой экран
   await guest.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await guest.getByTestId('recovery-continue').click();
   await expect(guest.getByTestId('no-vaults')).toBeVisible({ timeout: 90_000 });
-  // меню «Действия» остаётся: в нём, например, создание персонального сейфа
+  // меню «Действия» остаётся: в нём, например, инспектор
   await expect(guest.getByTestId('vault-actions')).toBeVisible();
-  // доступ появился (здесь — личный сейф): «Проверить сейчас» показывает его без перезагрузки страницы
-  await page.request.put('/api/v1/admin/settings', {
-    headers,
-    data: { 'vaults.personalLockers': true },
-  });
+  // администратор открыл сотруднику сейф: «Проверить сейчас» показывает его без перезагрузки страницы
+  await shareVault(page, 'Каталог', 'invited.person@example.com');
   await guest.getByTestId('no-vaults-recheck').click();
   await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
-  await page.request.put('/api/v1/admin/settings', {
-    headers,
-    data: { 'vaults.personalLockers': before ?? true },
-  });
 
   // код одноразовый: повторная активация с ним невозможна
   const again = await (await browser.newContext()).newPage();
@@ -1349,6 +1320,11 @@ test('SAML: provider metadata, first sign-in creates the account, later ones unl
     await carol.getByTestId('submit').click();
     await carol.getByTestId('recovery-saved').check({ timeout: 90_000 });
     await carol.getByTestId('recovery-continue').click();
+    // личных сейфов нет: доступ открывает администратор, «Проверить сейчас» показывает сейф сразу
+    await expect(carol.getByTestId('no-vaults')).toBeVisible({ timeout: 90_000 });
+    await newVault(page, 'SAML');
+    await shareVault(page, 'SAML', 'carol@example.com');
+    await carol.getByTestId('no-vaults-recheck').click();
     await expect(carol.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
     await carol.getByTestId('add-entry').click();
     await carol.getByTestId('f-title').fill('SAML: запись');
@@ -1434,13 +1410,14 @@ test('the chief administrator sees the organization, edits a card and hands the 
   await page.getByTestId('password').fill(ADMIN.password);
   await page.getByTestId('submit').click();
   await expect(page.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.goto('/admin/vaults');
+  await expect(page.getByTestId('vault-row').first()).toBeVisible();
+  // безопасность сейфа видна главному: без отчёта инспектора — «не проверялся», не «проблем нет»
+  await expect(page.getByTestId('vault-row-security').first()).toHaveText(
+    /не проверялся|never checked|проблем нет|no problems|серьёзных|serious|прочих|other/,
+  );
   await page.goto('/admin/organization');
   await expect(page.getByTestId('chief-current')).toContainText(ADMIN.name);
-  await expect(page.getByTestId('structure-vault').first()).toBeVisible();
-  // безопасность сейфа видна главному: без отчёта инспектора — «не проверялся», не «проблем нет»
-  await expect(page.getByTestId('structure-security').first()).toHaveText(
-    /не проверялся|never checked|проблем нет|no problems|риск|risk/,
-  );
 
   // преемник — новый сотрудник: приглашение и активация своим мастер-паролем
   await tab(page, 'invitations');
@@ -1460,7 +1437,7 @@ test('the chief administrator sees the organization, edits a card and hands the 
   await successor.getByTestId('submit').click();
   await successor.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await successor.getByTestId('recovery-continue').click();
-  await expect(successor.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await expect(successor.getByTestId('no-vaults')).toBeVisible({ timeout: 90_000 });
 
   // карточка сотрудника: справочные поля задаются вручную для локальной учётной записи
   await tab(page, 'users');

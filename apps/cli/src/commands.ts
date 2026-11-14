@@ -123,11 +123,7 @@ async function open(io: Io): Promise<Opened> {
 function pickVaults(o: Opened, name?: string) {
   const list = o.vaults.filter((v) => v.key && !v.problem);
   if (!name) return list;
-  const hit = list.filter(
-    (v) =>
-      (v.info.kind === 'locker' ? 'locker' : (v.info.name ?? '')).toLowerCase() ===
-      name.toLowerCase(),
-  );
+  const hit = list.filter((v) => (v.info.name ?? '').toLowerCase() === name.toLowerCase());
   if (!hit.length) throw new CliError(`Vault not found: ${name}`);
   return hit;
 }
@@ -239,18 +235,13 @@ export async function run(argv: string[], io: Io): Promise<number> {
         const o = await open(io);
         io.out(`${o.user.displayName} <${o.user.email}>\n`);
         for (const v of o.vaults)
-          io.out(
-            `  ${v.info.kind === 'locker' ? 'locker' : v.info.name}  [${v.info.role}]${v.problem ? '  (' + v.problem + ')' : ''}\n`,
-          );
+          io.out(`  ${v.info.name}  [${v.info.role}]${v.problem ? '  (' + v.problem + ')' : ''}\n`);
         return 0;
       }
 
       case 'vaults': {
         const o = await open(io);
-        for (const v of o.vaults)
-          io.out(
-            `${v.info.kind === 'locker' ? 'locker' : v.info.name}\t${v.info.role}\t${v.problem ?? 'ok'}\n`,
-          );
+        for (const v of o.vaults) io.out(`${v.info.name}\t${v.info.role}\t${v.problem ?? 'ok'}\n`);
         return 0;
       }
 
@@ -323,7 +314,10 @@ export async function run(argv: string[], io: Io): Promise<number> {
             'Usage: arklock add --title T [--username U] [--password P | --generate]',
           );
         const o = await open(io);
-        const targets = pickVaults(o, str(p, 'vault') ?? 'locker');
+        const targets = pickVaults(o, str(p, 'vault'));
+        // без --vault запись попадает в единственный сейф; из нескольких нужно выбрать явно
+        if (targets.length !== 1)
+          throw new CliError(targets.length ? 'Specify the vault: --vault NAME' : 'No vaults');
         const v = targets[0]!;
         if (!['owner', 'admin', 'editor'].includes(v.info.role))
           throw new CliError('You cannot add entries to this vault');

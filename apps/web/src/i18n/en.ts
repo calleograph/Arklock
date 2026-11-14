@@ -74,12 +74,11 @@ export default {
     registrationClosedNote: 'New accounts are created by an administrator.',
   },
   vault: {
-    title: 'Personal vault',
     empty: 'No entries here yet. Create the first one to save a login and password.',
     emptyReadOnly: 'This vault has no entries yet. They will appear here once someone adds them.',
     noVaultsTitle: 'You do not have access to any vault yet',
     noVaultsText:
-      'Shared passwords are opened by your department head or an administrator. Once you get access, the vault appears here by itself and a notification arrives under the bell.',
+      'An administrator gives access to vaults, usually through the group of your team. Once you get access, the vault appears here by itself and a notification arrives under the bell.',
     noVaultsRecheck: 'Check now',
     noVaultsCreate: 'You can create your own vault and invite colleagues to it.',
     emptyFavorites:

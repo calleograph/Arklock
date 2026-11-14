@@ -7,7 +7,7 @@ import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
 
-/** Инвентаризация сейфов для главного администратора: страницами, с поиском и отбором по типу; только метаданные. */
+/** Сейфы организации для главного администратора: страницами и с поиском; только сведения о доступе. */
 const { t } = useI18n();
 const auth = useAuthStore();
 const ws = useWorkspaceStore();
@@ -15,21 +15,18 @@ const ws = useWorkspaceStore();
 const mine = computed(() => new Set(ws.vaults.map((v) => v.id)));
 interface Row {
   id: string;
-  kind: 'corporate' | 'managed' | 'private';
   name: string | null;
-  space: string | null;
   owner: string | null;
   people: number;
+  groups: string[];
   entries: number;
   lastChange: string | null;
   pendingKeys: number;
-  guardians: string[];
+  security: { high: number; medium: number; checkedAt: string | null };
 }
 const PAGE = 50;
 const rows = ref<Row[]>([]);
 const total = ref(0);
-const counts = ref({ corporate: 0, managed: 0, private: 0 });
-const kind = ref<'' | 'corporate' | 'managed' | 'private'>('');
 const q = ref('');
 const page = ref(0);
 const error = ref('');
@@ -42,14 +39,9 @@ async function load(): Promise<void> {
       offset: String(page.value * PAGE),
       q: q.value.trim(),
     });
-    if (kind.value) p.set('kind', kind.value);
-    const r = await api<{ items: Row[]; total: number; counts: typeof counts.value }>(
-      'GET',
-      `/admin/vaults?${p}`,
-    );
+    const r = await api<{ items: Row[]; total: number }>('GET', `/admin/vaults?${p}`);
     rows.value = r.items;
     total.value = r.total;
-    counts.value = r.counts;
     error.value = '';
   } catch (e) {
     error.value = errorMessage(e, t);
@@ -59,7 +51,7 @@ onMounted(() => {
   if (auth.user?.chief) void load();
   if (!ws.vaults.length) void ws.loadVaults().catch(() => undefined);
 });
-watch([kind, q], () => {
+watch(q, () => {
   page.value = 0;
   clearTimeout(timer);
   timer = setTimeout(() => void load(), 250);
@@ -69,92 +61,102 @@ const go = (n: number) => {
   page.value += n;
   void load();
 };
-const label = (r: Row) =>
-  r.kind === 'private' ? t('managed.privateName') : vaultLabel({ name: r.name, kind: 'shared' }, t);
 const to = computed(() => Math.min(total.value, (page.value + 1) * PAGE));
 </script>
 
 <template>
   <section class="space-y-3" data-testid="vaults-inventory">
-    <p v-if="!auth.user?.chief" class="notice notice-warn">{{ t('managed.onlyChief') }}</p>
+    <p v-if="!auth.user?.chief" class="notice notice-warn">{{ t('vaultList.onlyChief') }}</p>
     <template v-else>
       <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
-      <div class="flex flex-wrap items-center gap-2">
-        <div class="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-0.5 text-xs dark:bg-slate-800">
-          <button
-            v-for="k in ['', 'corporate', 'managed', 'private'] as const"
-            :key="k"
-            type="button"
-            class="seg"
-            :class="kind === k ? 'seg-on' : ''"
-            :data-testid="`vaults-kind-${k || 'all'}`"
-            @click="kind = k"
-          >
-            {{ t(`managed.kind.${k || 'all'}`) }}
-            <span v-if="k" class="ml-0.5 text-slate-500">{{ counts[k] }}</span>
-          </button>
-        </div>
-        <input
-          v-model="q"
-          type="search"
-          class="input w-full sm:w-72"
-          :placeholder="t('managed.find')"
-          :aria-label="t('managed.find')"
-          data-testid="vaults-search"
-        />
-      </div>
+      <input
+        v-model="q"
+        type="search"
+        class="input w-full sm:w-72"
+        :placeholder="t('vaultList.find')"
+        :aria-label="t('vaultList.find')"
+        data-testid="vaults-search"
+      />
       <div class="card overflow-x-auto">
-        <table class="min-w-full text-sm" data-testid="vaults-table">
+        <table class="table-cards min-w-full text-sm" data-testid="vaults-table">
           <thead class="text-left text-xs text-slate-500">
             <tr>
-              <th class="px-3 py-2">{{ t('managed.colName') }}</th>
-              <th>{{ t('managed.colType') }}</th>
-              <th>{{ t('managed.colSpace') }}</th>
-              <th>{{ t('managed.colOwner') }}</th>
-              <th>{{ t('managed.colPeople') }}</th>
-              <th>{{ t('managed.colEntries') }}</th>
-              <th>{{ t('managed.colLast') }}</th>
-              <th>{{ t('managed.colKeys') }}</th>
-              <th>{{ t('managed.colActions') }}</th>
+              <th class="px-3 py-2">{{ t('vaultList.colName') }}</th>
+              <th>{{ t('vaultList.colOwner') }}</th>
+              <th>{{ t('vaultList.colGroups') }}</th>
+              <th>{{ t('vaultList.colPeople') }}</th>
+              <th>{{ t('vaultList.colEntries') }}</th>
+              <th>{{ t('vaultList.colSecurity') }}</th>
+              <th>{{ t('vaultList.colLast') }}</th>
+              <th>{{ t('vaultList.colKeys') }}</th>
+              <th class="pr-3">{{ t('vaultList.colActions') }}</th>
             </tr>
           </thead>
           <tbody>
+            <tr v-if="!rows.length">
+              <td colspan="9" class="px-3 py-4 text-slate-500">{{ t('vaultList.empty') }}</td>
+            </tr>
             <tr
               v-for="r in rows"
               :key="r.id"
               class="border-t border-slate-200 dark:border-slate-800"
               data-testid="vault-row"
             >
-              <td class="px-3 py-2 font-medium">
-                {{ label(r) }}
-                <div v-if="r.guardians.length" class="text-xs font-normal text-slate-500">
-                  {{ t('managed.guardians', { list: r.guardians.join(', ') }) }}
-                </div>
+              <td class="cell-main px-3 py-2 font-medium">
+                {{ vaultLabel({ name: r.name }, t) }}
               </td>
-              <td>{{ t(`managed.kind.${r.kind}`) }}</td>
-              <!-- основное пространство хранит английское имя «Organization», как и в рабочей области показываем его на языке интерфейса -->
-              <td>{{ r.space === 'Organization' ? t('spaces.defaultName') : (r.space ?? '—') }}</td>
-              <td>{{ r.owner ?? '—' }}</td>
-              <td>{{ r.people }}</td>
-              <td>{{ r.entries }}</td>
-              <td class="text-xs">{{ r.lastChange ? when(r.lastChange) : '—' }}</td>
-              <td class="text-xs" :class="r.pendingKeys ? 'text-amber-700' : 'text-emerald-700'">
+              <td :data-label="t('vaultList.colOwner')">{{ r.owner ?? '—' }}</td>
+              <td :data-label="t('vaultList.colGroups')" data-testid="vault-row-groups">
+                {{ r.groups.join(', ') || t('vaultList.noGroups') }}
+              </td>
+              <td :data-label="t('vaultList.colPeople')" class="tabular-nums">{{ r.people }}</td>
+              <td :data-label="t('vaultList.colEntries')" class="tabular-nums">{{ r.entries }}</td>
+              <td
+                :data-label="t('vaultList.colSecurity')"
+                class="whitespace-nowrap text-xs"
+                :title="r.security.checkedAt ? when(r.security.checkedAt) : ''"
+                data-testid="vault-row-security"
+              >
+                <span v-if="!r.security.checkedAt" class="text-slate-500">{{
+                  t('vaultList.unchecked')
+                }}</span>
+                <template v-else-if="r.security.high || r.security.medium">
+                  <span v-if="r.security.high" class="text-red-600">{{
+                    t('vaultList.high', { n: r.security.high })
+                  }}</span>
+                  <span v-if="r.security.high && r.security.medium"> · </span>
+                  <span v-if="r.security.medium" class="text-amber-700 dark:text-amber-300">{{
+                    t('vaultList.medium', { n: r.security.medium })
+                  }}</span>
+                </template>
+                <span v-else class="text-emerald-700 dark:text-emerald-300">{{
+                  t('vaultList.clean')
+                }}</span>
+              </td>
+              <td :data-label="t('vaultList.colLast')" class="text-xs">
+                {{ r.lastChange ? when(r.lastChange) : '—' }}
+              </td>
+              <td
+                :data-label="t('vaultList.colKeys')"
+                class="text-xs"
+                :class="r.pendingKeys ? 'text-amber-700' : 'text-emerald-700'"
+              >
                 {{
                   r.pendingKeys
-                    ? t('managed.keysPending', { n: r.pendingKeys })
-                    : t('managed.keysOk')
+                    ? t('vaultList.keysPending', { n: r.pendingKeys })
+                    : t('vaultList.keysOk')
                 }}
               </td>
-              <td class="pr-3 text-xs">
+              <td class="cell-action pr-3 text-xs">
                 <RouterLink
                   v-if="mine.has(r.id)"
                   :to="`/vault/${r.id}/settings`"
                   class="btn"
                   :data-testid="`vault-settings-${r.id}`"
-                  >{{ t('managed.openSettings') }}</RouterLink
+                  >{{ t('vaultList.openSettings') }}</RouterLink
                 >
                 <span v-else class="inline-flex items-center gap-1 text-slate-500"
-                  >{{ t('managed.notMember') }}<InfoHint :text="t('managed.notMemberHint')"
+                  >{{ t('vaultList.notMember') }}<InfoHint :text="t('vaultList.notMemberHint')"
                 /></span>
               </td>
             </tr>
@@ -164,7 +166,7 @@ const to = computed(() => Math.min(total.value, (page.value + 1) * PAGE));
           class="flex items-center justify-between border-t border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-800"
         >
           <span data-testid="vaults-range">
-            {{ t('managed.of', { from: total ? page * PAGE + 1 : 0, to, total }) }}
+            {{ t('vaultList.of', { from: total ? page * PAGE + 1 : 0, to, total }) }}
           </span>
           <span class="flex gap-1">
             <button type="button" class="btn" :disabled="page === 0" @click="go(-1)">

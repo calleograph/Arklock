@@ -76,9 +76,10 @@ describe('API tokens', () => {
   });
 
   it('a read token reads ciphertext and cannot write; a write token can', async () => {
+    const own = (await user.lockerKey()).locker;
     const vaults = await withToken(readToken, 'GET', '/vaults');
     expect(vaults.statusCode).toBe(200);
-    const locker = vaults.json().find((v: { kind: string }) => v.kind === 'locker');
+    const locker = vaults.json().find((v: { id: string }) => v.id === own.id);
     expect(locker.key.sealedKey).toBeTruthy();
     // токен видит только шифртекст записей
     await user.createEntry({ title: 'Secret title', password: 'p4ss-W0rd!' });

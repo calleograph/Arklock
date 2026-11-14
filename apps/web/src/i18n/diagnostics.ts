@@ -127,7 +127,7 @@ export const ruDiag = {
         },
         nobody_provisioned: {
           t: 'Создание учётных записей при первом входе выключено, и ни один сотрудник каталога не создан заранее: войти не сможет никто.',
-          f: 'Включите «Создавать учётную запись при первом входе» либо создайте сотрудников заранее («Подразделения», «Создание и приглашение»).',
+          f: 'Включите «Создавать учётную запись при первом входе» либо создайте сотрудников заранее («Создание и приглашение»).',
         },
         nobody_signed_in: {
           t: 'Ни один сотрудник ещё не вошёл через каталог («Сотрудники входят по доменному логину» в мастере не выполнено).',
@@ -308,7 +308,7 @@ export const enDiag = {
         },
         nobody_provisioned: {
           t: 'Creating accounts on first sign-in is off and no directory employee was created in advance: nobody can sign in.',
-          f: 'Turn on “Create the account on first sign-in” or create employees in advance (“Departments”, “Create and invite”).',
+          f: 'Turn on “Create the account on first sign-in” or create employees in advance (“Create and invite”).',
         },
         nobody_signed_in: {
           t: 'Nobody has signed in through the directory yet (the wizard step “Employees sign in with a domain login” is not done).',

@@ -5,7 +5,7 @@
 export const ruPageHints = {
   pagehint: {
     settings_main:
-      'Кто может регистрироваться и создавать сейфы, доступ людям вне подразделения, тема по умолчанию, проверка утечек паролей.',
+      'Кто может регистрироваться и создавать сейфы, тема по умолчанию, проверка утечек паролей.',
     settings_security:
       'Политики паролей и входа, второй фактор, сеансы, корпоративное восстановление.',
     settings_storage: 'Ограничения на размер файлов в записях и сейфах.',
@@ -34,26 +34,24 @@ export const ruPageHints = {
     organization: '@:chief.intro',
     automation: '@:automation.hint',
     keys: 'Кто хранит ключи шифрования сотрудников из каталога: сами сотрудники (строгий режим) или сервер (простой вход). Выберите режим и прочитайте, что он меняет.',
-    departments:
-      'Подразделение — это люди (группа) и их сейф с паролями, созданные вместе. Выберите подразделение в списке, чтобы изменить название, руководителей, состав и сейфы. Новое создаётся ниже.',
     access:
-      'Здесь видно, кто куда ходит. Введите имя сотрудника: сразу появятся его подразделения (руководитель, участник или гость), группы и сейфы с ролью и источником права: напрямую или через группу. Вкладка «По сейфу» (главный администратор) показывает обратное: кто имеет доступ к выбранному сейфу, кому выдан ключ и кому доступ дали на отдельные папки и записи, в том числе гостям. Здесь только сведения о доступе, пароли не показываются. Изменить доступ можно в карточке подразделения, в карточке сотрудника и в меню «Доступ» самой папки или записи.',
-    vaults: '@:managed.inventoryHint',
+      'Здесь видно, кто куда ходит. Введите имя сотрудника: сразу появятся его группы и сейфы с ролью и источником права: напрямую или через группу. Вкладка «По сейфу» (главный администратор) показывает обратное: кто имеет доступ к выбранному сейфу, кому выдан ключ и кому доступ дали на отдельные папки и записи. Здесь только сведения о доступе, пароли не показываются. Изменить доступ можно в настройках сейфа, в окне группы, в карточке сотрудника и в меню «Доступ» самой папки или записи.',
+    vaults: '@:vaultList.hint',
     wizards:
-      'Всё, что нужно для работы компании, по порядку: адрес, почта, вход сотрудников, подразделения, защита. Шаги отмечаются сами по фактической настройке; «Сейчас» — с чего продолжить.',
+      'Всё, что нужно для работы компании, по порядку: адрес, почта, вход сотрудников, группы и сейфы, защита. Шаги отмечаются сами по фактической настройке; «Сейчас» — с чего продолжить.',
     transfer: 'Перенос паролей: импорт из других менеджеров и экспорт.',
     shield: '@:shield.intro',
     users:
-      'Все учётные записи. Откройте имя сотрудника: там его подразделения, группы, сейфы и сеансы. Подразделения и группы можно менять прямо в карточке.',
+      'Все учётные записи. Откройте имя сотрудника: там его группы, сейфы и сеансы. Группы можно менять прямо в карточке.',
     circles:
-      'Группа — набор людей, которому выдают доступ целиком: назначьте группе сейфы, и все участники их получат. Состав ведёт администратор или каталог домена.',
+      'Группа — сотрудники отдела, которым выдают доступ целиком: назначьте группе сейфы, и все участники их получат. Называйте группы по отделам. Состав ведёт администратор или каталог домена.',
     ledger: 'Журнал действий: кто, что и когда сделал в Arklock.',
   },
 };
 export const enPageHints = {
   pagehint: {
     settings_main:
-      'Who may register and create vaults, access for people outside a department, the default theme, the leaked-password check.',
+      'Who may register and create vaults, the default theme, the leaked-password check.',
     settings_security:
       'Password and sign-in policies, second factor, sessions, corporate recovery.',
     settings_storage: 'Limits on the size of files in entries and vaults.',
@@ -81,19 +79,17 @@ export const enPageHints = {
     organization: '@:chief.intro',
     automation: '@:automation.hint',
     keys: 'Who holds the encryption keys of directory employees: the employees themselves (strict mode) or the server (simple sign-in). Pick a mode and read what it changes.',
-    departments:
-      'A department is the people (a group) and their password storage, created together. Choose a department in the list to change its name, heads, members and storages. A new one is created below.',
     access:
-      'See who goes where. Type an employee name: their departments (head, member or guest), groups and vaults appear at once, with the role and where it comes from: directly or through a group. The “By vault” tab (chief administrator) shows the opposite: who can access the chosen vault, who has the key and who was given single folders and entries, guests included. Only access information is shown here, never passwords. Access is changed in the department card, the employee card and the Access menu of the folder or entry itself.',
-    vaults: '@:managed.inventoryHint',
+      'See who goes where. Type an employee name: their groups and vaults appear at once, with the role and where it comes from: directly or through a group. The “By vault” tab (chief administrator) shows the opposite: who can access the chosen vault, who has the key and who was given single folders and entries. Only access information is shown here, never passwords. Access is changed in the vault settings, the group dialog, the employee card and the Access menu of the folder or entry itself.',
+    vaults: '@:vaultList.hint',
     wizards:
-      'Everything your company needs, in order: address, mail, how employees sign in, departments, protection. Steps are ticked by themselves from the actual configuration; “Now” shows where to continue.',
+      'Everything your company needs, in order: address, mail, how employees sign in, groups and vaults, protection. Steps are ticked by themselves from the actual configuration; “Now” shows where to continue.',
     transfer: 'Moving passwords: import from other managers and export.',
     shield: '@:shield.intro',
     users:
-      'All accounts. Open an employee’s name: their departments, groups, storages and sessions are there. Departments and groups can be changed right in the card.',
+      'All accounts. Open an employee’s name: their groups, vaults and sessions are there. Groups can be changed right in the card.',
     circles:
-      'A group is a set of people given access as a whole: assign storages to the group and every member gets them. An administrator or the domain directory keeps the membership.',
+      'A group is the employees of a team given access as a whole: assign vaults to the group and every member gets them. Name groups after teams. An administrator or the domain directory keeps the membership.',
     ledger: 'Activity log: who did what and when in Arklock.',
   },
 };

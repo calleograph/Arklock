@@ -28,7 +28,7 @@ const ADMIN_TOPICS = [
   'firstSetup',
   'directory',
   'people',
-  'departments',
+  'groups',
   'chief',
   'recovery',
   'operations',
@@ -48,8 +48,6 @@ const FAQ = [
 ] as const;
 const TERMS = [
   'vault',
-  'personalVault',
-  'space',
   'folder',
   'entry',
   'group',

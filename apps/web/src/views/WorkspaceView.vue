@@ -4,7 +4,6 @@ import InfoHint from '../components/InfoHint.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import ManagedVaultDialog from '../components/ManagedVaultDialog.vue';
 import BranchNode from '../components/BranchNode.vue';
 import Icon from '../components/Icon.vue';
 import IconButton from '../components/IconButton.vue';
@@ -15,10 +14,9 @@ import FolderPanel from '../components/FolderPanel.vue';
 import FolderCrumbs from '../components/FolderCrumbs.vue';
 import FolderGrid from '../components/FolderGrid.vue';
 import { childIndex, trailOf } from '../services/explorer';
-import SpacesPanel from '../components/SpacesPanel.vue';
 import { useAuthStore } from '../stores/auth';
 import { useWorkspaceStore } from '../stores/workspace';
-import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
+import { errorMessage, vaultLabel } from '../services/helpers';
 import { searchText, type BranchItem, type EntryItem } from '../services/model';
 import { api } from '../services/api';
 import ObjectIcon from '../components/ObjectIcon.vue';
@@ -30,19 +28,7 @@ import { copyWithAutoClear, reportEntryEvent } from '../services/clipboard';
 import type { IssueType } from '../services/inspector';
 import { naturalCompare } from '../services/helpers';
 
-const { t } = useI18n({
-  useScope: 'local',
-  messages: {
-    ru: {
-      spaces: {
-        title: 'Пространство',
-        manage: 'Управление пространствами',
-        personal: 'Личное пространство',
-      },
-    },
-    en: { spaces: { title: 'Space', manage: 'Manage spaces', personal: 'Personal space' } },
-  },
-});
+const { t } = useI18n();
 const confirmBox = (m: string) => window.confirm(m);
 const ws = useWorkspaceStore();
 const auth = useAuthStore();
@@ -89,11 +75,6 @@ const openId = ref<string | null>(null);
 const creating = ref(false);
 // «Создать копию»: новая запись открывается заполненной данными этой записи
 const cloneOf = ref<EntryItem | null>(null);
-const showSpaces = ref(false);
-async function refreshSpaces(): Promise<void> {
-  await ws.loadVaults();
-  await ws.loadTree();
-}
 const mobileView = ref<'folders' | 'list' | 'details'>('list');
 const detailPanel = ref<HTMLElement | null>(null);
 const error = ref('');
@@ -147,10 +128,8 @@ const loaded = ref(false);
 async function recheckVaults(): Promise<void> {
   if (document.hidden) return;
   await ws.loadVaults().catch(() => undefined);
-  if (!ws.vaults.length) return;
-  // сейф мог появиться в другом разделе (личный сейф, пространство отдела): открываем его, а не пустой раздел
-  if (!ws.currentId) await ws.select(ws.vaults[0]!.id).catch(() => undefined);
-  else await ws.loadTree().catch(() => undefined);
+  // загрузка сама выбирает первый появившийся сейф: остаётся показать его записи
+  if (ws.vaults.length) await ws.loadTree().catch(() => undefined);
 }
 let vaultPoll: ReturnType<typeof setInterval> | null = null;
 watch(
@@ -287,14 +266,7 @@ const canWrite = computed(
 );
 const isVaultAdmin = computed(() => !!vault.value?.canManageMembers);
 const selectedBranch = computed(() => ws.branches.find((b) => b.id === branchSel.value) ?? null);
-const showManaged = ref(false);
-// режим включён организацией, а такого сейфа у сотрудника ещё нет
-const canCreateManaged = computed(
-  () => ws.managedPolicy.enabled && !ws.vaults.some((v) => v.managed),
-);
-const canCreateVault = computed(
-  () => !!ws.currentSpaceId && (auth.user?.role === 'admin' || creatorsPolicy.value),
-);
+const canCreateVault = computed(() => auth.user?.role === 'admin' || creatorsPolicy.value);
 
 const branchById = computed(() => new Map(ws.branches.map((b) => [b.id, b])));
 // для пути — и удалённые папки: у записи в корзине виден прежний путь, даже если папка удалена вместе с ней
@@ -630,11 +602,6 @@ function onEntryAction(id: string): void {
   else if (id === 'clone') newEntry(opened.value);
   else if (id === 'trash') void run(() => trashWithUndo(opened.value!));
 }
-/** Руководитель (или администратор) закрытого подразделения управляет им из рабочей области: состав, сейфы, гости. */
-const managesDepartment = computed(() => {
-  const sp = ws.spaces.find((x) => x.id === ws.currentSpaceId);
-  return !!sp && sp.canManage && !sp.isDefault && !sp.publicToOrg;
-});
 const vaultActions = computed<ActionItem[]>(() => [
   ...(isVaultAdmin.value && vault.value?.kind === 'shared'
     ? [
@@ -649,35 +616,11 @@ const vaultActions = computed<ActionItem[]>(() => [
   ...(canCreateVault.value
     ? [{ id: 'new', label: t('vault.newVault'), icon: 'plus' as const, testid: 'btn-new-vault' }]
     : []),
-  ...(canCreateManaged.value
-    ? [
-        {
-          id: 'managed',
-          label: t('managed.title'),
-          icon: 'users' as const,
-          testid: 'btn-new-managed',
-        },
-      ]
-    : []),
-  ...(managesDepartment.value
-    ? [
-        {
-          id: 'department',
-          label: t('dept.manage'),
-          icon: 'users' as const,
-          testid: 'btn-department',
-        },
-      ]
-    : []),
-  { id: 'spaces', label: t('spaces.manage'), icon: 'folder', testid: 'spaces-open' },
   { id: 'inspector', label: t('inspector.title'), icon: 'shield', testid: 'btn-inspector' },
 ]);
 function onVaultAction(id: string): void {
   if (id === 'settings') void router.push(`/vault/${vault.value!.id}/settings`);
   else if (id === 'new') void newVault();
-  else if (id === 'managed') showManaged.value = true;
-  else if (id === 'department') void router.push(`/department/${ws.currentSpaceId}`);
-  else if (id === 'spaces') showSpaces.value = !showSpaces.value;
   else if (id === 'inspector') void router.push('/inspector');
 }
 const moveTargets = computed(() =>
@@ -797,24 +740,9 @@ void router;
   <section class="space-y-3">
     <SetupBanner v-if="auth.user?.role === 'admin'" place="start" />
     <div
-      class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 sm:flex sm:flex-wrap"
+      class="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 sm:flex sm:flex-wrap"
       data-testid="workspace-toolbar"
     >
-      <label
-        class="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500 sm:flex-none"
-        ><span class="flex items-center gap-1"
-          >{{ t('ws.department') }}<InfoHint :text="t('ws.departmentHint')"
-        /></span>
-        <select
-          class="input text-slate-900 sm:w-56 dark:text-slate-100"
-          :value="ws.currentSpaceId ?? ''"
-          data-testid="space-select"
-          @change="ws.selectSpace(($event.target as HTMLSelectElement).value || null)"
-        >
-          <option v-for="s in ws.spaces" :key="s.id" :value="s.id">{{ spaceLabel(s, t) }}</option>
-          <option v-if="ws.personalAllowed" value="">{{ t('spaces.personal') }}</option>
-        </select></label
-      >
       <label
         class="flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium text-slate-500 sm:flex-none"
         ><span class="flex items-center gap-1"
@@ -826,27 +754,9 @@ void router;
           data-testid="vault-select"
           @change="ws.select(($event.target as HTMLSelectElement).value)"
         >
-          <optgroup
-            v-if="!ws.currentSpaceId && ws.personalAllowed"
-            :label="t('vault.groupPersonal')"
-          >
-            <option
-              v-for="v in ws.spaceVaults.filter((x) => x.kind === 'locker')"
-              :key="v.id"
-              :value="v.id"
-            >
-              {{ t('vault.locker') }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
-            </option>
-          </optgroup>
-          <optgroup v-if="ws.currentSpaceId" :label="t('vault.groupShared')">
-            <option
-              v-for="v in ws.spaceVaults.filter((x) => x.kind !== 'locker')"
-              :key="v.id"
-              :value="v.id"
-            >
-              {{ vaultLabel(v, t) }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
-            </option>
-          </optgroup>
+          <option v-for="v in ws.vaults" :key="v.id" :value="v.id">
+            {{ vaultLabel(v, t) }}{{ v.problem === 'pending' ? ' ⏳' : v.problem ? ' ⚠' : '' }}
+          </option>
         </select></label
       >
       <div>
@@ -860,7 +770,6 @@ void router;
         />
       </div>
     </div>
-    <SpacesPanel v-if="showSpaces" @changed="refreshSpaces" @close="showSpaces = false" />
 
     <p
       v-if="!ws.keyLogOk"
@@ -1457,7 +1366,7 @@ void router;
           >
             <option value="">{{ t('vault.entryMoveChoose') }}</option>
             <option v-for="v in moveTargets" :key="v.id" :value="v.id">
-              {{ v.kind === 'locker' ? t('vault.locker') : vaultLabel(v, t) }}
+              {{ vaultLabel(v, t) }}
             </option>
           </select>
           <button
@@ -1689,10 +1598,5 @@ void router;
         </div>
       </form>
     </div>
-    <ManagedVaultDialog
-      v-if="showManaged"
-      @close="showManaged = false"
-      @done="showManaged = false"
-    />
   </section>
 </template>

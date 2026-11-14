@@ -15,7 +15,6 @@ import {
   sessions,
   settings,
   signals,
-  spaces,
   users,
   vaultCircles,
   vaultKeys,
@@ -390,7 +389,7 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
   });
 
   /**
-   * Кто имеет доступ к сейфу: люди с прямой ролью, группы и гости (с числом выданных папок и записей и сроком). Только
+   * Кто имеет доступ к сейфу: люди с прямой ролью, группы и выданные папки и записи (с их числом и сроком). Только
    * сведения о доступе: содержимого и ключей нет. Для главного администратора; личные сейфы не показываются.
    */
   app.get('/admin/vaults/:id/access', async (req) => {
@@ -399,7 +398,7 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const { id } = parse(z.object({ id: uuid }), req.params);
     const [v] = await db.select().from(vaults).where(eq(vaults.id, id));
     if (!v || v.kind !== 'shared') throw notFound();
-    const [direct, groups, granted, keys, space] = await Promise.all([
+    const [direct, groups, granted, keys] = await Promise.all([
       db
         .select({
           id: users.id,
@@ -428,26 +427,19 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         email: string;
         rules: number;
         until: Date | null;
-        guest: boolean;
       }>(sql`
-        select u.id, u.display_name as name, u.email, count(*)::int as rules, min(g.expires_at) as until,
-          coalesce(bool_or(sm.guest), false) as guest
+        select u.id, u.display_name as name, u.email, count(*)::int as rules, min(g.expires_at) as until
         from grants g join users u on u.id = g.subject_id
-        left join space_members sm on sm.space_id = ${v.spaceId} and sm.user_id = u.id
         where g.vault_id = ${id} and g.subject_type = 'user' and g.role <> 'none'
         group by u.id, u.display_name, u.email order by u.display_name`),
       db
         .select({ userId: vaultKeys.userId })
         .from(vaultKeys)
         .where(and(eq(vaultKeys.vaultId, id), eq(vaultKeys.keyVersion, v.keyVersion))),
-      v.spaceId
-        ? db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, v.spaceId))
-        : Promise.resolve([]),
     ]);
     const hasKey = new Set(keys.map((k) => k.userId));
     return {
       name: v.name,
-      space: space[0]?.name ?? null,
       direct: direct.map((d) => ({
         ...d,
         expiresAt: d.expiresAt?.toISOString() ?? null,
@@ -460,22 +452,19 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         email: string;
         rules: number;
         until: Date | null;
-        guest: boolean;
       }>(granted).map((g) => ({ ...g, until: g.until ? new Date(g.until).toISOString() : null })),
     };
   });
 
   /**
-   * Инвентаризация сейфов для главного администратора: тип, владелец, пространство, участники, записи, активность и состояние
-   * ключей. Только метаданные: ни названий записей, ни содержимого, ни ключей. Типы: корпоративный, персональный корпоративный
-   * (доступ хранителей объявлен политикой) и личный приватный (только счётчики и владелец).
+   * Сейфы организации для главного администратора: владелец, люди и группы с доступом, записи, открытые события
+   * безопасности, активность и ожидающие ключи. Только метаданные: ни названий записей, ни содержимого, ни ключей.
    */
   app.get('/admin/vaults', async (req) => {
     const { user } = authOf(req);
     if (!user.chief) throw chiefRequired();
     const o = parse(
       z.object({
-        kind: z.enum(['corporate', 'managed', 'private']).optional(),
         q: z.string().trim().max(100).default(''),
         limit: z.coerce.number().int().min(1).max(200).default(50),
         offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
@@ -483,20 +472,18 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
       req.query,
     );
     const owner = sql`(select u.display_name from vault_members m join users u on u.id = m.user_id where m.vault_id = ${vaults.id} and m.role = 'owner' limit 1)`;
-    const kindOf = sql<string>`case when ${vaults.kind} = 'locker' then 'private' when ${vaults.managedFor} is not null then 'managed' else 'corporate' end`;
     const like = o.q ? `%${o.q.replace(/[\\%_]/g, '\\$&')}%` : null;
     const where = and(
-      o.kind ? sql`${kindOf} = ${o.kind}` : undefined,
+      eq(vaults.kind, 'shared'),
       like ? sql`(${vaults.name} ilike ${like} or ${owner} ilike ${like})` : undefined,
     );
-    const [rows, [total], kinds] = await Promise.all([
+    const [rows, [total]] = await Promise.all([
       db
         .select({
           id: vaults.id,
-          kind: kindOf,
           name: vaults.name,
-          spaceId: vaults.spaceId,
           keyVersion: vaults.keyVersion,
+          checkedAt: vaults.signalsReportedAt,
           createdAt: vaults.createdAt,
           owner: sql<string | null>`${owner}`,
         })
@@ -506,12 +493,10 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         .limit(o.limit)
         .offset(o.offset),
       db.select({ n: count() }).from(vaults).where(where),
-      db.select({ kind: kindOf, n: count() }).from(vaults).groupBy(kindOf),
     ]);
     const ids = rows.map((r) => r.id);
-    const [spaceRows, memberRows, groupRows, stats, keyRows, guardianRows] = ids.length
+    const [memberRows, groupRows, groupNames, stats, keyRows, open] = ids.length
       ? await Promise.all([
-          db.select({ id: spaces.id, name: spaces.name }).from(spaces),
           db
             .select({ vaultId: vaultMembers.vaultId, userId: vaultMembers.userId })
             .from(vaultMembers)
@@ -521,6 +506,12 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             .from(vaultCircles)
             .innerJoin(circleMembers, eq(circleMembers.circleId, vaultCircles.circleId))
             .where(inArray(vaultCircles.vaultId, ids)),
+          db
+            .select({ vaultId: vaultCircles.vaultId, name: circles.name })
+            .from(vaultCircles)
+            .innerJoin(circles, eq(circles.id, vaultCircles.circleId))
+            .where(inArray(vaultCircles.vaultId, ids))
+            .orderBy(asc(circles.name)),
           db
             .select({ vaultId: entries.vaultId, n: count(), last: max(entries.updatedAt) })
             .from(entries)
@@ -534,13 +525,18 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             })
             .from(vaultKeys)
             .where(inArray(vaultKeys.vaultId, ids)),
+          // открытые события безопасности: только метаданные, которые сообщили браузеры и сервер
           db
-            .select({ vaultId: vaultCircles.vaultId, name: circles.name })
-            .from(vaultCircles)
-            .innerJoin(circles, eq(circles.id, vaultCircles.circleId))
-            .where(and(inArray(vaultCircles.vaultId, ids), eq(vaultCircles.managed, true))),
+            .select({ vaultId: signals.vaultId, type: signals.type, n: count() })
+            .from(signals)
+            .innerJoin(entries, and(eq(entries.id, signals.entryId), isNull(entries.deletedAt)))
+            .where(
+              and(inArray(signals.vaultId, ids), inArray(signals.status, ['open', 'in_progress'])),
+            )
+            .groupBy(signals.vaultId, signals.type),
         ])
       : [[], [], [], [], [], []];
+    const HIGH = new Set(['compromised', 'rotate']);
     const items = rows.map((r) => {
       const people = new Set([
         ...memberRows.filter((m) => m.vaultId === r.id).map((m) => m.userId),
@@ -552,102 +548,26 @@ export const registerChiefRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
           .map((k) => k.userId),
       );
       const st = stats.find((x) => x.vaultId === r.id);
+      const sig = open.filter((x) => x.vaultId === r.id);
+      const sum = (high: boolean) =>
+        sig.filter((x) => HIGH.has(x.type) === high).reduce((a, x) => a + x.n, 0);
       return {
         id: r.id,
-        kind: r.kind,
-        name: r.kind === 'private' ? null : r.name,
-        space: spaceRows.find((s) => s.id === r.spaceId)?.name ?? null,
+        name: r.name,
         owner: r.owner,
         people: people.size,
+        groups: groupNames.filter((g) => g.vaultId === r.id).map((g) => g.name),
         entries: st?.n ?? 0,
         lastChange: st?.last ? new Date(st.last).toISOString() : null,
         pendingKeys: [...people].filter((u) => !withKey.has(u)).length,
-        guardians: guardianRows.filter((g) => g.vaultId === r.id).map((g) => g.name),
+        security: {
+          high: sum(true),
+          medium: sum(false),
+          checkedAt: r.checkedAt?.toISOString() ?? null,
+        },
         createdAt: r.createdAt.toISOString(),
       };
     });
-    const by = (k: string) => kinds.find((x) => x.kind === k)?.n ?? 0;
-    return {
-      items,
-      total: total?.n ?? 0,
-      counts: { corporate: by('corporate'), managed: by('managed'), private: by('private') },
-    };
-  });
-
-  /** Обзор организации для главного администратора: пространства и сейфы, только метаданные. */
-  app.get('/admin/structure', async (req) => {
-    const { user } = authOf(req);
-    if (!user.chief) throw chiefRequired();
-    const [spaceRows, vaultRows, owners, members, groups, stats, open] = await Promise.all([
-      db.select().from(spaces).orderBy(asc(spaces.createdAt)),
-      db
-        .select({
-          id: vaults.id,
-          name: vaults.name,
-          spaceId: vaults.spaceId,
-          checkedAt: vaults.signalsReportedAt,
-        })
-        .from(vaults)
-        .where(eq(vaults.kind, 'shared'))
-        .orderBy(asc(vaults.name)),
-      db
-        .select({ vaultId: vaultMembers.vaultId, name: users.displayName })
-        .from(vaultMembers)
-        .innerJoin(users, eq(users.id, vaultMembers.userId))
-        .where(eq(vaultMembers.role, 'owner')),
-      db
-        .select({ vaultId: vaultMembers.vaultId, n: count() })
-        .from(vaultMembers)
-        .groupBy(vaultMembers.vaultId),
-      db
-        .select({ vaultId: vaultCircles.vaultId, n: count() })
-        .from(vaultCircles)
-        .groupBy(vaultCircles.vaultId),
-      db
-        .select({ vaultId: entries.vaultId, n: count(), last: max(entries.updatedAt) })
-        .from(entries)
-        .where(isNull(entries.deletedAt))
-        .groupBy(entries.vaultId),
-      // открытые события безопасности: только метаданные, которые сообщили браузеры и сервер
-      db
-        .select({ vaultId: signals.vaultId, type: signals.type, n: count() })
-        .from(signals)
-        .innerJoin(entries, and(eq(entries.id, signals.entryId), isNull(entries.deletedAt)))
-        .where(inArray(signals.status, ['open', 'in_progress']))
-        .groupBy(signals.vaultId, signals.type),
-    ]);
-    const HIGH = new Set(['compromised', 'rotate']);
-    const security = (vaultId: string) => {
-      const rows = open.filter((o) => o.vaultId === vaultId);
-      const sum = (high: boolean) =>
-        rows.filter((r) => HIGH.has(r.type) === high).reduce((a, r) => a + r.n, 0);
-      return {
-        high: sum(true),
-        medium: sum(false),
-        byType: Object.fromEntries(rows.map((r) => [r.type, r.n])),
-      };
-    };
-    const by = <T extends { vaultId: string }>(rows: T[]) =>
-      new Map(rows.map((r) => [r.vaultId, r]));
-    const [m, g, s] = [by(members), by(groups), by(stats)];
-    return spaceRows.map((sp) => ({
-      id: sp.id,
-      name: sp.name,
-      archived: sp.archived,
-      publicToOrg: sp.publicToOrg,
-      isDefault: sp.isDefault,
-      vaults: vaultRows
-        .filter((v) => v.spaceId === sp.id)
-        .map((v) => ({
-          id: v.id,
-          name: v.name,
-          owners: owners.filter((o) => o.vaultId === v.id).map((o) => o.name),
-          members: m.get(v.id)?.n ?? 0,
-          groups: g.get(v.id)?.n ?? 0,
-          entries: s.get(v.id)?.n ?? 0,
-          lastChange: s.get(v.id)?.last ? new Date(s.get(v.id)!.last!).toISOString() : null,
-          security: { ...security(v.id), checkedAt: v.checkedAt?.toISOString() ?? null },
-        })),
-    }));
+    return { items, total: total?.n ?? 0 };
   });
 };

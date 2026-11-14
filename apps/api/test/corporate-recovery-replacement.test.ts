@@ -105,7 +105,7 @@ it('replaces the offline recipient only after every protected vault is reconnect
   const state = (await admin.req('GET', '/admin/corporate-recovery')).json();
   expect(state.recipient.id).toBe(b.id);
   expect(state.pending).toBeNull();
-  expect(state.vaults[0].enrolled).toBe(true);
+  expect(state.vaults.find((v: { id: string }) => v.id === vaultId).enrolled).toBe(true);
   // конверты прежнего получателя удалены; подключение к удалённому получателю отвергается
   const rows = await fixture.database.db.select().from(corporateRecoveryKeys);
   expect(rows.map((r) => r.recipientId)).toEqual([b.id]);

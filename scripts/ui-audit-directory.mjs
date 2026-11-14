@@ -199,16 +199,22 @@ try {
     await page.getByTestId(input).fill('boris');
     await page.getByTestId(add).click();
   };
-  // подразделение создаётся через интерфейс: список созданных подразделений должен быть заполнен
-  await go('admin/departments');
-  await pick('dept-head-input', 'dept-head-add-boris@example.com');
-  await page.getByTestId('dept-name').fill('Поддержка');
-  await page.getByTestId('dept-create').click({ timeout: 30_000 });
-  await page
-    .getByTestId('dept-state')
-    .first()
-    .getByText(/Готово|Done/)
-    .waitFor({ timeout: 60_000 });
+  // отдел — группа с сотрудником из каталога и сейф, открытый группе: экраны должны быть заполнены
+  const circle = await call('POST', '/admin/circles', { name: 'Поддержка', description: '' });
+  await go('admin/invitations');
+  await pick('dir-invite-person-input', 'dir-invite-person-add-boris@example.com');
+  await page.getByTestId('dir-invite-group-input').fill('Подд');
+  await page.getByTestId('dir-invite-group-result-Поддержка').click();
+  await page.getByTestId('dir-invite-submit').click();
+  await page.getByTestId('dir-invite-done').waitFor({ timeout: 30_000 });
+  await go('');
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Поддержка · Пароли');
+  await page.getByTestId('name-ok').click();
+  await page.getByTestId('add-entry').waitFor({ timeout: 30_000 });
+  const made = (await call('GET', '/vaults')).find((v) => v.name === 'Поддержка · Пароли');
+  await call('PUT', `/vaults/${made.id}/circles/${circle.id}`, { role: 'editor' });
 
   const scenes = [
     { id: 'ldap', run: async () => go('admin/ldap'), ready: 'ldap-settings' },
@@ -222,35 +228,6 @@ try {
       ready: 'dir-invite-group-directory-title',
     },
     {
-      id: 'departments',
-      run: async () => {
-        await go('admin/departments');
-        // карточка созданного подразделения остаётся открытой между экранами: закрываем её, чтобы увидеть список
-        if (
-          await page
-            .getByTestId('dept-detail-close')
-            .isVisible()
-            .catch(() => false)
-        )
-          await page.getByTestId('dept-detail-close').click();
-      },
-      ready: 'dept-card',
-    },
-    {
-      id: 'department-card',
-      run: async () => {
-        await go('admin/departments');
-        if (
-          !(await page
-            .getByTestId('dept-detail')
-            .isVisible()
-            .catch(() => false))
-        )
-          await page.getByTestId('dept-manage-Поддержка').click();
-      },
-      ready: 'dept-detail',
-    },
-    {
       id: 'user-card',
       run: async () => {
         await go('admin/users');
@@ -258,14 +235,6 @@ try {
         await page.getByTestId('profile-open-boris@example.com').click();
       },
       ready: 'user-memberships',
-    },
-    {
-      id: 'departments-picker',
-      run: async () => {
-        await go('admin/departments');
-        await page.getByTestId('dept-member-input').fill('clara');
-      },
-      ready: 'dept-member-directory-title',
     },
     ...(argv.includes('--tabs')
       ? [
@@ -296,7 +265,6 @@ try {
           'wizards',
           'users',
           'invitations',
-          'departments',
           'circles',
           'access',
           'vaults',
@@ -349,12 +317,6 @@ try {
         await page.locator('[data-testid^="access-vault-open-Поддержка"]').first().click();
       },
       ready: 'access-vault',
-    },
-    {
-      id: 'department-page',
-      run: async () =>
-        go(`department/${(await call('GET', '/admin/departments?limit=1')).items[0].spaceId}`),
-      ready: 'department-page',
     },
     {
       id: 'circles-link',

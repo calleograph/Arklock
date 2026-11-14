@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
+import { useWorkspaceStore } from '../stores/workspace';
 import DomainGroupLinks from './DomainGroupLinks.vue';
 import GroupVaults from './GroupVaults.vue';
 import IconButton from './IconButton.vue';
@@ -220,11 +221,19 @@ async function save(): Promise<void> {
         description: description.value.trim(),
       });
     }
-    if (staged.value.length || removed.value.size)
+    if (staged.value.length || removed.value.size) {
       await api('PATCH', `/admin/circles/${id}/members`, {
         add: staged.value.map((s) => s.id),
         remove: [...removed.value],
       });
+      // новым участникам сразу выдаются ключи сейфов группы, которые открыты у этого администратора
+      if (staged.value.length) {
+        const ws = useWorkspaceStore();
+        // загрузка сейфов сама раздаёт ожидающие ключи
+        if (ws.vaults.length) await ws.distributeAllPending();
+        else await ws.loadVaults().catch(() => undefined);
+      }
+    }
     emit('saved');
   } catch (e) {
     error.value = errorMessage(e, t);

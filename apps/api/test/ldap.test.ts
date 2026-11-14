@@ -448,8 +448,6 @@ describe('sign-in through the directory', () => {
     const card = (await admin.req('GET', `/admin/users/${alice.userId}/profile`)).json();
     expect(card.user).toMatchObject({ title: 'Lead engineer', authSource: 'ldap' });
     expect(card.mfa).toEqual({ totp: false, passkey: false });
-    // справочное поле «подразделение» не открывает пространства и сейфы
-    expect(card.spaces.map((s: { name: string }) => s.name)).toEqual(['Organization']);
   });
 
   it('an existing local account with the same e-mail is never taken over', async () => {

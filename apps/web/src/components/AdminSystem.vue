@@ -579,12 +579,11 @@ const DIAG_LINK: Record<string, string> = {
           }}</span>
         </div>
       </div>
-      <!-- сначала корпоративные сейфы, затем личные; число ведёт к подробностям -->
+      <!-- число ведёт к подробностям -->
       <component
         :is="k === 'sharedVaults' ? 'RouterLink' : k === 'users' ? 'RouterLink' : 'div'"
         v-for="k in [
           'sharedVaults',
-          'lockers',
           'users',
           'entries',
           'attachments',

@@ -90,7 +90,7 @@ export async function awayFromTotpStepEdge(marginMs = 5_000): Promise<void> {
   if (left < marginMs) await new Promise((r) => setTimeout(r, left + 50));
 }
 
-export async function createTestApp(env: Record<string, string> = {}, personalLockers = true) {
+export async function createTestApp(env: Record<string, string> = {}, ownVaults = true) {
   const config = loadConfig({
     NODE_ENV: 'test',
     DATABASE_URL: 'pglite:memory',
@@ -100,9 +100,9 @@ export async function createTestApp(env: Record<string, string> = {}, personalLo
   });
   const database = await connect(config.DATABASE_URL);
   await database.migrate();
-  // Most suites exercise existing personal-vault workflows; policy suites use the product default.
-  if (personalLockers)
-    await database.db.insert(settings).values({ key: 'vaults.personalLockers', value: true });
+  // большинство наборов работает в собственном сейфе каждого участника (lockerKey); наборы о правах — с умолчанием продукта
+  if (ownVaults)
+    await database.db.insert(settings).values({ key: 'vaults.creators', value: 'members' });
   const app = await buildApp({ config, database });
   return { app, database };
 }
@@ -299,8 +299,16 @@ export class TestClient {
     );
   }
 
+  /** Собственный рабочий сейф участника теста: создаётся при первом обращении (личных сейфов в продукте нет). */
   async lockerKey() {
-    const locker = (await this.vaults()).find((v) => v.kind === 'locker')!;
+    // у первого администратора это сейф организации, созданный при регистрации
+    let locker = (await this.vaults()).find((v) => v.id === this.lockerId);
+    if (!locker) {
+      const { res, id } = await this.createSharedVault(`Own ${this.email}`);
+      if (res.statusCode !== 201) throw new Error(`own vault: ${res.statusCode} ${res.body}`);
+      this.lockerId = id;
+      locker = (await this.vaults()).find((v) => v.id === id)!;
+    }
     return { locker, key: await this.openVault(locker) };
   }
 

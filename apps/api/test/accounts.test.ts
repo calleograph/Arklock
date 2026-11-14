@@ -265,9 +265,8 @@ describe('end-to-end encryption and access control', () => {
     const bLogin = await new TestClient(app, 'carol@example.com', 'carol-password-1');
     expect((await bLogin.register()).statusCode).toBe(201);
     await bLogin.login();
-    const vaultsOfCarol = await bLogin.vaults();
-    expect(vaultsOfCarol).toHaveLength(1);
-    expect(vaultsOfCarol[0]!.id).not.toBe(created.vaultId);
+    // без роли в сейфе чужой сейф не виден в списке
+    expect(await bLogin.vaults()).toHaveLength(0);
     for (const [method, url, payload] of [
       ['GET', `/api/v1/vaults/${created.vaultId}/entries`, undefined],
       ['GET', `/api/v1/vaults/${created.vaultId}/entries/${created.entryId}`, undefined],

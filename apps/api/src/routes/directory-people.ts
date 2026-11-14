@@ -27,7 +27,6 @@ import type { AppContext } from '../context.js';
 import { users } from '../db/schema.js';
 import { AppError, parse } from '../errors.js';
 import { hashProof, randomB64url } from '../security.js';
-import { outsideSharing } from '../sharing-policy.js';
 
 type Existing = { id: string; state: 'active' | 'pending' | 'disabled' };
 
@@ -287,14 +286,10 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
     return r;
   });
 
-  // ---- любой сотрудник: чтобы поделиться папкой или записью с человеком из домена. Условия: политика не «никто»,
-  // профили при первом входе разрешено создавать, поиск от трёх букв, число созданных профилей ограничено
+  // ---- любой сотрудник: чтобы поделиться папкой или записью с человеком из домена. Условия: профили при первом входе
+  // разрешено создавать, поиск от трёх букв, число созданных профилей ограничено
   const sharingActions = new Map<string, number[]>();
-  const sharingAllowed = async (user: { role: string }) =>
-    user.role === 'admin' || (await outsideSharing(db)) !== 'off';
   app.get('/directory/people', async (req) => {
-    const { user } = authOf(req);
-    if (!(await sharingAllowed(user))) return { configured: false, items: [], problems: [] };
     const o = parse(searchQuery, req.query);
     const r = await search({ ...o, limit: Math.min(o.limit, 8) }, 3);
     // от пользователя скрыты технические подробности каталога
@@ -306,8 +301,6 @@ export const registerDirectoryPeopleRoutes: FastifyPluginAsync<{ ctx: AppContext
   });
   app.post('/directory/people/provision', async (req, reply) => {
     const { user } = authOf(req);
-    if (!(await sharingAllowed(user)))
-      throw new AppError(403, 'outside_sharing_off', 'Sharing with people outside is turned off');
     const body = parse(provisionBody, req.body);
     const [p] = await enabledProfiles(body.profileId);
     if (user.role !== 'admin' && !p?.autoProvision)

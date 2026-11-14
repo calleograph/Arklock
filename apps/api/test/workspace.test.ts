@@ -35,7 +35,7 @@ const tree = async (c: TestClient, id = vaultId, trash = false) =>
   };
 
 beforeAll(async () => {
-  ({ app, database } = await createTestApp());
+  ({ app, database } = await createTestApp({}, false));
   admin = new TestClient(app, 'admin@example.com', 'admin-password-123');
   expect((await admin.register()).statusCode).toBe(201);
   await database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
@@ -161,19 +161,6 @@ describe('shared vaults and keys', () => {
     // новый владелец передаёт обратно
     expect((await dave.req('POST', url, { userId: admin.userId })).statusCode).toBe(200);
     expect((await admin.vaults()).find((v) => v.id === tid)!.role).toBe('owner');
-    // личный сейф передать нельзя
-    const locker = (await admin.vaults()).find((v) => v.kind === 'locker')!;
-    expect(
-      (await admin.req('POST', `/vaults/${locker.id}/transfer-ownership`, { userId: dave.userId }))
-        .statusCode,
-    ).toBe(403);
-  });
-
-  it('the personal locker cannot be shared or renamed', async () => {
-    const locker = (await admin.vaults()).find((v) => v.kind === 'locker')!;
-    expect((await admin.addMember(locker.id, bob, 'reader')).statusCode).toBe(403);
-    expect((await admin.req('PATCH', `/vaults/${locker.id}`, { name: 'x' })).statusCode).toBe(403);
-    expect((await admin.req('DELETE', `/vaults/${locker.id}`)).statusCode).toBe(403);
   });
 });
 
@@ -943,6 +930,7 @@ describe('administration', () => {
     const victim = new TestClient(app, 'victim@example.com', 'victim-password-123');
     await victim.register();
     await victim.login();
+    expect((await admin.addMember(vaultId, victim, 'reader', vk)).statusCode).toBe(204);
     expect((await victim.vaults()).length).toBe(1);
     expect(
       (

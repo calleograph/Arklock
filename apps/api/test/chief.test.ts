@@ -85,13 +85,10 @@ it('the first administrator is the chief; only the chief appoints and removes fu
 it('the metadata overview is for the chief only and carries no secrets', async () => {
   const vault = await chief.createSharedVault('Overview-Vault');
   await chief.createEntry({ title: 'hidden' }, { vaultId: vault.id, vaultKey: vault.key });
-  expect((await admin2.req('GET', '/admin/structure')).json().error.code).toBe('chief_required');
-  const res = await chief.req('GET', '/admin/structure');
-  const found = res
-    .json()
-    .flatMap((s: { vaults: { id: string }[] }) => s.vaults)
-    .find((v: { id: string }) => v.id === vault.id);
-  expect(found).toMatchObject({ name: 'Overview-Vault', entries: 1, members: 1 });
+  expect((await admin2.req('GET', '/admin/vaults')).json().error.code).toBe('chief_required');
+  const res = await chief.req('GET', '/admin/vaults?q=Overview');
+  const found = res.json().items.find((v: { id: string }) => v.id === vault.id);
+  expect(found).toMatchObject({ name: 'Overview-Vault', entries: 1, people: 1, groups: [] });
   expect(res.body).not.toMatch(/cipher|sealed|nonce|wrapped/i);
 });
 
@@ -102,10 +99,9 @@ it('the overview shows open security events by risk and whether the vault was ev
   const e2 = (await chief.createEntry({ p: 2 }, { vaultId: vault.id, vaultKey: vault.key }))
     .entryId;
   const row = async () =>
-    (await chief.req('GET', '/admin/structure'))
+    (await chief.req('GET', '/admin/vaults?q=Risk'))
       .json()
-      .flatMap((s: { vaults: { id: string }[] }) => s.vaults)
-      .find((v: { id: string }) => v.id === vault.id);
+      .items.find((v: { id: string }) => v.id === vault.id);
   // ни одного отчёта: «0 проблем» не выдаётся за «проверено»
   expect((await row()).security).toMatchObject({ high: 0, medium: 0, checkedAt: null });
   const report = await chief.req('POST', `/vaults/${vault.id}/signals`, {
@@ -118,7 +114,7 @@ it('the overview shows open security events by risk and whether the vault was ev
   });
   expect(report.statusCode).toBe(200);
   const sec = (await row()).security;
-  expect(sec).toMatchObject({ high: 1, medium: 2, byType: { weak: 1, reused: 1, compromised: 1 } });
+  expect(sec).toMatchObject({ high: 1, medium: 2 });
   expect(sec.checkedAt).toEqual(expect.any(String));
 });
 

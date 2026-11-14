@@ -104,6 +104,8 @@ const assign = () =>
     await api('PUT', `/vaults/${pickVault.value}/circles/${props.circleId}`, {
       role: pickRole.value,
     });
+    // участники группы получают ключ сейфа сразу, а не при следующем входе администратора
+    await ws.distributePending(pickVault.value).catch(() => 0);
     pickVault.value = '';
     await load();
   }, t('assigned'));

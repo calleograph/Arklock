@@ -29,7 +29,7 @@ const LAYOUT_JS = LAYOUT
 const BROWSER = opt('browser', 'chromium');
 const ADMIN_TABS = (
   'overview,resources,containers,backups,logs,storage,diagnostics,certificates,smtp,ldap,sso,saml,syslog,' +
-  'webhooks,invitations,roles,updates,organization,automation,departments,vaults,wizards,transfer,shield,' +
+  'webhooks,invitations,roles,updates,organization,automation,vaults,wizards,transfer,shield,' +
   'users,circles,settings,ledger'
 ).split(',');
 const ROUTES = opt(

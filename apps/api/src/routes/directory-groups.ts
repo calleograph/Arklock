@@ -23,17 +23,7 @@ import {
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import type { Db } from '../db/connect.js';
-import {
-  circleMembers,
-  circles,
-  roles,
-  spaceCircles,
-  spaceMembers,
-  spaces,
-  users,
-  vaultCircles,
-  vaults,
-} from '../db/schema.js';
+import { circleMembers, circles, roles, users, vaultCircles, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { notifyUsers } from '../notifications.js';
 import { auditRotations, circleVaults, rotateLostAccess } from '../rotate-signals.js';
@@ -221,85 +211,6 @@ export const registerDirectoryGroupRoutes: FastifyPluginAsync<{ ctx: AppContext 
   });
 
   // ------------------------------------------------------------------ подразделения
-
-  /**
-   * Созданные подразделения: закрытое пространство, к которому подключена группа с тем же названием (так их создаёт
-   * мастер «Подразделения»). Показаны руководители (администраторы пространства), состав группы и число сейфов.
-   */
-  app.get('/admin/departments', async (req) => {
-    const o = parse(
-      z.object({
-        q: z.string().trim().max(100).default(''),
-        limit: z.coerce.number().int().min(1).max(200).default(100),
-        /** Показывать и архивные подразделения (их можно вернуть из архива). */
-        archived: z.enum(['0', '1']).default('0'),
-      }),
-      req.query,
-    );
-    const rows = await db
-      .select({
-        spaceId: spaces.id,
-        name: spaces.name,
-        circleId: circles.id,
-        description: spaces.description,
-        archived: spaces.archived,
-      })
-      .from(spaces)
-      .innerJoin(spaceCircles, eq(spaceCircles.spaceId, spaces.id))
-      .innerJoin(circles, and(eq(circles.id, spaceCircles.circleId), eq(circles.name, spaces.name)))
-      .where(
-        and(
-          o.archived === '1' ? undefined : eq(spaces.archived, false),
-          eq(spaces.publicToOrg, false),
-          eq(spaces.isDefault, false),
-        ),
-      )
-      .orderBy(asc(spaces.name))
-      .limit(o.limit);
-    const list = o.q ? rows.filter((r) => r.name.toLowerCase().includes(o.q.toLowerCase())) : rows;
-    if (!list.length) return { items: [] };
-    const spaceIds = list.map((r) => r.spaceId);
-    const circleIds = list.map((r) => r.circleId);
-    const [heads, members, vs] = await Promise.all([
-      db
-        .select({
-          spaceId: spaceMembers.spaceId,
-          id: users.id,
-          name: users.displayName,
-          pending: users.pendingActivation,
-        })
-        .from(spaceMembers)
-        .innerJoin(users, eq(users.id, spaceMembers.userId))
-        .where(and(inArray(spaceMembers.spaceId, spaceIds), eq(spaceMembers.role, 'admin'))),
-      db
-        .select({
-          circleId: circleMembers.circleId,
-          pending: users.pendingActivation,
-        })
-        .from(circleMembers)
-        .innerJoin(users, eq(users.id, circleMembers.userId))
-        .where(inArray(circleMembers.circleId, circleIds)),
-      db
-        .select({ spaceId: vaults.spaceId })
-        .from(vaults)
-        .where(and(inArray(vaults.spaceId, spaceIds), eq(vaults.kind, 'shared'))),
-    ]);
-    return {
-      items: list.map((r) => ({
-        spaceId: r.spaceId,
-        circleId: r.circleId,
-        name: r.name,
-        description: r.description,
-        archived: r.archived,
-        heads: heads
-          .filter((h) => h.spaceId === r.spaceId)
-          .map(({ id, name, pending }) => ({ id, name, pending })),
-        members: members.filter((m) => m.circleId === r.circleId).length,
-        waiting: members.filter((m) => m.circleId === r.circleId && m.pending).length,
-        vaults: vs.filter((v) => v.spaceId === r.spaceId).length,
-      })),
-    };
-  });
 
   // ------------------------------------------------------------------ предпросмотр
 

@@ -6,7 +6,7 @@ import Icon from '../components/Icon.vue';
 import InfoHint from '../components/InfoHint.vue';
 import SwitchField from '../components/SwitchField.vue';
 import { copyWithAutoClear } from '../services/clipboard';
-import { errorMessage, spaceLabel, vaultLabel } from '../services/helpers';
+import { errorMessage, vaultLabel } from '../services/helpers';
 import {
   CSV_FIELDS,
   decryptExport,
@@ -59,61 +59,32 @@ onMounted(async () => {
   }
 });
 
-// ---- где что лежит
-interface Scope {
+// ---- сейфы, доступные сотруднику
+interface VaultChoice {
   id: string;
   label: string;
-  vaults: { id: string; label: string; writable: boolean; readable: boolean; problem?: string }[];
+  writable: boolean;
+  readable: boolean;
+  problem?: string;
 }
-const scopes = computed<Scope[]>(() => {
-  const view = (v: (typeof ws.vaults)[number]) => ({
+const choices = computed<VaultChoice[]>(() =>
+  ws.vaults.map((v) => ({
     id: v.id,
-    label: v.kind === 'locker' ? t('transfer.personalVault') : vaultLabel(v, t),
+    label: vaultLabel(v, t),
     writable: v.unlocked && v.permissions.includes('entry.create'),
     readable: v.unlocked && v.permissions.includes('entry.read'),
     problem: v.unlocked ? undefined : t('transfer.noKey'),
-  });
-  const out: Scope[] = ws.spaces.map((s) => ({
-    id: s.id,
-    label: spaceLabel(s, t),
-    vaults: ws.vaults.filter((v) => v.spaceId === s.id && v.kind !== 'locker').map(view),
-  }));
-  const locker = ws.vaults.find((v) => v.kind === 'locker');
-  if (ws.personalAllowed && locker)
-    out.push({ id: 'personal', label: t('transfer.personal'), vaults: [view(locker)] });
-  return out.filter((s) => s.vaults.length);
-});
-const scopeOf = (id: string) => scopes.value.find((s) => s.id === id);
+  })),
+);
 
 // ---- импорт: куда
-const impScope = ref('');
 const impVault = ref('');
-const impVaults = computed(() => scopeOf(impScope.value)?.vaults.filter((v) => v.writable) ?? []);
-const impScopes = computed(() => scopes.value.filter((s) => s.vaults.some((v) => v.writable)));
+const impVaults = computed(() => choices.value.filter((v) => v.writable));
 function pickDefaults(): void {
   const want = (route.query.vault as string | undefined) ?? ws.currentId ?? '';
-  const home =
-    scopes.value.find((s) => s.vaults.some((v) => v.id === want && v.writable)) ??
-    impScopes.value[0];
-  impScope.value = home?.id ?? '';
-  impVault.value =
-    home?.vaults.find((v) => v.id === want && v.writable)?.id ??
-    home?.vaults.find((v) => v.writable)?.id ??
-    '';
-  const ex =
-    scopes.value.find((s) => s.vaults.some((v) => v.id === want && v.readable)) ??
-    scopes.value.find((s) => s.vaults.some((v) => v.readable));
-  expScope.value = ex?.id ?? '';
-  expVault.value =
-    ex?.vaults.find((v) => v.id === want && v.readable)?.id ??
-    ex?.vaults.find((v) => v.readable)?.id ??
-    '';
+  impVault.value = impVaults.value.find((v) => v.id === want)?.id ?? impVaults.value[0]?.id ?? '';
+  expVault.value = expVaults.value.find((v) => v.id === want)?.id ?? expVaults.value[0]?.id ?? '';
 }
-watch(impScope, () => {
-  if (!impVaults.value.some((v) => v.id === impVault.value))
-    impVault.value = impVaults.value[0]?.id ?? '';
-  void refreshExisting();
-});
 watch(impVault, () => void refreshExisting());
 
 // ---- импорт: файл
@@ -309,25 +280,20 @@ async function runImport(): Promise<void> {
 }
 
 // ---- экспорт
-const expMode = ref<'one' | 'space' | 'all'>('one');
-const expScope = ref('');
+const expMode = ref<'one' | 'all'>('one');
 const expVault = ref('');
 const expFormat = ref<'encrypted' | 'json' | 'csv'>('encrypted');
 const withFiles = ref(true);
 const confirmPlain = ref(false);
 const archivePass = ref(generateArchivePassword());
 const copied = ref(false);
-const expVaults = computed(() => scopeOf(expScope.value)?.vaults.filter((v) => v.readable) ?? []);
-const blocked = computed(() => scopes.value.flatMap((s) => s.vaults).filter((v) => !v.readable));
-watch(expScope, () => {
-  if (!expVaults.value.some((v) => v.id === expVault.value))
-    expVault.value = expVaults.value[0]?.id ?? '';
-});
-const targets = computed(() => {
-  if (expMode.value === 'one') return expVaults.value.filter((v) => v.id === expVault.value);
-  if (expMode.value === 'space') return expVaults.value;
-  return scopes.value.flatMap((s) => s.vaults).filter((v) => v.readable);
-});
+const expVaults = computed(() => choices.value.filter((v) => v.readable));
+const blocked = computed(() => choices.value.filter((v) => !v.readable));
+const targets = computed(() =>
+  expMode.value === 'one'
+    ? expVaults.value.filter((v) => v.id === expVault.value)
+    : expVaults.value,
+);
 const expProgress = ref('');
 const exported = ref<{ vaults: number; entries: number; files: number; skipped: number } | null>(
   null,
@@ -480,19 +446,13 @@ const canExport = computed(
       <p class="text-slate-500">{{ t('transfer.formats') }}</p>
       <div class="grid gap-x-3 gap-y-2 sm:grid-cols-2">
         <label class="block"
-          ><span class="field-label">{{ t('transfer.targetSpace') }}</span>
-          <select v-model="impScope" class="input" data-testid="import-space">
-            <option v-for="s in impScopes" :key="s.id" :value="s.id">{{ s.label }}</option>
-          </select></label
-        >
-        <label class="block"
           ><span class="field-label">{{ t('transfer.targetVault') }}</span>
           <select v-model="impVault" class="input" data-testid="import-vault">
             <option v-for="v in impVaults" :key="v.id" :value="v.id">{{ v.label }}</option>
           </select></label
         >
       </div>
-      <p v-if="!impScopes.length" class="text-amber-700 dark:text-amber-300">
+      <p v-if="!impVaults.length" class="text-amber-700 dark:text-amber-300">
         {{ t('transfer.readOnly') }}
       </p>
       <div class="grid items-end gap-x-3 gap-y-2 sm:grid-cols-[1fr_auto]">
@@ -654,29 +614,13 @@ const canExport = computed(
       <p class="text-slate-500">{{ t('transfer.exportHint') }}</p>
       <fieldset class="flex flex-wrap gap-x-4 gap-y-1">
         <legend class="sr-only">{{ t('transfer.scope') }}</legend>
-        <label
-          v-for="m in ['one', 'space', 'all'] as const"
-          :key="m"
-          class="flex items-center gap-2"
-        >
+        <label v-for="m in ['one', 'all'] as const" :key="m" class="flex items-center gap-2">
           <input v-model="expMode" type="radio" :value="m" :data-testid="`export-mode-${m}`" />
           {{ t(`transfer.mode.${m}`) }}
         </label>
       </fieldset>
-      <div v-if="expMode !== 'all'" class="grid gap-x-3 gap-y-2 sm:grid-cols-2">
+      <div v-if="expMode === 'one'" class="grid gap-x-3 gap-y-2 sm:grid-cols-2">
         <label class="block"
-          ><span class="field-label">{{ t('transfer.space') }}</span>
-          <select v-model="expScope" class="input" data-testid="export-space">
-            <option
-              v-for="s in scopes.filter((x) => x.vaults.some((v) => v.readable))"
-              :key="s.id"
-              :value="s.id"
-            >
-              {{ s.label }}
-            </option>
-          </select></label
-        >
-        <label v-if="expMode === 'one'" class="block"
           ><span class="field-label">{{ t('transfer.vault') }}</span>
           <select v-model="expVault" class="input" data-testid="export-vault">
             <option v-for="v in expVaults" :key="v.id" :value="v.id">{{ v.label }}</option>

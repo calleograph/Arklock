@@ -92,8 +92,6 @@ export function errorMessage(e: unknown, t: T): string {
         return t('error.server');
       case 'reauth_required':
         return t('error.reauth');
-      case 'personal_lockers_disabled':
-        return t('error.personalDisabled');
       case 'key_missing':
         return t('error.keyMissing');
       case 'invalid_pin':
@@ -112,18 +110,6 @@ export function errorMessage(e: unknown, t: T): string {
         return t('error.pinGone');
       case 'last_owner':
         return t('error.lastOwner');
-      case 'space_not_empty':
-        return t('error.spaceNotEmpty');
-      case 'outside_sharing_off':
-        return t('error.outsideOff');
-      case 'outside_group_admin_only':
-        return t('error.outsideGroup');
-      case 'outside_sharing_admins':
-        return t('error.outsideAdmins');
-      case 'space_archived':
-        return t('error.spaceArchived');
-      case 'default_space_required':
-        return t('error.defaultSpace');
       case 'self_disable':
         return t('error.selfDisable');
       case 'mail_queue_full':
@@ -158,19 +144,9 @@ export function errorMessage(e: unknown, t: T): string {
   return hasWebCrypto() ? t('error.generic') : t('error.insecure');
 }
 
-/** Основное пространство создаётся с английским именем «Organization»: в интерфейсе показываем его на языке пользователя. */
-export function spaceLabel(s: { name: string; isDefault?: boolean }, t: T): string {
-  return s.isDefault && s.name === 'Organization' ? t('spaces.defaultName') : s.name;
-}
-
 /** Корпоративный сейф, созданный при первой регистрации, хранит английское имя «Organization»: показываем его на языке интерфейса. */
-export function vaultLabel(
-  v: { name: string | null; kind?: string },
-  t: (k: string) => string,
-): string {
-  return v.kind !== 'locker' && v.name === 'Organization'
-    ? t('spaces.defaultName')
-    : (v.name ?? '');
+export function vaultLabel(v: { name: string | null }, t: (k: string) => string): string {
+  return v.name === 'Organization' ? t('spaces.defaultName') : (v.name ?? '');
 }
 
 /** Дата и время на языке интерфейса, а не браузера: русский интерфейс в англоязычном браузере пишет даты по-русски. */

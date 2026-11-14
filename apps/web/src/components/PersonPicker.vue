@@ -43,10 +43,8 @@ const props = withDefaults(
     exclude?: string[];
     /** Искать и в каталоге домена (если он подключён). */
     directory?: boolean;
-    /** Без прав администратора (руководитель подразделения): поиск по общим точкам, а не по административным. */
-    light?: boolean;
   }>(),
-  { directory: true, light: false },
+  { directory: true },
 );
 const emit = defineEmits<{ 'update:modelValue': [Person[]] }>();
 const { t } = useI18n({
@@ -144,36 +142,16 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let seq = 0;
 
 const dirBusy = ref(false);
-/** Поиск сотрудников для руководителя подразделения: те же люди, что в окне «Предоставить доступ» (от двух букв). */
-async function lightSearch(term: string): Promise<{ items: Person[]; total: number }> {
-  if (term.length < 2) return { items: [], total: 0 };
-  const rows = await api<{ id: string; name: string; email: string; pending?: boolean }[]>(
-    'GET',
-    `/directory/users?q=${encodeURIComponent(term)}`,
-  );
-  const items = rows.slice(0, LIMIT).map((u) => ({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    title: null,
-    department: null,
-    authSource: 'local',
-    pending: u.pending,
-  }));
-  return { items, total: rows.length };
-}
 async function search(): Promise<void> {
   const mine = ++seq;
   busy.value = true;
   error.value = '';
   const term = q.value.trim();
   try {
-    const local = props.light
-      ? await lightSearch(term)
-      : await api<{ items: Person[]; total: number }>(
-          'GET',
-          `/admin/people?status=active&limit=${LIMIT}&q=${encodeURIComponent(term)}`,
-        );
+    const local = await api<{ items: Person[]; total: number }>(
+      'GET',
+      `/admin/people?status=active&limit=${LIMIT}&q=${encodeURIComponent(term)}`,
+    );
     // ответ на устаревший запрос не затирает свежий
     if (mine !== seq) return;
     items.value = local.items;
@@ -196,10 +174,7 @@ async function search(): Promise<void> {
       configured: boolean;
       items: Found[];
       problems: { profileName: string }[];
-    }>(
-      'GET',
-      `${props.light ? '/directory/people' : '/admin/people/directory'}?limit=${LIMIT}&q=${encodeURIComponent(term)}`,
-    );
+    }>('GET', `/admin/people/directory?limit=${LIMIT}&q=${encodeURIComponent(term)}`);
     if (mine !== seq) return;
     configured.value = dir.configured;
     // те, кто уже есть в Arklock, показаны в первом списке; из каталога — только ещё не заведённые
@@ -245,14 +220,10 @@ async function addFromDirectory(d: Found): Promise<void> {
   adding.value = d.dn;
   error.value = '';
   try {
-    const r = await api<Person>(
-      'POST',
-      props.light ? '/directory/people/provision' : '/admin/people/directory/provision',
-      {
-        profileId: d.profileId,
-        dn: d.dn,
-      },
-    );
+    const r = await api<Person>('POST', '/admin/people/directory/provision', {
+      profileId: d.profileId,
+      dn: d.dn,
+    });
     const person: Person = { ...r, title: r.title ?? null, department: r.department ?? null };
     // в списке каталога он больше не нужен: теперь он среди сотрудников Arklock
     domain.value = domain.value.filter((x) => x.dn !== d.dn);

@@ -18,7 +18,7 @@ const { t } = useI18n({
   messages: {
     ru: {
       title: 'Пригласить списком',
-      hint: 'По строке: «Имя; почта; группа». Группа необязательна — это название группы (подразделения), в которую сотрудник попадёт после активации; несколько групп разделяются знаком «|». Либо загрузите файл CSV.',
+      hint: 'По строке: «Имя; почта; группа». Группа необязательна — это название группы (отдела), в которую сотрудник попадёт после активации; несколько групп разделяются знаком «|». Либо загрузите файл CSV.',
       file: 'Загрузить CSV',
       sample: 'Скачать пример CSV',
       fileHelp:
@@ -45,7 +45,7 @@ const { t } = useI18n({
     },
     en: {
       title: 'Invite from a list',
-      hint: 'One per line: “Name; email; group”. The group is optional — the name of the group (department) the person joins after activation; separate several groups with “|”. Or upload a CSV file.',
+      hint: 'One per line: “Name; email; group”. The group is optional — the name of the group (team) the person joins after activation; separate several groups with “|”. Or upload a CSV file.',
       file: 'Upload CSV',
       sample: 'Download sample CSV',
       fileHelp:

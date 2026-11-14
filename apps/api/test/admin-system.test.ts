@@ -120,7 +120,6 @@ describe('overview, resources, storage, diagnostics', () => {
     expect(r.statusCode).toBe(200);
     const j = r.json();
     expect(j.counts.users).toBe(2);
-    expect(j.counts.lockers).toBe(2);
     expect(j.database.ok).toBe(true);
     expect(j.uptimeSeconds).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(j)).not.toContain('password');

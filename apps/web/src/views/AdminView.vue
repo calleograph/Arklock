@@ -11,7 +11,6 @@ import { useAuthStore } from '../stores/auth';
 import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
 import AccessOverview from '../components/AccessOverview.vue';
-import DepartmentsPanel from '../components/DepartmentsPanel.vue';
 import SetupBanner from '../components/SetupBanner.vue';
 import ErrorBoundary from '../components/ErrorBoundary.vue';
 import { generatorFrom } from '../services/policy';
@@ -27,7 +26,6 @@ import ActionMenu, { type ActionItem } from '../components/ActionMenu.vue';
 import ContextMenu from '../components/ContextMenu.vue';
 import AutomationPanel from '../components/AutomationPanel.vue';
 import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
-import PersonalLockerSettings from '../components/PersonalLockerSettings.vue';
 import InfoHint from '../components/InfoHint.vue';
 import OffboardingPanel from '../components/OffboardingPanel.vue';
 import UserProfilePanel from '../components/UserProfilePanel.vue';
@@ -60,7 +58,6 @@ const TAB_ICON: Record<string, IconName> = {
   transfer: 'transfer',
   shield: 'lock',
   keys: 'key',
-  departments: 'folder',
   access: 'search',
   users: 'user',
   circles: 'users',
@@ -87,7 +84,6 @@ const TAB_ICON: Record<string, IconName> = {
 import TransferView from './TransferView.vue';
 import SetupGuide from '../components/SetupGuide.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
-import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
 import GroupsPanel from '../components/GroupsPanel.vue';
 import PageHeading from '../components/PageHeading.vue';
@@ -124,7 +120,6 @@ type Tab =
   | 'saml'
   | 'updates'
   | 'organization'
-  | 'departments'
   | 'access'
   | 'automation'
   | 'vaults'
@@ -148,7 +143,6 @@ const SYS_TABS: SysTab[] = [
 const TAB_PERM: Record<Tab, string> = {
   users: 'admin.users',
   organization: 'admin.users',
-  departments: 'admin.circles',
   access: 'admin.users',
   vaults: 'admin.users',
   wizards: 'admin.users',
@@ -598,7 +592,7 @@ const GROUPS: { id: string; items: NavItem[] }[] = [
   { id: 'overview', items: [nav('wizards'), nav('overview'), nav('organization')] },
   {
     id: 'people',
-    items: [nav('users'), nav('invitations'), nav('departments'), nav('circles'), nav('access')],
+    items: [nav('users'), nav('invitations'), nav('circles'), nav('access')],
   },
   { id: 'vaultsGroup', items: [nav('vaults'), nav('transfer')] },
   {
@@ -707,7 +701,6 @@ const ALL_TABS: Tab[] = [
   'roles',
   'updates',
   'organization',
-  'departments',
   'access',
   'automation',
   'vaults',
@@ -858,7 +851,6 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <VaultsInventory v-else-if="tab === 'vaults'" />
           <SetupGuide v-else-if="tab === 'wizards'" />
           <TransferView v-else-if="tab === 'transfer'" />
-          <DepartmentsPanel v-else-if="tab === 'departments'" />
           <AccessOverview v-else-if="tab === 'access'" />
           <WebhookSettings v-else-if="tab === 'webhooks'" />
           <SsoSettings v-else-if="tab === 'sso'" />
@@ -1180,44 +1172,6 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 >
                   <option value="admins">{{ t('admin.onlyAdmins') }}</option>
                   <option value="members">{{ t('admin.allMembers') }}</option>
-                </select></label
-              >
-              <label class="setting-row"
-                ><span class="inline-flex items-center gap-1"
-                  >{{ t('admin.sharingOutside')
-                  }}<InfoHint :text="t('admin.sharingOutsideHint')" /></span
-                ><select
-                  :value="settings['sharing.outside']"
-                  class="input w-auto"
-                  data-testid="set-sharing-outside"
-                  @change="
-                    saveSetting('sharing.outside', ($event.target as HTMLSelectElement).value)
-                  "
-                >
-                  <option value="owners">{{ t('admin.sharingOwners') }}</option>
-                  <option value="admins">{{ t('admin.sharingAdmins') }}</option>
-                  <option value="off">{{ t('admin.sharingOff') }}</option>
-                </select></label
-              >
-              <label class="setting-row"
-                ><span class="inline-flex items-center gap-1"
-                  >{{ t('admin.sharingMaxDays')
-                  }}<InfoHint :text="t('admin.sharingMaxDaysHint')" /></span
-                ><select
-                  :value="settings['sharing.outsideMaxDays']"
-                  class="input w-auto"
-                  data-testid="set-sharing-days"
-                  @change="
-                    saveSetting(
-                      'sharing.outsideMaxDays',
-                      Number(($event.target as HTMLSelectElement).value),
-                    )
-                  "
-                >
-                  <option v-for="n in [30, 90, 180, 365]" :key="n" :value="n">
-                    {{ t('admin.sharingDays', { n }) }}
-                  </option>
-                  <option :value="0">{{ t('admin.sharingNoLimit') }}</option>
                 </select></label
               >
               <label class="setting-row"
@@ -1660,9 +1614,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     )
                   "
               /></label>
-              <PersonalLockerSettings />
             </section>
-            <ManagedVaultSettings v-show="settingsTab === 'storage'" />
             <section
               class="card space-y-3 p-4 text-sm"
               data-testid="settings-group-notify"

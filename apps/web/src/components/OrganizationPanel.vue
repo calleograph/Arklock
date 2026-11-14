@@ -3,14 +3,14 @@ import InfoHint from './InfoHint.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
+import { errorMessage, when } from '../services/helpers';
 import { confirmStepUp } from '../services/stepup';
 import { useAuthStore } from '../stores/auth';
 import PersonPicker, { type Person as Found } from './PersonPicker.vue';
 
 /**
- * Главный администратор и обзор организации. Роль только передаётся: преемник подтверждает приём своим
- * паролем разблокировки сейфов. Обзор — метаданные (названия, владельцы, число участников и записей), без содержимого.
+ * Главный администратор. Роль только передаётся: преемник подтверждает приём своим паролем разблокировки сейфов.
+ * Обзор всех сейфов — в разделе «Сейфы».
  */
 const { t } = useI18n();
 const auth = useAuthStore();
@@ -27,73 +27,18 @@ interface Status {
   offer: { to: Person | null; expiresAt: string } | null;
   offers: { to: Person | null; expiresAt: string }[];
 }
-interface VaultRow {
-  id: string;
-  name: string | null;
-  owners: string[];
-  members: number;
-  groups: number;
-  entries: number;
-  lastChange: string | null;
-  security: { high: number; medium: number; checkedAt: string | null };
-}
-interface SpaceRow {
-  id: string;
-  name: string;
-  archived: boolean;
-  publicToOrg: boolean;
-  isDefault: boolean;
-  vaults: VaultRow[];
-}
-// итог подразделения: открытые события по риску и сейфы, которые ни разу не проверялись
-const totals = (sp: SpaceRow) => ({
-  high: sp.vaults.reduce((a, v) => a + v.security.high, 0),
-  medium: sp.vaults.reduce((a, v) => a + v.security.medium, 0),
-  unchecked: sp.vaults.filter((v) => !v.security.checkedAt).length,
-});
-// рейтинг подразделений по риску: у организации с десятками отделов подробные таблицы — это сотни строк
-const ranking = computed(() =>
-  structure.value
-    .filter((s) => s.vaults.length)
-    .map((s) => ({ s, ...totals(s), entries: s.vaults.reduce((a, v) => a + v.entries, 0) }))
-    .sort(
-      (a, b) =>
-        b.high - a.high ||
-        b.medium - a.medium ||
-        b.unchecked - a.unchecked ||
-        a.s.name.localeCompare(b.s.name, undefined, { numeric: true }),
-    ),
-);
 const status = ref<Status | null>(null);
-const structure = ref<SpaceRow[]>([]);
 const successorPick = ref<Found[]>([]);
 const successor = computed(() => successorPick.value[0]?.id ?? '');
 const password = ref('');
-const query = ref('');
 const busy = ref(false);
 const error = ref('');
 const notice = ref('');
-
-const shown = computed(() => {
-  const q = query.value.trim().toLowerCase();
-  if (!q) return structure.value;
-  return structure.value
-    .map((s) => ({
-      ...s,
-      vaults: s.vaults.filter((v) =>
-        [s.name, v.name ?? '', ...v.owners].some((x) => x.toLowerCase().includes(q)),
-      ),
-    }))
-    .filter((s) => s.vaults.length);
-});
 
 async function load(): Promise<void> {
   error.value = '';
   try {
     status.value = await api<Status>('GET', '/admin/chief');
-    if (status.value.you) {
-      structure.value = await api<SpaceRow[]>('GET', '/admin/structure');
-    }
   } catch (e) {
     error.value = errorMessage(e, t);
   }
@@ -353,139 +298,6 @@ async function cancel(): Promise<void> {
         </details>
       </template>
       <p v-else-if="status" class="text-xs text-slate-500">{{ t('chief.onlyChief') }}</p>
-    </section>
-
-    <section v-if="status?.you" class="card p-4 text-sm" data-testid="structure">
-      <div class="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h2>
-            {{ t('chief.structure') }}<InfoHint class="ml-1" :text="t('chief.structureHint')" />
-          </h2>
-        </div>
-        <input
-          v-model="query"
-          type="search"
-          class="input w-full sm:w-80"
-          :placeholder="t('chief.find')"
-          :aria-label="t('chief.find')"
-        />
-      </div>
-      <div v-if="ranking.length > 3 && !query" class="mt-3" data-testid="structure-rank">
-        <h3 class="text-sm font-semibold">
-          {{ t('chief.rank') }}<InfoHint class="ml-1" :text="t('chief.rankHint')" />
-        </h3>
-        <div
-          class="mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 dark:border-slate-700"
-        >
-          <table class="w-full table-fixed text-sm">
-            <thead class="sticky top-0 bg-white text-left text-xs text-slate-500 dark:bg-slate-900">
-              <tr>
-                <th class="px-2 py-1">{{ t('chief.rank') }}</th>
-                <th>{{ t('chief.rankVaults') }}</th>
-                <th>{{ t('chief.entries') }}</th>
-                <th>{{ t('chief.rankHigh') }}</th>
-                <th>{{ t('chief.rankMedium') }}</th>
-                <th>{{ t('chief.rankUnchecked') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="r in ranking"
-                :key="r.s.id"
-                class="border-t border-slate-200 dark:border-slate-800"
-                data-testid="structure-rank-row"
-              >
-                <td class="px-2 py-1">
-                  <button type="button" class="font-medium underline" @click="query = r.s.name">
-                    {{ spaceLabel(r.s, t) }}
-                  </button>
-                </td>
-                <td class="tabular-nums">{{ r.s.vaults.length }}</td>
-                <td class="tabular-nums">{{ r.entries }}</td>
-                <td class="tabular-nums" :class="r.high ? 'font-medium text-red-600' : ''">
-                  {{ r.high }}
-                </td>
-                <td class="tabular-nums" :class="r.medium ? 'text-amber-700' : ''">
-                  {{ r.medium }}
-                </td>
-                <td class="tabular-nums">{{ r.unchecked }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <p v-if="!shown.length" class="mt-3 text-slate-500">{{ t('chief.nothing') }}</p>
-      <div v-for="s in shown" :key="s.id" class="mt-4">
-        <h3 class="text-sm font-semibold">
-          {{ spaceLabel(s, t) }}
-          <span class="text-xs font-normal text-slate-500"
-            >·
-            {{
-              s.archived ? t('chief.archived') : s.publicToOrg ? t('chief.open') : t('chief.closed')
-            }}</span
-          >
-          <span
-            v-if="s.vaults.length"
-            class="ml-2 text-xs font-normal"
-            :data-testid="`structure-risk-${s.id}`"
-            >{{ t('chief.riskTotals', totals(s)) }}</span
-          >
-        </h3>
-        <p v-if="!s.vaults.length" class="text-xs text-slate-500">{{ t('chief.noVaults') }}</p>
-        <div v-else class="mt-1 overflow-x-auto">
-          <table class="w-full table-fixed text-sm">
-            <thead class="text-left text-xs text-slate-500">
-              <tr>
-                <th class="py-1 pr-3">{{ t('chief.vault') }}</th>
-                <th class="pr-3">{{ t('chief.owners') }}</th>
-                <th class="pr-3">{{ t('chief.members') }}</th>
-                <th class="pr-3">{{ t('chief.groups') }}</th>
-                <th class="pr-3">{{ t('chief.entries') }}</th>
-                <th class="pr-3">{{ t('chief.security') }}</th>
-                <th>{{ t('chief.lastChange') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="v in s.vaults"
-                :key="v.id"
-                class="border-t border-slate-200 dark:border-slate-800"
-                data-testid="structure-vault"
-              >
-                <td class="py-1 pr-3 font-medium">{{ vaultLabel(v, t) }}</td>
-                <td class="pr-3">{{ v.owners.join(', ') || '—' }}</td>
-                <td class="pr-3 tabular-nums">{{ v.members }}</td>
-                <td class="pr-3 tabular-nums">{{ v.groups }}</td>
-                <td class="pr-3 tabular-nums">{{ v.entries }}</td>
-                <td
-                  class="whitespace-nowrap pr-3 text-xs"
-                  :title="v.security.checkedAt ? when(v.security.checkedAt) : ''"
-                  data-testid="structure-security"
-                >
-                  <span v-if="!v.security.checkedAt" class="text-slate-500">{{
-                    t('chief.unchecked')
-                  }}</span>
-                  <template v-else-if="v.security.high || v.security.medium">
-                    <span v-if="v.security.high" class="text-red-600">{{
-                      t('chief.high', { n: v.security.high })
-                    }}</span>
-                    <span v-if="v.security.high && v.security.medium"> · </span>
-                    <span v-if="v.security.medium" class="text-amber-700 dark:text-amber-300">{{
-                      t('chief.medium', { n: v.security.medium })
-                    }}</span>
-                  </template>
-                  <span v-else class="text-emerald-700 dark:text-emerald-300">{{
-                    t('chief.clean')
-                  }}</span>
-                </td>
-                <td class="whitespace-nowrap text-xs">
-                  {{ v.lastChange ? when(v.lastChange) : '—' }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </section>
   </div>
 </template>

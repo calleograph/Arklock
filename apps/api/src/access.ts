@@ -13,8 +13,6 @@ import {
 } from './db/schema.js';
 import { notFound } from './errors.js';
 import { BUILTIN_VAULT_ROLES, effective, expandRole, type RoleDef } from './perms.js';
-import { personalLockersAllowed } from './personal-lockers.js';
-import { spaceAccess } from './spaces.js';
 
 /** Эффективное право на ветвь или запись. */
 export type Access = 'reader' | 'editor' | 'manager';
@@ -169,10 +167,8 @@ export async function loadRoleDefs(db: Db): Promise<Map<string, RoleDef & { name
 
 /** Уже прочитанное для списка сейфов: одно и то же не запрашивается заново для каждого сейфа. */
 export interface AccessPrefetch {
-  vault: { kind: 'locker' | 'shared'; spaceId: string | null };
+  vault: { kind: 'locker' | 'shared' };
   circleIds: string[];
-  /** Членство пользователя в пространствах; нет записи — проверяется запросом. */
-  spaceMember: Map<string, boolean>;
 }
 
 export async function loadAccess(
@@ -184,26 +180,14 @@ export async function loadAccess(
 ): Promise<VaultAccess> {
   const [vault] = pre
     ? [pre.vault]
-    : await db
-        .select({ kind: vaults.kind, spaceId: vaults.spaceId })
-        .from(vaults)
-        .where(eq(vaults.id, vaultId));
+    : await db.select({ kind: vaults.kind }).from(vaults).where(eq(vaults.id, vaultId));
   const [user] = await db
     .select({ disabledAt: users.disabledAt })
     .from(users)
     .where(eq(users.id, userId));
   if (!user || user.disabledAt) return new VaultAccess(vaultId, userId, null, new Map(), new Map());
-  if (vault?.kind === 'locker' && !(await personalLockersAllowed(db, userId))) {
-    return new VaultAccess(vaultId, userId, null, new Map(), new Map());
-  }
-  if (!vault) return new VaultAccess(vaultId, userId, null, new Map(), new Map());
-  if (
-    vault.kind === 'shared' &&
-    !(
-      pre?.spaceMember.get(vault.spaceId ?? '') ??
-      (await spaceAccess(db, vault.spaceId, userId)).member
-    )
-  )
+  // доступ даёт только роль в сейфе (лично, через группу или выдача папки); личные сейфы организацией не используются
+  if (!vault || vault.kind === 'locker')
     return new VaultAccess(vaultId, userId, null, new Map(), new Map());
   const nowMs = now.getTime();
   const [direct] = await db

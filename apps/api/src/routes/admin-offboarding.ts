@@ -21,7 +21,6 @@ import {
   sessions,
   signals,
   spaceMembers,
-  spaces,
   users,
   vaultCircles,
   vaultKeys,
@@ -33,7 +32,6 @@ import { auditRotations, openRotateSignals, visibleEntries } from '../rotate-sig
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { notifyUsers } from '../notifications.js';
 import { hasPasskey, hasTotp } from '../auth/mfa.js';
-import { spaceAccess } from '../spaces.js';
 
 /**
  * «Смените пароль» после увольнения сотрудника — одно общее событие по всем его записям: всего, открыто
@@ -241,25 +239,6 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
     const linkedGroups = new Set(
       (await readLdapProfiles(db)).flatMap((x) => x.groups.map((g) => g.circleId)),
     );
-    const memberOf: {
-      id: string;
-      name: string;
-      isDefault: boolean;
-      head: boolean;
-      guest: boolean;
-    }[] = [];
-    for (const s of await db.select().from(spaces)) {
-      const access = await spaceAccess(db, s.id, id);
-      // head — администратор пространства (руководитель подразделения), в том числе через группу
-      if (access.member)
-        memberOf.push({
-          id: s.id,
-          name: s.name,
-          isDefault: s.isDefault,
-          head: access.admin,
-          guest: access.guest,
-        });
-    }
     return {
       user: {
         id,
@@ -281,7 +260,6 @@ export const registerOffboardingRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
         createdAt: target.createdAt.toISOString(),
       },
       mfa: { totp: await hasTotp(ctx, id), passkey: await hasPasskey(ctx, id) },
-      spaces: memberOf,
       groups: groups.map((g) => ({ ...g, directory: linkedGroups.has(g.id) })),
       sessionList: sessionList.map((x) => ({
         ...x,

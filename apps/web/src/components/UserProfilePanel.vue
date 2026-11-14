@@ -4,7 +4,7 @@ import { onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { api } from '../services/api';
-import { deviceLabel, errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
+import { deviceLabel, errorMessage, vaultLabel, when } from '../services/helpers';
 import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
@@ -44,7 +44,6 @@ interface Profile {
     createdAt: string;
   };
   mfa: { totp: boolean; passkey: boolean };
-  spaces: { id: string; name: string; isDefault: boolean; head?: boolean }[];
   groups: { id: string; name: string; adminRoleId: string | null; directory?: boolean }[];
   sessionList: { id: string; lastSeenAt: string; ip: string | null; userAgent: string | null }[];
   vaults: { id: string; name: string; role: string; entries: number }[];
@@ -308,7 +307,6 @@ async function endSessions(): Promise<void> {
         <UserMemberships
           :user-id="userId"
           :groups="p.groups"
-          :spaces="p.spaces"
           :role-name="roleName"
           @changed="(load(), emit('changed'))"
         />

@@ -15,7 +15,6 @@ const signature = b64url(80, 100);
 export const vaultInfo = z.object({
   id: uuid,
   kind: z.enum(['locker', 'shared']),
-  spaceId: uuid.nullable().optional(),
   name: z.string().nullable(),
   /** Текущая версия ключа хранилища. */
   keyVersion: z.number().int(),
@@ -36,19 +35,14 @@ export const vaultInfo = z.object({
   pendingKey: z.boolean(),
   /** Эффективные полномочия пользователя в хранилище (без грантов на ветви и записи). */
   permissions: z.array(z.string()),
-  /** Персональный корпоративный сейф: к нему по политике организации имеют доступ группы-хранители. */
-  managed: z.boolean().optional(),
 });
 export type VaultInfo = z.infer<typeof vaultInfo>;
 
 export const createVaultRequest = z.object({
   id: uuid,
-  spaceId: uuid.optional(),
   name: z.string().trim().min(1).max(100),
   sealedKey: sealedBox,
   signature,
-  /** Создать как персональный корпоративный сейф (по политике организации); пространство — основное. */
-  managed: z.boolean().optional(),
 });
 
 export const entryWrite = z.object({

@@ -36,7 +36,7 @@ export const ruCorporate = {
     policyUnavailable:
       'Не удалось загрузить политику. Возраст и соответствие требованиям не проверены.',
     personalRestricted:
-      'Личные сейфы отключены в организации. В вашем прежнем личном сейфе сохранено записей: {n}. Их можно удалить в «Настройках»; для переноса попросите администратора временно разрешить личный сейф.',
+      'Личных сейфов в Arklock больше нет. В вашем прежнем личном сейфе осталось записей: {n}. Они не видны никому; удалить их можно в «Настройках».',
     pending: 'Есть сейфы, для которых ещё ожидается выдача ключа.',
     continuity: 'Риск потери доступа к корпоративному сейфу',
     continuityHint:
@@ -108,7 +108,7 @@ export const enCorporate = {
       'Weak passwords score below 2 out of 4. Reuse is checked within this vault. Age starts at the last password change. Breach checks run separately.',
     policyUnavailable: 'Policy could not be loaded. Age and policy compliance were not checked.',
     personalRestricted:
-      'Your organization turned off personal vaults. Your previous personal vault still holds {n} entries. You can delete them in “Settings”; to move them, ask an administrator to temporarily allow your personal vault.',
+      'Arklock no longer has personal vaults. Your previous personal vault still holds {n} entries. Nobody can see them; you can delete them in “Settings”.',
     pending: 'Some vaults are still waiting for a key to be issued.',
     continuity: 'Risk of losing access to a corporate vault',
     continuityHint:

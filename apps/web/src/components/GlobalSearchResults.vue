@@ -66,8 +66,8 @@ function open(entry: { id: string; vaultId: string }): void {
           >
             <span class="block truncate font-medium">{{ entry.title }}</span>
             <span class="block truncate text-xs text-slate-500"
-              >{{ entry.vaultName ?? t('vault.locker')
-              }}<span v-if="entry.path"> / {{ entry.path }}</span> · {{ entry.username }}</span
+              >{{ entry.vaultName }}<span v-if="entry.path"> / {{ entry.path }}</span> ·
+              {{ entry.username }}</span
             >
           </button>
         </li>

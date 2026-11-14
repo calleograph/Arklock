@@ -59,8 +59,8 @@ export const ruHelp = {
         a: 'Добавьте сотрудников в группу (Администрирование → Группы), затем в настройках сейфа назначьте группе роль. Права действуют сразу, доступ к данным готов после передачи ключа.',
       },
       personal: {
-        q: 'Как отключить личные сейфы?',
-        a: 'Администрирование → Настройки → «Сейфы и файлы» → «Личные сейфы». По умолчанию они запрещены; существующие данные не удаляются.',
+        q: 'Есть ли у сотрудников личные сейфы?',
+        a: 'Нет. Все сейфы принадлежат организации: доступ к ним выдаётся группам и сотрудникам, и когда сотрудник уходит, пароли остаются у компании.',
       },
       ldap: {
         q: 'Как подключить Active Directory?',
@@ -79,14 +79,6 @@ export const ruHelp = {
       vault: {
         name: 'Сейф',
         text: 'Набор записей с общими правами доступа, например «Бухгалтерия». Внутри — папки и записи.',
-      },
-      personalVault: {
-        name: 'Личный сейф',
-        text: 'Сейф одного сотрудника. В корпоративной установке по умолчанию отключён администратором.',
-      },
-      space: {
-        name: 'Пространство',
-        text: 'Группа сейфов подразделения или проекта. Доступ к закрытому пространству назначается сотрудникам и группам.',
       },
       folder: {
         name: 'Папка',
@@ -110,7 +102,7 @@ export const ruHelp = {
       },
       corpRecovery: {
         name: 'Корпоративное восстановление',
-        text: 'Заранее подготовленный пакет, с помощью которого уполномоченный администратор возвращает доступ к корпоративным сейфам, если все владельцы недоступны. Личные сейфы он не открывает.',
+        text: 'Заранее подготовленный пакет, с помощью которого уполномоченный администратор возвращает доступ к корпоративным сейфам, если все владельцы недоступны.',
       },
       role: {
         name: 'Роль',
@@ -245,7 +237,7 @@ export const ruHelp = {
         'Полномочия действуют, пока человек состоит в группе. Исключение из группы закрывает их сразу. Состав такой группы меняет только полный администратор.',
     },
     corpRecovery: {
-      text: 'Заранее сохранённый офлайн-пакет позволяет уполномоченному администратору вернуть доступ к корпоративным сейфам, если все владельцы недоступны. Личные сейфы он не затрагивает.',
+      text: 'Заранее сохранённый офлайн-пакет позволяет уполномоченному администратору вернуть доступ к корпоративным сейфам, если все владельцы недоступны.',
       details:
         'Работает только для сейфов, подключённых заранее. Скрытого ключа нет: пакет и парольную фразу хранит организация.',
     },
@@ -293,7 +285,6 @@ export const ruHelp = {
     server:
       'Сервер сейчас не может выполнить действие. Повторите попытку позже; если ошибка повторяется, сообщите администратору.',
     reauth: 'Для этого действия подтвердите пароль разблокировки сейфов.',
-    personalDisabled: 'Личные сейфы отключены политикой организации.',
     keyMissing: 'Доступ к записям ещё готовится. Записи появятся сами, обычно через пару минут.',
     pinWrong: 'Неверный PIN. Осталось попыток: {n}.',
     pinLocked: 'Слишком много неверных попыток: PIN отключён. Введите пароль разблокировки сейфов.',
@@ -304,15 +295,6 @@ export const ruHelp = {
       'Быстрая разблокировка PIN-кодом отключена администратором. Введите пароль разблокировки сейфов.',
     pinGone: 'PIN на этом устройстве больше не действует. Введите пароль разблокировки сейфов.',
     lastOwner: 'Сначала назначьте нового владельца сейфа.',
-    spaceNotEmpty: 'В пространстве есть сейфы. Перенесите их или заархивируйте пространство.',
-    notInSpace:
-      'Этого человека нет в подразделении сейфа. Чтобы он видел весь сейф, добавьте его в подразделение (Подразделения → Управлять). Чтобы дать доступ только к папке или записи, выдайте его на самой папке или записи.',
-    outsideOff: 'Выдавать доступ людям вне подразделения запрещено администратором.',
-    outsideGroup:
-      'Группе вне подразделения доступ выдаёт только администратор подразделения. Отдельному человеку доступ выдать можно.',
-    outsideAdmins: 'Людям вне подразделения доступ выдаёт только администратор сейфа.',
-    spaceArchived: 'Пространство в архиве: сначала верните его из архива.',
-    defaultSpace: 'Основное пространство нельзя удалить или изменить таким образом.',
     selfDisable: 'Нельзя отключить собственную учётную запись.',
     mailQueueFull: 'Очередь писем переполнена. Повторите позже.',
     smtpNotConfigured: 'Почта не настроена. Укажите сервер на вкладке «Почта».',
@@ -369,9 +351,9 @@ export const ruHelp = {
   personal: {
     title: 'Прежний личный сейф',
     intro:
-      'Личные сейфы в организации отключены. Ваши прежние личные записи сохранены: {n}. Администратор не видит их содержимого и не может их удалить за вас.',
+      'Личных сейфов в Arklock больше нет. В вашем прежнем личном сейфе осталось записей: {n}. Администратор не видит их содержимого и не может удалить их за вас.',
     exportHint:
-      'Чтобы перенести записи в корпоративный сейф или выгрузить их, попросите администратора временно разрешить вам личный сейф.',
+      'Открыть эти записи больше нельзя. Если там были рабочие пароли, сохраните их заново в сейфе своего отдела.',
     eraseTitle: 'Удалить личный сейф',
     eraseWarn:
       'Будут удалены все записи, вложения и ключи вашего личного сейфа. Отменить это нельзя. В резервных копиях данные останутся до истечения срока их хранения.',
@@ -796,35 +778,6 @@ export const ruHelp = {
     offered: 'Предложение отправлено. Роль перейдёт после подтверждения преемником.',
     pending: 'Ожидает подтверждения: {name}, до {until}.',
     cancel: 'Отозвать предложение',
-    structure: 'Обзор организации',
-    structureHint:
-      'Пространства и сейфы: только метаданные, без записей и ключей. Личные сейфы не показаны.',
-    find: 'Сейф, пространство или владелец',
-    nothing: 'Ничего не найдено.',
-    archived: 'в архиве',
-    open: 'открыто организации',
-    closed: 'закрытое',
-    noVaults: 'Сейфов нет.',
-    vault: 'Сейф',
-    owners: 'Владельцы',
-    members: 'Участники',
-    groups: 'Группы',
-    entries: 'Записи',
-    lastChange: 'Последнее изменение',
-    security: 'Безопасность',
-    unchecked: 'не проверялся',
-    clean: 'проблем нет',
-    high: 'высокий риск: {n}',
-    medium: 'средний: {n}',
-    riskTotals:
-      'открытых событий: высокий риск {high}, средний {medium}; не проверялись: {unchecked}',
-    rank: 'Подразделения по риску',
-    rankHint:
-      'Сначала те, где больше открытых событий высокого риска; нажмите на название, чтобы открыть подробности.',
-    rankVaults: 'Сейфов',
-    rankHigh: 'Высокий',
-    rankMedium: 'Средний',
-    rankUnchecked: 'Не проверялись',
     offerTitle: 'Роль главного администратора',
     offerText:
       '{name} предлагает вам роль главного администратора. Предложение действует до {until}.',
@@ -905,28 +858,13 @@ export const ruHelp = {
     noAccess: 'Нет доступа к корпоративным сейфам.',
     sessions: 'Активные сеансы: {n}',
     extras: 'Токенов API: {a} · внешних ссылок: {l}',
-    field: { title: 'Должность', department: 'Подразделение', phone: 'Телефон' },
+    field: { title: 'Должность', department: 'Отдел', phone: 'Телефон' },
     fromDirectory: 'из каталога',
     syncedHint: 'Поля из каталога обновляются при входе и сверке; меняются только в каталоге.',
     edit: 'Изменить карточку',
-    spaces: 'Пространства',
-    noSpaces: 'Нет доступа к пространствам.',
     mfaPasskey: 'второй фактор: ключ',
     mfaTotp: 'второй фактор: код',
     mfaNone: 'без второго фактора',
-  },
-  admin: {
-    sharingOutside: 'Доступ людям вне подразделения',
-    sharingOutsideHint:
-      'Кто может выдать доступ к папке или записи человеку не из этого подразделения, в том числе из каталога домена. Человек становится гостем: он видит только выданную папку или запись, а не весь сейф. Доступ ко всему сейфу и доступ группам вне подразделения выдаёт только администратор. Администратор подразделения может всё это независимо от настройки.',
-    sharingOwners: 'Тот, кто управляет папкой или записью',
-    sharingAdmins: 'Только администратор сейфа',
-    sharingOff: 'Никто (только администратор подразделения)',
-    sharingMaxDays: 'Предел срока доступа гостю',
-    sharingMaxDaysHint:
-      'Доступ человеку вне подразделения всегда временный: без указанного срока ставится 30 дней, больше этого предела указать нельзя.',
-    sharingDays: '{n} дней',
-    sharingNoLimit: 'Без предела',
   },
   grantDlg: {
     open: 'Предоставить доступ',
@@ -938,11 +876,10 @@ export const ruHelp = {
     hasAccess: 'уже есть доступ',
     fromDirectory: 'из каталога',
     hintVault:
-      'Доступ ко всему сейфу выдаётся людям и группам этого подразделения. Человеку из другого подразделения выдайте доступ к отдельной папке или записи: он увидит только выданное.',
+      'Доступ ко всему сейфу удобнее выдавать группе отдела: каждый, кого добавят в группу, получит его сам. Человеку, которому нужна только часть, выдайте доступ к отдельной папке или записи.',
     hintObject:
-      'Выбрать можно любого сотрудника, в том числе из каталога домена. Если он не из этого подразделения, он станет гостем и увидит только эту папку или запись, а не весь сейф. Укажите срок: по его окончании доступ закроется. Технически гость получает ключ сейфа, а сервер отдаёт ему только выданное: для особо важных секретов заведите отдельный сейф.',
+      'Выбрать можно любого сотрудника или группу, в том числе из каталога домена. Человек без доступа к сейфу увидит только эту папку или запись. Срок по желанию: по его окончании доступ закроется. Технически получатель получает ключ сейфа, а сервер отдаёт ему только выданное: для особо важных секретов заведите отдельный сейф.',
     errProvision: 'Профили сотрудников из каталога создаёт администратор.',
-    errOutsideOff: 'Выдавать доступ людям вне подразделения запрещено администратором.',
     errNotAllowed: 'Правило входа каталога не разрешает вход этому человеку.',
     errNoEmail: 'В записи каталога нет почты: профиль создать нельзя.',
     errLocal: 'Человек с этой почтой уже есть в Arklock вне каталога: найдите его в списке.',
@@ -961,26 +898,15 @@ export const ruHelp = {
     },
     submit: 'Предоставить доступ',
     done: 'Доступ предоставлен: {n}.',
-    guests: 'В подразделение добавлены гостями: {names}. Они видят только то, что им выдано.',
     donePending:
       'Права назначены: {n}. Ключ сейфа будет передан, как только участник с правом управления откроет Arklock.',
   },
-  dept: {
-    manage: 'Управлять подразделением',
-    page: 'Подразделение',
-    pageHint:
-      'Здесь руководитель управляет своим подразделением: название, руководители, состав, гости и сейфы отдела. Всё, что вы меняете, действует сразу. Состав подразделения — это люди, которые видят его сейфы.',
-    back: 'К паролям',
-  },
   ws: {
-    department: 'Подразделение',
-    departmentHint:
-      'Подразделение — это отдел или вся организация. Внутри него лежат сейфы с паролями. Сначала выберите подразделение, затем сейф.',
     vaultHint:
-      'Сейф — защищённый набор паролей подразделения. В нём папки и записи. Доступ можно выдать на весь сейф, на папку или на отдельную запись, в том числе человеку из другого подразделения.',
+      'Сейф — защищённый набор паролей, например отдела. В нём папки и записи. Доступ выдаётся группе или человеку на весь сейф, на папку или на отдельную запись.',
     vault: 'Сейф',
     actions: 'Действия',
-    actionsTitle: 'Действия с сейфом и пространством',
+    actionsTitle: 'Действия с сейфом',
     entryActions: 'Ещё действия с записью',
     moveEntry: 'Перенести в другой сейф',
     more: 'Подробнее',
@@ -1120,8 +1046,8 @@ export const enHelp = {
         a: 'Add people to a group (Administration → Groups), then assign the group a role in the vault settings. Rights apply at once; data access is ready once the key is passed on.',
       },
       personal: {
-        q: 'How do I turn off personal vaults?',
-        a: 'Administration → Settings → “Vaults and files” → “Personal vaults”. They are denied by default; existing data is not deleted.',
+        q: 'Do employees have personal vaults?',
+        a: 'No. Every vault belongs to the organization: access is given to groups and employees, and when an employee leaves, the passwords stay with the company.',
       },
       ldap: {
         q: 'How do I connect Active Directory?',
@@ -1140,14 +1066,6 @@ export const enHelp = {
       vault: {
         name: 'Vault',
         text: 'A set of entries with shared access rights, for example “Accounting”. It holds folders and entries.',
-      },
-      personalVault: {
-        name: 'Personal vault',
-        text: 'One employee’s own vault. In a corporate installation it is turned off by default.',
-      },
-      space: {
-        name: 'Space',
-        text: 'A group of vaults for a department or project. Access to a private space is given to people and groups.',
       },
       folder: {
         name: 'Folder',
@@ -1171,7 +1089,7 @@ export const enHelp = {
       },
       corpRecovery: {
         name: 'Corporate recovery',
-        text: 'A pre-made package that lets an authorized administrator restore access to corporate vaults when every owner is unavailable. It never opens personal vaults.',
+        text: 'A pre-made package that lets an authorized administrator restore access to corporate vaults when every owner is unavailable.',
       },
       role: {
         name: 'Role',
@@ -1306,7 +1224,7 @@ export const enHelp = {
         'The rights last while the person is in the group. Removing them from the group ends the rights at once. Only a full administrator changes the members of such a group.',
     },
     corpRecovery: {
-      text: 'A pre-saved offline package lets an authorized administrator restore access to corporate vaults when every owner is unavailable. It does not touch personal vaults.',
+      text: 'A pre-saved offline package lets an authorized administrator restore access to corporate vaults when every owner is unavailable.',
       details:
         'It works only for vaults connected in advance. There is no hidden key: the organization keeps the package and its passphrase.',
     },
@@ -1354,7 +1272,6 @@ export const enHelp = {
     server:
       'The server cannot do this right now. Try again later; if it keeps happening, tell an administrator.',
     reauth: 'Confirm your vault unlock password for this action.',
-    personalDisabled: 'Personal vaults are turned off by your organization’s policy.',
     keyMissing:
       'Access to the entries is still being prepared. They appear by themselves, usually in a couple of minutes.',
     pinWrong: 'Wrong PIN. Attempts left: {n}.',
@@ -1367,15 +1284,6 @@ export const enHelp = {
       'Quick unlock with a PIN is turned off by the administrator. Enter your vault unlock password.',
     pinGone: 'The PIN no longer works on this device. Enter your vault unlock password.',
     lastOwner: 'Assign a new owner of the vault first.',
-    spaceNotEmpty: 'The space still has vaults. Move them or archive the space.',
-    notInSpace:
-      'This person is not in the vault’s department. To let them see the whole vault, add them to the department (Departments → Manage). To give access to a folder or entry only, share it on the folder or entry itself.',
-    outsideOff: 'An administrator has forbidden giving access to people outside the department.',
-    outsideGroup:
-      'Only a department administrator gives a group outside the department access. A single person can be given access.',
-    outsideAdmins: 'Only a vault administrator gives access to people outside the department.',
-    spaceArchived: 'The space is archived: restore it from the archive first.',
-    defaultSpace: 'The default space cannot be deleted or changed this way.',
     selfDisable: 'You cannot disable your own account.',
     mailQueueFull: 'The mail queue is full. Try again later.',
     smtpNotConfigured: 'Mail is not configured. Enter the server on the “Mail” tab.',
@@ -1432,9 +1340,9 @@ export const enHelp = {
   personal: {
     title: 'Previous personal vault',
     intro:
-      'Personal vaults are turned off in your organization. Your previous personal entries are kept: {n}. Administrators cannot see their contents or delete them for you.',
+      'Arklock no longer has personal vaults. Your previous personal vault still holds {n} entries. Administrators cannot see their contents or delete them for you.',
     exportHint:
-      'To move the entries to a corporate vault or export them, ask an administrator to temporarily allow your personal vault.',
+      'These entries can no longer be opened. If they held work passwords, save them again in your team vault.',
     eraseTitle: 'Delete the personal vault',
     eraseWarn:
       'All entries, attachments and keys of your personal vault will be deleted. This cannot be undone. Backups keep the data until they expire.',
@@ -1859,33 +1767,6 @@ export const enHelp = {
     offered: 'The offer is sent. The role passes after the successor confirms it.',
     pending: 'Awaiting confirmation: {name}, until {until}.',
     cancel: 'Withdraw the offer',
-    structure: 'Organization overview',
-    structureHint:
-      'Spaces and vaults: metadata only, no entries or keys. Personal vaults are not shown.',
-    find: 'Vault, space or owner',
-    nothing: 'Nothing found.',
-    archived: 'archived',
-    open: 'open to the organization',
-    closed: 'private',
-    noVaults: 'No vaults.',
-    vault: 'Vault',
-    owners: 'Owners',
-    members: 'Members',
-    groups: 'Groups',
-    entries: 'Entries',
-    lastChange: 'Last change',
-    security: 'Security',
-    unchecked: 'never checked',
-    clean: 'no problems',
-    high: 'high risk: {n}',
-    medium: 'medium: {n}',
-    riskTotals: 'open events: high risk {high}, medium {medium}; never checked: {unchecked}',
-    rank: 'Departments by risk',
-    rankHint: 'Most open high-risk events first; click a name to see the details.',
-    rankVaults: 'Vaults',
-    rankHigh: 'High',
-    rankMedium: 'Medium',
-    rankUnchecked: 'Not checked',
     offerTitle: 'Chief administrator role',
     offerText: '{name} offers you the chief administrator role. The offer is valid until {until}.',
     accept: 'Accept the role',
@@ -1969,24 +1850,9 @@ export const enHelp = {
     fromDirectory: 'from the directory',
     syncedHint: 'Directory fields update at sign-in and sync; change them in the directory.',
     edit: 'Edit card',
-    spaces: 'Spaces',
-    noSpaces: 'No access to spaces.',
     mfaPasskey: 'second factor: key',
     mfaTotp: 'second factor: code',
     mfaNone: 'no second factor',
-  },
-  admin: {
-    sharingOutside: 'Access for people outside the department',
-    sharingOutsideHint:
-      'Who may give access to a folder or entry to a person from another department, including one from the domain directory. The person becomes a guest: they see only the shared folder or entry, not the whole vault. Access to a whole vault and access for groups outside the department is given only by an administrator. A department administrator can do all this regardless of the setting.',
-    sharingOwners: 'Whoever manages the folder or entry',
-    sharingAdmins: 'Only a vault administrator',
-    sharingOff: 'Nobody (only a department administrator)',
-    sharingMaxDays: 'Guest access term cap',
-    sharingMaxDaysHint:
-      'Access for a person outside the department is always limited in time: without a term 30 days are set, and a longer term cannot be given.',
-    sharingDays: '{n} days',
-    sharingNoLimit: 'No cap',
   },
   grantDlg: {
     open: 'Grant access',
@@ -1998,11 +1864,10 @@ export const enHelp = {
     hasAccess: 'already has access',
     fromDirectory: 'from the directory',
     hintVault:
-      'Access to the whole vault goes to people and groups of this department. For a person from another department give access to a single folder or entry: they see only what is given.',
+      'Access to the whole vault is easiest through the group of a team: everyone added to the group gets it by themselves. For a person who needs only a part, give access to a single folder or entry.',
     hintObject:
-      'You can pick any employee, including one from the domain directory. If they are not from this department they become a guest and see only this folder or entry, not the whole vault. Set a term: access closes when it ends. Technically the guest receives the vault key and the server returns only what was given: for especially sensitive secrets use a separate vault.',
+      'You can pick any employee or group, including one from the domain directory. A person without access to the vault sees only this folder or entry. The term is optional: access closes when it ends. Technically the recipient receives the vault key and the server returns only what was given: for especially sensitive secrets use a separate vault.',
     errProvision: 'The profiles of directory employees are created by an administrator.',
-    errOutsideOff: 'An administrator has forbidden giving access to people outside the department.',
     errNotAllowed: 'The sign-in rule of the directory does not allow this person.',
     errNoEmail: 'The directory entry has no e-mail: a profile cannot be created.',
     errLocal:
@@ -2022,27 +1887,15 @@ export const enHelp = {
     },
     submit: 'Grant access',
     done: 'Access granted: {n}.',
-    guests:
-      'Added to the department as guests: {names}. They see only what has been given to them; access is limited in time: until {date}.',
     donePending:
       'Rights assigned: {n}. The vault key will be passed on as soon as a member who can manage it opens Arklock.',
   },
-  dept: {
-    manage: 'Manage the department',
-    page: 'Department',
-    pageHint:
-      'Here the head manages the department: name, heads, members, guests and department vaults. Everything you change applies at once. The department members are the people who see its vaults.',
-    back: 'Back to passwords',
-  },
   ws: {
-    department: 'Department',
-    departmentHint:
-      'A department is a team or the whole organization. It holds vaults with passwords. Choose the department first, then the vault.',
     vaultHint:
-      'A vault is a protected password store of the department, with folders and entries. Access can be given to the whole vault, a folder or a single entry, including to a person from another department.',
+      'A vault is a protected password store, for example of a team, with folders and entries. Access is given to a group or a person for the whole vault, a folder or a single entry.',
     vault: 'Vault',
     actions: 'Actions',
-    actionsTitle: 'Vault and space actions',
+    actionsTitle: 'Vault actions',
     entryActions: 'More entry actions',
     moveEntry: 'Move to another vault',
     more: 'Details',

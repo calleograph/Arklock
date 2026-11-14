@@ -478,16 +478,9 @@ export const useAuthStore = defineStore('auth', () => {
     if (hasToken.value) await api('PUT', '/auth/preferences', { seenRelease: version });
   }
 
-  /** Пространство, которое открывается при входе (на всех устройствах): id, «personal» или null — по умолчанию. */
-  async function setHomeSpace(space: string | null): Promise<void> {
-    await api('PUT', '/auth/preferences', { homeSpace: space });
-    if (user.value) user.value = { ...user.value, homeSpace: space };
-  }
-
   return {
     setTheme,
     markReleaseSeen,
-    setHomeSpace,
     hold,
     user,
     unlocked,

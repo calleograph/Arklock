@@ -169,10 +169,9 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
 
   app.get('/admin/overview', async () => {
     const now = new Date();
-    const [u, shared, lockers, ent, att, sess, hand, migs] = await Promise.all([
+    const [u, shared, ent, att, sess, hand, migs] = await Promise.all([
       num(db.select({ n: count() }).from(users)),
       num(db.select({ n: count() }).from(vaults).where(eq(vaults.kind, 'shared'))),
-      num(db.select({ n: count() }).from(vaults).where(eq(vaults.kind, 'locker'))),
       num(db.select({ n: count() }).from(entries).where(isNull(entries.deletedAt))),
       num(db.select({ n: count() }).from(attachments).where(eq(attachments.status, 'ready'))),
       num(
@@ -206,7 +205,6 @@ export const registerAdminSystemRoutes: FastifyPluginAsync<{ ctx: AppContext }> 
       counts: {
         users: u,
         sharedVaults: shared,
-        lockers,
         entries: ent,
         attachments: att,
         activeSessions: sess,

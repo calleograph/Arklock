@@ -19,7 +19,7 @@ const { t } = useI18n({
   messages: {
     ru: {
       title: 'Увольнение сотрудника',
-      what: 'Учётная запись будет заблокирована, сеансы завершены, права и участие в группах сняты, токены и внешние ссылки отозваны. Записи и ключи сейфов не удаляются. Личный сейф остаётся нетронутым, его содержимое администратору недоступно.',
+      what: 'Учётная запись будет заблокирована, сеансы завершены, права и участие в группах сняты, токены и внешние ссылки отозваны. Записи и ключи сейфов не удаляются: пароли остаются в сейфах организации.',
       vaults: 'Корпоративные сейфы сотрудника',
       none: 'У сотрудника нет корпоративных сейфов.',
       entries: 'записей',
@@ -41,7 +41,7 @@ const { t } = useI18n({
     },
     en: {
       title: 'Offboard an employee',
-      what: 'The account will be blocked, sessions ended, rights and group memberships removed, API tokens and external links revoked. Vault entries and keys are not deleted. The personal vault stays untouched and its contents are not available to administrators.',
+      what: 'The account will be blocked, sessions ended, rights and group memberships removed, API tokens and external links revoked. Vault entries and keys are not deleted: the passwords stay in the organization vaults.',
       vaults: "The employee's corporate vaults",
       none: 'The employee has no corporate vaults.',
       entries: 'entries',

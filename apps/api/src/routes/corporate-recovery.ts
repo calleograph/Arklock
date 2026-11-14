@@ -39,7 +39,6 @@ import {
 } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { sha256Hex } from '../security.js';
-import { ensureRecoveredSpaceMember } from '../spaces.js';
 
 export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async (
   app,
@@ -644,7 +643,6 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
           'recovery_challenge_expired',
           'This recovery challenge has already been used or expired',
         );
-      const spaceMembershipAdded = await ensureRecoveredSpaceMember(tx, vault.spaceId, user.id);
       await tx
         .update(vaultMembers)
         .set({ role: 'admin' })
@@ -674,7 +672,6 @@ export const registerCorporateRecoveryRoutes: FastifyPluginAsync<{ ctx: AppConte
         recipient: recipient.id,
         keyVersion: challenge.keyVersion,
         ownershipTransferred: true,
-        spaceMembershipAdded,
       });
     });
     return {

@@ -151,13 +151,7 @@ async function report(): Promise<void> {
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h1 class="text-xl font-semibold">
         {{ t('inspector.title') }}:
-        {{
-          ws.current?.kind === 'locker'
-            ? t('vault.locker')
-            : ws.current
-              ? vaultLabel(ws.current, t)
-              : ''
-        }}
+        {{ ws.current ? vaultLabel(ws.current, t) : '' }}
       </h1>
       <button type="button" class="btn" @click="router.push('/')">{{ t('settings.back') }}</button>
     </div>

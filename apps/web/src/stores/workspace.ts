@@ -36,7 +36,6 @@ import type {
   EntryRecord,
   RevisionRecord,
   VaultInfo,
-  SpaceInfo,
 } from '@arklock/contracts';
 import { api, ApiError, apiBinary, apiStream } from '../services/api';
 import {
@@ -88,8 +87,6 @@ export interface MemberInfo {
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const vaults = ref<VaultView[]>([]);
-  const spaces = ref<SpaceInfo[]>([]);
-  const currentSpaceId = ref<string | null>(null);
   const currentId = ref<string | null>(null);
   const branches = shallowRef<BranchItem[]>([]);
   const entries = shallowRef<EntryItem[]>([]);
@@ -104,14 +101,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const keyLogOk = ref(true);
   /** Поиск по паролям: строка в шапке, список читает её здесь. */
   const searchQuery = ref('');
-  /** Политика организации: false — личные сейфы не показываются и не принимают записи. */
-  const personalAllowed = ref(false);
-  /** Персональный корпоративный сейф: включён ли режим, какие группы получат доступ и с какой ролью (условия показываются заранее). */
-  const managedPolicy = ref<{ enabled: boolean; guardians: string[]; role: 'reader' | 'editor' }>({
-    enabled: false,
-    guardians: [],
-    role: 'reader',
-  });
+  /** Записи из прежних личных сейфов (их больше нет): сотруднику показывается, что с ними сделать. */
   const personalDataRestricted = ref(false);
   /** Записей в личном сейфе (без содержимого) и закрытые сотрудником уведомления — из профиля на сервере. */
   const personalEntries = ref(0);
@@ -123,27 +113,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let keyLog: KeyLogEntry[] = [];
 
   const current = computed(() => vaults.value.find((v) => v.id === currentId.value) ?? null);
-  const locker = computed(() => vaults.value.find((v) => v.kind === 'locker') ?? null);
-  const spaceVaults = computed(() =>
-    vaults.value.filter((v) =>
-      currentSpaceId.value ? v.spaceId === currentSpaceId.value : v.kind === 'locker',
-    ),
-  );
 
   function clear(): void {
     for (const k of vaultKeys.values()) k.fill(0);
     vaultKeys.clear();
     vaults.value = [];
-    spaces.value = [];
-    currentSpaceId.value = null;
     searchQuery.value = '';
     currentId.value = null;
     branches.value = [];
     entries.value = [];
     trash.value = { branches: [], entries: [] };
     keyLog = [];
-    personalAllowed.value = false;
-    managedPolicy.value = { enabled: false, guardians: [], role: 'reader' };
     personalDataRestricted.value = false;
   }
 
@@ -199,48 +179,19 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function loadVaults(): Promise<void> {
     const auth = useAuthStore();
     const { privateKey, publicKey } = auth.keys();
-    spaces.value = await api<SpaceInfo[]>('GET', '/spaces');
     await loadKeyLog();
     const policy = await api<Record<string, unknown>>('GET', '/auth/policy').catch(
       (): Record<string, unknown> => ({}),
     );
-    personalAllowed.value = policy['vaults.personalLockers'] === true;
-    managedPolicy.value = {
-      enabled: policy['vaults.managedPersonal'] === true,
-      guardians: (policy['vaults.managedGuardians'] as string[] | undefined) ?? [],
-      role: policy['vaults.managedRole'] === 'editor' ? 'editor' : 'reader',
-    };
     personalDataRestricted.value = policy['vaults.personalDataRestricted'] === true;
     personalEntries.value = Number(policy['vaults.personalEntries'] ?? 0);
     dismissedNotices.value = (policy['notices.dismissed'] as string[] | undefined) ?? [];
     revealSeconds.value = Number(policy['security.revealSeconds'] ?? 0) || 0;
     generator.value = generatorFrom(policy);
-    let infos = (await api<VaultInfo[]>('GET', '/vaults')).filter(
-      (v) => personalAllowed.value || v.kind !== 'locker',
+    // по названию: список сейфов один на всю организацию, порядок не должен зависеть от сервера
+    const infos = (await api<VaultInfo[]>('GET', '/vaults')).sort((a, b) =>
+      naturalCompare(a.name ?? '', b.name ?? ''),
     );
-    if (personalAllowed.value && !infos.some((v) => v.kind === 'locker')) {
-      const id = crypto.randomUUID();
-      const key = createVaultKey();
-      try {
-        const sealedKey = await sealVaultKeyFor(key, publicKey, id, auth.user!.id, 1);
-        await api('POST', '/auth/locker', {
-          vaultId: id,
-          sealedKey,
-          signature: await signKeyGrant(
-            auth.keys().signPrivateKey,
-            id,
-            auth.user!.id,
-            1,
-            sealedKey,
-          ),
-        });
-      } catch (e) {
-        if (!(e instanceof ApiError && e.code === 'already_exists')) throw e;
-      } finally {
-        key.fill(0);
-      }
-      infos = await api<VaultInfo[]>('GET', '/vaults');
-    }
     const out: VaultView[] = [];
     for (const v of infos) {
       const view: VaultView = { ...v, unlocked: false };
@@ -289,44 +240,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         vaultKeys.delete(id);
       }
     }
-    if (currentSpaceId.value && !spaces.value.some((s) => s.id === currentSpaceId.value))
-      currentSpaceId.value = null;
-    if (!currentSpaceId.value && !currentId.value) {
-      // выбранное сотрудником пространство (если оно ему ещё доступно), иначе — организация по умолчанию;
-      // если в ней для пользователя нет сейфов, а личный сейф есть — открываем личное пространство
-      const pref = auth.user?.homeSpace;
-      const chosen = spaces.value.find((s) => s.id === pref);
-      if (pref === 'personal' && out.some((v) => v.kind === 'locker')) currentSpaceId.value = null;
-      else if (chosen) currentSpaceId.value = chosen.id;
-      else {
-        const home = spaces.value.find((s) => s.isDefault) ?? spaces.value[0];
-        const homeHasVaults = !!home && out.some((v) => v.spaceId === home.id);
-        // в пространстве организации пока нет сейфов, а в другом пространстве они есть (например, у руководителя
-        // нового отдела) — открываем его, а не пустой экран
-        const withVaults = spaces.value.find((s) => out.some((v) => v.spaceId === s.id));
-        const target = homeHasVaults ? home : (withVaults ?? home);
-        currentSpaceId.value =
-          target && (homeHasVaults || withVaults || !out.some((v) => v.kind === 'locker'))
-            ? target.id
-            : null;
-      }
-    }
     if (!currentId.value || !out.some((v) => v.id === currentId.value)) {
-      currentId.value = spaceVaults.value[0]?.id ?? null;
+      currentId.value = out[0]?.id ?? null;
     }
-    if (current.value) currentSpaceId.value = current.value.spaceId ?? null;
     void distributeAllPending();
   }
 
   async function select(id: string): Promise<void> {
-    currentSpaceId.value = vaults.value.find((v) => v.id === id)?.spaceId ?? null;
     currentId.value = id;
-    await loadTree();
-  }
-
-  async function selectSpace(id: string | null): Promise<void> {
-    currentSpaceId.value = id;
-    currentId.value = spaceVaults.value[0]?.id ?? null;
     await loadTree();
   }
 
@@ -876,10 +797,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   // ------------------------------------------------------------------ общие хранилища и участники
 
-  async function createVault(
-    name: string,
-    opts: { spaceId?: string; select?: boolean; managed?: boolean } = {},
-  ): Promise<string> {
+  async function createVault(name: string, opts: { select?: boolean } = {}): Promise<string> {
     const auth = useAuthStore();
     const { publicKey, signPrivateKey } = auth.keys();
     const id = crypto.randomUUID();
@@ -887,9 +805,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const sealedKey = await sealVaultKeyFor(key, publicKey, id, auth.user!.id, 1);
     await api('POST', '/vaults', {
       id,
-      spaceId: opts.managed ? undefined : (opts.spaceId ?? currentSpaceId.value ?? undefined),
       name,
-      ...(opts.managed ? { managed: true } : {}),
       sealedKey,
       signature: await signKeyGrant(signPrivateKey, id, auth.user!.id, 1, sealedKey),
     });
@@ -1512,19 +1428,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   return {
     vaults,
-    spaces,
-    currentSpaceId,
-    spaceVaults,
     current,
     currentId,
     searchQuery,
-    personalAllowed,
-    managedPolicy,
     personalDataRestricted,
     personalEntries,
     dismissedNotices,
     dismissNotice,
-    locker,
     branches,
     entries,
     trash,
@@ -1534,7 +1444,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     clear,
     loadVaults,
     select,
-    selectSpace,
     loadTree,
     searchEverywhere,
     saveEntry,
@@ -1563,6 +1472,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     members,
     addMember,
     distributePending,
+    distributeAllPending,
     rotate,
     attachmentList,
     attachmentAdd,

@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api } from '../services/api';
-import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
+import { errorMessage, vaultLabel, when } from '../services/helpers';
 import { useAuthStore } from '../stores/auth';
 import InfoHint from './InfoHint.vue';
 import PersonPicker, { type Person } from './PersonPicker.vue';
 
 /**
- * «Доступы»: кто куда ходит. По сотруднику — его подразделения (руководитель, участник, гость), группы и сейфы с ролью
- * и источником права. По сейфу (главный администратор) — люди, группы и гости с доступом. Только сведения о доступе:
+ * «Доступы»: кто куда ходит. По сотруднику — его группы и сейфы с ролью и источником права. По сейфу (главный
+ * администратор) — люди, группы и выданные папки и записи. Только сведения о доступе:
  * содержимого и ключей здесь нет.
  */
 const { t } = useI18n({
@@ -21,16 +21,8 @@ const { t } = useI18n({
       findUser: 'Введите имя или почту сотрудника',
       findUserHint:
         'Начните вводить имя, логин или почту: найденный сотрудник выбирается из списка, и его доступы показываются сразу.',
-      depts: 'Подразделения',
-      deptsHint:
-        'Руководитель управляет подразделением и его сейфами. Участник входит в группу подразделения и видит его сейфы с ролью группы. Гость видит только выданные ему папки и записи, на время.',
-      none: 'Ни в одном подразделении не состоит.',
-      head: 'руководитель',
-      member: 'участник',
-      guest: 'гость',
       groups: 'Группы',
-      groupsHint:
-        'Группы, в которые входит сотрудник. Через группы он получает доступ к сейфам и пространствам.',
+      groupsHint: 'Группы, в которые входит сотрудник. Через группы он получает доступ к сейфам.',
       noGroups: 'Ни в одной группе не состоит.',
       vaults: 'Сейфы',
       vaultsHint:
@@ -50,10 +42,9 @@ const { t } = useI18n({
         'Роль в сейфе, срок и выдан ли им ключ. «Нет ключа» — человек получит его, когда его выдаст администратор сейфа.',
       groupsTitle: 'Группы',
       members: 'участников: {n}',
-      guests: 'Гости и отдельные папки и записи',
+      guests: 'Отдельные папки и записи',
       guestsHint:
-        'Люди, которым выдан доступ к отдельным папкам или записям сейфа. Гость — человек из другого подразделения: он видит только выданное, доступ временный.',
-      guestMark: 'гость',
+        'Люди, которым выдан доступ к отдельным папкам или записям сейфа: они видят только выданное.',
       rulesN: 'правил: {n}',
       until: 'до {date}',
       noKey: 'нет ключа',
@@ -74,16 +65,8 @@ const { t } = useI18n({
       findUser: 'Type an employee name or e-mail',
       findUserHint:
         'Start typing a name, login or e-mail: the found employee is picked from the list and their access appears at once.',
-      depts: 'Departments',
-      deptsHint:
-        'A head manages the department and its vaults. A member is in the department group and sees its vaults with the group role. A guest sees only the folders and entries given to them, for a time.',
-      none: 'Not a member of any department.',
-      head: 'head',
-      member: 'member',
-      guest: 'guest',
       groups: 'Groups',
-      groupsHint:
-        'Groups the employee belongs to. Through groups they get access to vaults and departments.',
+      groupsHint: 'Groups the employee belongs to. Through groups they get access to vaults.',
       noGroups: 'Not a member of any group.',
       vaults: 'Vaults',
       vaultsHint:
@@ -103,10 +86,9 @@ const { t } = useI18n({
         'Role in the vault, term and whether the key is issued. “No key” — the person gets it when a vault administrator issues it.',
       groupsTitle: 'Groups',
       members: 'members: {n}',
-      guests: 'Guests and single folders and entries',
+      guests: 'Single folders and entries',
       guestsHint:
-        'People given access to single folders or entries of the vault. A guest is a person from another department: they see only what is given, for a time.',
-      guestMark: 'guest',
+        'People given access to single folders or entries of the vault: they see only what is given.',
       rulesN: 'rules: {n}',
       until: 'until {date}',
       noKey: 'no key',
@@ -137,7 +119,6 @@ interface Profile {
     authSource: string;
     role: string;
   };
-  spaces: { id: string; name: string; isDefault: boolean; head?: boolean; guest?: boolean }[];
   groups: { id: string; name: string; directory?: boolean }[];
   access: {
     id: string;
@@ -161,9 +142,6 @@ watch(picked, async (v) => {
     error.value = errorMessage(e, t);
   }
 });
-const relation = (s: { head?: boolean; guest?: boolean }) =>
-  t(s.head ? 'head' : s.guest ? 'guest' : 'member');
-const depts = computed(() => profile.value?.spaces.filter((s) => !s.isDefault) ?? []);
 const role = (r: string) =>
   r in { owner: 1, admin: 1, editor: 1, reader: 1, limited: 1 } ? t(`roles.${r}`) : r;
 
@@ -171,15 +149,12 @@ const role = (r: string) =>
 interface VRow {
   id: string;
   name: string | null;
-  kind: string;
-  space: string | null;
   owner: string | null;
 }
 const q = ref('');
 const vaultRows = ref<VRow[]>([]);
 const vaultAccess = ref<{
   name: string | null;
-  space: string | null;
   direct: {
     id: string;
     name: string;
@@ -195,7 +170,6 @@ const vaultAccess = ref<{
     email: string;
     rules: number;
     until: string | null;
-    guest: boolean;
   }[];
 } | null>(null);
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -206,7 +180,7 @@ watch([q, mode], () => {
     try {
       const r = await api<{ items: VRow[] }>(
         'GET',
-        `/admin/vaults?kind=corporate&limit=20&q=${encodeURIComponent(q.value.trim())}`,
+        `/admin/vaults?limit=20&q=${encodeURIComponent(q.value.trim())}`,
       );
       vaultRows.value = r.items;
     } catch (e) {
@@ -264,23 +238,6 @@ async function openVault(v: VRow): Promise<void> {
           </h3>
           <div>
             <h4 class="mb-1 font-medium">
-              {{ t('depts') }}<InfoHint class="ml-1" :text="t('deptsHint')" />
-            </h4>
-            <ul v-if="depts.length" class="space-y-1" data-testid="access-depts">
-              <li
-                v-for="d in depts"
-                :key="d.id"
-                class="flex min-h-11 items-center justify-between gap-2"
-                :data-testid="`access-dept-${d.name}`"
-              >
-                <span>{{ spaceLabel(d, t) }}</span>
-                <span class="badge" :class="d.head ? 'badge-brand' : ''">{{ relation(d) }}</span>
-              </li>
-            </ul>
-            <p v-else class="text-slate-500">{{ t('none') }}</p>
-          </div>
-          <div>
-            <h4 class="mb-1 font-medium">
               {{ t('groups') }}<InfoHint class="ml-1" :text="t('groupsHint')" />
             </h4>
             <ul v-if="profile.groups.length" class="flex flex-wrap gap-1">
@@ -298,7 +255,7 @@ async function openVault(v: VRow): Promise<void> {
               data-testid="access-vaults"
             >
               <li v-for="a in profile.access" :key="a.id" class="space-y-0.5 py-2">
-                <div class="font-medium">{{ vaultLabel({ name: a.name, kind: 'shared' }, t) }}</div>
+                <div class="font-medium">{{ vaultLabel({ name: a.name }, t) }}</div>
                 <div class="text-xs text-slate-600 dark:text-slate-300">
                   <span v-if="a.direct">{{ t('direct', { role: role(a.direct) }) }}</span>
                   <span v-for="g in a.groups" :key="g.name" class="ml-2">{{
@@ -331,8 +288,8 @@ async function openVault(v: VRow): Promise<void> {
           <ul class="divide-y divide-slate-200 dark:divide-slate-800">
             <li v-for="v in vaultRows" :key="v.id" class="list-row">
               <span
-                >{{ vaultLabel({ name: v.name, kind: 'shared' }, t) }}
-                <span class="text-xs text-slate-500">{{ v.space ?? '' }}</span></span
+                >{{ vaultLabel({ name: v.name }, t) }}
+                <span class="text-xs text-slate-500">{{ v.owner ?? '' }}</span></span
               >
               <button
                 type="button"
@@ -348,7 +305,6 @@ async function openVault(v: VRow): Promise<void> {
         <section v-if="vaultAccess" class="card space-y-3 p-4" data-testid="access-vault">
           <h3 class="font-medium">
             {{ vaultAccess.name }}
-            <span class="text-xs font-normal text-slate-500">{{ vaultAccess.space ?? '' }}</span>
           </h3>
           <div>
             <h4 class="mb-1 font-medium">
@@ -386,8 +342,7 @@ async function openVault(v: VRow): Promise<void> {
             <ul class="space-y-1">
               <li v-for="g in vaultAccess.grants" :key="g.id" class="list-row">
                 <span
-                  >{{ g.name }} <span class="text-xs text-slate-500">{{ g.email }}</span
-                  ><span v-if="g.guest" class="badge ml-2">{{ t('guestMark') }}</span></span
+                  >{{ g.name }} <span class="text-xs text-slate-500">{{ g.email }}</span></span
                 >
                 <span class="text-xs text-slate-600 dark:text-slate-300"
                   >{{ t('rulesN', { n: g.rules })

@@ -35,10 +35,7 @@ const props = defineProps<{
   existing?: string[];
   busy?: boolean;
   error?: string;
-  /**
-   * Что выдаётся: весь сейф (только участникам подразделения) или папка и запись (можно и человеку из другого
-   * подразделения, в том числе из каталога: он станет гостем и увидит только выданное).
-   */
+  /** Что выдаётся: весь сейф или папка и запись (человек без доступа к сейфу увидит только выданное). */
   scope?: 'vault' | 'object';
 }>();
 const emit = defineEmits<{
@@ -135,7 +132,7 @@ interface DirGroup {
 }
 async function findInDirectory(q: string, known: { id: string }[]): Promise<Result[]> {
   const enc = encodeURIComponent(q);
-  // люди — любому сотруднику (политика «делиться с людьми вне подразделения»); группы домена — только администратору
+  // люди — любому сотруднику; группы домена — только администратору
   const [people, groups] = await Promise.all([
     api<{ items: DirPerson[] }>('GET', `/directory/people?limit=8&q=${enc}`).catch((e) => {
       if (e instanceof ApiError && (e.status === 403 || e.status === 401)) directoryDenied = true;
@@ -176,7 +173,6 @@ const dirErrors: Record<string, string> = {
   account_disabled_in_arklock: 'grantDlg.errBlocked',
   ldap_unavailable: 'grantDlg.errUnavailable',
   provision_admin_only: 'grantDlg.errProvision',
-  outside_sharing_off: 'grantDlg.errOutsideOff',
 };
 async function pick(r: Result): Promise<void> {
   if (resolving.value) return;

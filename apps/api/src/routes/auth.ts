@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { and, count, eq, ne, isNull, or, sql } from 'drizzle-orm';
+import { and, count, eq, ne, isNull, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { assertKdfParams } from '@arklock/crypto';
@@ -47,20 +47,18 @@ import {
 } from '../db/schema.js';
 import { fromBase64Url, keyLogHash, verifyKeyGrant } from '@arklock/crypto';
 import { desc } from 'drizzle-orm';
-import { AppError, forbidden, notFound, parse } from '../errors.js';
+import { AppError, notFound, parse } from '../errors.js';
 import { chiefRequired } from './chief.js';
 import { attachmentIdsOfVault, DEFAULT_ENTRY_QUOTA_MIB, DEFAULT_MAX_MIB } from './attachments.js';
 import { fakeBytes, fakeUuid, hashProof, randomB64url, verifyProof } from '../security.js';
 import { invitationTokenHash } from '../activation.js';
-import { managedPolicy } from '../managed-vaults.js';
 import {
   assertWrapsOpen,
   keyModeOf,
   openManagedSecret,
   sealManagedSecret,
 } from '../managed-keys.js';
-import { personalLockersAllowed, requirePersonalLockerAllowed } from '../personal-lockers.js';
-import { DEFAULT_SPACE_ID, spaceAccess } from '../spaces.js';
+import { DEFAULT_SPACE_ID } from '../spaces.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
 
@@ -159,19 +157,16 @@ export async function insertAccount(
     prevHash,
     hash: await keyLogHash(prevHash, body.userId, body.publicKey, body.signPublicKey),
   });
-  if (opts.createCorporate) {
-    await insertLocker(tx, body.userId, body.signPublicKey, body.locker, true);
-  } else if (await personalLockersAllowed(tx, body.userId)) {
-    await insertLocker(tx, body.userId, body.signPublicKey, body.locker);
-  }
+  // первому администратору сразу создаётся сейф организации; остальные получают доступ к сейфам через группы и участников
+  if (opts.createCorporate)
+    await insertFirstVault(tx, body.userId, body.signPublicKey, body.locker);
 }
 
-async function insertLocker(
+async function insertFirstVault(
   tx: Tx,
   userId: string,
   signPublicKey: string,
   locker: RegisterRequest['locker'],
-  corporate = false,
 ): Promise<void> {
   const signOk = await verifyKeyGrant(
     fromBase64Url(signPublicKey),
@@ -184,9 +179,9 @@ async function insertLocker(
   if (!signOk) throw new AppError(400, 'bad_signature', 'Key grant signature is invalid');
   await tx.insert(vaults).values({
     id: locker.vaultId,
-    kind: corporate ? 'shared' : 'locker',
-    spaceId: corporate ? DEFAULT_SPACE_ID : null,
-    name: corporate ? 'Organization' : null,
+    kind: 'shared',
+    spaceId: DEFAULT_SPACE_ID,
+    name: 'Organization',
     keyVersion: 1,
     createdBy: userId,
   });
@@ -218,7 +213,6 @@ export async function bundle(ctx: AppContext, u: typeof users.$inferSelect): Pro
     // пока сотрудник не выбрал тему сам, действует тема по умолчанию, заданная администратором
     theme: normalizeTheme(u.theme) ?? (await defaultTheme(ctx.db)),
     seenRelease: u.seenRelease,
-    homeSpace: u.homeSpace,
     managed: !!u.managedSecret,
     managedUpgrade:
       !u.managedSecret && u.authSource !== 'local' && (await keyModeOf(ctx.db)) === 'managed',
@@ -358,20 +352,14 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
   /** Публичные для вошедших пользователей политики (нужны интерфейсу для показа доступных действий). */
   app.get('/auth/policy', { preHandler: auth }, async (req) => {
     const { user } = authOf(req);
-    const personalAllowed = await personalLockersAllowed(db, user.id);
-    const managed = await managedPolicy(db);
+    const personal = await personalEntryCount(user.id);
     const rows = await db.select().from(settings);
     const get = (k: string, d: unknown) => rows.find((r) => r.key === k)?.value ?? d;
     return {
       'vaults.creators': get('vaults.creators', 'admins'),
-      'vaults.personalLockers': personalAllowed,
-      // персональный корпоративный сейф: условия показываются сотруднику до создания
-      'vaults.managedPersonal': managed.enabled && managed.guardians.length > 0,
-      'vaults.managedGuardians': managed.guardians.map((g) => g.name),
-      'vaults.managedRole': managed.role,
-      // о прежних личных данных сообщаем, только если они действительно есть (пустой сейф — не данные)
-      'vaults.personalDataRestricted': !personalAllowed && (await personalEntryCount(user.id)) > 0,
-      'vaults.personalEntries': await personalEntryCount(user.id),
+      // записи из прежних личных сейфов (их больше нет): сотруднику показывается, что с ними сделать
+      'vaults.personalDataRestricted': personal > 0,
+      'vaults.personalEntries': personal,
       'notices.dismissed': (user.dismissedNotices as string[]) ?? [],
       'trash.retentionDays': get('trash.retentionDays', 30),
       'security.passwordMaxAgeDays': get('security.passwordMaxAgeDays', 365),
@@ -392,30 +380,6 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'generator.symbols': get('generator.symbols', true),
       'generator.exclude': get('generator.exclude', ''),
     };
-  });
-
-  /** Provision only after explicit authorization; clients retain the private encryption keys. */
-  app.post('/auth/locker', { preHandler: auth }, async (req, reply) => {
-    const { user } = authOf(req);
-    const locker = parse(registerRequest.shape.locker, req.body);
-    await db.transaction(async (tx) => {
-      await tx.select({ id: users.id }).from(users).where(eq(users.id, user.id)).for('update');
-      await requirePersonalLockerAllowed(tx, user.id);
-      const [existing] = await tx
-        .select({ id: vaults.id })
-        .from(vaults)
-        .where(
-          or(
-            eq(vaults.id, locker.vaultId),
-            and(eq(vaults.kind, 'locker'), eq(vaults.createdBy, user.id)),
-          ),
-        )
-        .limit(1);
-      if (existing) throw new AppError(409, 'already_exists', 'Personal vault already exists');
-      await insertLocker(tx, user.id, user.signPublicKey, locker);
-    });
-    await audit(db, `user:${user.id}`, 'vault.personal.create', `vault:${locker.vaultId}`);
-    return reply.status(201).send({ id: locker.vaultId });
   });
 
   /**
@@ -558,7 +522,7 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
           release: ctx.config.APP_VERSION,
           authSource: 'local',
           externalId: null,
-          createCorporate: n === 0 && !(await personalLockersAllowed(tx, body.userId)),
+          createCorporate: n === 0,
         },
       );
       if (invite) {
@@ -641,26 +605,18 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       z
         .object({
           theme: z.enum(THEME_IDS).optional(),
-          homeSpace: z.union([uuid, z.literal('personal'), z.null()]).optional(),
           seenRelease: z
             .string()
             .regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/)
             .optional(),
         })
-        .refine(
-          (b) => b.theme !== undefined || b.homeSpace !== undefined || b.seenRelease !== undefined,
-        ),
+        .refine((b) => b.theme !== undefined || b.seenRelease !== undefined),
       req.body,
     );
-    // открывать можно только пространство, в котором сотрудник состоит
-    if (body.homeSpace && body.homeSpace !== 'personal') {
-      if (!(await spaceAccess(db, body.homeSpace, user.id)).member) throw forbidden();
-    }
     await db
       .update(users)
       .set({
         ...(body.theme ? { theme: body.theme } : {}),
-        ...(body.homeSpace !== undefined ? { homeSpace: body.homeSpace } : {}),
         ...(body.seenRelease ? { seenRelease: body.seenRelease } : {}),
       })
       .where(eq(users.id, user.id));

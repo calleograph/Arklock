@@ -252,7 +252,7 @@ export async function loadEntries(o: Opened, v: Opened['vaults'][number]): Promi
       out.push({
         id: e.id,
         vaultId: v.info.id,
-        vaultName: v.info.kind === 'locker' ? 'locker' : (v.info.name ?? ''),
+        vaultName: v.info.name ?? '',
         folder: pathOf(e.branchId),
         title: String(d.title ?? ''),
         username: String(d.username ?? ''),

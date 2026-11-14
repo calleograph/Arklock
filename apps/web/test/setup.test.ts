@@ -24,7 +24,7 @@ describe('first-time setup steps', () => {
     });
     replies.set('/admin/settings', {});
     replies.set('/admin/ldap/profiles', { profiles: [] });
-    replies.set('/admin/departments?limit=200', { items: [] });
+    replies.set('/admin/circles?limit=200', { items: [] });
     replies.set('/admin/people?limit=1&status=active', { total: 1 });
     replies.set('/admin/invitations', []);
   });
@@ -36,7 +36,7 @@ describe('first-time setup steps', () => {
       'url',
       'mail',
       'signIn',
-      'departments',
+      'groups',
       'peopleLocal',
       'mfa',
       'backup',
@@ -70,8 +70,8 @@ describe('first-time setup steps', () => {
       'login',
       'access',
       'keys',
-      'departments',
       'groups',
+      'domainGroups',
       'peopleDirectory',
       'mfa',
       'backup',
@@ -87,18 +87,21 @@ describe('first-time setup steps', () => {
     });
   });
 
-  it('invited employees count for the invitation way; a department without a head is not done', async () => {
+  it('invited employees count for the invitation way; groups without a vault are not done', async () => {
     replies.set('/admin/settings', { 'setup.signIn': 'local' });
     replies.set('/admin/invitations', [{ status: 'pending' }, { status: 'used' }]);
     replies.set('/admin/people?limit=1&status=active', { total: 4 });
-    replies.set('/admin/departments?limit=200', { items: [{ heads: [], vaults: 1 }] });
+    replies.set('/admin/circles?limit=200', { items: [{ vaults: 0 }, { vaults: 0 }] });
     const s = await loadSetup();
     const people = s.steps.find((x) => x.id === 'peopleLocal')!;
     expect(people.done).toBe(true);
     expect(people.params).toEqual({ waiting: 1, signedIn: 3 });
-    const dept = s.steps.find((x) => x.id === 'departments')!;
-    expect(dept.done).toBe(false);
-    expect(dept.parts?.map((p) => p.done)).toEqual([true, false, true]);
-    expect(s.current?.id).toBe('departments');
+    const groups = s.steps.find((x) => x.id === 'groups')!;
+    expect(groups.done).toBe(false);
+    expect(groups.parts?.map((p) => p.done)).toEqual([true, false]);
+    expect(s.current?.id).toBe('groups');
+    // одной группе открыли сейф — шаг выполнен
+    replies.set('/admin/circles?limit=200', { items: [{ vaults: 0 }, { vaults: 2 }] });
+    expect((await loadSetup()).steps.find((x) => x.id === 'groups')?.done).toBe(true);
   });
 });

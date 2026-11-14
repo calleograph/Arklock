@@ -10,7 +10,7 @@
 
 - **Вход и сеансы:** `auth.login`, `auth.login.failed`, `auth.logout`, вход через каталог, SSO и SAML (в том числе неудачный), второй фактор, PIN, ключи доступа, смена пароля, восстановление, токены API, завершение сеансов.
 - **Записи и папки:** `entry.create`, `entry.update`, `entry.move`, `entry.delete`, `entry.restore`, `entry.purge`, `entry.revert`, `entry.fetch`, действия над выбранными записями, `branch.create`, `branch.update`, `branch.delete`, `branch.restore`, вложения (`attachment.add`, `attachment.download`, `attachment.delete`).
-- **Права и сейфы:** `grant.put`, `grant.delete`, `vault.member.put`, `vault.member.remove`, `vault.circle.put`, `vault.circle.remove`, `vault.keys.grant`, `vault.rotate`, `vault.owner.transfer`, создание и удаление сейфов, пространства.
+- **Права и сейфы:** `grant.put`, `grant.delete`, `vault.member.put`, `vault.member.remove`, `vault.circle.put`, `vault.circle.remove`, `vault.keys.grant`, `vault.rotate`, `vault.owner.transfer`, создание и удаление сейфов.
 - **Экспорт и ссылки:** `client.export` (формат и число записей), внешние ссылки (`handoff.create`, `handoff.open`, `handoff.revoke`).
 - **События безопасности:** события инспектора (`signal.*`), корпоративное восстановление (`corporate.recovery.*`), увольнение, блокировка и разблокировка.
 - **Администрирование:** пользователи, группы, роли, главные администраторы, настройки, интеграции, резервные копии, обновления (`admin.*`).

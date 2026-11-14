@@ -1202,44 +1202,9 @@ describe('domain groups: search, preview, link and unlink', () => {
     });
     expect(bad.json().error.code).toBe('dn_outside_base');
   });
-
-  it('the departments list shows each department with its head, members and vaults', async () => {
-    const name = 'Support department';
-    const cid = (await admin.req('POST', '/admin/circles', { name, description: '' })).json().id;
-    const space = (
-      await admin.req('POST', '/spaces', { name, publicToOrg: false, description: '' })
-    ).json();
-    expect(
-      (await admin.req('PUT', `/spaces/${space.id}/circles/${cid}`, { role: 'member' })).statusCode,
-    ).toBe(204);
-    const boris = (await admin.req('GET', '/admin/people?q=boris')).json().items[0] as {
-      id: string;
-    };
-    expect(
-      (await admin.req('PATCH', `/admin/circles/${cid}/members`, { add: [boris.id] })).statusCode,
-    ).toBe(200);
-    expect(
-      (await admin.req('PUT', `/spaces/${space.id}/users/${boris.id}`, { role: 'admin' }))
-        .statusCode,
-    ).toBe(204);
-    const r = (await admin.req('GET', '/admin/departments?q=support dep')).json();
-    expect(r.items).toEqual([
-      expect.objectContaining({
-        name,
-        circleId: cid,
-        members: 1,
-        waiting: 0,
-        vaults: 0,
-        // руководители — администраторы пространства: и создавший его, и назначенный
-        heads: expect.arrayContaining([expect.objectContaining({ id: boris.id })]),
-      }),
-    ]);
-    // обычная группа без пространства подразделением не считается
-    expect((await admin.req('GET', '/admin/departments?q=Support team')).json().items).toEqual([]);
-  });
 });
 
-describe('any employee finds domain people to share with, within the policy', () => {
+describe('any employee finds domain people to share with', () => {
   let eve: TestClient;
   const search = (c: TestClient, q: string) =>
     c.req('GET', `/directory/people?q=${encodeURIComponent(q)}&profileId=ppl`);
@@ -1266,18 +1231,6 @@ describe('any employee finds domain people to share with, within the policy', ()
       dn: found.items[0].dn,
     });
     expect(again.json()).toMatchObject({ id: made.json().id, created: false });
-  });
-
-  it('with the sharing policy "nobody" the directory stays closed for employees but not for administrators', async () => {
-    await admin.req('PUT', '/admin/settings', { 'sharing.outside': 'off' });
-    expect((await search(eve, 'sidorova')).json()).toMatchObject({ configured: false, items: [] });
-    const denied = await eve.req('POST', '/directory/people/provision', {
-      profileId: 'ppl',
-      dn: `CN=Anna Petrova,OU=Users,${BASE}`,
-    });
-    expect(denied.statusCode).toBe(403);
-    expect((await search(admin, 'sidorova')).json().items).toHaveLength(1);
-    await admin.req('PUT', '/admin/settings', { 'sharing.outside': 'owners' });
   });
 });
 

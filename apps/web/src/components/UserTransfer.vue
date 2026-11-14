@@ -5,7 +5,7 @@ import { api } from '../services/api';
 import { errorMessage } from '../services/helpers';
 
 /**
- * Перевод сотрудника в другое подразделение: сначала добавление в новую группу, затем исключение из прежней
+ * Перевод сотрудника в другую группу: сначала добавление в новую группу, затем исключение из прежней
  * (доступа не бывает «пустым» посередине). Исключение открывает «смените пароль» по тому, что сотрудник перестал видеть.
  */
 const props = defineProps<{ userId: string; groups: { id: string; name: string }[] }>();
@@ -14,7 +14,7 @@ const { t } = useI18n({
   useScope: 'local',
   messages: {
     ru: {
-      title: 'Перевод в другое подразделение',
+      title: 'Перевод в другую группу',
       from: 'Из группы',
       to: 'В группу',
       pick: 'Выберите группу',
@@ -26,7 +26,7 @@ const { t } = useI18n({
       hint: 'По записям, которые сотрудник перестанет видеть, откроются события «смените пароль».',
     },
     en: {
-      title: 'Transfer to another department',
+      title: 'Transfer to another group',
       from: 'From group',
       to: 'To group',
       pick: 'Choose a group',

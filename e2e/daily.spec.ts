@@ -195,17 +195,10 @@ test('быстрое копирование: кнопка в строке и к�
   await expect(page.getByTestId('entry-form')).toBeVisible();
 });
 
-test('панель «Корпоративные пространства» закрывается крестиком', async () => {
+test('удаление отменяется одним нажатием', async () => {
+  // предыдущий сценарий оставил открытой форму новой записи: начинаем с рабочей области
   await page.goto('/');
   await expect(page.getByTestId('entry-row').first()).toBeVisible({ timeout: 60_000 });
-  await page.getByTestId('vault-actions').click();
-  await page.getByTestId('spaces-open').click();
-  await expect(page.getByTestId('spaces-panel')).toBeVisible();
-  await page.getByTestId('spaces-close').click();
-  await expect(page.getByTestId('spaces-panel')).toHaveCount(0);
-});
-
-test('удаление отменяется одним нажатием', async () => {
   const c = new Counter(page, 'Ежедневно: удалить запись и сразу отменить');
   await page.getByTestId('scope-all').click();
   await page.getByTestId('search').fill('Сервис 045');
