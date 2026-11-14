@@ -236,7 +236,7 @@ const showRest = computed(() => !query.value.trim());
                 :href="DOCS_BASE + t(`help.docs.${id}.file`)"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="block px-4 py-2.5 text-brand-600 hover:bg-slate-50 dark:text-brand-400 dark:hover:bg-slate-800/50"
+                class="help-doc-link flex items-center px-4 py-2 text-brand-600 hover:bg-slate-50 dark:text-brand-400 dark:hover:bg-slate-800/50"
                 :data-testid="`help-doc-${id}`"
               >
                 {{ t(`help.docs.${id}.label`) }} ↗

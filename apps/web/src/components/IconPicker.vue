@@ -102,11 +102,7 @@ async function upload(e: Event): Promise<void> {
         {{ t('icons.nothing') }}
       </p>
     </div>
-    <div
-      class="flex flex-wrap items-center gap-1.5"
-      role="radiogroup"
-      :aria-label="t('icons.color')"
-    >
+    <div class="flex flex-wrap items-center gap-2" role="radiogroup" :aria-label="t('icons.color')">
       <button
         v-for="c in ICON_COLORS"
         :key="c"

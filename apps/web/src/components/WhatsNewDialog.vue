@@ -73,7 +73,7 @@ onMounted(async () => {
               <h4 class="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {{ t(`whatsnew.cat.${s.id}`) }}
               </h4>
-              <ul class="list-disc space-y-1.5 pl-5">
+              <ul class="list-disc space-y-2 pl-5">
                 <!-- eslint-disable-next-line vue/no-v-html -- текст экранируется в inline() -->
                 <li v-for="(i, n) in s.items" :key="n" v-html="inline(i)" />
               </ul>
@@ -100,7 +100,7 @@ onMounted(async () => {
                 <h4 class="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {{ t(`whatsnew.cat.${s.id}`) }}
                 </h4>
-                <ul class="list-disc space-y-1.5 pl-5">
+                <ul class="list-disc space-y-2 pl-5">
                   <!-- eslint-disable-next-line vue/no-v-html -- текст экранируется в inline() -->
                   <li v-for="(i, n) in s.items" :key="n" v-html="inline(i)" />
                 </ul>

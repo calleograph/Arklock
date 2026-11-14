@@ -61,7 +61,11 @@ const fmtBytes = (n: number | null | undefined) => {
 };
 const fmtDate = (s: string | null) => (s ? when(s) : '—');
 const fmtUptime = (s: number) =>
-  `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  t('sys.overview.uptimeValue', {
+    d: Math.floor(s / 86400),
+    h: Math.floor((s % 86400) / 3600),
+    m: Math.floor((s % 3600) / 60),
+  });
 const levelClass = (l: string) =>
   l === 'ok' ? 'text-emerald-600' : l === 'warn' ? 'text-amber-600' : 'text-red-600';
 const levelText = (l: string) => t(`sys.level.${l}`);
@@ -546,7 +550,11 @@ const DIAG_LINK: Record<string, string> = {
       <div class="card p-3 text-sm">
         <div class="text-xs text-slate-500">{{ t('sys.overview.version') }}</div>
         <div class="text-lg font-medium" data-testid="ov-version">{{ data.version }}</div>
-        <div class="text-xs text-slate-500">{{ data.commit.slice(0, 8) }} · {{ data.builtAt }}</div>
+        <!-- сборка без отметок (свой образ, разработка) не показывает «unknown · unknown» -->
+        <div v-if="data.commit !== 'unknown'" class="text-xs text-slate-500">
+          {{ data.commit.slice(0, 8)
+          }}<template v-if="data.builtAt !== 'unknown'"> · {{ data.builtAt }}</template>
+        </div>
       </div>
       <div class="card p-3 text-sm" :title="t('sys.overview.uptimeHint')">
         <div class="text-xs text-slate-500">{{ t('sys.overview.uptime') }}</div>

@@ -277,7 +277,7 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
             />
           </div>
           <div
-            class="input flex min-h-10 flex-wrap items-center gap-1.5 !py-1.5 focus-within:border-brand-500 focus-within:shadow-[var(--ring)]"
+            class="input flex min-h-10 flex-wrap items-center gap-2 !py-2 focus-within:border-brand-500 focus-within:shadow-[var(--ring)]"
           >
             <span
               v-for="p in picked"
@@ -323,7 +323,7 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
               :key="key(r)"
               role="option"
               :aria-selected="i === active"
-              class="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2"
+              class="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2"
               :class="
                 i === active
                   ? 'bg-slate-100 dark:bg-slate-800'
@@ -393,7 +393,7 @@ const levelHint = computed(() => props.levels.find((l) => l.value === level.valu
           v-if="picked.length > 1"
           class="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800"
         >
-          <li v-for="p in picked" :key="key(p)" class="flex items-center gap-2 px-3 py-1.5">
+          <li v-for="p in picked" :key="key(p)" class="flex items-center gap-2 px-3 py-2">
             <Icon
               :name="p.kind === 'user' ? 'user' : 'users'"
               class="size-4 shrink-0 text-slate-500"

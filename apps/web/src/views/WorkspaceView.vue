@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SetupBanner from '../components/SetupBanner.vue';
 import InfoHint from '../components/InfoHint.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -140,12 +141,38 @@ async function saveFolderIcon(): Promise<void> {
   if (!error.value) iconBranch.value = null;
 }
 const creatorsPolicy = ref(false);
+// список сейфов получен: до этого «нет сейфов» не показываем, чтобы не мигало
+const loaded = ref(false);
+/** Сотрудник без сейфов ждёт доступа: перечитываем список сами, чтобы сейф появился без перезагрузки страницы. */
+async function recheckVaults(): Promise<void> {
+  if (document.hidden) return;
+  await ws.loadVaults().catch(() => undefined);
+  if (!ws.vaults.length) return;
+  // сейф мог появиться в другом разделе (личный сейф, пространство отдела): открываем его, а не пустой раздел
+  if (!ws.currentId) await ws.select(ws.vaults[0]!.id).catch(() => undefined);
+  else await ws.loadTree().catch(() => undefined);
+}
+let vaultPoll: ReturnType<typeof setInterval> | null = null;
+watch(
+  () => loaded.value && !ws.vaults.length,
+  (waiting) => {
+    if (vaultPoll) clearInterval(vaultPoll);
+    vaultPoll = waiting ? setInterval(() => void recheckVaults(), 20_000) : null;
+    if (waiting) window.addEventListener('focus', recheckVaults);
+    else window.removeEventListener('focus', recheckVaults);
+  },
+);
+onBeforeUnmount(() => {
+  if (vaultPoll) clearInterval(vaultPoll);
+  window.removeEventListener('focus', recheckVaults);
+});
 
 onMounted(async () => {
   try {
     await ws.loadVaults();
     await ws.loadTree();
     ready = true;
+    loaded.value = true;
     restoreFolder();
     await openFromRoute();
     if (auth.user?.role !== 'admin') {
@@ -768,6 +795,7 @@ void router;
 
 <template>
   <section class="space-y-3">
+    <SetupBanner v-if="auth.user?.role === 'admin'" place="start" />
     <div
       class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 sm:flex sm:flex-wrap"
       data-testid="workspace-toolbar"
@@ -889,6 +917,31 @@ void router;
       {{ error }}
     </p>
 
+    <!-- новый сотрудник без доступа: объяснить, чего ждать и к кому идти, а не показывать пустой экран -->
+    <section
+      v-if="loaded && !ws.vaults.length && !error"
+      class="card empty mx-auto max-w-prose py-12"
+      data-testid="no-vaults"
+    >
+      <Icon name="lock" class="!size-8 opacity-60" />
+      <h2 class="font-semibold">{{ t('vault.noVaultsTitle') }}</h2>
+      <p>{{ t('vault.noVaultsText') }}</p>
+      <button type="button" class="btn" data-testid="no-vaults-recheck" @click="recheckVaults">
+        {{ t('vault.noVaultsRecheck') }}
+      </button>
+      <template v-if="canCreateVault">
+        <p>{{ t('vault.noVaultsCreate') }}</p>
+        <button
+          type="button"
+          class="btn-primary"
+          data-testid="no-vaults-create"
+          @click="newVault()"
+        >
+          <Icon name="plus" /> {{ t('vault.newVault') }}
+        </button>
+      </template>
+    </section>
+
     <div
       v-if="vault?.unlocked"
       class="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[14rem_minmax(0,1fr)_25rem]"
@@ -901,7 +954,7 @@ void router;
           v-for="view in ['folders', 'list', 'details'] as const"
           :key="view"
           type="button"
-          class="seg flex-1 py-1.5"
+          class="seg flex-1 py-2"
           :class="{ 'seg-on': mobileView === view }"
           :aria-pressed="mobileView === view"
           :data-testid="`mobile-view-${view}`"
@@ -1138,7 +1191,7 @@ void router;
 
         <div
           v-if="scope === 'favorites' && pinnedFolders.length"
-          class="flex flex-wrap items-center gap-1.5 text-sm"
+          class="flex flex-wrap items-center gap-2 text-sm"
           data-testid="favorite-folders"
         >
           <span class="text-xs text-slate-500">{{ t('vault.folders') }}:</span>
@@ -1156,7 +1209,7 @@ void router;
 
         <div
           v-if="issueFilter"
-          class="notice notice-warn flex items-center justify-between gap-2 !py-1.5 text-sm"
+          class="notice notice-warn flex items-center justify-between gap-2 !py-2 text-sm"
           role="status"
           data-testid="issue-filter"
         >
@@ -1188,7 +1241,7 @@ void router;
         <div class="card">
           <div
             v-if="list.length"
-            class="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500 dark:border-slate-800"
+            class="flex items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-800"
           >
             <input
               type="checkbox"
@@ -1225,7 +1278,9 @@ void router;
                           ? t('vault.emptyArchive')
                           : scope === 'trash'
                             ? t('vault.emptyTrash')
-                            : t('vault.empty')
+                            : canWrite
+                              ? t('vault.empty')
+                              : t('vault.emptyReadOnly')
                   }}
                 </p>
                 <button
@@ -1241,7 +1296,7 @@ void router;
             <li
               v-for="(e, i) in list"
               :key="e.id"
-              class="entry-row rise group flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors [-webkit-touch-callout:none] hover:bg-slate-50 max-lg:select-none dark:hover:bg-slate-800/50"
+              class="entry-row rise group flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors [-webkit-touch-callout:none] hover:bg-slate-50 max-lg:select-none dark:hover:bg-slate-800/50"
               :class="[
                 openId === e.id
                   ? 'bg-brand-50 hover:bg-brand-50 shadow-[inset_3px_0_0_var(--color-brand-500)] dark:hover:bg-brand-50'
@@ -1272,7 +1327,7 @@ void router;
               <div class="min-w-0 flex-1">
                 <button
                   type="button"
-                  class="flex w-full min-w-0 items-center gap-1.5 text-left font-medium"
+                  class="flex w-full min-w-0 items-center gap-2 text-left font-medium"
                   @click.stop="rowClick(e)"
                 >
                   <span class="truncate">{{ e.data.title }}</span>
@@ -1432,7 +1487,7 @@ void router;
     />
     <div
       v-if="undo"
-      class="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      class="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
       role="status"
       data-testid="undo-toast"
     >
@@ -1448,7 +1503,7 @@ void router;
     </div>
     <p
       v-if="flash"
-      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
+      class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900"
       role="status"
       data-testid="flash"
     >

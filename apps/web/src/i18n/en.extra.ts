@@ -417,6 +417,7 @@ export default {
     overview: {
       version: 'Arklock version',
       uptime: 'Arklock application uptime',
+      uptimeValue: '{d} d {h} h {m} min',
       uptimeHint: 'Since the application last started, not since the whole server booted.',
       state: 'Service status',
       db: 'Database',
@@ -912,6 +913,13 @@ export default {
     create: 'Invite',
     shownOnce: 'Copy the link now — it will not be shown again.',
     emailed: 'The e-mail was sent.',
+    message:
+      'Hello, {name}! An account in Arklock, the company password manager, has been created for you.\n1. Open {url}\n2. Click “I have an activation code”.\n3. Enter the account {login} and the code {code}\n4. Make up a vault unlock password and keep the recovery key.\nThe code is valid until {until}.',
+    messageLabel: 'Invitation text: send it to the employee in any convenient way',
+    copyMessage: 'Copy invitation',
+    copyCode: 'Copy code',
+    copied: 'Copied',
+    revokeInvite: 'Cancel invitation',
     exists: 'A user with this address already exists',
     status: 'Status',
     expires: 'Valid until',
@@ -1304,7 +1312,7 @@ export default {
     searchUser: 'Name or e-mail (2+ characters)',
     add: 'Add',
     signedKeyHint:
-      'The vault key is sealed to the member public key and signed by you; public keys are verified against the key log.',
+      'Access opens for the employee right after it is granted: the vault key is passed to them encrypted, the server never sees it.',
     circles: 'Group access',
     circlesHint:
       'An Arklock group opens the vault at once to all its members with the chosen role: add a person to the group and the access appears by itself. The group membership is changed under “Administration → Groups” or comes from the directory.',
@@ -1385,6 +1393,7 @@ export default {
     status: { active: 'active', used: 'used', expired: 'expired', revoked: 'revoked' },
   },
   admin: {
+    addEmployee: 'Add employee',
     settingsTab: {
       main: 'General settings',
       security: 'Security policies',
@@ -1446,7 +1455,7 @@ export default {
       departments: 'Departments',
       access: 'Access',
       vaults: 'Vault inventory',
-      wizards: 'Setup wizards',
+      wizards: 'First-time setup',
       organization: 'Organization',
       invitations: 'Create and invite',
       roles: 'Roles',

@@ -133,7 +133,7 @@ watch(groupPick, (v) => {
     <p v-if="error" class="text-red-600" role="alert">{{ error }}</p>
     <p v-if="notice" class="text-emerald-700 dark:text-emerald-300" role="status">{{ notice }}</p>
 
-    <div class="space-y-1.5" data-testid="profile-depts">
+    <div class="space-y-2" data-testid="profile-depts">
       <h3 class="text-xs font-medium text-slate-500">{{ t('depts') }}</h3>
       <ul v-if="mine.length" class="space-y-1">
         <li
@@ -182,7 +182,7 @@ watch(groupPick, (v) => {
       </div>
     </div>
 
-    <div class="space-y-1.5" data-testid="profile-group-edit">
+    <div class="space-y-2" data-testid="profile-group-edit">
       <h3 class="text-xs font-medium text-slate-500">{{ t('groups') }}</h3>
       <ul v-if="plainGroups.length" class="flex flex-wrap gap-1" data-testid="profile-groups">
         <li v-for="g in plainGroups" :key="g.id" class="badge gap-1">
@@ -208,7 +208,7 @@ watch(groupPick, (v) => {
       <GroupPicker v-model="groupPick" :placeholder="t('groupFind')" testid="profile-group-add" />
     </div>
 
-    <div v-if="otherSpaces.length" class="space-y-1.5">
+    <div v-if="otherSpaces.length" class="space-y-2">
       <h3 class="text-xs font-medium text-slate-500">{{ t('spaces') }}</h3>
       <ul class="flex flex-wrap gap-1" data-testid="profile-spaces">
         <li v-for="s in otherSpaces" :key="s.id" class="badge">{{ spaceLabel(s, t) }}</li>

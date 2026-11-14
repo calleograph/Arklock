@@ -4,6 +4,14 @@
  */
 export const ruPageHints = {
   pagehint: {
+    settings_main:
+      'Кто может регистрироваться и создавать сейфы, доступ людям вне подразделения, тема по умолчанию, проверка утечек паролей.',
+    settings_security:
+      'Политики паролей и входа, второй фактор, сеансы, корпоративное восстановление.',
+    settings_storage: 'Ограничения на размер файлов в записях и сейфах.',
+    settings_notify:
+      'Какие события приходят администраторам и сотрудникам по почте и в колокольчике.',
+    settings_network: 'Адрес, по которому сотрудники открывают Arklock, и HTTPS.',
     overview: 'Состояние сервера, службы и то, что требует внимания.',
     resources: 'Нагрузка на процессор, память и диск сервера.',
     containers: 'Службы Arklock и база данных: работают ли они и сколько занимают.',
@@ -31,7 +39,8 @@ export const ruPageHints = {
     access:
       'Здесь видно, кто куда ходит. Введите имя сотрудника: сразу появятся его подразделения (руководитель, участник или гость), группы и сейфы с ролью и источником права: напрямую или через группу. Вкладка «По сейфу» (главный администратор) показывает обратное: кто имеет доступ к выбранному сейфу, кому выдан ключ и кому доступ дали на отдельные папки и записи, в том числе гостям. Здесь только сведения о доступе, пароли не показываются. Изменить доступ можно в карточке подразделения, в карточке сотрудника и в меню «Доступ» самой папки или записи.',
     vaults: '@:managed.inventoryHint',
-    wizards: 'Пошаговые сценарии первоначальной настройки. Выполненные шаги отмечаются сами.',
+    wizards:
+      'Всё, что нужно для работы компании, по порядку: адрес, почта, вход сотрудников, подразделения, защита. Шаги отмечаются сами по фактической настройке; «Сейчас» — с чего продолжить.',
     transfer: 'Перенос паролей: импорт из других менеджеров и экспорт.',
     shield: '@:shield.intro',
     users:
@@ -43,6 +52,13 @@ export const ruPageHints = {
 };
 export const enPageHints = {
   pagehint: {
+    settings_main:
+      'Who may register and create vaults, access for people outside a department, the default theme, the leaked-password check.',
+    settings_security:
+      'Password and sign-in policies, second factor, sessions, corporate recovery.',
+    settings_storage: 'Limits on the size of files in entries and vaults.',
+    settings_notify: 'Which events reach administrators and employees by mail and under the bell.',
+    settings_network: 'The address employees open Arklock at, and HTTPS.',
     overview: 'Server status, services and what needs attention.',
     resources: 'Processor, memory and disk load of the server.',
     containers: 'Arklock services and the database: whether they run and how much they use.',
@@ -70,7 +86,8 @@ export const enPageHints = {
     access:
       'See who goes where. Type an employee name: their departments (head, member or guest), groups and vaults appear at once, with the role and where it comes from: directly or through a group. The “By vault” tab (chief administrator) shows the opposite: who can access the chosen vault, who has the key and who was given single folders and entries, guests included. Only access information is shown here, never passwords. Access is changed in the department card, the employee card and the Access menu of the folder or entry itself.',
     vaults: '@:managed.inventoryHint',
-    wizards: 'Step-by-step first-time setup. Finished steps are ticked by themselves.',
+    wizards:
+      'Everything your company needs, in order: address, mail, how employees sign in, departments, protection. Steps are ticked by themselves from the actual configuration; “Now” shows where to continue.',
     transfer: 'Moving passwords: import from other managers and export.',
     shield: '@:shield.intro',
     users:

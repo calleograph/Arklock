@@ -15,6 +15,7 @@ import {
   parseCsv,
 } from '../src/services/transfer';
 import { blankEntry, type EntryItem } from '../src/services/model';
+import { deviceLabel } from '../src/services/helpers';
 
 const item = (id: string, over: Partial<EntryItem['data']> = {}): EntryItem => ({
   id,
@@ -476,5 +477,27 @@ describe('import and export: archive password, headers, several vaults', () => {
     ]);
     expect(csv).toContain('"ИТ/Сеть"');
     expect(csv).toContain('"Склад"');
+  });
+});
+
+describe('deviceLabel', () => {
+  it('names the browser and the system instead of the raw user agent', () => {
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36',
+      ),
+    ).toBe('Chrome · Linux');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36 Edg/140.0',
+      ),
+    ).toBe('Edge · Windows');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
+      ),
+    ).toBe('Safari · iOS');
+    expect(deviceLabel(null)).toBe('—');
+    expect(deviceLabel('something-else/1.0')).toBe('something-else/1.0');
   });
 });

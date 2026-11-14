@@ -124,11 +124,7 @@ const remove = (id: string) =>
       <div v-if="devices.length" class="mt-4">
         <h3 class="text-sm font-medium">{{ t('pin.devices') }}</h3>
         <ul class="mt-1 divide-y divide-slate-200 text-sm dark:divide-slate-800">
-          <li
-            v-for="x in devices"
-            :key="x.id"
-            class="flex items-center justify-between gap-2 py-1.5"
-          >
+          <li v-for="x in devices" :key="x.id" class="flex items-center justify-between gap-2 py-2">
             <span class="min-w-0 break-words"
               >{{ x.name }} ·
               <span class="text-xs text-slate-500">{{

@@ -57,7 +57,9 @@ export default {
       'The one-time code printed by the installer on the server. Needed only to create the first administrator.',
     badSetupCode: 'Invalid setup code',
     setupDisabled: 'Initial setup is not enabled on this server (see the installation guide)',
-    firstUser: 'The first account becomes the administrator.',
+    firstUser:
+      'This is the first sign-in to a new installation. Create the chief administrator account: it manages settings, employees and access.',
+    firstAdminTitle: 'First-time setup',
     recoveryTitle: 'Recovery key',
     recoveryWarn:
       'This is the only way back in if you forget the vault unlock password. An administrator cannot help. Store it somewhere safe. It will not be shown again.',
@@ -74,6 +76,12 @@ export default {
   vault: {
     title: 'Personal vault',
     empty: 'No entries here yet. Create the first one to save a login and password.',
+    emptyReadOnly: 'This vault has no entries yet. They will appear here once someone adds them.',
+    noVaultsTitle: 'You do not have access to any vault yet',
+    noVaultsText:
+      'Shared passwords are opened by your department head or an administrator. Once you get access, the vault appears here by itself and a notification arrives under the bell.',
+    noVaultsRecheck: 'Check now',
+    noVaultsCreate: 'You can create your own vault and invite colleagues to it.',
     emptyFavorites:
       'Nothing in favourites yet. Star an entry or a folder — in its card or in the right-click menu.',
     emptyArchive: 'The archive is empty.',

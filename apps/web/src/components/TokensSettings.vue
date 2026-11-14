@@ -84,7 +84,7 @@ const fmt = (s: string | null) => (s ? when(s) : '—');
         <div class="min-w-0">
           <div class="truncate">
             {{ k.name }} <span class="font-mono text-xs text-slate-500">{{ k.prefix }}…</span>
-            <span class="ml-1 rounded bg-slate-100 px-1.5 text-xs dark:bg-slate-800">{{
+            <span class="ml-1 rounded bg-slate-100 px-2 text-xs dark:bg-slate-800">{{
               k.scope === 'read' ? t('tokens.read') : t('tokens.write')
             }}</span>
           </div>

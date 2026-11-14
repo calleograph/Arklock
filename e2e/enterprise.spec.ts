@@ -77,15 +77,28 @@ test('администратор регистрируется, открывае�
   expect(users).toHaveLength(61);
 });
 
-test('«Начало работы»: администратор видит, что настроено и что нет', async () => {
-  await page.getByTestId('menu-toggle').click();
-  await page.getByTestId('menu-full').click();
-  const list = page.getByTestId('setup-checklist');
-  await expect(list).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('setup-url')).toHaveAttribute('data-done', '0');
-  await expect(page.getByTestId('setup-dept')).toHaveAttribute('data-done', '0');
-  await expect(page.getByTestId('setup-people')).toHaveAttribute('data-done', '1');
-  await page.getByTestId('setup-dept').getByRole('link').click();
+test('первоначальная настройка: полоса «что дальше», один список шагов по порядку, переход к нужному разделу', async () => {
+  // в рабочей области администратор сразу видит, что настройка не закончена; администрирование — кнопкой в шапке
+  await expect(page.getByTestId('setup-banner')).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('header-admin').click();
+  await expect(page.getByTestId('setup-banner')).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId('setup-banner-all').click();
+  await expect(page).toHaveURL(/\/admin\/wizards$/);
+  await expect(page.getByTestId('setup-guide')).toBeVisible();
+  await expect(page.getByTestId('setup-progress')).toContainText(/Готово \d+ из \d+/);
+  // состояние берётся из настройки: сотрудники заведены, подразделений ещё нет
+  await expect(page.getByTestId('setup-step-peopleLocal')).toHaveAttribute('data-state', 'done');
+  await expect(page.getByTestId('setup-step-departments')).toHaveAttribute(
+    'data-state',
+    /now|todo/,
+  );
+  // способ входа выбирается здесь же и сохраняется на сервере
+  await page.getByTestId('setup-signin-local').click();
+  await expect(page.getByTestId('setup-step-signIn')).toHaveAttribute('data-state', 'done');
+  await expect(page.getByTestId('setup-signin-chosen')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('setup-step-signIn')).toHaveAttribute('data-state', 'done');
+  await page.getByTestId('setup-open-departments').click();
   await expect(page).toHaveURL(/\/admin\/departments$/);
 });
 
@@ -1133,15 +1146,15 @@ test('справка: темы по задачам, поиск, админист
   await staff.context().close();
 });
 
-test('«Мастера настройки»: точка входа к сложным операциям и переход к нужному разделу', async () => {
+test('«Первоначальная настройка»: четыре этапа, подпункты шагов с фактическим состоянием и переход к нужному разделу', async () => {
   await page.goto('/admin/wizards');
-  await expect(page.getByTestId('wizards')).toBeVisible();
-  for (const id of ['setup', 'dept', 'people', 'ldap', 'backup', 'recovery'])
-    await expect(page.getByTestId(`wizard-${id}`)).toBeVisible();
-  // все шесть сценариев показывают фактическое состояние шагов, а не только ссылку на раздел
-  await expect(page.getByTestId('wizard-progress')).toHaveCount(6);
-  await expect(page.getByTestId('wizards')).toContainText(/Готово \d+ из 4/);
-  await page.getByTestId('wizard-dept').click();
+  await expect(page.getByTestId('setup-guide')).toBeVisible();
+  for (const id of ['server', 'signin', 'structure', 'protection'])
+    await expect(page.getByTestId(`setup-group-${id}`)).toBeVisible();
+  // подразделения созданы раньше в этом прогоне: подпункт «создано» отмечен
+  await expect(page.getByTestId('setup-step-departments')).toContainText('✓');
+  await expect(page.getByTestId('setup-step-backup')).toContainText(/Первая копия/);
+  await page.getByTestId('setup-open-departments').click();
   await expect(page).toHaveURL(/\/admin\/departments$/);
   await expect(page.getByTestId('departments')).toBeVisible();
 });

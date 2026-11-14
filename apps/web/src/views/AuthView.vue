@@ -133,7 +133,8 @@ const title = computed(
   () =>
     ({
       signin: t('auth.signIn'),
-      register: t('auth.register'),
+      // первый запуск: это не «регистрация», а создание главного администратора новой установки
+      register: firstUser.value ? t('auth.firstAdminTitle') : t('auth.register'),
       recover: t('auth.recover'),
       unlock: t('auth.unlock'),
       activate: t('invite.activateTitle'),
@@ -495,7 +496,7 @@ async function copyRecovery(): Promise<void> {
       <ul
         class="mt-8 max-w-md divide-y divide-slate-200 border-y border-slate-200 text-sm dark:divide-slate-800 dark:border-slate-800"
       >
-        <li v-for="f in ['e2e', 'keys', 'host']" :key="f" class="flex gap-4 py-3.5">
+        <li v-for="f in ['e2e', 'keys', 'host']" :key="f" class="flex gap-4 py-3">
           <span class="num w-6 shrink-0 font-mono text-xs leading-6 text-brand-600">{{
             String(['e2e', 'keys', 'host'].indexOf(f) + 1).padStart(2, '0')
           }}</span>
@@ -801,7 +802,15 @@ async function copyRecovery(): Promise<void> {
           :disabled="busy"
           data-testid="submit"
         >
-          {{ busy ? t('common.working') : mfaStep ? t('mfa.confirm') : title }}
+          {{
+            busy
+              ? t('common.working')
+              : mfaStep
+                ? t('mfa.confirm')
+                : mode === 'register'
+                  ? t('auth.register')
+                  : title
+          }}
         </button>
 
         <button
@@ -858,7 +867,7 @@ async function copyRecovery(): Promise<void> {
           class="flex flex-wrap justify-between gap-2 text-sm text-brand-600 dark:text-brand-500"
         >
           <button
-            v-if="mode !== 'signin'"
+            v-if="mode !== 'signin' && !(mode === 'register' && firstUser)"
             type="button"
             class="underline"
             @click="switchMode('signin')"

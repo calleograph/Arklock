@@ -183,3 +183,35 @@ export const day = (iso: string | number | Date): string =>
 export function naturalCompare(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
+
+/** Строка браузера из заголовка запроса («Mozilla/5.0 (X11; Linux…) … Chrome/…») как понятное «Chrome · Linux». */
+export function deviceLabel(ua: string | null | undefined): string {
+  if (!ua) return '—';
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /YaBrowser\//.test(ua)
+        ? 'Яндекс Браузер'
+        : /Firefox\//.test(ua)
+          ? 'Firefox'
+          : /Chrome\/|CriOS\//.test(ua)
+            ? 'Chrome'
+            : /Safari\//.test(ua)
+              ? 'Safari'
+              : /^arklock-cli/i.test(ua)
+                ? 'Arklock CLI'
+                : null;
+  const os = /iPhone|iPad|iPod/.test(ua)
+    ? 'iOS'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /Windows/.test(ua)
+        ? 'Windows'
+        : /Mac OS X|Macintosh/.test(ua)
+          ? 'macOS'
+          : /Linux|X11/.test(ua)
+            ? 'Linux'
+            : null;
+  return browser || os ? [browser, os].filter(Boolean).join(' · ') : ua.slice(0, 60);
+}

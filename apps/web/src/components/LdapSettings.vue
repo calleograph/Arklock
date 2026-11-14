@@ -22,6 +22,7 @@ const { t, te } = useI18n({
     ru: {
       directory: {
         profiles: 'Подключения каталогов',
+        addMore: 'Добавить ещё подключение',
         add: 'Добавить подключение',
         remove: 'Удалить подключение',
         name: 'Название подключения',
@@ -54,6 +55,7 @@ const { t, te } = useI18n({
     en: {
       directory: {
         profiles: 'Directory connections',
+        addMore: 'Add another connection',
         add: 'Add connection',
         remove: 'Delete connection',
         name: 'Connection name',
@@ -754,7 +756,8 @@ function allowGroup(dn: string): void {
 
 <template>
   <div class="space-y-4" data-testid="ldap-settings">
-    <div class="flex flex-wrap items-end gap-2">
+    <!-- выбор подключения нужен, только когда сохранено хотя бы одно: при первой настройке сразу видна форма -->
+    <div v-if="profiles.length" class="flex flex-wrap items-end gap-2">
       <label class="min-w-48 flex-1 text-sm">
         <span class="field-label">{{ t('directory.profiles') }}</span>
         <select
@@ -777,7 +780,7 @@ function allowGroup(dn: string): void {
         data-testid="ldap-add-profile"
         @click="addProfile"
       >
-        {{ t('directory.add') }}
+        {{ t('directory.addMore') }}
       </button>
       <button
         type="button"
@@ -928,7 +931,7 @@ function allowGroup(dn: string): void {
         </div>
 
         <!-- сертификат центра сертификации -->
-        <div class="space-y-1.5" data-testid="ldap-ca">
+        <div class="space-y-2" data-testid="ldap-ca">
           <span class="field-label"
             >{{ t('dir.cert.label') }}<InfoHint :text="t('dir.cert.hint')"
           /></span>
@@ -964,13 +967,13 @@ function allowGroup(dn: string): void {
           <p v-else-if="!form.caPem && !form.pinnedFingerprint" class="field-hint">
             {{ t('dir.cert.none') }}
           </p>
-          <ul v-if="caInfo.length" class="space-y-1.5 text-xs" data-testid="ldap-ca-info">
+          <ul v-if="caInfo.length" class="space-y-2 text-xs" data-testid="ldap-ca-info">
             <li
               v-for="c in caInfo"
               :key="c.fingerprint256"
               class="space-y-0.5 rounded-md border border-slate-200 p-2 dark:border-slate-700"
             >
-              <div class="flex flex-wrap items-center gap-1.5">
+              <div class="flex flex-wrap items-center gap-2">
                 <span class="font-medium">{{ c.subject }}</span>
                 <span
                   :class="
@@ -1070,7 +1073,7 @@ function allowGroup(dn: string): void {
           data-testid="ldap-special"
         >
           <summary class="cursor-pointer text-slate-500">{{ t('dir.special') }}</summary>
-          <div class="mt-2 space-y-1.5">
+          <div class="mt-2 space-y-2">
             <SwitchField
               v-model="form.startTls"
               :label="t('ldap.startTls')"
@@ -1200,7 +1203,7 @@ function allowGroup(dn: string): void {
           {{ t('dir.steps.login') }}<InfoHint class="ml-1" :text="t('dir.steps.loginHint')" />
         </h3>
         <SwitchField v-model="form.enabled" data-testid="ldap-enabled" :label="t('dir.enable')" />
-        <fieldset class="space-y-1.5" data-testid="ldap-access">
+        <fieldset class="space-y-2" data-testid="ldap-access">
           <legend class="field-label">{{ t('dir.access.label') }}</legend>
           <label class="check-row">
             <input
@@ -1228,7 +1231,7 @@ function allowGroup(dn: string): void {
         </fieldset>
         <div
           v-if="form.access === 'groups'"
-          class="space-y-1.5 pl-7"
+          class="space-y-2 pl-7"
           data-testid="ldap-allowed-groups"
         >
           <div v-for="(g, i) in form.allowedGroups" :key="i" class="flex gap-2">

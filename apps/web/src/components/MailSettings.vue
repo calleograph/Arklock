@@ -565,7 +565,7 @@ const typeLabel = (r: Row) =>
         type="button"
         role="tab"
         :aria-selected="tab === id"
-        class="-mb-px rounded-t-md border-b-2 px-3 py-1.5 text-sm font-medium"
+        class="-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium"
         :class="
           tab === id
             ? 'border-brand-500 text-brand-700'
@@ -892,7 +892,7 @@ const typeLabel = (r: Row) =>
         :data-testid="`smtp-profile-${p.id}`"
         data-profile
       >
-        <div class="flex flex-wrap items-center gap-1.5">
+        <div class="flex flex-wrap items-center gap-2">
           <h4 class="font-semibold">{{ p.name }}</h4>
           <span v-if="p.id === activeId" class="badge-brand" data-testid="badge-active">{{
             t('mail.badge.active')
@@ -1081,7 +1081,7 @@ const typeLabel = (r: Row) =>
             <li
               v-for="c in cas"
               :key="c.id"
-              class="flex flex-wrap items-center justify-between gap-2 py-1.5"
+              class="flex flex-wrap items-center justify-between gap-2 py-2"
               data-testid="mail-ca"
             >
               <span class="min-w-0">
@@ -1208,15 +1208,15 @@ const typeLabel = (r: Row) =>
           <option value="">{{ t('mail.log.allProfiles') }}</option>
           <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
-        <label class="flex items-center gap-1.5 text-xs"
+        <label class="flex items-center gap-2 text-xs"
           >{{ t('mail.log.from')
           }}<input v-model="filter.from" type="date" class="input" data-testid="mail-log-from"
         /></label>
-        <label class="flex items-center gap-1.5 text-xs"
+        <label class="flex items-center gap-2 text-xs"
           >{{ t('mail.log.to')
           }}<input v-model="filter.to" type="date" class="input" data-testid="mail-log-to"
         /></label>
-        <label class="flex items-center gap-1.5 text-sm"
+        <label class="flex items-center gap-2 text-sm"
           ><input v-model="filter.errors" type="checkbox" data-testid="mail-log-errors" />{{
             t('mail.log.errors')
           }}</label
@@ -1242,7 +1242,7 @@ const typeLabel = (r: Row) =>
             <div>{{ typeLabel(r) }}</div>
           </div>
           <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-2">
               <span class="break-all font-medium">{{ r.to }}</span>
               <span
                 class="badge"
@@ -1271,13 +1271,13 @@ const typeLabel = (r: Row) =>
               ><template v-if="r.smtpStatus"> · SMTP {{ r.smtpStatus }}</template>
               <span v-if="r.text" class="block break-words text-slate-500">{{ r.text }}</span>
             </div>
-            <div class="break-all font-mono text-[11px] text-slate-500">
+            <div class="break-all font-mono text-xs text-slate-500">
               {{ t('mail.log.event', { id: r.id })
               }}<template v-if="r.messageId"> · {{ r.messageId }}</template
               ><template v-if="r.smtpRef"> · {{ r.smtpRef }}</template>
             </div>
           </div>
-          <div class="flex flex-wrap items-start gap-1.5 md:justify-end">
+          <div class="flex flex-wrap items-start gap-2 md:justify-end">
             <button
               v-if="canRetry(r)"
               type="button"

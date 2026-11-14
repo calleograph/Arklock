@@ -6,7 +6,7 @@ import type { SessionInfo } from '@arklock/contracts';
 import { api, ApiError } from '../services/api';
 import { changePassword, MIN_MASTER_PASSWORD } from '../services/account';
 import { useAuthStore } from '../stores/auth';
-import { errorMessage, when } from '../services/helpers';
+import { deviceLabel, errorMessage, when } from '../services/helpers';
 import MfaSettings from '../components/MfaSettings.vue';
 import TokensSettings from '../components/TokensSettings.vue';
 import ChiefOffer from '../components/ChiefOffer.vue';
@@ -139,11 +139,11 @@ async function submit(): Promise<void> {
             class="flex items-center justify-between gap-3 px-4 py-3 text-sm"
           >
             <div class="min-w-0">
-              <div class="truncate">
-                {{ s.userAgent ?? '—' }}
+              <div class="truncate" :title="s.userAgent ?? ''">
+                {{ deviceLabel(s.userAgent) }}
                 <span
                   v-if="s.current"
-                  class="ml-1 rounded bg-emerald-100 px-1.5 text-xs text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
+                  class="ml-1 rounded bg-emerald-100 px-2 text-xs text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
                   >{{ t('security.current') }}</span
                 >
               </div>
@@ -204,7 +204,7 @@ async function submit(): Promise<void> {
         </p>
         <button
           type="submit"
-          class="rounded-md bg-brand-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
+          class="rounded-md bg-brand-500 px-3 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
           :disabled="busy"
         >
           {{ busy ? t('common.working') : t('common.save') }}

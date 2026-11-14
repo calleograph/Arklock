@@ -211,8 +211,8 @@ try {
     .waitFor({ timeout: 60_000 });
 
   const scenes = [
-    { id: 'ldap', run: async () => go('admin/ldap'), ready: 'directory-guide' },
-    { id: 'wizards', run: async () => go('admin/wizards'), ready: 'directory-guide' },
+    { id: 'ldap', run: async () => go('admin/ldap'), ready: 'ldap-settings' },
+    { id: 'wizards', run: async () => go('admin/wizards'), ready: 'setup-guide' },
     {
       id: 'invitations',
       run: async () => {

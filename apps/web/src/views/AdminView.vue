@@ -12,7 +12,7 @@ import AdminSystem from '../components/AdminSystem.vue';
 import SortTh from '../components/SortTh.vue';
 import AccessOverview from '../components/AccessOverview.vue';
 import DepartmentsPanel from '../components/DepartmentsPanel.vue';
-import SetupChecklist from '../components/SetupChecklist.vue';
+import SetupBanner from '../components/SetupBanner.vue';
 import ErrorBoundary from '../components/ErrorBoundary.vue';
 import { generatorFrom } from '../services/policy';
 import { useWorkspaceStore } from '../stores/workspace';
@@ -85,13 +85,12 @@ const TAB_ICON: Record<string, IconName> = {
   automation: 'bell',
 };
 import TransferView from './TransferView.vue';
-import WizardsPanel from '../components/WizardsPanel.vue';
+import SetupGuide from '../components/SetupGuide.vue';
 import VaultsInventory from '../components/VaultsInventory.vue';
 import ManagedVaultSettings from '../components/ManagedVaultSettings.vue';
 import PersonPicker, { type Person } from '../components/PersonPicker.vue';
 import GroupsPanel from '../components/GroupsPanel.vue';
 import PageHeading from '../components/PageHeading.vue';
-import DirectoryGuide from '../components/DirectoryGuide.vue';
 import GroupsExplainer from '../components/GroupsExplainer.vue';
 import RolesPanel from '../components/RolesPanel.vue';
 import SamlSettings from '../components/SamlSettings.vue';
@@ -596,17 +595,10 @@ const nav = (tab: Tab, section?: SettingsTab, icon?: IconName): NavItem => ({
   label: section ? `admin.settingsTab.${section}` : `admin.tab.${tab}`,
 });
 const GROUPS: { id: string; items: NavItem[] }[] = [
-  { id: 'overview', items: [nav('overview'), nav('organization')] },
+  { id: 'overview', items: [nav('wizards'), nav('overview'), nav('organization')] },
   {
     id: 'people',
-    items: [
-      nav('wizards'),
-      nav('users'),
-      nav('invitations'),
-      nav('departments'),
-      nav('circles'),
-      nav('access'),
-    ],
+    items: [nav('users'), nav('invitations'), nav('departments'), nav('circles'), nav('access')],
   },
   { id: 'vaultsGroup', items: [nav('vaults'), nav('transfer')] },
   {
@@ -773,7 +765,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             ]"
             :key="b.id"
             type="button"
-            class="rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            class="rounded-md px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             :data-testid="`admin-nav-${b.id}`"
             @click="setAll(b.open)"
           >
@@ -801,7 +793,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           >
             <button
               type="button"
-              class="hidden w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-xs font-semibold hover:text-slate-900 md:flex dark:hover:text-slate-100"
+              class="hidden w-full items-center gap-2 rounded-md px-3 py-1 text-left text-xs font-semibold hover:text-slate-900 md:flex dark:hover:text-slate-100"
               :class="groupActive(g) ? 'text-brand-700' : 'text-slate-500'"
               :aria-expanded="groupOpen(g)"
               :data-group-active="groupActive(g)"
@@ -837,7 +829,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             :title="t(`admin.tab.${tab}`)"
             :hint="te(`pagehint.${tab}`) ? t(`pagehint.${tab}`) : ''"
           />
-          <SetupChecklist v-if="tab === 'overview' && isFull()" />
+          <SetupBanner v-if="tab === 'overview' && isFull()" />
           <p
             v-if="error"
             class="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
@@ -864,7 +856,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <UpdatesView v-else-if="tab === 'updates'" />
           <OrganizationPanel v-else-if="tab === 'organization'" />
           <VaultsInventory v-else-if="tab === 'vaults'" />
-          <WizardsPanel v-else-if="tab === 'wizards'" />
+          <SetupGuide v-else-if="tab === 'wizards'" />
           <TransferView v-else-if="tab === 'transfer'" />
           <DepartmentsPanel v-else-if="tab === 'departments'" />
           <AccessOverview v-else-if="tab === 'access'" />
@@ -872,7 +864,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           <SsoSettings v-else-if="tab === 'sso'" />
           <SamlSettings v-else-if="tab === 'saml'" />
           <div v-else-if="tab === 'ldap'" class="space-y-4">
-            <DirectoryGuide v-if="isFull()" />
+            <SetupBanner v-if="isFull()" />
             <LdapSettings />
           </div>
           <AdminSystem v-else-if="(SYS_TABS as string[]).includes(tab)" :section="tab as SysTab" />
@@ -905,6 +897,13 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   {{ r.name }}
                 </option>
               </select>
+              <RouterLink
+                v-if="canTab('invitations')"
+                to="/admin/invitations"
+                class="btn-primary justify-self-start lg:col-span-3"
+                data-testid="users-add"
+                ><Icon name="user-plus" /> {{ t('admin.addEmployee') }}</RouterLink
+              >
             </div>
             <UserProfilePanel
               v-if="profileOf && !offboarding"
@@ -952,7 +951,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 {{ t('common.cancel') }}
               </button>
             </div>
-            <table class="min-w-full text-sm" data-testid="users-table">
+            <table class="table-cards min-w-full text-sm" data-testid="users-table">
               <thead class="text-left text-xs text-slate-500">
                 <tr>
                   <th class="w-8 pl-3">
@@ -991,7 +990,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   data-testid="user-row"
                   @contextmenu.prevent="userMenu = { x: $event.clientX, y: $event.clientY, u }"
                 >
-                  <td class="w-8 pl-3">
+                  <td class="cell-pick w-8 pl-3">
                     <input
                       v-if="pickable(u)"
                       type="checkbox"
@@ -1001,7 +1000,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       @change="togglePick(u)"
                     />
                   </td>
-                  <td class="px-3 py-2">
+                  <td class="cell-main px-3 py-2">
                     <button
                       type="button"
                       class="text-left font-medium hover:text-brand-600 hover:underline"
@@ -1014,9 +1013,11 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       t('chief.badge')
                     }}</span>
                     <div class="text-xs text-slate-500">{{ u.email }}</div>
-                    <div class="text-xs text-slate-500">{{ u.authSource ?? 'local' }}</div>
+                    <div class="text-xs text-slate-500">
+                      {{ t(`profileCard.source.${u.authSource ?? 'local'}`) }}
+                    </div>
                   </td>
-                  <td>
+                  <td :data-label="t('admin.role')">
                     <select
                       :value="u.role"
                       class="input w-auto"
@@ -1029,7 +1030,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       <option value="member">{{ t('admin.roleMember') }}</option>
                     </select>
                   </td>
-                  <td v-if="isFull() && adminRoles.length">
+                  <td v-if="isFull() && adminRoles.length" :data-label="t('admin.adminRole')">
                     <select
                       :value="u.adminRoleId ?? ''"
                       class="input w-auto"
@@ -1048,8 +1049,8 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       </option>
                     </select>
                   </td>
-                  <td class="text-xs">{{ fmt(u.lastSeenAt) }}</td>
-                  <td>
+                  <td class="text-xs" :data-label="t('admin.lastSeen')">{{ fmt(u.lastSeenAt) }}</td>
+                  <td :data-label="t('admin.status')">
                     <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
                       u.disabled ? t('admin.disabled') : t('admin.active')
                     }}</span>
@@ -1074,7 +1075,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       }}<template v-if="u.disabledNote">: {{ u.disabledNote }}</template></span
                     >
                   </td>
-                  <td class="px-3 text-right">
+                  <td class="cell-action px-3 text-right">
                     <ActionMenu
                       :title="`${t('admin.userActions')}: ${u.name}`"
                       :items="userActions(u)"
@@ -1128,9 +1129,14 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
           />
 
           <div v-else-if="tab === 'settings'" class="space-y-6">
-            <h2 class="text-base font-semibold" data-testid="settings-title">
-              {{ t(`admin.settingsTab.${settingsTab}`) }}
-            </h2>
+            <!-- та же шапка, что у остальных разделов: одна высота и линия заголовков во всей панели -->
+            <PageHeading
+              :title="t(`admin.settingsTab.${settingsTab}`)"
+              :hint="
+                te(`pagehint.settings_${settingsTab}`) ? t(`pagehint.settings_${settingsTab}`) : ''
+              "
+              data-testid="settings-title"
+            />
             <AdminCorporateRecovery v-if="isFull() && settingsTab === 'security'" />
             <NetworkSettings v-if="settingsTab === 'network'" />
             <section
@@ -1802,7 +1808,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     class="border-t border-slate-200 dark:border-slate-800"
                     data-testid="ledger-row"
                   >
-                    <td class="whitespace-nowrap px-3 py-1.5">{{ fmt(l.at) }}</td>
+                    <td class="whitespace-nowrap px-3 py-2">{{ fmt(l.at) }}</td>
                     <td class="max-w-56 truncate" :title="l.actor">
                       {{ l.actorName ?? l.actor }}
                       <span v-if="l.detail?.ip" class="font-mono text-slate-500">

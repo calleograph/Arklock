@@ -27,6 +27,7 @@ const narrowQuery = window.matchMedia('(max-width: 639px)');
 const narrow = ref(narrowQuery.matches);
 narrowQuery.addEventListener('change', (e) => (narrow.value = e.matches));
 const isAdmin = computed(() => auth.user?.role === 'admin' || !!auth.user?.delegated);
+const onAdmin = computed(() => route.path.startsWith('/admin'));
 
 function closeMenu(): void {
   menuOpen.value = false;
@@ -133,7 +134,7 @@ const initial = () =>
       <div class="mx-auto flex max-w-screen-2xl items-center gap-3 px-3 py-2 sm:px-5">
         <RouterLink
           to="/"
-          class="flex min-h-11 min-w-11 shrink-0 items-center gap-2.5"
+          class="flex min-h-11 min-w-11 shrink-0 items-center gap-2"
           aria-label="Arklock"
         >
           <span
@@ -181,7 +182,7 @@ const initial = () =>
         </label>
         <div v-else class="flex-1" />
 
-        <div class="flex shrink-0 items-center gap-1.5 text-sm">
+        <div class="flex shrink-0 items-center gap-2 text-sm">
           <div
             class="flex overflow-hidden rounded-lg border border-slate-300 dark:border-slate-700"
             :class="auth.isSignedIn && auth.unlocked ? 'max-sm:hidden' : ''"
@@ -207,6 +208,18 @@ const initial = () =>
           </div>
 
           <template v-if="auth.isSignedIn && auth.unlocked">
+            <!-- администрирование не прячется в меню: переход туда и обратно одной кнопкой -->
+            <RouterLink
+              v-if="isAdmin"
+              :to="onAdmin ? '/' : '/admin'"
+              class="btn-ghost"
+              data-testid="header-admin"
+              :title="onAdmin ? t('nav.vault') : t('menu.full')"
+              :aria-label="onAdmin ? t('nav.vault') : t('menu.full')"
+            >
+              <Icon :name="onAdmin ? 'inbox' : 'settings'" class="size-4" />
+              <span class="max-xl:hidden">{{ onAdmin ? t('nav.vault') : t('menu.full') }}</span>
+            </RouterLink>
             <NotificationBell />
             <button
               type="button"
@@ -311,7 +324,7 @@ const initial = () =>
 
                   <!-- на телефоне язык переключается здесь: в шапке ему не хватает места -->
                   <div
-                    class="flex items-center justify-between gap-2 border-t border-slate-200 px-4 py-2.5 sm:hidden dark:border-slate-700"
+                    class="flex items-center justify-between gap-2 border-t border-slate-200 px-4 py-2 sm:hidden dark:border-slate-700"
                     role="group"
                     :aria-label="t('ui.language')"
                   >
@@ -368,7 +381,7 @@ const initial = () =>
       data-testid="updated-banner"
     >
       <div
-        class="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-4 gap-y-1 px-3 py-1.5 sm:px-5"
+        class="mx-auto flex max-w-screen-2xl flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 sm:px-5"
       >
         <span class="min-w-0 flex-1">{{ t('whatsnew.banner', { v: appVersion }) }}</span>
         <button type="button" class="btn" data-testid="banner-open" @click="openBannerNotes">

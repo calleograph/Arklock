@@ -555,7 +555,7 @@ const KIND_OPTIONS = [
         type="button"
         role="tab"
         :aria-selected="tab === id"
-        class="-mb-px rounded-t-md border-b-2 px-3 py-1.5 text-sm font-medium"
+        class="-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium"
         :class="
           tab === id
             ? 'border-brand-500 text-brand-700'
@@ -762,7 +762,7 @@ const KIND_OPTIONS = [
               <li
                 v-for="r in overview.topRules"
                 :key="r.rule ?? ''"
-                class="flex justify-between gap-2 py-1.5"
+                class="flex justify-between gap-2 py-2"
               >
                 <button
                   type="button"
@@ -1206,7 +1206,7 @@ const KIND_OPTIONS = [
           <li
             v-for="b in blocks.history"
             :key="b.id"
-            class="flex flex-wrap justify-between gap-2 py-1.5 text-xs"
+            class="flex flex-wrap justify-between gap-2 py-2 text-xs"
           >
             <span class="font-mono">{{ b.ip }}</span>
             <span>{{ b.reason }}</span>
@@ -1228,7 +1228,7 @@ const KIND_OPTIONS = [
         <li
           v-for="k in ['authz', 'schema', 'sql', 'csrf', 'csp', 'limits', 'ssrf']"
           :key="k"
-          class="flex items-start gap-3 px-4 py-2.5"
+          class="flex items-start gap-3 px-4 py-2"
         >
           <span class="badge shrink-0" :class="levelClass.ok"
             >✔ {{ t('shield.requests.always') }}</span

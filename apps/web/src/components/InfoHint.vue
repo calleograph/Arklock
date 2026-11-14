@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
       :style="shift ? { left: `${shift}px` } : undefined"
     >
       {{ text }}
-      <span v-if="details && pinned" class="mt-1.5 block text-slate-500">{{ details }}</span>
+      <span v-if="details && pinned" class="mt-2 block text-slate-500">{{ details }}</span>
       <span v-else-if="details" class="mt-1 block text-slate-400">{{ t('help.moreHint') }}</span>
     </span>
   </span>

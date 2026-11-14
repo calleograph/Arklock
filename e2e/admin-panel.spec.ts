@@ -621,10 +621,15 @@ test('directory people: find an employee in the head field, add with "+", link a
   await page.getByTestId('menu-toggle').click();
   await page.getByTestId('menu-full').click();
 
-  // после подключения каталога мастер показывает, что сделано и что дальше
+  // после подключения каталога первоначальная настройка показывает, что сделано и что дальше
   await tab(page, 'ldap');
-  await expect(page.getByTestId('guide-connect')).toHaveAttribute('data-state', 'done');
-  await expect(page.getByTestId('guide-departments')).toHaveAttribute('data-state', 'now');
+  await expect(page.getByTestId('setup-banner')).toBeVisible();
+  await tab(page, 'wizards');
+  await expect(page.getByTestId('setup-step-connect')).toHaveAttribute('data-state', 'done');
+  await expect(page.getByTestId('setup-step-departments')).toHaveAttribute(
+    'data-state',
+    /now|todo/,
+  );
 
   // руководитель подразделения ищется в каталоге: поиск → «+» → профиль создан без входа человека
   await tab(page, 'departments');
@@ -1040,6 +1045,11 @@ test('an administrator creates a local user; the person activates with a one-tim
   // администратор видит код активации один раз и не получает мастер-пароль
   const code = (await page.getByTestId('invite-code').innerText()).trim();
   expect(code).toMatch(/^[A-Z2-9]{6}(-[A-Z2-9]{6}){3}$/);
+  // готовый текст приглашения: адрес, учётная запись и код — администратору не нужно объяснять самому
+  const message = await page.getByTestId('invite-message').inputValue();
+  expect(message).toContain(code);
+  expect(message).toContain('invited.person@example.com');
+  expect(message).toContain(new URL(page.url()).origin);
   await expect(page.getByTestId('invite-row')).toContainText('invited.person@example.com');
   await expect(page.getByTestId('invite-row')).toContainText('Новый Сотрудник');
 
@@ -1062,9 +1072,33 @@ test('an administrator creates a local user; the person activates with a one-tim
   await guest.getByTestId('password').fill('invited-master-password-e2e-1');
   await guest.getByTestId('repeat').fill('invited-master-password-e2e-1');
   await guest.getByTestId('submit').click();
+  // без личных сейфов и без выданного доступа сотрудник видит объяснение, а не пустой экран
+  const headers = {
+    authorization: `Bearer ${await page.evaluate(() => sessionStorage.getItem('arklock.token'))}`,
+  };
+  const before = (await (await page.request.get('/api/v1/admin/settings', { headers })).json())[
+    'vaults.personalLockers'
+  ];
+  await page.request.put('/api/v1/admin/settings', {
+    headers,
+    data: { 'vaults.personalLockers': false },
+  });
   await guest.getByTestId('recovery-saved').check({ timeout: 90_000 });
   await guest.getByTestId('recovery-continue').click();
+  await expect(guest.getByTestId('no-vaults')).toBeVisible({ timeout: 90_000 });
+  // меню «Действия» остаётся: в нём, например, создание персонального сейфа
+  await expect(guest.getByTestId('vault-actions')).toBeVisible();
+  // доступ появился (здесь — личный сейф): «Проверить сейчас» показывает его без перезагрузки страницы
+  await page.request.put('/api/v1/admin/settings', {
+    headers,
+    data: { 'vaults.personalLockers': true },
+  });
+  await guest.getByTestId('no-vaults-recheck').click();
   await expect(guest.getByTestId('add-entry')).toBeVisible({ timeout: 90_000 });
+  await page.request.put('/api/v1/admin/settings', {
+    headers,
+    data: { 'vaults.personalLockers': before ?? true },
+  });
 
   // код одноразовый: повторная активация с ним невозможна
   const again = await (await browser.newContext()).newPage();

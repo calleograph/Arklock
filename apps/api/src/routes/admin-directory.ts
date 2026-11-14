@@ -77,6 +77,8 @@ const SETTINGS: Record<string, z.ZodType> = {
   'security.mfaRequired': z.enum(['off', 'admins', 'all']),
   /** Режим ключей: strict — пароль разблокировки у сотрудника; managed — «простой вход», секрет разблокировки хранит сервер. */
   'security.keyMode': z.enum(['strict', 'managed']),
+  /** Первоначальная настройка: как входят сотрудники — через каталог (AD/LDAP, единый вход) или по приглашениям. */
+  'setup.signIn': z.enum(['directory', 'local']),
   'storage.attachmentMaxMiB': z.number().int().min(0).max(102_400),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
   /** Все файлы одной записи, МБ (0 — без ограничения). */

@@ -546,7 +546,7 @@ const canExport = computed(
           <table class="min-w-full text-xs" data-testid="import-mapping">
             <thead>
               <tr>
-                <th v-for="(h, i) in rows[0]" :key="i" class="px-1.5 py-1 text-left align-top">
+                <th v-for="(h, i) in rows[0]" :key="i" class="px-2 py-1 text-left align-top">
                   <div class="max-w-40 truncate text-slate-500" :title="h">
                     {{ hasHeader ? h : `#${i + 1}` }}
                   </div>
@@ -573,7 +573,7 @@ const canExport = computed(
                 <td
                   v-for="(c, ci) in r"
                   :key="ci"
-                  class="max-w-40 truncate px-1.5 py-0.5 text-slate-600 dark:text-slate-400"
+                  class="max-w-40 truncate px-2 py-0.5 text-slate-600 dark:text-slate-400"
                 >
                   {{ mapping[ci] === 'password' ? '••••••' : c }}
                 </td>
@@ -657,7 +657,7 @@ const canExport = computed(
         <label
           v-for="m in ['one', 'space', 'all'] as const"
           :key="m"
-          class="flex items-center gap-1.5"
+          class="flex items-center gap-2"
         >
           <input v-model="expMode" type="radio" :value="m" :data-testid="`export-mode-${m}`" />
           {{ t(`transfer.mode.${m}`) }}
@@ -699,7 +699,7 @@ const canExport = computed(
 
       <div
         v-if="expFormat === 'encrypted'"
-        class="space-y-1.5 rounded-md border border-slate-200 p-3 dark:border-slate-700"
+        class="space-y-2 rounded-md border border-slate-200 p-3 dark:border-slate-700"
         data-testid="export-secure"
       >
         <span class="field-label flex items-center gap-1">

@@ -43,7 +43,7 @@ const rows = (x: Profile) =>
   <section class="card max-w-xl space-y-3 p-4 text-sm" data-testid="profile-card">
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
     <dl v-if="p" class="divide-y divide-slate-200 dark:divide-slate-800">
-      <div v-for="[k, v] in rows(p)" :key="k" class="flex justify-between gap-4 py-1.5">
+      <div v-for="[k, v] in rows(p)" :key="k" class="flex justify-between gap-4 py-2">
         <dt class="text-slate-500">
           {{ t(`profileCard.f.${k}`) }}
           <span v-if="p.fromDirectory.includes(k)" class="badge ml-1">{{

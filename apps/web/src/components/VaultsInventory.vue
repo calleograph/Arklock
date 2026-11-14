@@ -132,7 +132,8 @@ const to = computed(() => Math.min(total.value, (page.value + 1) * PAGE));
                 </div>
               </td>
               <td>{{ t(`managed.kind.${r.kind}`) }}</td>
-              <td>{{ r.space ?? '—' }}</td>
+              <!-- основное пространство хранит английское имя «Organization», как и в рабочей области показываем его на языке интерфейса -->
+              <td>{{ r.space === 'Organization' ? t('spaces.defaultName') : (r.space ?? '—') }}</td>
               <td>{{ r.owner ?? '—' }}</td>
               <td>{{ r.people }}</td>
               <td>{{ r.entries }}</td>

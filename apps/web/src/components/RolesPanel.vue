@@ -246,11 +246,11 @@ const remove = (r: Role) =>
       <table class="min-w-full text-sm">
         <thead class="bg-slate-50 text-left text-xs text-slate-500 dark:bg-slate-800/60">
           <tr>
-            <th class="px-4 py-2.5 font-medium">{{ t('roles.colName') }}</th>
-            <th class="px-4 py-2.5 font-medium">{{ t('roles.colScope') }}</th>
-            <th class="px-4 py-2.5 font-medium">{{ t('roles.colRights') }}</th>
-            <th class="px-4 py-2.5 font-medium">{{ t('roles.colUses') }}</th>
-            <th class="w-px px-4 py-2.5">
+            <th class="px-4 py-2 font-medium">{{ t('roles.colName') }}</th>
+            <th class="px-4 py-2 font-medium">{{ t('roles.colScope') }}</th>
+            <th class="px-4 py-2 font-medium">{{ t('roles.colRights') }}</th>
+            <th class="px-4 py-2 font-medium">{{ t('roles.colUses') }}</th>
+            <th class="w-px px-4 py-2">
               <span class="sr-only">{{ t('roles.colActions') }}</span>
             </th>
           </tr>
@@ -296,7 +296,7 @@ const remove = (r: Role) =>
                   t('roles.none')
                 }}</span>
               </div>
-              <p v-if="r.deny.length" class="mt-1.5 text-xs text-red-600">
+              <p v-if="r.deny.length" class="mt-2 text-xs text-red-600">
                 {{ t('roles.deny') }}: {{ r.deny.map((p) => permLabel(p)).join(', ') }}
               </p>
             </td>

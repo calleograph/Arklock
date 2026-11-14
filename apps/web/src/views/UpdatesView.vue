@@ -296,7 +296,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         class="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900"
         data-testid="updates-info"
       >
-        <div class="flex justify-between gap-4 px-4 py-2.5">
+        <div class="flex justify-between gap-4 px-4 py-2">
           <dt class="text-slate-500">{{ t('updates.installed') }}</dt>
           <dd class="flex items-center gap-3 font-medium">
             <span data-testid="installed-version">{{ data.installed.version }}</span>
@@ -310,19 +310,19 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             </button>
           </dd>
         </div>
-        <div class="flex justify-between gap-4 px-4 py-2.5">
+        <div class="flex justify-between gap-4 px-4 py-2">
           <dt class="text-slate-500">{{ t('whatsnew.installedAt') }}</dt>
           <dd data-testid="last-install">
             {{ lastInstall ? `${fmt(lastInstall.at)} · ${lastInstall.versionTo ?? ''}` : '—' }}
           </dd>
         </div>
-        <div class="flex justify-between gap-4 px-4 py-2.5">
+        <div class="flex justify-between gap-4 px-4 py-2">
           <dt class="text-slate-500">{{ t('updates.build') }}</dt>
           <dd class="truncate font-mono text-xs">
             {{ data.installed.commit.slice(0, 12) }} · {{ data.installed.builtAt }}
           </dd>
         </div>
-        <div class="flex justify-between gap-4 px-4 py-2.5">
+        <div class="flex justify-between gap-4 px-4 py-2">
           <dt class="text-slate-500">{{ t('updates.available') }}</dt>
           <dd class="font-medium" data-testid="remote-status">
             <template v-if="!data.remote">{{ t('updates.notChecked') }}</template>
@@ -335,11 +335,11 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             <template v-else>{{ t('updates.unreachable') }}</template>
           </dd>
         </div>
-        <div class="flex justify-between gap-4 px-4 py-2.5">
+        <div class="flex justify-between gap-4 px-4 py-2">
           <dt class="text-slate-500">{{ t('updates.lastCheck') }}</dt>
           <dd>{{ fmt(data.remote?.checkedAt ?? null) }}</dd>
         </div>
-        <div class="flex justify-between gap-4 px-4 py-2.5">
+        <div class="flex justify-between gap-4 px-4 py-2">
           <dt class="text-slate-500">{{ t('updates.helper') }}</dt>
           <dd
             :class="data.helper.alive ? 'text-emerald-600' : 'text-red-600'"
@@ -499,14 +499,14 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
         <div class="flex justify-end gap-2">
           <button
             type="button"
-            class="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700"
+            class="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700"
             @click="askPassword = false"
           >
             {{ t('common.cancel') }}
           </button>
           <button
             type="submit"
-            class="rounded-md bg-brand-500 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            class="rounded-md bg-brand-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             :disabled="busy"
             data-testid="reauth-confirm"
           >

@@ -78,7 +78,7 @@ watch(
       >
         <button
           type="button"
-          class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+          class="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm"
           :aria-label="t('ws.openFolder', { name: b.name })"
           :data-testid="`tile-open-${b.name}`"
           @click="emit('open', b.id)"
@@ -98,7 +98,7 @@ watch(
             :title="b.access === 'reader' ? t('ws.folderReadOnly') : t('ws.folderStructure')"
             :aria-label="b.access === 'reader' ? t('ws.folderReadOnly') : t('ws.folderStructure')"
           />
-          <span class="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-xs text-slate-500">
+          <span class="ml-auto flex shrink-0 items-center gap-2 pl-1 text-xs text-slate-500">
             <span
               v-if="kids.get(b.id)?.length"
               class="flex items-center gap-0.5"

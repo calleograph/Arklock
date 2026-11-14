@@ -374,10 +374,6 @@ void decryptEntry;
     <p v-if="!ws.keyLogOk" class="text-sm text-red-600" role="alert">
       {{ t('vault.keyLogBroken') }}
     </p>
-    <section class="card p-4" data-testid="vault-policy">
-      <EntrySettingsPanel :vault-id="id" :entry-id="id" target-type="vault" :active="true" />
-    </section>
-    <VaultCorporateRecovery :vault-id="id" />
 
     <div
       v-if="rotationHint"
@@ -394,7 +390,7 @@ void decryptEntry;
     <div class="space-y-2">
       <h2 class="font-medium">{{ t('settings.members') }}</h2>
       <div class="card overflow-x-auto">
-        <table class="min-w-full text-sm" data-testid="members-table">
+        <table class="table-cards min-w-full text-sm" data-testid="members-table">
           <thead class="text-left text-xs text-slate-500">
             <tr>
               <th class="px-3 py-2">{{ t('common.name') }}</th>
@@ -418,14 +414,14 @@ void decryptEntry;
               class="border-t border-slate-200 dark:border-slate-800"
               data-testid="member-row"
             >
-              <td class="px-3 py-2">
+              <td class="cell-main px-3 py-2">
                 <div>{{ m.name }}</div>
                 <div class="text-xs text-slate-500">{{ m.email }}</div>
                 <div v-for="c in m.circles" :key="c.id" class="badge mt-1">
                   ◎ {{ c.name }}: {{ c.role }}
                 </div>
               </td>
-              <td>
+              <td :data-label="t('settings.role')">
                 <select
                   v-if="m.directRole && m.directRole !== 'owner'"
                   :value="roleValue(m.directRole, m.directCustomRoleId)"
@@ -466,25 +462,24 @@ void decryptEntry;
                 }}</span>
                 <span v-else class="text-xs text-slate-500">{{ t('settings.viaCircle') }}</span>
               </td>
-              <td>
+              <td :data-label="t('settings.key')">
                 <span :class="m.hasKey ? 'text-emerald-600' : 'text-amber-600'">{{
                   m.hasKey ? t('settings.keyIssued') : t('settings.keyPending')
                 }}</span>
               </td>
-              <td class="font-mono text-xs" :title="t('settings.fingerprintHint')">
+              <!-- отпечаток ключа — для сверки специалистом, на телефоне не показывается -->
+              <td class="font-mono text-xs max-md:!hidden" :title="t('settings.fingerprintHint')">
                 {{ fingerprints[m.userId]?.slice(0, 19) }}…
               </td>
-              <td class="px-3 text-right">
-                <button
+              <td class="cell-action px-3 text-right">
+                <IconButton
                   v-if="m.directRole && m.directRole !== 'owner'"
-                  type="button"
-                  class="btn-danger"
+                  icon="trash"
+                  :label="`${t('settings.remove')}: ${m.name}`"
                   :disabled="busy"
                   :data-testid="`remove-${m.email}`"
                   @click="removeMember(m)"
-                >
-                  {{ t('settings.remove') }}
-                </button>
+                />
               </td>
             </tr>
           </tbody>
@@ -628,6 +623,12 @@ void decryptEntry;
       </ul>
       <p class="text-xs text-slate-500">{{ t('settings.grantsWhere') }}</p>
     </div>
+
+    <!-- правила паролей и восстановление — реже нужны, чем доступ, поэтому ниже участников и групп -->
+    <section class="card p-4" data-testid="vault-policy">
+      <EntrySettingsPanel :vault-id="id" :entry-id="id" target-type="vault" :active="true" />
+    </section>
+    <VaultCorporateRecovery :vault-id="id" />
 
     <!-- События безопасности -->
     <div class="space-y-2">
@@ -794,14 +795,16 @@ void decryptEntry;
         <input
           v-model="heirConfirm"
           class="input"
-          :placeholder="t('settings.transferConfirm', { name: vault.name })"
+          :placeholder="t('settings.transferConfirm', { name: vaultLabel(vault, t) })"
           data-testid="heir-confirm"
         />
         <div class="btn-row">
           <button
             type="button"
             class="btn-danger"
-            :disabled="busy || !heir || heirConfirm !== vault.name"
+            :disabled="
+              busy || !heir || (heirConfirm !== vault.name && heirConfirm !== vaultLabel(vault, t))
+            "
             data-testid="heir-go"
             @click="transfer"
           >

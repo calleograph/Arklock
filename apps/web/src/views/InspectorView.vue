@@ -248,7 +248,7 @@ async function report(): Promise<void> {
         <li
           v-for="i in list"
           :key="i.entryId + i.type"
-          class="flex items-center justify-between px-3 py-1.5"
+          class="flex items-center justify-between px-3 py-2"
         >
           <span class="truncate"
             >{{ titles.get(i.entryId)?.data.title

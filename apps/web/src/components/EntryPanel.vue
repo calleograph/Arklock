@@ -751,7 +751,7 @@ const fmt = (iso: string) => when(iso);
                 <span v-for="tag in item.data.tags" :key="tag" class="badge">#{{ tag }}</span>
               </div>
             </div>
-            <div class="-mr-1.5 -mt-1 flex shrink-0">
+            <div class="-mr-2 -mt-1 flex shrink-0">
               <IconButton
                 v-if="canEdit"
                 icon="edit"
@@ -1250,7 +1250,7 @@ const fmt = (iso: string) => when(iso);
               :key="k"
               type="button"
               role="radio"
-              class="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+              class="inline-flex items-center gap-2 rounded-md border px-3 py-1 text-xs font-medium transition-colors"
               :class="
                 form.kind === k
                   ? 'border-brand-500 bg-brand-50 text-brand-700'
@@ -1274,7 +1274,7 @@ const fmt = (iso: string) => when(iso);
           </div>
           <div class="text-sm">
             <label for="f-title" class="field-label">{{ t('vault.entryTitle') }}</label>
-            <div class="flex gap-1.5">
+            <div class="flex gap-2">
               <!-- значок рядом с названием: нажатие раскрывает компактный выбор под полем -->
               <button
                 type="button"

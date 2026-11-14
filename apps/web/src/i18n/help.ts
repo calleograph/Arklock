@@ -327,11 +327,11 @@ export const ruHelp = {
     facts: {
       e2e: {
         title: 'Шифрование в браузере',
-        text: 'Сервер получает только шифртекст и не может прочитать записи.',
+        text: 'Пароли шифруются ещё до отправки на сервер: сам сервер прочитать их не может.',
       },
       keys: {
         title: 'Пароль разблокировки сейфов не покидает устройство',
-        text: 'Из него в браузере вычисляются ключи (Argon2id); восстановить его на сервере нельзя.',
+        text: 'Из него браузер получает ключи шифрования. На сервер он не отправляется, поэтому узнать или сбросить его там нельзя.',
       },
       host: {
         title: 'Размещение у вас',
@@ -1390,11 +1390,11 @@ export const enHelp = {
     facts: {
       e2e: {
         title: 'Encryption in the browser',
-        text: 'The server only receives ciphertext and cannot read entries.',
+        text: 'Passwords are encrypted before they reach the server: the server itself cannot read them.',
       },
       keys: {
         title: 'The vault unlock password never leaves the device',
-        text: 'Keys are derived from it in the browser (Argon2id); the server cannot recover it.',
+        text: 'The browser derives the encryption keys from it. It is never sent to the server, so it cannot be looked up or reset there.',
       },
       host: {
         title: 'Hosted by you',

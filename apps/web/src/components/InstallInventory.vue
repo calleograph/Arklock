@@ -76,7 +76,7 @@ const space = computed(() => {
       <dl
         class="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900"
       >
-        <div v-for="[k, v] in rows" :key="k" class="flex justify-between gap-3 px-4 py-1.5">
+        <div v-for="[k, v] in rows" :key="k" class="flex justify-between gap-3 px-4 py-2">
           <dt class="text-slate-500">{{ k }}</dt>
           <dd class="num text-right" data-testid="inventory-row">{{ v }}</dd>
         </div>
@@ -87,7 +87,7 @@ const space = computed(() => {
           class="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white text-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900"
           data-testid="inventory-space"
         >
-          <div v-for="[k, v] in space" :key="k" class="flex justify-between gap-3 px-4 py-1.5">
+          <div v-for="[k, v] in space" :key="k" class="flex justify-between gap-3 px-4 py-2">
             <dt class="shrink-0 text-slate-500">{{ k }}</dt>
             <dd class="text-right">{{ v }}</dd>
           </div>

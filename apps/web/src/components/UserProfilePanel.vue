@@ -4,7 +4,7 @@ import { onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { api } from '../services/api';
-import { errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
+import { deviceLabel, errorMessage, spaceLabel, vaultLabel, when } from '../services/helpers';
 import { ledgerAction, ledgerTarget, type LedgerItem } from '../services/ledger';
 import { useAuthStore } from '../stores/auth';
 import Icon from './Icon.vue';
@@ -171,7 +171,7 @@ async function endSessions(): Promise<void> {
           <h2 class="break-words">
             {{ p.user.name }}<InfoHint class="ml-1" :text="p.user.email" />
           </h2>
-          <div class="mt-1.5 flex flex-wrap gap-1">
+          <div class="mt-2 flex flex-wrap gap-1">
             <span class="badge" :class="p.user.disabled ? 'text-red-700' : 'text-emerald-700'">{{
               p.user.disabled ? t('admin.disabled') : t('admin.active')
             }}</span>
@@ -313,12 +313,15 @@ async function endSessions(): Promise<void> {
           @changed="(load(), emit('changed'))"
         />
         <div>
-          <h3 class="mb-1.5 text-xs font-medium text-slate-500">
+          <h3 class="mb-2 text-xs font-medium text-slate-500">
             {{ t('profile.sessions', { n: p.sessionList.length }) }}
           </h3>
           <ul class="space-y-1 text-xs" data-testid="profile-sessions">
             <li v-for="s in p.sessionList" :key="s.id" class="text-slate-600 dark:text-slate-300">
               <span class="num">{{ when(s.lastSeenAt) }}</span>
+              <span v-if="s.userAgent" class="text-slate-500">
+                · {{ deviceLabel(s.userAgent) }}</span
+              >
               <span v-if="s.ip" class="text-slate-500"> · {{ s.ip }}</span>
             </li>
           </ul>
@@ -344,12 +347,12 @@ async function endSessions(): Promise<void> {
       />
       <!-- откуда доступ к сейфам: прямо, через группы, отдельные правила; сколько записей видно -->
       <div data-testid="profile-access">
-        <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.access') }}</h3>
+        <h3 class="mb-2 text-xs font-medium text-slate-500">{{ t('profile.access') }}</h3>
         <ul v-if="p.access.length" class="divide-y divide-slate-200 text-sm dark:divide-slate-800">
           <li
             v-for="v in p.access"
             :key="v.id"
-            class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-1.5"
+            class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 py-2"
           >
             <span class="min-w-0 font-medium">{{ vaultLabel(v, t) }}</span>
             <span class="min-w-0 flex-1 text-xs text-slate-500"
@@ -376,7 +379,7 @@ async function endSessions(): Promise<void> {
         <p v-else class="text-slate-500">{{ t('profile.noAccess') }}</p>
       </div>
       <div v-if="p.rotation" data-testid="profile-rotation">
-        <h3 class="mb-1.5 text-xs font-medium text-slate-500">{{ t('profile.rotation') }}</h3>
+        <h3 class="mb-2 text-xs font-medium text-slate-500">{{ t('profile.rotation') }}</h3>
         <p>
           {{
             t('profile.rotationSummary', {
@@ -407,7 +410,7 @@ async function endSessions(): Promise<void> {
         </ul>
       </div>
       <div v-if="recent" data-testid="profile-journal">
-        <div class="mb-1.5 flex items-center justify-between gap-2">
+        <div class="mb-2 flex items-center justify-between gap-2">
           <h3 class="text-xs font-medium text-slate-500">{{ t('profile.journal') }}</h3>
           <button
             type="button"

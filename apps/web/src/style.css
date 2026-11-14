@@ -544,6 +544,10 @@ dialog::backdrop {
       min-height: 2.75rem;
       align-content: center;
     }
+    /* заголовки групп и «Свернуть/Развернуть всё» в меню администрирования — тоже цели нажатия */
+    [data-testid='admin-nav'] button {
+      min-height: 2.75rem;
+    }
     /* пункты навигации и оглавления: строка нажимается по всей высоте */
     .nav-link {
       min-height: 2.75rem;
@@ -575,10 +579,10 @@ dialog::backdrop {
     box-shadow: var(--surface-shadow);
   }
   .badge {
-    @apply inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
+    @apply inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300;
   }
   .badge-brand {
-    @apply inline-flex items-center rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
+    @apply inline-flex items-center rounded-md bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-50;
   }
   /* пустые состояния */
   .empty {
@@ -614,7 +618,7 @@ dialog::backdrop {
   }
   /* Пункты бокового меню: активный — полоса акцента слева и подложка. */
   .nav-link {
-    @apply relative inline-flex items-center gap-2.5 rounded-(--radius-control) px-2.5 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    @apply relative inline-flex items-center gap-2 rounded-(--radius-control) px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100;
     transition:
       background-color 150ms var(--ease-out),
       color 150ms var(--ease-out);
@@ -647,13 +651,13 @@ dialog::backdrop {
   }
   /* Строка «подпись — значение — действия» в карточке записи: значения выровнены, действия справа. */
   .field-row {
-    @apply py-1.5 first:pt-0;
+    @apply py-2 first:pt-0;
   }
   .field-row > dt {
     @apply mb-0.5 text-xs font-medium text-slate-500;
   }
   .field-row > dd {
-    @apply -mr-1.5 flex min-h-9 items-center gap-0.5;
+    @apply -mr-2 flex min-h-9 items-center gap-0.5;
   }
   /* кольцо срока одноразового кода: conic-gradient по оставшейся доле */
   .totp-ring {
@@ -838,7 +842,7 @@ dialog::backdrop {
     scrollbar-width: none;
   }
   .tab {
-    @apply relative shrink-0 px-0.5 py-2 text-[0.8125rem] font-medium whitespace-nowrap text-slate-500 hover:text-slate-800 dark:hover:text-slate-200;
+    @apply relative shrink-0 px-0.5 py-2 text-sm font-medium whitespace-nowrap text-slate-500 hover:text-slate-800 dark:hover:text-slate-200;
     transition: color 150ms var(--ease-out);
   }
   .tab[aria-selected='true'] {
@@ -1148,5 +1152,75 @@ h2 {
   select,
   textarea {
     font-size: 16px;
+  }
+}
+
+/*
+ * Шапка и ссылки справки на телефоне, планшете и любом сенсорном экране: цели нажатия не меньше 44 px
+ * (поиск, кнопки шапки, язык). На компьютере с мышью остаётся общая высота элементов (36 px).
+ */
+@media (max-width: 1023px), (pointer: coarse) {
+  header .btn-ghost,
+  header .burger-btn,
+  header input[type='search'] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  header [role='group'] > button,
+  .help-doc-link {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/*
+ * Таблица карточками на телефоне (.table-cards): каждая строка — карточка, подписи колонок берутся из data-label.
+ * Флажок выбора слева (.cell-pick), главная ячейка (.cell-main) рядом с ним, меню действий справа (.cell-action),
+ * остальные ячейки — на всю ширину под ними; поля внутри растягиваются. Без прокрутки таблицы вбок.
+ */
+@media (max-width: 767px) {
+  table.table-cards thead {
+    display: none;
+  }
+  table.table-cards,
+  table.table-cards tbody {
+    display: block;
+    min-width: 0;
+  }
+  table.table-cards tr {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    align-items: start;
+    padding: 12px 16px;
+  }
+  table.table-cards td {
+    display: block;
+    grid-column: 1 / -1;
+    padding: 0;
+    text-align: left;
+  }
+  table.table-cards td.cell-pick {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  table.table-cards td.cell-main {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  table.table-cards td.cell-action {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  table.table-cards td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-slate-500);
+  }
+  table.table-cards td select {
+    width: 100%;
   }
 }

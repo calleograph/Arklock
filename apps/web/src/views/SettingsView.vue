@@ -120,7 +120,7 @@ function setLocale(value: 'ru' | 'en'): void {
             aria-hidden="true"
           >
             <span
-              class="absolute inset-x-3 top-3 block space-y-1.5 rounded-lg p-2 shadow-sm"
+              class="absolute inset-x-3 top-3 block space-y-2 rounded-lg p-2 shadow-sm"
               :style="{ background: PREVIEW[id].card, opacity: 0.92 }"
             >
               <span
