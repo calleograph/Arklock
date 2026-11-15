@@ -281,6 +281,33 @@ describe('attachments', () => {
     expect(codes.filter((c) => c === 201)).toHaveLength(10);
     // политика отдаёт предел клиенту: он показывает занятое и оставшееся
     expect((await admin.req('GET', '/auth/policy')).json()['storage.entryQuotaMiB']).toBe(1);
+    // все файлы записи — не больше 10 МБ, даже если сохранены прежние «0 — без ограничения» и 50 МБ на файл
+    await database.db.delete(settings);
+    await database.db.insert(settings).values([
+      { key: 'registration.mode', value: 'open' },
+      { key: 'storage.entryQuotaMiB', value: 0 },
+      { key: 'storage.attachmentMaxMiB', value: 50 },
+    ]);
+    expect((await admin.req('GET', '/auth/policy')).json()).toMatchObject({
+      'storage.entryQuotaMiB': 10,
+      'storage.attachmentMaxMiB': 10,
+    });
+    const capped = await admin.createEntry(
+      { title: 'capped' },
+      { vaultId: quotaVault.id, vaultKey: quotaVault.key },
+    );
+    const regCapped = async (mb: number) =>
+      admin.req(
+        'POST',
+        `/vaults/${quotaVault.id}/entries/${capped.entryId}/attachments`,
+        await mk(mb * 1024 * 1024),
+      );
+    expect((await regCapped(11)).json().error.code).toBe('attachment_too_large');
+    expect((await regCapped(6)).statusCode).toBe(201);
+    expect((await regCapped(6)).json().error.code).toBe('entry_quota_exceeded');
+    expect(
+      (await admin.req('PUT', '/admin/settings', { 'storage.entryQuotaMiB': 20 })).statusCode,
+    ).toBe(400);
     await database.db.delete(settings);
     await database.db.insert(settings).values({ key: 'registration.mode', value: 'open' });
   });

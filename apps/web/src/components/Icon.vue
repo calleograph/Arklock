@@ -33,6 +33,7 @@ export type IconName =
   | 'sync'
   | 'tag'
   | 'file'
+  | 'paperclip'
   | 'text'
   | 'totp'
   | 'dice'
@@ -93,6 +94,8 @@ const paths: Record<IconName, string> = {
   sync: 'M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4',
   tag: 'M3 12V4h8l10 10-8 8L3 12zM7.5 8a.5.5 0 1 0 0 .01',
   file: 'M6 3h8l4 4v14H6V3zM14 3v4h4',
+  paperclip:
+    'M20 11.5l-7.8 7.8a5 5 0 01-7.1-7.1l8.5-8.5a3.3 3.3 0 014.7 4.7l-8.5 8.5a1.7 1.7 0 01-2.4-2.4l7.8-7.8',
   text: 'M5 6h14M5 11h14M5 16h9',
   totp: 'M12 6v6l4 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   dice: 'M4 4h16v16H4zM8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01',

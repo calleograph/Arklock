@@ -1572,7 +1572,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                   :value="settings['storage.attachmentMaxMiB']"
                   type="number"
                   min="0"
-                  max="512"
+                  max="10"
                   class="input w-24"
                   data-testid="set-attach-max"
                   @change="
@@ -1588,8 +1588,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                 ><input
                   :value="settings['storage.entryQuotaMiB']"
                   type="number"
-                  min="0"
-                  class="input"
+                  min="1"
+                  max="10"
+                  class="input w-24"
                   data-testid="set-entry-quota"
                   @change="
                     saveSetting(

@@ -201,12 +201,14 @@ export const ruHelp = {
     ledgerDays: {
       text: 'Сколько хранить журнал действий. Старые события удаляются при плановом обслуживании, само удаление записывается в журнал и уходит в syslog и вебхуки. Не меньше 30 дней: короче — слишком легко стереть следы.',
     },
-    attachMax: { text: 'Наибольший размер одного прикрепляемого файла. 0 — вложения запрещены.' },
+    attachMax: {
+      text: 'Наибольший размер одного прикрепляемого файла, не больше 10 МБ. 0 — вложения запрещены.',
+    },
     vaultQuota: {
       text: 'Сколько мегабайт файлов можно хранить в одном сейфе. 0 — без ограничения.',
     },
     entryQuota: {
-      text: 'Сколько мегабайт файлов можно прикрепить к одной записи. Сотрудник видит в карточке записи, сколько занято и сколько осталось. 0 — без ограничения.',
+      text: 'Сколько мегабайт файлов можно прикрепить к одной записи, все вместе. Не больше 10 МБ: запись с паролем не предназначена для больших файлов. Сотрудник видит в карточке записи, сколько занято и сколько осталось.',
     },
     notify: {
       text: 'Письма пользователям о важных событиях безопасности в их учётной записи. Нужна настроенная почта.',
@@ -339,7 +341,7 @@ export const ruHelp = {
   kindFields: {
     service: 'Сервис или идентификатор ключа',
     noteText: 'Защищённый текст',
-    more: 'Дополнительно: одноразовый код, свои поля, связи, метки, срок',
+    more: 'Дополнительно: одноразовый код, связи, метки, срок',
     url: {
       login: 'Адрес сайта или системы',
       server: 'Адрес или IP (протокол и порт — в адресе)',
@@ -1189,11 +1191,11 @@ export const enHelp = {
       text: 'How long to keep the action journal. Older events are removed during scheduled maintenance; the removal itself is recorded and sent to syslog and webhooks. At least 30 days: shorter would make covering tracks too easy.',
     },
     attachMax: {
-      text: 'The largest size of one attached file. 0 means attachments are not allowed.',
+      text: 'The largest size of one attached file, up to 10 MB. 0 means attachments are not allowed.',
     },
     vaultQuota: { text: 'How many megabytes of files one vault can hold. 0 means no limit.' },
     entryQuota: {
-      text: 'How many megabytes of files can be attached to one entry. The employee sees in the entry card how much is used and left. 0 means no limit.',
+      text: 'How many megabytes of files can be attached to one entry, all together. Up to 10 MB: a password entry is not meant for large files. The employee sees in the entry card how much is used and left.',
     },
     notify: {
       text: 'Emails to users about important security events in their account. Requires configured mail.',
@@ -1328,7 +1330,7 @@ export const enHelp = {
   kindFields: {
     service: 'Service or key identifier',
     noteText: 'Protected text',
-    more: 'More: one-time code, own fields, links, tags, expiry',
+    more: 'More: one-time code, links, tags, expiry',
     url: {
       login: 'Website or system address',
       server: 'Address or IP (protocol and port go in the address)',

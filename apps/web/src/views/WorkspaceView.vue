@@ -721,8 +721,12 @@ const folderTargets = (b: BranchItem) => {
   return ws.branches.filter((x) => !bad.has(x.id));
 };
 
-function onSaved(item: EntryItem): void {
+function onSaved(item: EntryItem, notice?: string): void {
   creating.value = false;
+  if (notice) {
+    flash.value = notice;
+    setTimeout(() => (flash.value = ''), 10000);
+  }
   const folder = ws.branches.find((b) => b.id === item.branchId);
   if (folder?.access === 'structure') {
     // сданную запись читать нельзя: она не открывается и не попадает в список

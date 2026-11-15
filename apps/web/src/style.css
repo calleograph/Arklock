@@ -1029,6 +1029,13 @@ h2 {
   border-radius: 0.5rem;
   transition: background-color 150ms var(--ease-out);
 }
+/* переключатели вида в форме записи (вид записи, тип поля): на телефоне и сенсорном экране не меньше 44 px */
+@media (max-width: 640px), (pointer: coarse) {
+  .tap-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
 /* на узких и сенсорных экранах кнопка меню не меньше 44 px */
 @media (max-width: 640px), (pointer: coarse) {
   .burger-btn {

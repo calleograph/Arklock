@@ -14,25 +14,42 @@ import { attachments, entries, settings, vaults } from '../db/schema.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { lockVaultForWrite } from '../vault-mutation.js';
 
-/** Предел одного файла и всех файлов одной записи по умолчанию: пароль — не файловое хранилище, а диск сервера общий. */
-export const DEFAULT_MAX_MIB = 50;
-export const DEFAULT_ENTRY_QUOTA_MIB = 200;
+/** Все файлы одной записи вместе — не больше 10 МБ: пароль — не файловое хранилище, а диск сервера общий. Настройки могут предел только уменьшить. */
+export const ENTRY_FILES_MAX_MIB = 10;
+export const DEFAULT_MAX_MIB = ENTRY_FILES_MAX_MIB;
+export const DEFAULT_ENTRY_QUOTA_MIB = ENTRY_FILES_MAX_MIB;
 const MIB = 1024 * 1024;
 export const blobSuffix = (keyVersion: number) => `.k${keyVersion}`;
 export const rotationSuffix = (keyVersion: number, rotationId: string) =>
   `${blobSuffix(keyVersion)}.r${rotationId}`;
 
-/** Ограничения на вложения из настроек: максимальный размер файла и квота хранилища (0 — без ограничения). */
-export async function attachmentLimits(db: AppContext['db']) {
-  const rows = await db.select().from(settings);
-  const num = (key: string, d: number) => {
+/** Действующие пределы файлов в МБ. Прежние версии разрешали больше и «0 — без ограничения» для записи: такое значение приводится к пределу. */
+export function storageMiB(rows: { key: string; value: unknown }[]) {
+  const num = (key: string) => {
     const v = rows.find((r) => r.key === key)?.value;
-    return typeof v === 'number' ? v : d;
+    return typeof v === 'number' ? v : undefined;
   };
   return {
-    maxBytes: num('storage.attachmentMaxMiB', DEFAULT_MAX_MIB) * MIB,
-    vaultQuotaBytes: num('storage.vaultQuotaMiB', 0) * MIB,
-    entryQuotaBytes: num('storage.entryQuotaMiB', DEFAULT_ENTRY_QUOTA_MIB) * MIB,
+    // 0 — вложения запрещены
+    attachmentMaxMiB: Math.min(
+      num('storage.attachmentMaxMiB') ?? DEFAULT_MAX_MIB,
+      ENTRY_FILES_MAX_MIB,
+    ),
+    entryQuotaMiB: Math.min(
+      num('storage.entryQuotaMiB') || ENTRY_FILES_MAX_MIB,
+      ENTRY_FILES_MAX_MIB,
+    ),
+    vaultQuotaMiB: num('storage.vaultQuotaMiB') ?? 0,
+  };
+}
+
+/** Ограничения на вложения из настроек: размер файла, все файлы записи и квота сейфа (0 — без ограничения). */
+export async function attachmentLimits(db: AppContext['db']) {
+  const mib = storageMiB(await db.select().from(settings));
+  return {
+    maxBytes: mib.attachmentMaxMiB * MIB,
+    vaultQuotaBytes: mib.vaultQuotaMiB * MIB,
+    entryQuotaBytes: mib.entryQuotaMiB * MIB,
   };
 }
 
@@ -155,7 +172,7 @@ export const registerAttachmentRoutes: FastifyPluginAsync<{ ctx: AppContext }> =
     await db.transaction(async (tx) => {
       await lockVaultForWrite(tx, vaultId, body.keyVersion);
       // суммы читаются под блокировкой сейфа: параллельные регистрации не пройдут проверку все разом
-      if (limits.entryQuotaBytes > 0) {
+      {
         const [used] = await tx
           .select({ n: sql<number>`coalesce(sum(${attachments.size}), 0)::float8` })
           .from(attachments)

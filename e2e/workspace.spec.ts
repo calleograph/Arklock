@@ -90,9 +90,9 @@ async function downloadText(page: Page): Promise<string> {
   return readFileSync((await download.path())!, 'utf8');
 }
 
-/** Крупный файл: загрузка и скачивание порциями, содержимое совпадает побайтно (проверка SHA-256). */
+/** Крупный файл у предела записи (10 МБ): загрузка и скачивание порциями, содержимое совпадает побайтно (проверка SHA-256). */
 async function bigFileRoundTrip(page: Page): Promise<void> {
-  const size = 40 * 1024 * 1024 + 320;
+  const size = 9 * 1024 * 1024 + 320;
   const buf = Buffer.alloc(size);
   for (let i = 0; i < size; i += 4) buf.writeUInt32LE((i * 2654435761) >>> 0, i);
   const want = createHash('sha256').update(buf).digest('hex');
@@ -154,20 +154,20 @@ test('administrator builds a structure and works with entries', async ({ browser
   expect(generated).toHaveLength(20);
   await page.getByTestId('f-more').evaluate((d) => ((d as HTMLDetailsElement).open = true));
   await page.getByTestId('f-totp').fill('JBSWY3DPEHPK3PXP');
-  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('btn-add-field-text').click();
   await page.getByTestId('field-name-0').fill('IP');
   await page.getByTestId('field-value-0').fill('203.0.113.7');
-  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('btn-add-field-text').click();
   await page.getByTestId('field-name-1').fill('PIN');
   await page.getByTestId('field-type-password-1').click();
   await expect(page.getByTestId('field-value-1')).toHaveAttribute('type', 'password');
   await page.getByTestId('field-value-1').fill('4242');
   // многострочное поле и поле TOTP; TOTP поднимается над многострочным
-  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('btn-add-field-text').click();
   await page.getByTestId('field-name-2').fill('Маршрут');
   await page.getByTestId('field-type-multiline-2').click();
   await page.getByTestId('field-value-2').fill('шлюз 203.0.113.1\nрезерв 203.0.113.2');
-  await page.getByTestId('btn-add-field').click();
+  await page.getByTestId('btn-add-field-text').click();
   await page.getByTestId('field-name-3').fill('Второй ключ');
   await page.getByTestId('field-type-totp-3').click();
   await expect(page.getByTestId('field-value-3')).toHaveAttribute('type', 'password');
@@ -1104,6 +1104,61 @@ test('an entry with an attachment moves to another vault; the file keeps its con
   ]);
   expect(download.suggestedFilename()).toBe('перенос.txt');
   expect(readFileSync((await download.path())!, 'utf8')).toBe('СОДЕРЖИМОЕ ФАЙЛА ПРИ ПЕРЕНОСЕ 5521');
+});
+
+test('«Add field:» under the form: a field of the chosen type in one click, files up to 10 MB attached on save', async () => {
+  const page = adminPage;
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
+  await expect(page.getByTestId('vault-select')).toBeVisible();
+  await page.getByTestId('vault-actions').click();
+  await page.getByTestId('btn-new-vault').click();
+  await page.getByTestId('name-input').fill('Поля и файлы');
+  await page.getByTestId('name-ok').click();
+  await expect(page.getByTestId('vault-select').locator('option:checked')).toHaveText(
+    'Поля и файлы',
+  );
+  await page.getByTestId('add-entry').click();
+  await page.getByTestId('f-title').fill('Роутер склада');
+  // ряд на виду без раскрытия «Ещё»: поле сразу нужного типа, курсор в его названии
+  await expect(page.getByTestId('f-more')).not.toHaveAttribute('open');
+  await page.getByTestId('btn-add-field-password').click();
+  await expect(page.getByTestId('field-name-0')).toBeFocused();
+  await expect(page.getByTestId('field-type-password-0')).toHaveAttribute('aria-checked', 'true');
+  await page.getByTestId('field-name-0').fill('PIN');
+  await page.getByTestId('field-value-0').fill('4417');
+  await page.getByTestId('btn-add-field-multiline').click();
+  await page.getByTestId('field-name-1').fill('Схема');
+  await page.getByTestId('field-value-1').fill('порт 1 — касса\nпорт 2 — склад');
+  // файлы записи вместе — не больше 10 МБ: больший отклоняется сразу, остальные ждут сохранения
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.getByTestId('btn-add-field-file').click(),
+  ]);
+  await chooser.setFiles([
+    {
+      name: 'прошивка.bin',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.alloc(11 * 1024 * 1024),
+    },
+    { name: 'настройки.txt', mimeType: 'text/plain', buffer: Buffer.from(FILE_TEXT) },
+  ]);
+  await expect(page.getByTestId('form-error')).toContainText('10');
+  await expect(page.getByTestId('pending-files')).toContainText('настройки.txt');
+  await expect(page.getByTestId('pending-files')).not.toContainText('прошивка.bin');
+  await page.getByTestId('f-save').click();
+  await expect(page.getByTestId('view-title')).toHaveText('Роутер склада');
+  await page.getByTestId('tab-files').click();
+  await expect(page.getByTestId('file-row')).toContainText('настройки.txt', { timeout: 30_000 });
+  await expect(page.getByTestId('files-usage')).toContainText('10');
+  // в уже сохранённой записи предел тот же: файл больше 10 МБ не загружается
+  await page.getByTestId('file-input').setInputFiles({
+    name: 'прошивка.bin',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.alloc(11 * 1024 * 1024),
+  });
+  await expect(page.getByTestId('files-error')).toContainText('10');
+  await expect(page.getByTestId('file-row')).toHaveCount(1);
 });
 
 test('two-factor sign-in: enrol, sign out, password alone is not enough, code completes', async ({

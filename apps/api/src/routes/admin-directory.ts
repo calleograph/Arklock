@@ -41,7 +41,12 @@ import {
 import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { corporateAccessRisks } from '../corporate-continuity.js';
-import { DEFAULT_ENTRY_QUOTA_MIB, DEFAULT_MAX_MIB } from './attachments.js';
+import {
+  DEFAULT_ENTRY_QUOTA_MIB,
+  DEFAULT_MAX_MIB,
+  ENTRY_FILES_MAX_MIB,
+  storageMiB,
+} from './attachments.js';
 import { grantAllPendingKeys, KEY_MODE_KEY, keyModeOf, logGrantFailure } from '../managed-keys.js';
 
 /** Настройки, которые администратор может менять через API, и их допустимые значения. */
@@ -65,10 +70,11 @@ const SETTINGS: Record<string, z.ZodType> = {
   'security.keyMode': z.enum(['strict', 'managed']),
   /** Первоначальная настройка: как входят сотрудники — через каталог (AD/LDAP, единый вход) или по приглашениям. */
   'setup.signIn': z.enum(['directory', 'local']),
-  'storage.attachmentMaxMiB': z.number().int().min(0).max(102_400),
+  /** Один файл, МБ (0 — вложения запрещены); не больше общего предела файлов записи. */
+  'storage.attachmentMaxMiB': z.number().int().min(0).max(ENTRY_FILES_MAX_MIB),
   'storage.vaultQuotaMiB': z.number().int().min(0).max(10_000_000),
-  /** Все файлы одной записи, МБ (0 — без ограничения). */
-  'storage.entryQuotaMiB': z.number().int().min(0).max(102_400),
+  /** Все файлы одной записи, МБ: не больше 10. */
+  'storage.entryQuotaMiB': z.number().int().min(1).max(ENTRY_FILES_MAX_MIB),
   'notifications.security': z.boolean(),
   'security.pinUnlock': z.boolean(),
   'security.reloadUnlock': z.boolean(),
@@ -678,6 +684,9 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
     const rows = await db.select().from(settings);
     const out: Record<string, unknown> = { ...SETTING_DEFAULTS };
     for (const r of rows) if (r.key in SETTINGS) out[r.key] = r.value;
+    const mib = storageMiB(rows);
+    out['storage.attachmentMaxMiB'] = mib.attachmentMaxMiB;
+    out['storage.entryQuotaMiB'] = mib.entryQuotaMiB;
     return out;
   });
 

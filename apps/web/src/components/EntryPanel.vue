@@ -64,7 +64,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   (e: 'open', id: string): void;
-  (e: 'saved', item: EntryItem): void;
+  /** notice — какой выбранный в форме файл не прикрепился: после сохранения панель создаётся заново, сообщение показывает рабочая область. */
+  (e: 'saved', item: EntryItem, notice?: string): void;
   (e: 'cancel'): void;
   (e: 'changed'): void;
 }>();
@@ -109,13 +110,7 @@ const URL_HINT: Record<string, string> = {
   custom: '',
 };
 const hasExtras = () =>
-  !!(
-    form.value.totp ||
-    form.value.fields.length ||
-    form.value.links?.length ||
-    tagsText.value ||
-    form.value.expiresAt
-  );
+  !!(form.value.totp || form.value.links?.length || tagsText.value || form.value.expiresAt);
 const moreOpen = ref(false);
 const iconOpen = ref(false);
 moreOpen.value = hasExtras();
@@ -180,6 +175,7 @@ watch(
     branchChoice.value = props.item?.branchId ?? props.template?.branchId ?? props.branchId;
     history.value = null;
     files.value = null;
+    pendingFiles.value = [];
     confirmFile.value = '';
     link.value = '';
     share.value = { passphrase: '', minutes: 60, views: 1, notes: false, window: 0 };
@@ -376,6 +372,7 @@ function cancelEditing(): void {
     branchChoice.value = props.item.branchId;
     showPw.value = false;
     showGenerator.value = false;
+    pendingFiles.value = [];
   } else {
     emit('cancel');
   }
@@ -386,6 +383,7 @@ const hasChanges = computed(() => {
     editing.value &&
     (JSON.stringify(form.value) !== JSON.stringify(original) ||
       tagsText.value !== original.tags.join(', ') ||
+      pendingFiles.value.length > 0 ||
       branchChoice.value !== (props.item?.branchId ?? props.branchId))
   );
 });
@@ -412,14 +410,7 @@ function useGenerated(value: string): void {
 
 /** Тип поля выбирается из двух вариантов; тип хранится в том же флаге `secret`, что и раньше. */
 const FIELD_TYPES = [
-  { key: 'text', secret: false, type: undefined, icon: 'text', label: 'vault.fieldTypeText' },
-  {
-    key: 'multiline',
-    secret: false,
-    type: 'multiline',
-    icon: 'file',
-    label: 'vault.fieldTypeMultiline',
-  },
+  { key: 'text', secret: false, type: undefined, icon: 'edit', label: 'vault.fieldTypeText' },
   {
     key: 'password',
     secret: true,
@@ -428,6 +419,13 @@ const FIELD_TYPES = [
     label: 'vault.fieldTypePassword',
   },
   { key: 'totp', secret: true, type: 'totp', icon: 'totp', label: 'vault.fieldTypeTotp' },
+  {
+    key: 'multiline',
+    secret: false,
+    type: 'multiline',
+    icon: 'text',
+    label: 'vault.fieldTypeMultiline',
+  },
 ] as const;
 function setFieldType(f: CustomField, opt: (typeof FIELD_TYPES)[number]): void {
   f.secret = opt.secret;
@@ -441,8 +439,58 @@ function moveField(i: number, by: -1 | 1): void {
   [list[i], list[j]] = [list[j]!, list[i]!];
 }
 
-function addField(): void {
-  form.value.fields.push({ name: '', value: '', secret: false });
+/** «Добавить поле:» — сразу нужного типа; фокус в название нового поля. */
+function addField(opt: (typeof FIELD_TYPES)[number]): void {
+  const f: CustomField = { name: '', value: '', secret: false };
+  setFieldType(f, opt);
+  form.value.fields.push(f);
+  const i = form.value.fields.length - 1;
+  void nextTick(() =>
+    document.querySelector<HTMLInputElement>(`[data-testid="field-name-${i}"]`)?.focus(),
+  );
+}
+
+/** Файлы, выбранные в форме: прикрепляются после «Сохранить» (у новой записи ещё нет места для них), «Отмена» их забывает. */
+const pendingFiles = ref<File[]>([]);
+const pendingInput = ref<HTMLInputElement | null>(null);
+async function pickFiles(): Promise<void> {
+  error.value = '';
+  try {
+    await loadStorage();
+  } catch (e) {
+    error.value = errorMessage(e, t);
+    return;
+  }
+  if (!storage.value.enabled) error.value = t('files.disabled');
+  else pendingInput.value?.click();
+}
+function queueFiles(ev: Event): void {
+  const input = ev.target as HTMLInputElement;
+  const picked = Array.from(input.files ?? []);
+  input.value = '';
+  error.value = '';
+  for (const f of picked) {
+    const used = filesUsed.value + pendingFiles.value.reduce((a, p) => a + p.size, 0);
+    const problem = fileProblem(f, used);
+    if (problem) error.value = problem;
+    else pendingFiles.value.push(f);
+  }
+}
+/** Прикрепляет выбранные в форме файлы к сохранённой записи; возвращает текст ошибки, если какой-то не прикрепился. */
+async function uploadPending(item: EntryItem): Promise<string> {
+  for (const f of pendingFiles.value) {
+    try {
+      progress.value = { label: f.name, done: 0, total: f.size || 1 };
+      await ws.attachmentAdd(item, f, (done, total) => {
+        progress.value = { label: f.name, done, total };
+      });
+    } catch (e) {
+      return t('files.notAttached', { name: f.name, reason: errorMessage(e, t) });
+    } finally {
+      progress.value = null;
+    }
+  }
+  return '';
 }
 
 async function save(): Promise<void> {
@@ -480,8 +528,10 @@ async function save(): Promise<void> {
     if (props.template && form.value.password !== props.template.data.password)
       delete form.value.passwordChangedAt;
     const saved = await ws.saveEntry(form.value, props.item ?? undefined, branchChoice.value);
+    const failed = await uploadPending(saved);
+    pendingFiles.value = [];
     editing.value = false;
-    emit('saved', saved);
+    emit('saved', saved, failed || undefined);
   } catch (e) {
     error.value = errorMessage(e, t);
   } finally {
@@ -534,25 +584,38 @@ interface FileRow {
 const files = ref<FileRow[] | null>(null);
 const storage = ref<{ enabled: boolean; maxMiB: number; quotaMiB: number }>({
   enabled: true,
-  maxMiB: 50,
-  quotaMiB: 200,
+  maxMiB: 10,
+  quotaMiB: 10,
 });
-const mib = (bytes: number): string => (bytes / 1048576).toFixed(bytes < 10_485_760 ? 1 : 0);
+// предел записи — 10 МБ: одна цифра после запятой, любой файл заметен (не «0.0»)
+const mib = (bytes: number): string => Math.max(bytes ? 0.1 : 0, bytes / 1048576).toFixed(1);
 const filesUsed = computed(() => (files.value ?? []).reduce((a, f) => a + f.size, 0));
 const confirmFile = ref('');
 const fileInput = ref<HTMLInputElement | null>(null);
+/** Пределы из политики и файлы записи (у новой записи файлов нет). */
+async function loadStorage(): Promise<void> {
+  const policy = await api<Record<string, unknown>>('GET', '/auth/policy');
+  storage.value = {
+    enabled: policy['storage.enabled'] !== false,
+    maxMiB: Number(policy['storage.attachmentMaxMiB'] ?? 10),
+    quotaMiB: Number(policy['storage.entryQuotaMiB'] ?? 10),
+  };
+  files.value = storage.value.enabled && props.item ? await ws.attachmentList(props.item) : [];
+}
+/** Почему файл нельзя прикрепить: больше предела одного файла или вместе с уже прикреплёнными больше предела записи. */
+function fileProblem(f: File, used: number): string {
+  if (f.size > storage.value.maxMiB * 1048576)
+    return `${t('files.tooLarge')}: ${t('files.max', { n: storage.value.maxMiB })}`;
+  if (used + f.size > storage.value.quotaMiB * 1048576)
+    return t('files.entryQuota', { quota: storage.value.quotaMiB });
+  return '';
+}
 async function openFiles(): Promise<void> {
   subTab.value = 'files';
   error.value = '';
   if (!props.item) return;
   try {
-    const policy = await api<Record<string, unknown>>('GET', '/auth/policy');
-    storage.value = {
-      enabled: policy['storage.enabled'] !== false,
-      maxMiB: Number(policy['storage.attachmentMaxMiB'] ?? 50),
-      quotaMiB: Number(policy['storage.entryQuotaMiB'] ?? 200),
-    };
-    files.value = storage.value.enabled ? await ws.attachmentList(props.item) : [];
+    await loadStorage();
   } catch (e) {
     error.value = errorMessage(e, t);
     files.value = [];
@@ -570,15 +633,9 @@ async function addFile(ev: Event): Promise<void> {
   error.value = '';
   try {
     for (const f of picked) {
-      if (f.size > storage.value.maxMiB * 1024 * 1024) {
-        error.value = t('files.tooLarge');
-        continue;
-      }
-      if (
-        storage.value.quotaMiB > 0 &&
-        filesUsed.value + f.size > storage.value.quotaMiB * 1048576
-      ) {
-        error.value = t('files.entryQuota', { quota: storage.value.quotaMiB });
+      const problem = fileProblem(f, filesUsed.value);
+      if (problem) {
+        error.value = problem;
         continue;
       }
       progress.value = { label: f.name, done: 0, total: f.size || 1 };
@@ -1008,13 +1065,11 @@ const fmt = (iso: string) => when(iso);
             <div v-else class="space-y-3 text-sm" data-testid="files-panel">
               <p class="text-xs text-slate-500" data-testid="files-usage">
                 {{
-                  storage.quotaMiB > 0
-                    ? t('files.usage', {
-                        used: mib(filesUsed),
-                        quota: storage.quotaMiB,
-                        max: storage.maxMiB,
-                      })
-                    : t('files.usageFree', { used: mib(filesUsed), max: storage.maxMiB })
+                  t('files.usage', {
+                    used: mib(filesUsed),
+                    quota: storage.quotaMiB,
+                    max: storage.maxMiB,
+                  })
                 }}
               </p>
               <p v-if="!storage.enabled" class="text-amber-700" role="alert">
@@ -1250,7 +1305,7 @@ const fmt = (iso: string) => when(iso);
               :key="k"
               type="button"
               role="radio"
-              class="inline-flex items-center gap-2 rounded-md border px-3 py-1 text-xs font-medium transition-colors"
+              class="tap-target inline-flex items-center gap-2 rounded-md border px-3 py-1 text-xs font-medium transition-colors"
               :class="
                 form.kind === k
                   ? 'border-brand-500 bg-brand-50 text-brand-700'
@@ -1433,102 +1488,6 @@ const fmt = (iso: string) => when(iso);
                   ></label
                 >
               </template>
-              <fieldset class="space-y-2">
-                <legend class="text-sm">{{ t('vault.fields') }}</legend>
-                <div
-                  v-for="(f, i) in form.fields"
-                  :key="i"
-                  class="flex flex-wrap items-start gap-1"
-                >
-                  <input
-                    v-model="f.name"
-                    :placeholder="t('vault.fieldName')"
-                    class="input min-w-32 flex-1"
-                    :data-testid="`field-name-${i}`"
-                  />
-                  <textarea
-                    v-if="f.type === 'multiline'"
-                    v-model="f.value"
-                    rows="3"
-                    :placeholder="t('vault.fieldValue')"
-                    class="input min-w-40 flex-[2]"
-                    :data-testid="`field-value-${i}`"
-                  />
-                  <input
-                    v-else
-                    v-model="f.value"
-                    :type="f.secret ? 'password' : 'text'"
-                    :placeholder="f.type === 'totp' ? t('vault.totpSecret') : t('vault.fieldValue')"
-                    autocomplete="off"
-                    class="input min-w-40 flex-[2]"
-                    :data-testid="`field-value-${i}`"
-                  />
-                  <div
-                    class="flex shrink-0 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
-                    role="radiogroup"
-                    :aria-label="t('vault.fieldType')"
-                  >
-                    <button
-                      v-for="opt in FIELD_TYPES"
-                      :key="opt.key"
-                      type="button"
-                      role="radio"
-                      class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
-                      :class="
-                        f.secret === opt.secret && f.type === opt.type
-                          ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50'
-                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                      "
-                      :aria-checked="f.secret === opt.secret && f.type === opt.type"
-                      :title="t(opt.label)"
-                      :data-testid="`field-type-${opt.key}-${i}`"
-                      @click="setFieldType(f, opt)"
-                    >
-                      <Icon :name="opt.icon" class="size-3.5" />
-                      <!-- на телефоне подпись только у выбранного вида, у остальных — значок с подсказкой -->
-                      <span
-                        :class="
-                          f.secret === opt.secret && f.type === opt.type ? '' : 'max-sm:sr-only'
-                        "
-                        >{{ t(opt.label) }}</span
-                      >
-                    </button>
-                  </div>
-                  <span class="flex gap-1">
-                    <button
-                      type="button"
-                      class="btn"
-                      :disabled="i === 0"
-                      :aria-label="t('vault.fieldUp')"
-                      :data-testid="`field-up-${i}`"
-                      @click="moveField(i, -1)"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      class="btn"
-                      :disabled="i === form.fields.length - 1"
-                      :aria-label="t('vault.fieldDown')"
-                      @click="moveField(i, 1)"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      class="btn"
-                      :aria-label="t('common.delete')"
-                      @click="form.fields.splice(i, 1)"
-                    >
-                      ×
-                    </button>
-                  </span>
-                </div>
-                <button type="button" class="btn" data-testid="btn-add-field" @click="addField">
-                  {{ t('vault.addField') }}
-                </button>
-              </fieldset>
-
               <fieldset class="space-y-1 text-sm" data-testid="links-editor">
                 <legend class="text-xs text-slate-500">{{ t('vault.links') }}</legend>
                 <div class="flex flex-wrap gap-1">
@@ -1584,6 +1543,162 @@ const fmt = (iso: string) => when(iso);
               </div>
             </div>
           </details>
+
+          <!-- дополнительные поля всегда на виду: добавить поле нужного типа можно одним нажатием -->
+          <fieldset class="space-y-2" data-testid="fields-editor">
+            <legend v-if="form.fields.length || pendingFiles.length" class="text-sm">
+              {{ t('vault.fields') }}
+            </legend>
+            <!-- поле в две линии: название и значение, под ними тип и порядок — кнопки не переносятся вразнобой -->
+            <div
+              v-for="(f, i) in form.fields"
+              :key="i"
+              class="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2 rounded-lg border border-slate-200 p-2 max-sm:grid-cols-1 dark:border-slate-800"
+            >
+              <input
+                v-model="f.name"
+                :placeholder="t('vault.fieldName')"
+                class="input"
+                :data-testid="`field-name-${i}`"
+              />
+              <textarea
+                v-if="f.type === 'multiline'"
+                v-model="f.value"
+                rows="3"
+                :placeholder="t('vault.fieldValue')"
+                class="input"
+                :data-testid="`field-value-${i}`"
+              />
+              <input
+                v-else
+                v-model="f.value"
+                :type="f.secret ? 'password' : 'text'"
+                :placeholder="f.type === 'totp' ? t('vault.totpSecret') : t('vault.fieldValue')"
+                autocomplete="off"
+                class="input"
+                :data-testid="`field-value-${i}`"
+              />
+              <div class="col-span-full flex flex-wrap items-center justify-between gap-2">
+                <div
+                  class="flex shrink-0 gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800"
+                  role="radiogroup"
+                  :aria-label="t('vault.fieldType')"
+                >
+                  <button
+                    v-for="opt in FIELD_TYPES"
+                    :key="opt.key"
+                    type="button"
+                    role="radio"
+                    class="tap-target inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs transition-colors"
+                    :class="
+                      f.secret === opt.secret && f.type === opt.type
+                        ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    "
+                    :aria-checked="f.secret === opt.secret && f.type === opt.type"
+                    :title="t(opt.label)"
+                    :data-testid="`field-type-${opt.key}-${i}`"
+                    @click="setFieldType(f, opt)"
+                  >
+                    <Icon :name="opt.icon" class="size-3.5" />
+                    <!-- на телефоне подпись только у выбранного вида, у остальных — значок с подсказкой -->
+                    <span
+                      :class="
+                        f.secret === opt.secret && f.type === opt.type ? '' : 'max-sm:sr-only'
+                      "
+                      >{{ t(opt.label) }}</span
+                    >
+                  </button>
+                </div>
+                <span class="flex gap-1">
+                  <button
+                    type="button"
+                    class="btn"
+                    :disabled="i === 0"
+                    :aria-label="t('vault.fieldUp')"
+                    :data-testid="`field-up-${i}`"
+                    @click="moveField(i, -1)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    :disabled="i === form.fields.length - 1"
+                    :aria-label="t('vault.fieldDown')"
+                    @click="moveField(i, 1)"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    :aria-label="t('common.delete')"
+                    @click="form.fields.splice(i, 1)"
+                  >
+                    ×
+                  </button>
+                </span>
+              </div>
+            </div>
+            <ul v-if="pendingFiles.length" class="space-y-1" data-testid="pending-files">
+              <li v-for="(f, i) in pendingFiles" :key="i" class="flex items-center gap-2 text-sm">
+                <Icon name="paperclip" class="size-4 shrink-0 text-slate-500" />
+                <span class="min-w-0 flex-1 truncate" :title="f.name">{{ f.name }}</span>
+                <span class="shrink-0 text-xs text-slate-500">{{ fmtSize(f.size) }}</span>
+                <button
+                  type="button"
+                  class="btn"
+                  :disabled="busy"
+                  :aria-label="t('common.delete')"
+                  @click="pendingFiles.splice(i, 1)"
+                >
+                  ×
+                </button>
+              </li>
+            </ul>
+            <div v-if="progress" class="space-y-1" data-testid="pending-progress">
+              <div class="truncate text-xs text-slate-500">{{ progress.label }}</div>
+              <progress class="w-full" :max="progress.total" :value="progress.done"></progress>
+            </div>
+            <div class="space-y-2 pt-1">
+              <div class="text-xs text-slate-500">{{ t('vault.addField') }}:</div>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="opt in FIELD_TYPES"
+                  :key="opt.key"
+                  type="button"
+                  class="btn"
+                  :data-testid="`btn-add-field-${opt.key}`"
+                  @click="addField(opt)"
+                >
+                  <Icon :name="opt.icon" class="size-4" />
+                  {{ t(opt.label) }}
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  :disabled="busy"
+                  data-testid="btn-add-field-file"
+                  @click="pickFiles"
+                >
+                  <Icon name="paperclip" class="size-4" />
+                  {{ t('vault.fieldTypeFile') }}
+                </button>
+              </div>
+              <input
+                ref="pendingInput"
+                type="file"
+                multiple
+                class="hidden"
+                data-testid="pending-file-input"
+                @change="queueFiles"
+              />
+              <p class="text-xs text-slate-500">
+                {{ t('files.formHint', { quota: storage.quotaMiB }) }}
+              </p>
+            </div>
+          </fieldset>
 
           <p v-if="error" class="text-sm text-red-600" role="alert" data-testid="form-error">
             {{ error }}
