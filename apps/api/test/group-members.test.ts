@@ -57,4 +57,10 @@ it('shows assigned vault permissions without giving a group administrator vault 
   ]);
   expect(JSON.stringify(assigned.json())).not.toContain('sealedKey');
   expect((await member.req('GET', `/admin/circles/${groupId}/vaults`)).statusCode).toBe(403);
+  // администратор сейфа видит, кто получает доступ через группу
+  await admin.req('PATCH', `/admin/circles/${groupId}/members`, { add: [member.userId] });
+  const shown = (await admin.req('GET', `/vaults/${vault.id}/members`)).json();
+  expect(shown.circles).toMatchObject([
+    { id: groupId, total: 1, people: [{ userId: member.userId, pending: false }] },
+  ]);
 });

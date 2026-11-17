@@ -49,6 +49,8 @@ interface Access {
     sources: string[];
     hasKey: boolean;
     pendingKey: boolean;
+    /** профиль создан по каталогу, человек ещё не входил */
+    pending?: boolean;
   }[];
 }
 const data = ref<Access | null>(null);
@@ -227,25 +229,27 @@ function sourceLabel(source: string): string {
           <li
             v-for="member in data.members"
             :key="member.userId"
-            class="flex flex-wrap justify-between gap-2 py-2"
+            class="py-2"
             data-testid="entry-access-member"
           >
-            <span class="min-w-0 break-all"
-              >{{ member.displayName }}
-              <span class="text-xs text-slate-500"
-                >{{ member.email }} · {{ member.sources.map(sourceLabel).join(', ') }}</span
-              ></span
-            >
-            <span
-              >{{ t(`entryPanel.roles.${member.access ?? 'none'}`) }} ·
-              <span class="text-xs text-slate-500">{{
-                !member.access || member.access === 'none'
-                  ? t('entryPanel.denied')
-                  : member.hasKey
-                    ? t('entryPanel.keyReady')
-                    : t('entryPanel.keyPending')
-              }}</span></span
-            >
+            <div class="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span class="min-w-0 break-words font-medium">{{ member.displayName }}</span>
+              <span
+                >{{ t(`entryPanel.roles.${member.access ?? 'none'}`) }} ·
+                <span class="text-xs text-slate-500">{{
+                  !member.access || member.access === 'none'
+                    ? t('entryPanel.denied')
+                    : member.hasKey
+                      ? t('entryPanel.keyReady')
+                      : member.pending
+                        ? t('settings.waiting')
+                        : t('entryPanel.keyPending')
+                }}</span></span
+              >
+            </div>
+            <div class="break-words text-xs text-slate-500">
+              {{ member.email }} · {{ member.sources.map(sourceLabel).join(', ') }}
+            </div>
           </li>
         </ul>
       </section>

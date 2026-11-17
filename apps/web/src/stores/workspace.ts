@@ -819,7 +819,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     api<{
       keyVersion: number;
       members: MemberInfo[];
-      circles: { id: string; name: string; role: string }[];
+      /** Роль выдана, но человек ещё не входил: ключа у него нет, в список держателей ключей не входит. */
+      waiting: Omit<MemberInfo, 'publicKey' | 'signPublicKey' | 'hasKey'>[];
+      circles: {
+        id: string;
+        name: string;
+        role: string;
+        total: number;
+        people: { userId: string; name: string; email: string; pending: boolean }[];
+      }[];
     }>('GET', `/vaults/${vaultId}/members`);
 
   /** Выдача ключа участнику: проверка пары ключей по журналу, запечатывание и подпись администратором. */

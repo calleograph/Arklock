@@ -1036,6 +1036,10 @@ describe('domain people: search, profile without sign-in, first sign-in fills th
     // без ключа он не держатель ключа: ни в списке участников с ключами, ни в списке «ждут ключ»
     const members = (await admin.req('GET', `/vaults/${vaultId}/members`)).json();
     expect(members.members.some((m: { userId: string }) => m.userId === borisId)).toBe(false);
+    // но доступ у него уже есть, и администратор должен это видеть: человек в отдельном списке «ждут первого входа»
+    expect(members.waiting).toEqual([
+      expect.objectContaining({ userId: borisId, directRole: 'reader' }),
+    ]);
     const waiting = () =>
       admin
         .req('GET', `/vaults/${vaultId}/pending-keys`)

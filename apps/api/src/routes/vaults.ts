@@ -380,13 +380,11 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
         ...grantUsers.map((g) => g.id),
       ]),
     ];
-    // профили без ключей (ещё не входили) в список держателей ключей не попадают: им нечем принять ключ сейфа
-    const us = ids.length
-      ? await db
-          .select()
-          .from(users)
-          .where(and(inArray(users.id, ids), eq(users.pendingActivation, false)))
-      : [];
+    // профили без ключей (ещё не входили) в список держателей ключей не попадают: им нечем принять ключ сейфа;
+    // но доступ у них уже есть, поэтому они возвращаются отдельным списком «ждут первого входа»
+    const everyone = ids.length ? await db.select().from(users).where(inArray(users.id, ids)) : [];
+    const us = everyone.filter((u) => !u.pendingActivation);
+    const waiting = everyone.filter((u) => u.pendingActivation && !u.disabledAt);
     const keys = ids.length
       ? await db
           .select({ userId: vaultKeys.userId })
@@ -402,17 +400,12 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
     const hasKey = new Set(keys.map((k) => k.userId));
     const allowedUsers = new Set<string>();
     for (const u of us) if ((await loadAccess(db, vaultId, u.id)).isMember) allowedUsers.add(u.id);
-    return {
-      keyVersion: v.keyVersion,
-      members: us.map((u) => ({
-        userId: u.id,
-        name: u.displayName,
-        email: u.email,
-        publicKey: u.publicKey,
-        signPublicKey: u.signPublicKey,
-        directRole: direct.find((d) => d.userId === u.id)?.role ?? null,
-        directCustomRoleId: direct.find((d) => d.userId === u.id)?.customRoleId ?? null,
-        directExpiresAt: direct.find((d) => d.userId === u.id)?.expiresAt?.toISOString() ?? null,
+    const roleOf = (u: { id: string }) => {
+      const d = direct.find((x) => x.userId === u.id);
+      return {
+        directRole: d?.role ?? null,
+        directCustomRoleId: d?.customRoleId ?? null,
+        directExpiresAt: d?.expiresAt?.toISOString() ?? null,
         circles: vc
           .filter((c) => viaCircle.some((m) => m.userId === u.id && m.circleId === c.circleId))
           .map((c) => ({
@@ -422,16 +415,49 @@ export const registerVaultRoutes: FastifyPluginAsync<{ ctx: AppContext }> = asyn
             customRoleId: c.customRoleId,
             expiresAt: c.expiresAt?.toISOString() ?? null,
           })),
+      };
+    };
+    // состав групп: кто получает доступ через группу (в том числе ещё не входившие)
+    const byId = new Map(everyone.map((u) => [u.id, u]));
+    return {
+      keyVersion: v.keyVersion,
+      members: us.map((u) => ({
+        userId: u.id,
+        name: u.displayName,
+        email: u.email,
+        publicKey: u.publicKey,
+        signPublicKey: u.signPublicKey,
+        ...roleOf(u),
         hasKey: hasKey.has(u.id),
         spaceAllowed: allowedUsers.has(u.id),
       })),
-      circles: vc.map((c) => ({
-        id: c.circleId,
-        name: c.name,
-        role: c.role,
-        customRoleId: c.customRoleId,
-        expiresAt: c.expiresAt?.toISOString() ?? null,
+      waiting: waiting.map((u) => ({
+        userId: u.id,
+        name: u.displayName,
+        email: u.email,
+        ...roleOf(u),
       })),
+      circles: vc.map((c) => {
+        const people = viaCircle
+          .filter((m) => m.circleId === c.circleId)
+          .flatMap((m) => byId.get(m.userId) ?? [])
+          .filter((u) => !u.disabledAt)
+          .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        return {
+          id: c.circleId,
+          name: c.name,
+          role: c.role,
+          customRoleId: c.customRoleId,
+          expiresAt: c.expiresAt?.toISOString() ?? null,
+          total: people.length,
+          people: people.slice(0, 50).map((u) => ({
+            userId: u.id,
+            name: u.displayName,
+            email: u.email,
+            pending: u.pendingActivation,
+          })),
+        };
+      }),
     };
   });
 

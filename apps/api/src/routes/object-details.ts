@@ -124,6 +124,7 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
               email: users.email,
               disabledAt: users.disabledAt,
               authSource: users.authSource,
+              pending: users.pendingActivation,
             })
             .from(users)
             .where(inArray(users.id, [...candidateIds]))
@@ -161,6 +162,7 @@ export const registerObjectDetailsRoutes: FastifyPluginAsync<{ ctx: AppContext }
             email: u.email,
             disabled: !!u.disabledAt,
             authSource: u.authSource,
+            pending: u.pending,
             access: level,
             source: sources.join(', '),
             sources,

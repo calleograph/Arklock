@@ -26,14 +26,28 @@ const isOwner = computed(() => vault.value?.role === 'owner');
 const info = ref<{
   keyVersion: number;
   members: MemberInfo[];
+  waiting: Omit<MemberInfo, 'publicKey' | 'signPublicKey' | 'hasKey'>[];
   circles: {
     id: string;
     name: string;
     role: string;
     customRoleId?: string | null;
     expiresAt?: string | null;
+    total: number;
+    people: { userId: string; name: string; email: string; pending: boolean }[];
   }[];
 } | null>(null);
+/** Все, у кого есть доступ: сначала вошедшие, затем те, кто ещё не входил (ключ им выдадут после первого входа). */
+const rows = computed(() => [
+  ...(info.value?.members ?? []).map((m) => ({ ...m, waiting: false })),
+  ...(info.value?.waiting ?? []).map((m) => ({
+    ...m,
+    publicKey: '',
+    signPublicKey: '',
+    waiting: true,
+    hasKey: false,
+  })),
+]);
 const fingerprints = ref<Record<string, string>>({});
 const error = ref('');
 const notice = ref('');
@@ -401,7 +415,7 @@ void decryptEntry;
           </thead>
           <tbody>
             <tr
-              v-for="m in info?.members"
+              v-for="m in rows"
               :key="m.userId"
               class="border-t border-slate-200 dark:border-slate-800"
               data-testid="member-row"
@@ -456,12 +470,16 @@ void decryptEntry;
               </td>
               <td :data-label="t('settings.key')">
                 <span :class="m.hasKey ? 'text-emerald-600' : 'text-amber-600'">{{
-                  m.hasKey ? t('settings.keyIssued') : t('settings.keyPending')
+                  m.hasKey
+                    ? t('settings.keyIssued')
+                    : m.waiting
+                      ? t('settings.waiting')
+                      : t('settings.keyPending')
                 }}</span>
               </td>
               <!-- отпечаток ключа — для сверки специалистом, на телефоне не показывается -->
               <td class="font-mono text-xs max-md:!hidden" :title="t('settings.fingerprintHint')">
-                {{ fingerprints[m.userId]?.slice(0, 19) }}…
+                {{ fingerprints[m.userId] ? `${fingerprints[m.userId]!.slice(0, 19)}…` : '—' }}
               </td>
               <td class="cell-action px-3 text-right">
                 <IconButton
@@ -477,27 +495,28 @@ void decryptEntry;
           </tbody>
         </table>
       </div>
-      <button
-        v-if="pending.length"
-        type="button"
-        class="btn-primary"
-        :disabled="busy"
-        data-testid="btn-distribute"
-        @click="distribute"
-      >
-        {{ t('settings.issueKeys', { n: pending.length }) }}
-      </button>
-
-      <button
-        type="button"
-        class="btn-primary"
-        :disabled="busy"
-        data-testid="grant-open"
-        @click="((error = ''), (showGrant = true))"
-      >
-        <Icon name="share" /> {{ t('grantDlg.open') }}
-      </button>
-      <p class="text-xs text-slate-500">{{ t('settings.signedKeyHint') }}</p>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          v-if="pending.length"
+          type="button"
+          class="btn-primary"
+          :disabled="busy"
+          data-testid="btn-distribute"
+          @click="distribute"
+        >
+          {{ t('settings.issueKeys', { n: pending.length }) }}
+        </button>
+        <button
+          type="button"
+          class="btn-primary"
+          :disabled="busy"
+          data-testid="grant-open"
+          @click="((error = ''), (showGrant = true))"
+        >
+          <Icon name="share" /> {{ t('grantDlg.open') }}
+        </button>
+        <InfoHint :text="t('settings.signedKeyHint')" />
+      </div>
     </div>
 
     <!-- Круги -->
@@ -537,6 +556,22 @@ void decryptEntry;
             :data-testid="`circle-remove-${c.name}`"
             @click="removeCircle(c.id)"
           />
+          <!-- кто получает доступ через группу: состав виден сразу, без перехода в «Группы» -->
+          <details class="pb-2 sm:col-span-3" data-testid="circle-people">
+            <summary class="cursor-pointer text-xs text-slate-500">
+              {{ t('settings.circleMembers', { n: c.total }) }}
+            </summary>
+            <ul class="mt-1 space-y-0.5 text-xs">
+              <li v-for="p in c.people" :key="p.userId" class="min-w-0 truncate">
+                {{ p.name }} <span class="text-slate-500">{{ p.email }}</span>
+                <span v-if="p.pending" class="badge">{{ t('settings.waiting') }}</span>
+              </li>
+              <li v-if="!c.total" class="text-slate-500">{{ t('settings.circleEmpty') }}</li>
+              <li v-else-if="c.total > c.people.length" class="text-slate-500">
+                {{ t('settings.circleMore', { n: c.total - c.people.length }) }}
+              </li>
+            </ul>
+          </details>
         </div>
         <p v-if="!info?.circles.length" class="px-4 py-3 text-slate-500">
           {{ t('settings.noCircles') }}
@@ -812,7 +847,7 @@ void decryptEntry;
       :title="t('grantDlg.open')"
       :levels="grantLevels"
       default-level="builtin:reader"
-      :existing="info?.members.map((m) => m.userId) ?? []"
+      :existing="rows.map((m) => m.userId)"
       :busy="busy"
       :error="error"
       @close="showGrant = false"
