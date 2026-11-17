@@ -220,6 +220,8 @@ interface U {
   createdAt: string;
   lastSeenAt: string | null;
   authSource?: string;
+  /** включён второй фактор (приложение с кодами или ключ доступа) */
+  mfa?: boolean;
 }
 const users = ref<U[]>([]);
 const userSearch = ref('');
@@ -353,6 +355,8 @@ async function bulkStatus(disabled: boolean): Promise<void> {
 }
 const offboarding = ref<U | null>(null);
 const profileOf = ref<U | null>(null);
+// карточка открыта из пункта «Сбросить второй фактор»: сразу с подтверждением
+const mfaAskFor = ref<string | null>(null);
 const endSessions = (u: U) =>
   run(() => api('POST', `/admin/users/${u.id}/revoke-sessions`), loadUsers);
 
@@ -377,7 +381,16 @@ const userActions = (u: U): ActionItem[] => [
     icon: 'logout',
     testid: `end-sessions-${u.email}`,
   },
-  { id: 'mfa', label: t('adminx.resetMfa'), icon: 'key', testid: `reset-mfa-${u.email}` },
+  ...(u.mfa
+    ? [
+        {
+          id: 'mfa',
+          label: t('adminx.resetMfa'),
+          icon: 'key' as const,
+          testid: `reset-mfa-${u.email}`,
+        },
+      ]
+    : []),
   ...(u.lockedFor
     ? [
         {
@@ -413,18 +426,17 @@ const userActions = (u: U): ActionItem[] => [
 ];
 function onUserAction(u: U, id: string): void {
   if (id === 'sessions') void endSessions(u);
-  else if (id === 'mfa') void resetMfa(u);
+  else if (id === 'mfa') openProfile(u, true);
   else if (id === 'toggle') setDisabled(u, !u.disabled);
   else if (id === 'unlock') void run(() => api('POST', `/admin/users/${u.id}/unlock`), loadUsers);
   else if (id === 'offboard') offboarding.value = u;
 }
 const userMenu = ref<{ x: number; y: number; u: U } | null>(null);
-const resetMfa = (u: { id: string }) =>
-  window.confirm(t('admin.confirmDelete')) &&
-  run(async () => {
-    await api('POST', `/admin/users/${u.id}/mfa-reset`);
-    notice.value = t('adminx.mfaReset');
-  });
+function openProfile(u: U, askMfa = false): void {
+  offboarding.value = null;
+  mfaAskFor.value = askMfa ? u.id : null;
+  profileOf.value = u;
+}
 
 // ---- настройки
 const settings = ref<Record<string, unknown>>({});
@@ -899,8 +911,9 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
             </div>
             <UserProfilePanel
               v-if="profileOf && !offboarding"
-              :key="profileOf.id"
+              :key="profileOf.id + (mfaAskFor === profileOf.id ? ':mfa' : '')"
               :user-id="profileOf.id"
+              :ask-mfa-reset="mfaAskFor === profileOf.id"
               :admin-roles="adminRoles"
               :can-ledger="canTab('ledger')"
               @close="profileOf = null"
@@ -997,7 +1010,7 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                       type="button"
                       class="text-left font-medium hover:text-brand-600 hover:underline"
                       :data-testid="`profile-open-${u.email}`"
-                      @click="((offboarding = null), (profileOf = u))"
+                      @click="openProfile(u)"
                     >
                       {{ u.name }}
                     </button>
@@ -1046,6 +1059,12 @@ const fmt = (iso: string | null) => (iso ? when(iso) : '—');
                     <span :class="u.disabled ? 'text-red-600' : 'text-emerald-600'">{{
                       u.disabled ? t('admin.disabled') : t('admin.active')
                     }}</span>
+                    <span
+                      v-if="u.mfa"
+                      class="block text-xs text-slate-500"
+                      :data-testid="`user-mfa-${u.email}`"
+                      >{{ t('adminx.mfaOn') }}</span
+                    >
                     <span
                       v-if="!u.disabled && u.lockedFor"
                       class="block text-xs text-amber-700 dark:text-amber-300"

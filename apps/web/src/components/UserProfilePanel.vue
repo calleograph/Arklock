@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import InfoHint from './InfoHint.vue';
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { api } from '../services/api';
@@ -17,6 +17,8 @@ const props = defineProps<{
   adminRoles: { id: string; name: string }[];
   /** у просматривающего есть доступ к журналу действий */
   canLedger?: boolean;
+  /** открыть сразу с подтверждением сброса второго фактора (пункт меню в таблице) */
+  askMfaReset?: boolean;
 }>();
 const emit = defineEmits<{ close: []; offboard: []; changed: [] }>();
 const { t, te } = useI18n();
@@ -146,6 +148,34 @@ async function saveUntil(value: string): Promise<void> {
     busy.value = false;
   }
 }
+// потерянный телефон: администратор снимает второй фактор, сотрудник входит по паролю и настраивает заново
+const mfaAsk = ref(!!props.askMfaReset);
+const mfaDone = ref(false);
+// карточка открывается над таблицей: подтверждение прокручивается в поле зрения, даже если строка была внизу
+const mfaConfirm = ref<HTMLElement | null>(null);
+watch(mfaConfirm, (el) => el?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+const canResetMfa = computed(
+  () =>
+    !!p.value &&
+    (p.value.mfa.totp || p.value.mfa.passkey) &&
+    // полного администратора сбрасывает только полный администратор
+    (p.value.user.role !== 'admin' || auth.user?.role === 'admin'),
+);
+async function resetMfa(): Promise<void> {
+  busy.value = true;
+  error.value = '';
+  try {
+    await api('POST', `/admin/users/${props.userId}/mfa-reset`);
+    mfaAsk.value = false;
+    mfaDone.value = true;
+    await Promise.all([load(), loadRecent()]);
+    emit('changed');
+  } catch (e) {
+    error.value = errorMessage(e, t);
+  } finally {
+    busy.value = false;
+  }
+}
 async function endSessions(): Promise<void> {
   busy.value = true;
   try {
@@ -210,7 +240,16 @@ async function endSessions(): Promise<void> {
             >
           </div>
         </div>
-        <div class="flex shrink-0 gap-2">
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-if="canResetMfa && !mfaAsk"
+            type="button"
+            class="btn"
+            data-testid="profile-mfa-reset"
+            @click="((mfaAsk = true), (mfaDone = false))"
+          >
+            <Icon name="key" /> {{ t('adminx.resetMfa') }}
+          </button>
           <button
             v-if="!p.user.disabled && !p.user.chief && p.user.id !== auth.user?.id"
             type="button"
@@ -223,6 +262,45 @@ async function endSessions(): Promise<void> {
           <button type="button" class="btn" @click="emit('close')">{{ t('profile.close') }}</button>
         </div>
       </header>
+
+      <div
+        v-if="mfaAsk && canResetMfa"
+        ref="mfaConfirm"
+        class="space-y-2 rounded-lg border border-red-300 p-4 dark:border-red-800"
+        role="group"
+        aria-labelledby="mfa-reset-title"
+        data-testid="mfa-reset-confirm"
+      >
+        <h3 id="mfa-reset-title" class="font-medium">
+          {{ t('adminx.mfaResetTitle', { name: p.user.name }) }}
+        </h3>
+        <p class="max-w-prose">{{ t('adminx.mfaResetWhat') }}</p>
+        <p class="max-w-prose text-slate-600 dark:text-slate-300">
+          {{ t('adminx.mfaResetNext') }}
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="btn-danger"
+            :disabled="busy"
+            data-testid="mfa-reset-do"
+            @click="resetMfa"
+          >
+            {{ t('adminx.resetMfa') }}
+          </button>
+          <button type="button" class="btn" @click="mfaAsk = false">
+            {{ t('common.cancel') }}
+          </button>
+        </div>
+      </div>
+      <p
+        v-if="mfaDone"
+        class="max-w-prose text-emerald-700 dark:text-emerald-300"
+        role="status"
+        data-testid="mfa-reset-done"
+      >
+        {{ t('adminx.mfaReset') }}
+      </p>
 
       <form
         class="grid gap-x-4 gap-y-2 sm:grid-cols-3"

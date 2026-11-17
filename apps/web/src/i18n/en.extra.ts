@@ -33,6 +33,8 @@ export default {
       'These preferences apply to new notifications inside Arklock. Existing notifications remain. The organization configures email notices separately.',
     saved: 'Notification preferences saved',
     events: {
+      admin_mfa_reset:
+        'An administrator reset your second factor. Set it up again on the new phone',
       vault_member_put: 'Vault access assignment saved',
       vault_member_remove: 'Direct vault membership revoked',
       vault_circle_put: 'Your group’s vault access saved',
@@ -386,8 +388,15 @@ export default {
     attachMax: 'Maximum file size, MB (0 disables attachments, up to 10)',
     vaultQuota: 'File quota per vault, MB (0 = unlimited)',
     entryQuota: 'All files of one entry, MB (up to 10)',
-    resetMfa: 'Reset 2FA',
-    mfaReset: "The user's second factor was reset",
+    resetMfa: 'Reset second factor',
+    mfaReset:
+      'The second factor was reset. Tell the employee to sign in with their password and set up the second factor on the new phone.',
+    mfaOn: 'Second factor on',
+    mfaResetTitle: 'Reset the second factor for “{name}”?',
+    mfaResetWhat:
+      'Use this when the employee lost the phone with the code app. The code app, backup codes and access keys are removed. The password, vaults and entries do not change.',
+    mfaResetNext:
+      'Next, the employee signs in with their password and sets up the second factor again under “Security”; if the second factor is required, the setup window opens by itself. The employee gets a notification.',
     mfaAdminNotEnrolled: 'Set up two-factor authentication for your own account first',
   },
   tokens: {

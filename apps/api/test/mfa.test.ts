@@ -227,7 +227,13 @@ describe('two-factor authentication', () => {
       name: 'Key',
       publicKey: 'AAAA',
     });
+    const mfaOf = async () =>
+      (await admin.req('GET', '/admin/users'))
+        .json()
+        .find((u: { id: string }) => u.id === bob.userId).mfa;
+    expect(await mfaOf()).toBe(true);
     expect((await admin.req('POST', `/admin/users/${bob.userId}/mfa-reset`)).statusCode).toBe(204);
+    expect(await mfaOf()).toBe(false);
     expect(await database.db.select().from(webauthnCredentials)).toEqual([]);
     const left = await database.db.select().from(mfaFactors);
     expect(left.map((r) => r.userId)).toEqual([admin.userId]);
@@ -237,6 +243,14 @@ describe('two-factor authentication', () => {
       (await admin.req('PUT', '/admin/settings', { 'security.mfaRequired': 'off' })).statusCode,
     ).toBe(200);
     expect((await bob.req('GET', '/vaults')).statusCode).toBe(200);
+    // сотрудник видит уведомление, и оно ведёт туда, где второй фактор настраивается заново
+    const note = (await bob.req('GET', '/notifications'))
+      .json()
+      .items.find((n: { event: string }) => n.event === 'admin.mfa.reset');
+    expect(note).toBeTruthy();
+    expect((await bob.req('GET', `/notifications/${note.id}/destination`)).json().path).toBe(
+      '/security',
+    );
   });
 
   it('the "admins" policy applies to administrators only', async () => {

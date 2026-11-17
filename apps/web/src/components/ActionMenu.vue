@@ -32,28 +32,44 @@ const props = withDefaults(
 const emit = defineEmits<{ select: [id: string] }>();
 
 const open = ref(false);
-// сторона, к которой прижато меню: заданная, а если меню не помещается в окне — противоположная
-const side = ref<'left' | 'right'>(props.align);
+// меню вынесено в body: таблица с прокруткой (overflow) или «стеклянная» карточка (backdrop-filter) его не обрезают
+const pos = ref<{ top: string; left: string }>({ top: '0px', left: '0px' });
 const root = ref<HTMLElement | null>(null);
+const menu = ref<HTMLElement | null>(null);
 const trigger = ref<HTMLButtonElement | null>(null);
 const id = `menu-${Math.random().toString(36).slice(2, 9)}`;
 
-const itemsEl = () => [...(root.value?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+const itemsEl = () => [...(menu.value?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+/** Меню у кнопки, в пределах окна: прижато к заданной стороне, вверх — если снизу не помещается (до отрисовки кадра). */
+function place(): void {
+  const r = trigger.value?.getBoundingClientRect();
+  const m = menu.value?.getBoundingClientRect();
+  if (!r || !m) return;
+  // ширина раскладки, а не innerWidth: мобильный браузер уменьшает масштаб под вылезающее меню, и innerWidth растёт
+  const vw = document.documentElement.clientWidth;
+  const left = props.align === 'right' ? r.right - m.width : r.left;
+  const below = r.bottom + 4;
+  const top =
+    below + m.height > window.innerHeight - 8 && r.top - m.height - 4 >= 8
+      ? r.top - m.height - 4
+      : below;
+  pos.value = { top: `${top}px`, left: `${Math.max(8, Math.min(left, vw - m.width - 8))}px` };
+}
 async function toggle(): Promise<void> {
   open.value = !open.value;
   if (open.value) {
-    side.value = props.align;
     await nextTick();
-    // на телефоне кнопка у края экрана: меню, выходящее за окно, разворачивается в другую сторону (до отрисовки кадра)
-    // ширина раскладки, а не innerWidth: мобильный браузер уменьшает масштаб под вылезающее меню, и innerWidth растёт
-    const menu = document.getElementById(id)?.getBoundingClientRect();
-    if (menu && (menu.right > document.documentElement.clientWidth || menu.left < 0))
-      side.value = side.value === 'left' ? 'right' : 'left';
-    itemsEl()[0]?.focus();
-  }
+    place();
+    // при прокрутке и изменении размера меню следует за кнопкой
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    itemsEl()[0]?.focus({ preventScroll: true });
+  } else close();
 }
 function close(focusTrigger = false): void {
   open.value = false;
+  window.removeEventListener('scroll', place, true);
+  window.removeEventListener('resize', place);
   if (focusTrigger) trigger.value?.focus();
 }
 function choose(item: ActionItem): void {
@@ -79,10 +95,14 @@ function onKey(e: KeyboardEvent): void {
   list[next]?.focus();
 }
 function onDocumentClick(e: MouseEvent): void {
-  if (open.value && root.value && !root.value.contains(e.target as Node)) close();
+  const t = e.target as Node;
+  if (open.value && !root.value?.contains(t) && !menu.value?.contains(t)) close();
 }
 onMounted(() => document.addEventListener('click', onDocumentClick));
-onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick);
+  close();
+});
 </script>
 
 <template>
@@ -112,28 +132,32 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
       ></template>
       <Icon v-else name="more" class="!size-5" />
     </button>
-    <div
-      v-if="open"
-      :id="id"
-      role="menu"
-      :aria-label="title"
-      class="menu-pop absolute top-full z-40 mt-1 min-w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      :class="side === 'right' ? 'right-0' : 'left-0'"
-    >
-      <button
-        v-for="item in items"
-        :key="item.id"
-        type="button"
-        role="menuitem"
-        tabindex="-1"
-        class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left focus:bg-slate-100 focus:outline-none hover:bg-slate-100 dark:hover:bg-slate-800 dark:focus:bg-slate-800"
-        :class="item.danger ? 'text-red-600 dark:text-red-400' : ''"
-        :data-testid="item.testid"
-        @click="choose(item)"
+    <Teleport to="body">
+      <div
+        v-if="open"
+        :id="id"
+        ref="menu"
+        role="menu"
+        :aria-label="title"
+        class="menu-pop fixed z-50 min-w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
+        :style="pos"
+        @keydown="onKey"
       >
-        <Icon v-if="item.icon" :name="item.icon" class="size-4 opacity-80" />
-        <span class="min-w-0 flex-1">{{ item.label }}</span>
-      </button>
-    </div>
+        <button
+          v-for="item in items"
+          :key="item.id"
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          class="tap-target flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left focus:bg-slate-100 focus:outline-none hover:bg-slate-100 dark:hover:bg-slate-800 dark:focus:bg-slate-800"
+          :class="item.danger ? 'text-red-600 dark:text-red-400' : ''"
+          :data-testid="item.testid"
+          @click="choose(item)"
+        >
+          <Icon v-if="item.icon" :name="item.icon" class="size-4 opacity-80" />
+          <span class="min-w-0 flex-1">{{ item.label }}</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

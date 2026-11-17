@@ -6,6 +6,7 @@ import { authKey, mfaVerifyRequest, uuid } from '@arklock/contracts';
 import type { SessionResponse } from '@arklock/contracts';
 import { audit } from '../audit.js';
 import { notifySecurity } from '../mail/send.js';
+import { notifyUsers } from '../notifications.js';
 import {
   backupHash,
   checkSecondFactor,
@@ -217,12 +218,20 @@ export const registerMfaRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async 
     await db.delete(mfaBackupCodes).where(eq(mfaBackupCodes.userId, id));
     // ключи доступа — такой же второй фактор: без их удаления сброс не снял бы требование кода при входе
     await db.delete(webauthnCredentials).where(eq(webauthnCredentials.userId, id));
+    // неверные коды со старого телефона не должны мешать войти и настроить новый
+    ctx.attempts.byEmail.reset(`mfa:${id}`);
     await audit(db, `user:${user.id}`, 'admin.mfa.reset', `user:${id}`);
+    // в приложении: уведомление ведёт на «Безопасность», где второй фактор настраивается заново
+    await notifyUsers(db, [id], {
+      category: 'security',
+      event: 'admin.mfa.reset',
+      resourceType: 'account',
+    });
     void notifySecurity(
       ctx,
       id,
       'Arklock: сброшен второй фактор',
-      'Администратор сбросил второй фактор вашей учётной записи. Настройте его заново.\n\nAn administrator reset the second factor of your account. Set it up again.',
+      'Администратор сбросил второй фактор вашей учётной записи. Войдите со своим паролем и настройте второй фактор заново в разделе «Безопасность».\n\nAn administrator reset the second factor of your account. Sign in with your password and set it up again under “Security”.',
     );
     return reply.status(204).send();
   });

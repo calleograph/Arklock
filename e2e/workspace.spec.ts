@@ -1161,6 +1161,59 @@ test('«Add field:» under the form: a field of the chosen type in one click, fi
   await expect(page.getByTestId('file-row')).toHaveCount(1);
 });
 
+test('a lost phone: the administrator resets the second factor from the user card, the employee signs in and sets it up again', async ({
+  browser,
+}) => {
+  const { totp, parseTotpInput } = await import('../packages/crypto/dist/index.js');
+  // сотрудник включает второй фактор
+  const member = await (await browser.newContext()).newPage();
+  await login(member, MEMBER);
+  await member.getByTestId('menu-toggle').click();
+  await member.getByTestId('menu-security').click();
+  await member.getByTestId('mfa-start').click();
+  const secret = (await member.getByTestId('mfa-secret').innerText()).trim();
+  await member.getByTestId('mfa-enable-code').fill(await totp(parseTotpInput(secret)));
+  await member.getByTestId('mfa-enable').click();
+  await member.getByTestId('mfa-codes-saved').click();
+  await member.getByTestId('menu-toggle').click();
+  await member.getByTestId('signout').click();
+
+  // администратор: в списке видно, у кого второй фактор; сброс — пункт меню строки, подтверждение в карточке
+  const page = adminPage;
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-full').click();
+  await page.getByTestId('admin-tab-users').click();
+  await expect(page.getByTestId(`user-mfa-${MEMBER.email}`)).toBeVisible();
+  await page.getByTestId(`user-actions-${MEMBER.email}`).click();
+  await page.getByTestId(`reset-mfa-${MEMBER.email}`).click();
+  const confirm = page.getByTestId('mfa-reset-confirm');
+  await expect(confirm).toContainText(MEMBER.name);
+  await expect(confirm).toContainText(/паролем|password/);
+  await confirm.getByTestId('mfa-reset-do').click();
+  await expect(page.getByTestId('mfa-reset-done')).toBeVisible();
+  await expect(page.getByTestId('profile-mfa')).toContainText(
+    /без второго фактора|no second factor/,
+  );
+  await expect(page.getByTestId('profile-mfa-reset')).toHaveCount(0);
+  await expect(page.getByTestId(`user-mfa-${MEMBER.email}`)).toHaveCount(0);
+  // без второго фактора пункта сброса в меню нет
+  await page.getByTestId(`user-actions-${MEMBER.email}`).click();
+  await expect(page.getByTestId(`reset-mfa-${MEMBER.email}`)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // сотрудник входит одним паролем; уведомление ведёт туда, где второй фактор настраивается заново
+  await login(member, MEMBER);
+  await expect(member.getByTestId('mfa-code')).toHaveCount(0);
+  await member.getByTestId('notification-bell').click();
+  const note = member
+    .getByTestId('notification-row')
+    .filter({ hasText: /сбросил второй фактор|reset your second factor/ });
+  await note.getByTestId('notification-open').click();
+  await expect(member).toHaveURL(/\/security/);
+  await expect(member.getByTestId('mfa-start')).toBeVisible();
+  await member.context().close();
+});
+
 test('two-factor sign-in: enrol, sign out, password alone is not enough, code completes', async ({
   browser,
 }) => {

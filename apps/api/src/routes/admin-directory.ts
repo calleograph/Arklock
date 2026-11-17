@@ -30,6 +30,7 @@ import {
   circleMembers,
   circles,
   ledger,
+  mfaFactors,
   roles,
   sessions,
   settings,
@@ -37,6 +38,7 @@ import {
   users,
   vaults,
   vaultCircles,
+  webauthnCredentials,
 } from '../db/schema.js';
 import { chiefRequired } from './chief.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
@@ -256,6 +258,25 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       )
       .groupBy(sessions.userId);
     const seen = new Map(lastSeen.map((s) => [s.userId, s.at]));
+    // второй фактор (приложение с кодами или ключ доступа): видно, кому есть что сбросить при потере телефона
+    const ids = rows.map((r) => r.id);
+    const enrolled = new Set(
+      [
+        ...(await db
+          .select({ id: mfaFactors.userId })
+          .from(mfaFactors)
+          .where(
+            and(
+              isNotNull(mfaFactors.enabledAt),
+              paged ? inArray(mfaFactors.userId, ids) : undefined,
+            ),
+          )),
+        ...(await db
+          .select({ id: webauthnCredentials.userId })
+          .from(webauthnCredentials)
+          .where(paged ? inArray(webauthnCredentials.userId, ids) : undefined)),
+      ].map((r) => r.id),
+    );
     const list = rows.map((u) => ({
       id: u.id,
       name: u.displayName,
@@ -274,6 +295,7 @@ export const registerAdminDirectoryRoutes: FastifyPluginAsync<{ ctx: AppContext 
       disabledNote: u.disabledAt ? u.disabledNote : null,
       authSource: u.authSource,
       pending: u.pendingActivation,
+      mfa: enrolled.has(u.id),
       createdAt: u.createdAt.toISOString(),
       lastSeenAt: seen.get(u.id) ? new Date(seen.get(u.id)!).toISOString() : null,
       title: u.title,
