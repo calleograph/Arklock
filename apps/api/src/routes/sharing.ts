@@ -1,13 +1,32 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { handoffCreate, signalPatch, signalsPost, uuid } from '@arklock/contracts';
+import { handoffClaim, handoffCreate, signalPatch, signalsPost, uuid } from '@arklock/contracts';
 import { requireVault } from '../access.js';
 import { audit } from '../audit.js';
 import { enforceDenyRules } from '../automation.js';
 import { authOf, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
-import { entries, handoffs, ledger, settings, signals, users, vaults } from '../db/schema.js';
+import {
+  entries,
+  handoffClaims,
+  handoffKeys,
+  handoffs,
+  ledger,
+  settings,
+  signals,
+  users,
+  vaults,
+} from '../db/schema.js';
+import {
+  CLAIM_MS,
+  burn,
+  claimHash,
+  liveClaim,
+  seal,
+  sweepHandoffs,
+  unseal,
+} from '../handoff-store.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { AttemptLimiter } from '../rateLimit.js';
 
@@ -34,35 +53,53 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
   const setting = async <T>(key: string, fallback: T): Promise<T> =>
     ((await db.select().from(settings).where(eq(settings.key, key)))[0]?.value as T) ?? fallback;
 
+  /** Ссылку ещё можно открыть (без учёта квитков). */
+  const openable = (h: typeof handoffs.$inferSelect, now = Date.now()) =>
+    !h.revokedAt &&
+    h.expiresAt.getTime() > now &&
+    h.views < h.maxViews &&
+    !windowClosed(h, now) &&
+    h.ciphertext !== '';
+  const unavailable = () => new AppError(404, 'handoff_unavailable', 'The link is not available');
+
   app.get('/handoffs/:id/meta', async (req) => {
     const { id } = parse(idParam, req.params);
     const [h] = await db.select().from(handoffs).where(eq(handoffs.id, id));
     // Одинаковый ответ для несуществующих, истёкших и отозванных ссылок: ничего лишнего не раскрываем.
-    if (
-      !h ||
-      h.revokedAt ||
-      h.expiresAt.getTime() <= Date.now() ||
-      h.views >= h.maxViews ||
-      windowClosed(h)
-    ) {
-      throw new AppError(404, 'handoff_unavailable', 'The link is not available');
-    }
+    if (!h || !openable(h)) throw unavailable();
     return {
       hasPassphrase: h.hasPassphrase,
       label: '',
       remainingViews: h.maxViews - h.views,
+      expiresAt: h.expiresAt.toISOString(),
       openWindowMinutes: h.openWindowMinutes,
       notice: await setting('links.notice', ''),
     };
   });
 
+  /**
+   * Получение. Открытие засчитывается атомарно (два одновременных запроса не превысят лимит). С квитком тот же браузер
+   * может повторить запрос в течение CLAIM_MS, не расходуя открытие: ответ мог не дойти (обрыв связи, обновление).
+   * Просмотр — POST по нажатию кнопки: почтовые сканеры и предпросмотр ссылок его не вызывают.
+   */
   app.post('/handoffs/:id/open', async (req) => {
     const { id } = parse(idParam, req.params);
+    const { claim } = parse(handoffClaim, req.body ?? {});
     const ip = req.ip ?? 'unknown';
     if (openLimiter.retryAfter(ip) > 0) {
       throw new AppError(429, 'too_many_attempts', 'Too many attempts, try again later');
     }
-    // Атомарный учёт просмотра: два одновременных запроса не превысят лимит.
+    if (claim && (await liveClaim(db, id, claim))) {
+      const [h] = await db.select().from(handoffs).where(eq(handoffs.id, id));
+      const ciphertext = h && !h.revokedAt ? await unseal(db, h) : null;
+      if (!h || !ciphertext) throw unavailable();
+      return {
+        ciphertext,
+        hasPassphrase: h.hasPassphrase,
+        remainingViews: Math.max(0, h.maxViews - h.views),
+        resumed: true,
+      };
+    }
     // окно после первого открытия проверяется в том же условном обновлении, что и число просмотров
     const rows = await db
       .update(handoffs)
@@ -76,6 +113,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
           isNull(handoffs.revokedAt),
           gt(handoffs.expiresAt, new Date()),
           lt(handoffs.views, handoffs.maxViews),
+          ne(handoffs.ciphertext, ''),
           sql`(${handoffs.openWindowMinutes} is null or ${handoffs.firstOpenedAt} is null or ${handoffs.firstOpenedAt} + ${handoffs.openWindowMinutes} * interval '1 minute' > now())`,
         ),
       )
@@ -83,15 +121,38 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const h = rows[0];
     if (!h) {
       openLimiter.fail(ip);
-      throw new AppError(404, 'handoff_unavailable', 'The link is not available');
+      throw unavailable();
     }
+    const ciphertext = await unseal(db, h);
     const remaining = h.maxViews - h.views;
-    if (remaining <= 0) {
-      // Последний просмотр: шифртекст стирается сразу после выдачи (запись остаётся для журнала владельца).
-      await db.update(handoffs).set({ ciphertext: '' }).where(eq(handoffs.id, id));
-    }
+    if (claim && ciphertext)
+      await db
+        .insert(handoffClaims)
+        .values({
+          handoffId: id,
+          tokenHash: claimHash(claim),
+          until: new Date(Date.now() + CLAIM_MS),
+        })
+        .onConflictDoNothing();
+    // последнее открытие без квитка — содержимое уничтожается сразу; с квитком — после подтверждения или через CLAIM_MS
+    // ключа сервера нет (база восстановлена из копии) — открыть нельзя, остаток уничтожается
+    if (!ciphertext) await burn(db, [id]);
+    else if (remaining <= 0) await sweepHandoffs(db);
     await audit(db, 'anonymous', 'handoff.open', `handoff:${id}`, { remaining });
-    return { ciphertext: h.ciphertext, hasPassphrase: h.hasPassphrase, remainingViews: remaining };
+    if (!ciphertext) throw unavailable();
+    return { ciphertext, hasPassphrase: h.hasPassphrase, remainingViews: remaining };
+  });
+
+  /** Получатель расшифровал содержимое: квиток больше не нужен, после последнего открытия всё уничтожается сразу. */
+  app.post('/handoffs/:id/ack', async (req, reply) => {
+    const { id } = parse(idParam, req.params);
+    const { claim } = parse(handoffClaim, req.body ?? {});
+    if (claim)
+      await db
+        .delete(handoffClaims)
+        .where(and(eq(handoffClaims.handoffId, id), eq(handoffClaims.tokenHash, claimHash(claim))));
+    await sweepHandoffs(db);
+    return reply.status(204).send();
   });
 
   // ---- управление ссылками
@@ -118,18 +179,26 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
         maxViews,
       });
     }
-    await db.insert(handoffs).values({
-      id: body.id,
-      createdBy: user.id,
-      label: body.label,
-      ciphertext: body.ciphertext,
-      hasPassphrase: body.hasPassphrase,
-      expiresAt: new Date(Date.now() + body.expiresInMinutes * 60_000),
-      maxViews: body.maxViews,
-      openWindowMinutes: body.openWindowMinutes ?? null,
+    const { sealed, key } = seal(body.id, body.ciphertext);
+    await db.transaction(async (tx) => {
+      await tx.insert(handoffs).values({
+        id: body.id,
+        createdBy: user.id,
+        label: body.label,
+        ciphertext: sealed,
+        wrapped: true,
+        kind: body.kind,
+        hasPassphrase: body.hasPassphrase,
+        expiresAt: new Date(Date.now() + body.expiresInMinutes * 60_000),
+        maxViews: body.maxViews,
+        openWindowMinutes: body.openWindowMinutes ?? null,
+      });
+      await tx.insert(handoffKeys).values({ handoffId: body.id, key });
     });
     await audit(db, `user:${user.id}`, 'handoff.create', `handoff:${body.id}`, {
       maxViews: body.maxViews,
+      minutes: body.expiresInMinutes,
+      kind: body.kind,
     });
     return reply.status(201).send({ id: body.id });
   });
@@ -146,6 +215,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     return rows.map((h) => ({
       id: h.id,
       label: h.label,
+      kind: h.kind,
       hasPassphrase: h.hasPassphrase,
       createdAt: h.createdAt.toISOString(),
       expiresAt: h.expiresAt.toISOString(),
@@ -153,11 +223,13 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       views: h.views,
       openWindowMinutes: h.openWindowMinutes,
       firstOpenedAt: h.firstOpenedAt?.toISOString() ?? null,
+      // содержимое уже уничтожено (после последнего открытия, отзыва или срока)
+      destroyed: h.ciphertext === '',
       status: h.revokedAt
         ? 'revoked'
         : h.views >= h.maxViews
           ? 'used'
-          : h.expiresAt.getTime() <= now || windowClosed(h, now)
+          : h.expiresAt.getTime() <= now || windowClosed(h, now) || h.ciphertext === ''
             ? 'expired'
             : 'active',
     }));
@@ -168,10 +240,11 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
     const { id } = parse(idParam, req.params);
     const res = await db
       .update(handoffs)
-      .set({ revokedAt: new Date(), ciphertext: '' })
+      .set({ revokedAt: sql`coalesce(${handoffs.revokedAt}, now())` })
       .where(and(eq(handoffs.id, id), eq(handoffs.createdBy, user.id)))
       .returning({ id: handoffs.id });
     if (!res.length) throw notFound();
+    await burn(db, [id]);
     await audit(db, `user:${user.id}`, 'handoff.revoke', `handoff:${id}`);
     return reply.status(204).send();
   });

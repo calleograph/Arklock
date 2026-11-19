@@ -119,7 +119,11 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="$BACKUP_DIR/${COMPOSE_PROJECT_NAME}-${TS}-v$(app_version)${LABEL}.bak.gpg"
 
 info "Дамп PostgreSQL…"
-dc exec -T db pg_dump -U arklock -d arklock -Fc > "$tmp/db.dump" || die "pg_dump завершился с ошибкой"
+# ключи сервера для передач по ссылке в копию не попадают: копия не раскрывает переданное даже вместе со ссылкой
+# (после восстановления действующие ссылки передачи становятся недействительными)
+dc exec -T db pg_dump -U arklock -d arklock -Fc \
+  --exclude-table-data=handoff_keys --exclude-table-data=handoff_claims > "$tmp/db.dump" \
+  || die "pg_dump завершился с ошибкой"
 [ -s "$tmp/db.dump" ] || die "Дамп БД пуст"
 cp "$ENV_FILE" "$tmp/arklock.env"
 migrations="$(dc exec -T db psql -U arklock -d arklock -tAc 'select count(*) from drizzle.__drizzle_migrations' | tr -d '[:space:]')"

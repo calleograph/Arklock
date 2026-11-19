@@ -466,10 +466,10 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
   const second = await (await browser.newContext()).newPage();
   await second.goto(sharedLink);
   await expect(second.getByTestId('handoff-gone')).toBeVisible();
-  // ссылка без ключа не работает
+  // использованная ссылка и без ключа говорит, что она недействительна
   const bare = await (await browser.newContext()).newPage();
   await bare.goto(sharedLink.split('#')[0]!);
-  await expect(bare.getByTestId('handoff-bad')).toBeVisible();
+  await expect(bare.getByTestId('handoff-gone')).toBeVisible();
 
   // ссылка на 3 просмотра с окном 5 минут после первого открытия: получатель видит условие и открывает дважды
   await page.getByTestId('share-views').selectOption('3');
@@ -477,6 +477,10 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
   await page.getByTestId('btn-create-link').click();
   await expect(page.getByTestId('share-link')).not.toHaveText(sharedLink);
   const windowed = (await page.getByTestId('share-link').textContent())!.trim();
+  // действующая ссылка без ключа (скопирована не целиком) не открывается
+  const cut = await (await browser.newContext()).newPage();
+  await cut.goto(windowed.split('#')[0]!);
+  await expect(cut.getByTestId('handoff-bad')).toBeVisible();
   for (let i = 0; i < 2; i++) {
     const g = await (await browser.newContext()).newPage();
     await g.goto(windowed);
@@ -484,6 +488,76 @@ test('a one-time link opens once, anonymously', async ({ browser }) => {
     await g.getByTestId('handoff-open').click();
     await expect(g.getByTestId('handoff-username')).toHaveText('me@example.com');
   }
+});
+
+test('send a secret: the section in the header, a link, a mail scanner, a lost response, reload and revoke', async ({
+  browser,
+}) => {
+  const page = adminPage;
+  await page.getByTestId('header-send').click();
+  await expect(page.getByTestId('send-form')).toBeVisible();
+  await expect(page.getByTestId('send-lifetime')).toHaveValue('30');
+  await expect(page.getByTestId('send-opens')).toHaveValue('1');
+  await page.getByTestId('send-submit').click();
+  await expect(page.getByTestId('send-error')).toBeVisible();
+  await page.getByTestId('send-purpose').fill('Пароль для Wi-Fi гостей');
+  await page.getByTestId('send-password').fill('Guest-Synthetic-5521');
+  await page.getByTestId('send-login').fill('guest');
+  await page.getByTestId('send-submit').click();
+  const link = await page.getByTestId('send-link').inputValue();
+  expect(link).toMatch(/\/h\/[0-9a-f-]{36}#[A-Za-z0-9_-]{43}$/);
+
+  // почтовый сканер загружает страницу, но не нажимает кнопку — открытие не расходуется
+  const scanner = await browser.newContext();
+  await (await scanner.newPage()).goto(link);
+  await scanner.close();
+
+  const recipient = await (await browser.newContext()).newPage();
+  await recipient.goto(link);
+  await expect(recipient.getByTestId('handoff-open')).toBeVisible();
+  expect(recipient.url()).not.toContain('#');
+  // сервер засчитал открытие, но ответ не дошёл; страницу обновили — тот же браузер получает секрет
+  let dropped = false;
+  await recipient.route('**/handoffs/*/open', async (route) => {
+    if (dropped) return route.continue();
+    dropped = true;
+    await route.fetch();
+    await route.abort('connectionreset');
+  });
+  await recipient.getByTestId('handoff-open').click();
+  await expect(recipient.getByTestId('handoff-error')).toBeVisible();
+  await recipient.reload();
+  await expect(recipient.getByTestId('handoff-username')).toHaveText('guest');
+  await recipient.getByTestId('handoff-show').click();
+  await expect(recipient.getByTestId('handoff-password')).toHaveText('Guest-Synthetic-5521');
+  // ещё раз — ссылка использована, и любой другой получатель видит то же
+  await recipient.reload();
+  await expect(recipient.getByTestId('handoff-gone')).toBeVisible();
+  const other = await (await browser.newContext()).newPage();
+  await other.goto(link);
+  await expect(other.getByTestId('handoff-gone')).toBeVisible();
+
+  // отзыв: активная ссылка перестаёт открываться, в списке — «Отозванные»
+  await page.getByTestId('send-another').click();
+  await page.getByTestId('send-purpose').fill('Временный пароль VPN');
+  await page.getByTestId('send-password').fill('Vpn-Synthetic-8812');
+  await page.getByTestId('send-lifetime').selectOption('1440');
+  await page.getByTestId('send-opens').selectOption('3');
+  await page.getByTestId('send-submit').click();
+  const revoked = await page.getByTestId('send-link').inputValue();
+  await page.getByTestId('send-another').click();
+  await page.getByTestId('send-tab-used').click();
+  await expect(page.getByTestId('send-list')).toContainText('Пароль для Wi-Fi гостей');
+  await page.getByTestId('send-tab-active').click();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByTestId('send-revoke-Временный пароль VPN').click();
+  await page.getByTestId('send-tab-revoked').click();
+  await expect(page.getByTestId('send-list')).toContainText('Временный пароль VPN');
+  const late = await (await browser.newContext()).newPage();
+  await late.goto(revoked);
+  await expect(late.getByTestId('handoff-gone')).toBeVisible();
+  await page.getByTestId('menu-toggle').click();
+  await page.getByTestId('menu-vault').click();
 });
 
 test('import (CSV), encrypted export and the security inspector', async () => {

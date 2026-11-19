@@ -220,6 +220,17 @@ const initial = () =>
               <Icon :name="onAdmin ? 'inbox' : 'settings'" class="size-4" />
               <span class="max-xl:hidden">{{ onAdmin ? t('nav.vault') : t('menu.full') }}</span>
             </RouterLink>
+            <!-- передача пароля по одноразовой ссылке — частая задача, поэтому на виду, а не только в меню -->
+            <RouterLink
+              to="/send"
+              class="btn-ghost max-sm:!hidden"
+              data-testid="header-send"
+              :title="t('nav.send')"
+              :aria-label="t('nav.send')"
+            >
+              <Icon name="share" class="size-4" />
+              <span class="max-xl:hidden">{{ t('nav.send') }}</span>
+            </RouterLink>
             <NotificationBell />
             <button
               type="button"
@@ -278,6 +289,7 @@ const initial = () =>
                     <RouterLink
                       v-for="(item, i) in [
                         { to: '/', icon: 'inbox', label: t('nav.vault'), id: 'menu-vault' },
+                        { to: '/send', icon: 'share', label: t('nav.send'), id: 'menu-send' },
                         {
                           to: '/security?tab=profile',
                           icon: 'user',

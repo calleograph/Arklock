@@ -248,6 +248,16 @@ export const handoffCreate = z.object({
   maxViews: z.number().int().min(1).max(100),
   /** Ссылка действует столько минут после первого открытия (например, 5): получатель может открыть её снова, пока окно не закрылось. */
   openWindowMinutes: z.number().int().min(1).max(1440).optional(),
+  /** entry — из записи сейфа, secret — из раздела «Передача секрета» (содержимое вводится вручную). */
+  kind: z.enum(['entry', 'secret']).default('entry'),
+});
+
+/** Квиток получателя (случайные 32 байта, base64url): повтор после обрыва связи не расходует открытие. */
+export const handoffClaim = z.object({
+  claim: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/)
+    .optional(),
 });
 
 export const signalsPost = z.object({

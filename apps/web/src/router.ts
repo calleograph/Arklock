@@ -45,6 +45,12 @@ export const router = createRouter({
       meta: { requiresUnlock: true },
     },
     { path: '/h/:id', name: 'handoff', component: HandoffOpenView },
+    {
+      path: '/send',
+      name: 'send',
+      component: () => import('./views/SendSecretView.vue'),
+      meta: { requiresUnlock: true },
+    },
     { path: '/sso/done', name: 'sso-done', component: SsoDoneView },
     // подразделений больше нет: их роль выполняют группы
     { path: '/admin/departments', redirect: '/admin/circles' },

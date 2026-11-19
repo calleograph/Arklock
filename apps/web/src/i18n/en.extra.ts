@@ -944,7 +944,7 @@ export default {
     repeat: 'The password must not have more than {n} identical characters in a row.',
     maxRepeatLabel: 'Most identical characters in a row (0 = no requirement)',
   },
-  nav: { admin: 'Administration', settings: 'My settings' },
+  nav: { admin: 'Administration', settings: 'My settings', send: 'Send a secret' },
   kind: {
     login: 'Login and password',
     note: 'Secure note',
@@ -1344,16 +1344,27 @@ export default {
     reported: 'Events reported: {created}, resolved: {resolved}',
   },
   handoff: {
-    title: 'Secret by link',
+    title: 'A secret was sent to you',
     bad: 'The link has no key. Copy it completely, including the part after "#".',
-    gone: 'The link is unavailable: it expired, its views are used up or it was revoked.',
-    intro: 'A secret was shared with you. Views left: {n}. Opening uses one view.',
-    passphrase: 'Passphrase',
+    gone: 'The link is no longer valid: it was already opened, it expired or the sender revoked it. If you still need the secret, ask the sender for a new link.',
+    intro:
+      'Open the secret when you are ready to save it. Opens left: {n}. After the last open the content is deleted for good.',
+    until: 'The link is valid until {at}.',
+    passphrase: 'Code',
+    code: 'Code from the sender',
     open: 'Show the secret',
-    wrongKey: 'Could not decrypt: wrong passphrase or damaged link. The view was used.',
-    leftViews: 'Views left: {n}',
+    wrongKey: 'Could not decrypt: the link is damaged. Copy it completely and open it again.',
+    wrongCode: 'The code does not match. Check it with the sender and enter it again.',
+    offline:
+      'No connection to the server. Try again when the connection is back: the open is not lost if you retry within two minutes.',
+    person: 'User name',
+    notes: 'Additional information',
+    copied: 'Copied',
+    leftViews:
+      'The link can be opened {n} more time(s). Save what you need: the page does not keep the secret after you close it.',
     window: 'After the first open the link works for {n} min.',
-    lastView: 'That was the last view: the link is no longer valid.',
+    lastView:
+      'The secret was deleted from the server: the link will not open again. Save what you need now — after you close the page it is gone.',
   },
   handoffs: {
     title: 'My links',

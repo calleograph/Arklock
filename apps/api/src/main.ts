@@ -6,6 +6,7 @@ import { connect } from './db/connect.js';
 import { BlobStore } from './blobs.js';
 import { seedPresetRoles } from './preset-roles.js';
 import { grantAllPendingKeys } from './managed-keys.js';
+import { sweepHandoffs } from './handoff-store.js';
 import { runMaintenance } from './maintenance.js';
 import { sampleMetrics } from './metrics.js';
 import os from 'node:os';
@@ -41,6 +42,15 @@ async function main(): Promise<void> {
     6 * 3_600_000,
   );
   timer.unref();
+  // Передачи по ссылке уничтожаются не позже чем через минуту после срока, отзыва или последнего открытия.
+  const handoffTimer = setInterval(
+    () =>
+      void sweepHandoffs(database.db).catch((e: unknown) =>
+        app.log.error({ err: String(e) }, 'handoff sweep failed'),
+      ),
+    60_000,
+  );
+  handoffTimer.unref();
   // История ресурсов для графиков в панели: точка раз в пять минут, первая — сразу после запуска.
   const sample = () =>
     void sampleMetrics(database.db, [config.BLOB_DIR, os.tmpdir()]).catch((e: unknown) =>

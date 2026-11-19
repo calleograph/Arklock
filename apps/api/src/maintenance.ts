@@ -19,6 +19,7 @@ import {
   signals,
   vaultMembers,
 } from './db/schema.js';
+import { sweepHandoffs } from './handoff-store.js';
 import { notifyUsers } from './notifications.js';
 import { sweepBlobs } from './routes/attachments.js';
 import { purgeExpiredTrash } from './routes/content.js';
@@ -50,13 +51,9 @@ export async function runMaintenance(
     .delete(handoffs)
     .where(lt(handoffs.expiresAt, old))
     .returning({ id: handoffs.id });
-  // окно после первого открытия закрылось — шифртекст больше не нужен (как после последнего просмотра)
-  await db
-    .update(handoffs)
-    .set({ ciphertext: '' })
-    .where(
-      sql`${handoffs.openWindowMinutes} is not null and ${handoffs.firstOpenedAt} + ${handoffs.openWindowMinutes} * interval '1 minute' <= ${now} and ${handoffs.ciphertext} <> ''`,
-    );
+  // истёкшие, отозванные, исчерпанные передачи: шифртекст и ключ сервера уничтожаются (обычно это уже сделал
+  // ежеминутный проход — здесь страховка на случай, если процесс долго не работал)
+  await sweepHandoffs(db, now);
   const shieldRetention = await pruneSecurityData(db, now);
   const files = blobs ? await sweepBlobs({ db, blobs }, now) : { orphans: 0, pending: 0 };
   return {

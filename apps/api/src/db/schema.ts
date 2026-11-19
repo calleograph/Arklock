@@ -567,8 +567,41 @@ export const handoffs = pgTable(
     firstOpenedAt: ts('first_opened_at'),
     revokedAt: ts('revoked_at'),
     createdAt: ts('created_at').notNull().defaultNow(),
+    /** Откуда передача: запись сейфа или отдельный раздел «Передача секрета». */
+    kind: text('kind', { enum: ['entry', 'secret'] })
+      .notNull()
+      .default('entry'),
+    /** Шифртекст дополнительно запечатан ключом сервера из handoff_keys (ссылки, созданные до 2.4.0, — нет). */
+    wrapped: boolean('wrapped').notNull().default(false),
   },
   (t) => [index('handoffs_user_idx').on(t.createdBy)],
+);
+
+/**
+ * Ключ сервера для передачи: без него шифртекст бесполезен даже вместе со ссылкой. Удаляется вместе с шифртекстом
+ * и не попадает в резервные копии (scripts/backup.sh), поэтому копия базы не раскрывает переданное и по старой ссылке.
+ */
+export const handoffKeys = pgTable('handoff_keys', {
+  handoffId: uuid('handoff_id')
+    .primaryKey()
+    .references(() => handoffs.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),
+});
+
+/**
+ * Квиток получателя: открытие засчитано, но страница могла не получить ответ (обрыв связи, обновление). Тот же
+ * браузер повторяет запрос с тем же квитком и получает содержимое, не расходуя открытие, пока квиток действует.
+ */
+export const handoffClaims = pgTable(
+  'handoff_claims',
+  {
+    handoffId: uuid('handoff_id')
+      .notNull()
+      .references(() => handoffs.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    until: ts('until').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.handoffId, t.tokenHash] })],
 );
 
 /** События безопасности по записям (слабый/повторяющийся/скомпрометированный/просроченный пароль). Секретов не содержат. */
