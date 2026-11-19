@@ -13,6 +13,7 @@ export const mailCategory = z.enum([
   'passkeys',
   'invitation',
   'test',
+  'handoff',
 ]);
 export type MailCategory = z.infer<typeof mailCategory>;
 export const templateWrite = z
@@ -124,7 +125,8 @@ export async function mailNotificationPreferences(ctx: AppContext) {
   };
 }
 export async function mailCategoryEnabled(ctx: AppContext, category: MailCategory) {
-  if (category === 'test') return true;
+  // тест и ссылка на секрет — письма по прямому действию человека, а не уведомления: отключить их нечем
+  if (category === 'test' || category === 'handoff') return true;
   const preferences = await mailNotificationPreferences(ctx);
   return category === 'invitation'
     ? preferences.invitation

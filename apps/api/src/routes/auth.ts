@@ -30,6 +30,7 @@ import { publicUrlOf } from '../public-url.js';
 import { adminPermsOf } from '../auth/adminperm.js';
 import { isEnrolled, mfaChallenge } from '../auth/mfa.js';
 import { notifySecurity } from '../mail/send.js';
+import { loadSmtpProfile, profileIdFor } from '../mail/profiles.js';
 import { authOf, createSession, requireAuth } from '../auth/session.js';
 import type { AppContext } from '../context.js';
 import {
@@ -61,6 +62,12 @@ import {
 import { DEFAULT_SPACE_ID } from '../spaces.js';
 
 type KdfIn = { memoryKiB: number; iterations: number; parallelism: number };
+
+/** Тот же выбор профиля, что у очереди писем (enqueueMail). */
+async function mailProfileFor(ctx: AppContext): Promise<boolean> {
+  const id = await profileIdFor(ctx, 'security');
+  return !!id && !!(await loadSmtpProfile(ctx, id));
+}
 
 function checkKdf(ctx: AppContext, kdf: KdfIn): void {
   try {
@@ -373,6 +380,8 @@ export const registerAuthRoutes: FastifyPluginAsync<{ ctx: AppContext }> = async
       'storage.entryQuotaMiB': storageMiB(rows).entryQuotaMiB,
       'links.maxMinutes': get('links.maxMinutes', 0),
       'links.maxViews': get('links.maxViews', 100),
+      // ссылку можно отправить письмом от сервиса: почта настроена и известен публичный адрес
+      'links.mail': !!publicUrlOf(ctx) && (await mailProfileFor(ctx)),
       'generator.length': get('generator.length', 20),
       'generator.lower': get('generator.lower', true),
       'generator.upper': get('generator.upper', true),

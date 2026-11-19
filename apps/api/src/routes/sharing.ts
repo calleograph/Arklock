@@ -1,7 +1,14 @@
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { handoffClaim, handoffCreate, signalPatch, signalsPost, uuid } from '@arklock/contracts';
+import {
+  handoffClaim,
+  handoffCreate,
+  handoffMail,
+  signalPatch,
+  signalsPost,
+  uuid,
+} from '@arklock/contracts';
 import { requireVault } from '../access.js';
 import { audit } from '../audit.js';
 import { enforceDenyRules } from '../automation.js';
@@ -29,6 +36,8 @@ import {
 } from '../handoff-store.js';
 import { AppError, forbidden, notFound, parse } from '../errors.js';
 import { AttemptLimiter } from '../rateLimit.js';
+import { sendMail } from '../mail/send.js';
+import { publicUrlOf } from '../public-url.js';
 
 /**
  * Передача секретов по ссылке (Handoff): сервер хранит только шифртекст. Ключ ссылки находится во фрагменте URL
@@ -40,6 +49,8 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
 ) => {
   const { db, config } = ctx;
   const openLimiter = new AttemptLimiter(60, 15 * 60_000);
+  // письма уходят на любые адреса: предел не даёт превратить сервис в рассылку
+  const mailLimiter = new AttemptLimiter(20, 60 * 60_000);
   const auth = requireAuth(ctx);
   const idParam = z.object({ id: uuid });
 
@@ -225,6 +236,7 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
       firstOpenedAt: h.firstOpenedAt?.toISOString() ?? null,
       // содержимое уже уничтожено (после последнего открытия, отзыва или срока)
       destroyed: h.ciphertext === '',
+      mailedTo: h.mailedTo,
       status: h.revokedAt
         ? 'revoked'
         : h.views >= h.maxViews
@@ -233,6 +245,62 @@ export const registerSharingRoutes: FastifyPluginAsync<{ ctx: AppContext }> = as
             ? 'expired'
             : 'active',
     }));
+  });
+
+  /**
+   * Письмо получателю от самого сервиса. Ключ ссылки приходит только чтобы собрать письмо: он не сохраняется и не
+   * пишется в журнал; тело письма в очереди зашифровано, стирается после отправки и не уходит после срока ссылки.
+   */
+  app.post('/handoffs/:id/mail', { preHandler: auth }, async (req) => {
+    const { user } = authOf(req);
+    const { id } = parse(idParam, req.params);
+    const body = parse(handoffMail, req.body);
+    if (mailLimiter.retryAfter(user.id) > 0)
+      throw new AppError(429, 'too_many_attempts', 'Too many messages, try again later');
+    const [h] = await db
+      .select()
+      .from(handoffs)
+      .where(and(eq(handoffs.id, id), eq(handoffs.createdBy, user.id)));
+    if (!h || !openable(h)) throw unavailable();
+    const base = publicUrlOf(ctx)?.replace(/\/$/, '');
+    if (!base) throw new AppError(409, 'mail_unavailable', 'The public address is not set');
+    mailLimiter.fail(user.id);
+    const link = `${base}/h/${id}#${body.key}`;
+    const left = Math.max(1, Math.round((h.expiresAt.getTime() - Date.now()) / 60_000));
+    const [ru, en] =
+      left < 120
+        ? [`${left} мин.`, `${left} min`]
+        : left < 2880
+          ? [`${Math.round(left / 60)} ч`, `${Math.round(left / 60)} h`]
+          : [`${Math.round(left / 1440)} сут.`, `${Math.round(left / 1440)} days`];
+    const n = h.maxViews - h.views;
+    const name = user.displayName.replace(/[\r\n\0]/g, ' ').slice(0, 100);
+    const text = [
+      `${name} передаёт вам пароль или данные для входа через Arklock.`,
+      `Ссылка действует ${ru}, открыть её можно ${n} раз(а):`,
+      link,
+      ...(h.hasPassphrase ? ['Для открытия нужен код — его сообщат отдельно.'] : []),
+      'После открытия содержимое уничтожается. Не пересылайте это письмо.',
+      '',
+      `${name} is sharing a password or sign-in details with you via Arklock.`,
+      `The link works for ${en} and can be opened ${n} time(s):`,
+      link,
+      ...(h.hasPassphrase ? ['You need a code to open it; it will be sent separately.'] : []),
+      'The content is destroyed once opened. Do not forward this message.',
+      '',
+    ].join('\n');
+    const sent = await sendMail(
+      ctx,
+      body.to,
+      `Arklock: ${name} передаёт вам секрет / shares a secret with you`,
+      text,
+      'security',
+      'handoff',
+      h.expiresAt,
+    );
+    if (sent) await db.update(handoffs).set({ mailedTo: body.to }).where(eq(handoffs.id, id));
+    await audit(db, `user:${user.id}`, 'handoff.mail', `handoff:${id}`, { to: body.to, sent });
+    return { sent };
   });
 
   app.delete('/handoffs/:id', { preHandler: auth }, async (req, reply) => {

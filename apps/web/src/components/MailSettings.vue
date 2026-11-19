@@ -548,8 +548,13 @@ onBeforeUnmount(() => {
   clearInterval(timer);
   clearTimeout(debounce);
 });
+// у письма со ссылкой на секрет своя категория при общем типе «безопасность»
 const typeLabel = (r: Row) =>
-  te(`mail.type.${r.type}`) ? t(`mail.type.${r.type}`) : r.category || r.type;
+  r.category === 'handoff'
+    ? t('mail.type.handoff')
+    : te(`mail.type.${r.type}`)
+      ? t(`mail.type.${r.type}`)
+      : r.category || r.type;
 </script>
 
 <template>

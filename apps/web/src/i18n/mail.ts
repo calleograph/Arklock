@@ -24,6 +24,7 @@ export const ruMail = {
       invitation: 'Приглашения',
       security: 'Оповещения безопасности',
       test: 'Проверка почты',
+      handoff: 'Передача секрета',
     },
     form: {
       newTitle: 'Новый профиль SMTP',
@@ -383,7 +384,12 @@ export const enMail = {
     },
     sec: { starttls: 'STARTTLS', tls: 'SSL/TLS', none: 'unencrypted' },
     auth: { none: 'no sign-in', password: 'login and password', ntlm: 'Windows NTLM' },
-    type: { invitation: 'Invitations', security: 'Security alerts', test: 'Mail check' },
+    type: {
+      invitation: 'Invitations',
+      security: 'Security alerts',
+      test: 'Mail check',
+      handoff: 'Secret transfer',
+    },
     form: {
       newTitle: 'New SMTP profile',
       editTitle: 'Profile “{name}”',

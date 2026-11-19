@@ -246,6 +246,13 @@
       "when": 1795098774258,
       "tag": "0034_handoff_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795112709749,
+      "tag": "0035_handoff_mail",
+      "breakpoints": true
     }
   ]
 }

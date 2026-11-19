@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { b64url, sealedBox, sealedValue, uuid } from './common.js';
 import { corporateRecoveryEnroll } from './corporate-recovery.js';
+import { email } from './auth.js';
 
 /** Роли в хранилище (по убыванию полномочий). limited — доступ только по грантам на ветви и записи. */
 export const vaultRole = z.enum(['owner', 'admin', 'editor', 'reader', 'limited']);
@@ -253,6 +254,12 @@ export const handoffCreate = z.object({
 });
 
 /** Квиток получателя (случайные 32 байта, base64url): повтор после обрыва связи не расходует открытие. */
+/** Отправить ссылку письмом от сервиса: ключ из фрагмента нужен, чтобы собрать ссылку; сервер его не сохраняет. */
+export const handoffMail = z.object({
+  to: email,
+  key: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+
 export const handoffClaim = z.object({
   claim: z
     .string()

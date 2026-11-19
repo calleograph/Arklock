@@ -573,6 +573,8 @@ export const handoffs = pgTable(
       .default('entry'),
     /** Шифртекст дополнительно запечатан ключом сервера из handoff_keys (ссылки, созданные до 2.4.0, — нет). */
     wrapped: boolean('wrapped').notNull().default(false),
+    /** Адрес, на который сервис отправил ссылку письмом (сама ссылка не хранится). */
+    mailedTo: text('mailed_to'),
   },
   (t) => [index('handoffs_user_idx').on(t.createdBy)],
 );

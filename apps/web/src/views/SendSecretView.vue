@@ -42,6 +42,15 @@ const { t } = useI18n({
       protectHint:
         'Необязательно. Получатель введёт код перед открытием: передайте его другим каналом (звонком, лично). Тогда одной перехваченной ссылки мало.',
       protectPh: 'Не обязательно',
+      mailTo: 'Отправить ссылку на почту',
+      mailHint:
+        'Необязательно. Arklock сам отправит получателю письмо со ссылкой. Ссылка при этом проходит через сервер и почту, поэтому для важного добавьте код и передайте его другим каналом.',
+      mailPh: 'адрес получателя',
+      mailSend: 'Отправить письмом',
+      mailSent: 'Письмо отправлено: {to}',
+      mailFailed:
+        'Письмо не отправлено. Скопируйте ссылку и передайте её сами или попробуйте позже.',
+      mailedTo: 'письмо: {to}',
       submit: 'Создать ссылку',
       empty: 'Заполните хотя бы одно поле с данными: пароль, логин, адрес или текст.',
       ready: 'Ссылка готова',
@@ -78,6 +87,15 @@ const { t } = useI18n({
       days: '{n} сут.',
     },
     en: {
+      mailTo: 'Send the link by email',
+      mailHint:
+        'Optional. Arklock emails the link to the recipient. The link then passes through the server and mail, so for anything important add a code and pass it through another channel.',
+      mailPh: 'recipient address',
+      mailSend: 'Send by email',
+      mailSent: 'Email sent: {to}',
+      mailFailed: 'The email was not sent. Copy the link and pass it yourself, or try later.',
+      mailedTo: 'emailed: {to}',
+      refresh: 'Refresh',
       title: 'Send a secret',
       hint: 'A temporary password or sign-in details in one link. The content is encrypted in your browser and the key is only in the link. After it is opened, when it expires or when you revoke it, the content is destroyed and nobody can show it again.',
       create: 'New transfer',
@@ -127,7 +145,6 @@ const { t } = useI18n({
       destroyed: 'content destroyed',
       revoke: 'Revoke',
       confirmRevoke: 'Revoke the link “{name}”? The recipient will not be able to open it.',
-      refresh: 'Refresh',
       min: '{n} minutes',
       hours: '{n} h',
       days: '{n} days',
@@ -157,13 +174,26 @@ const blank = () => ({
   minutes: 30,
   views: 1,
   passphrase: '',
+  mailTo: '',
 });
 const form = ref(blank());
 const showPw = ref(false);
 const showGen = ref(false);
 const busy = ref(false);
 const error = ref('');
-const created = ref<{ link: string; expiresAt: string; views: number; code: boolean } | null>(null);
+const created = ref<{
+  id: string;
+  key: string;
+  link: string;
+  expiresAt: string;
+  views: number;
+  code: boolean;
+} | null>(null);
+const mailOn = ref(false);
+const mailTo = ref('');
+const mailState = ref<{ to: string; sent: boolean } | null>(null);
+const mailBusy = ref(false);
+const mailError = ref('');
 const copied = ref(false);
 
 const hasContent = computed(() => {
@@ -216,6 +246,8 @@ async function submit(): Promise<void> {
       kind: 'secret',
     });
     created.value = {
+      id,
+      key: pkg.fragment,
       link: `${location.origin}/h/${id}#${pkg.fragment}`,
       expiresAt: new Date(Date.now() + f.minutes * 60_000).toISOString(),
       views: f.views,
@@ -225,7 +257,11 @@ async function submit(): Promise<void> {
     form.value = { ...blank(), minutes: f.minutes, views: f.views };
     showPw.value = false;
     showGen.value = false;
-    await load();
+    mailTo.value = f.mailTo.trim();
+    mailState.value = null;
+    mailError.value = '';
+    if (mailOn.value && mailTo.value) await sendMail();
+    else await load();
   } catch (e) {
     error.value = errorMessage(e, tg);
   } finally {
@@ -238,9 +274,31 @@ async function copyLink(): Promise<void> {
   copied.value = true;
   setTimeout(() => (copied.value = false), 2000);
 }
+/** Письмо получателю от сервиса: сервер собирает ссылку из своего публичного адреса и ключа, ключ не сохраняет. */
+async function sendMail(): Promise<void> {
+  if (!created.value || !mailTo.value.trim()) return;
+  mailBusy.value = true;
+  mailError.value = '';
+  const to = mailTo.value.trim();
+  try {
+    const r = await api<{ sent: boolean }>('POST', `/handoffs/${created.value.id}/mail`, {
+      to,
+      key: created.value.key,
+    });
+    mailState.value = { to, sent: r.sent };
+  } catch (e) {
+    mailError.value = errorMessage(e, tg);
+  } finally {
+    mailBusy.value = false;
+  }
+  await load();
+}
 function another(): void {
   created.value = null;
   copied.value = false;
+  mailState.value = null;
+  mailError.value = '';
+  void load();
 }
 
 // ---- список
@@ -254,6 +312,7 @@ interface Row {
   maxViews: number;
   views: number;
   destroyed: boolean;
+  mailedTo: string | null;
   status: 'active' | 'used' | 'expired' | 'revoked';
 }
 const tabs = ['active', 'used', 'expired', 'revoked'] as const;
@@ -287,6 +346,7 @@ onMounted(async () => {
     maxMinutes: Number(policy['links.maxMinutes'] ?? 0) || 0,
     maxViews: Number(policy['links.maxViews'] ?? 100) || 100,
   };
+  mailOn.value = policy['links.mail'] === true;
   if (!lifetimes.value.includes(form.value.minutes))
     form.value.minutes = lifetimes.value.at(-1) ?? limits.value.maxMinutes;
   await load();
@@ -294,14 +354,14 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="mx-auto max-w-4xl space-y-6" data-testid="send-secret-page">
+  <section class="mx-auto max-w-4xl space-y-4" data-testid="send-secret-page">
     <header class="flex min-h-11 items-center gap-1">
       <h1>{{ t('title') }}</h1>
       <InfoHint :text="t('hint')" />
     </header>
 
     <!-- готовая ссылка -->
-    <div v-if="created" class="card space-y-4 p-4" data-testid="send-ready" role="status">
+    <div v-if="created" class="card space-y-3 p-4" data-testid="send-ready" role="status">
       <h2 class="flex items-center gap-1 font-medium">
         <Icon name="check" class="text-emerald-600" /> {{ t('ready')
         }}<InfoHint :text="t('readyHint')" />
@@ -319,10 +379,37 @@ onMounted(async () => {
           <Icon name="copy" /> {{ copied ? t('copied') : t('copy') }}
         </button>
       </div>
+      <form v-if="mailOn" class="flex flex-wrap gap-2" @submit.prevent="sendMail">
+        <input
+          v-model="mailTo"
+          type="email"
+          class="input min-w-0 flex-1"
+          :placeholder="t('mailPh')"
+          :aria-label="t('mailTo')"
+          data-testid="send-mail-to"
+        />
+        <button
+          type="submit"
+          class="btn"
+          :disabled="mailBusy || !mailTo.trim()"
+          data-testid="send-mail"
+        >
+          <Icon name="mail" /> {{ t('mailSend') }}
+        </button>
+      </form>
+      <p
+        v-if="mailState"
+        class="text-sm"
+        :class="mailState.sent ? 'text-emerald-700 dark:text-emerald-400' : 'field-error'"
+        data-testid="send-mail-state"
+      >
+        {{ mailState.sent ? t('mailSent', { to: mailState.to }) : t('mailFailed') }}
+      </p>
+      <p v-if="mailError" class="field-error" role="alert">{{ mailError }}</p>
       <p class="text-sm text-slate-600 dark:text-slate-300">
         {{ t('until', { at: when(created.expiresAt), n: created.views }) }}
+        <template v-if="created.code"> · {{ t('withCode') }}</template>
       </p>
-      <p v-if="created.code" class="notice notice-warn text-sm">{{ t('withCode') }}</p>
       <button type="button" class="btn" data-testid="send-another" @click="another">
         <Icon name="plus" /> {{ t('another') }}
       </button>
@@ -331,12 +418,12 @@ onMounted(async () => {
     <!-- форма -->
     <form
       v-else
-      class="card space-y-4 p-4"
+      class="card p-4"
       autocomplete="off"
+      :aria-label="t('create')"
       data-testid="send-form"
       @submit.prevent="submit"
     >
-      <h2 class="font-medium">{{ t('create') }}</h2>
       <div class="form-grid">
         <label class="block span-2">
           <span class="inline-flex items-center gap-1"
@@ -352,25 +439,27 @@ onMounted(async () => {
         </label>
         <label class="block">
           {{ t('password') }}
-          <span class="flex items-center gap-2">
+          <span class="relative mt-1 block">
             <input
               v-model="form.password"
               :type="showPw ? 'text' : 'password'"
               autocomplete="new-password"
-              class="input min-w-0 flex-1 font-mono"
+              class="input pr-24 font-mono"
               data-testid="send-password"
             />
-            <IconButton
-              :icon="showPw ? 'eye-off' : 'eye'"
-              :label="showPw ? tg('common.hide') : tg('common.show')"
-              @click="showPw = !showPw"
-            />
-            <IconButton
-              icon="dice"
-              :label="t('generate')"
-              data-testid="send-generate"
-              @click="showGen = !showGen"
-            />
+            <span class="absolute inset-y-0 right-0 flex items-center">
+              <IconButton
+                :icon="showPw ? 'eye-off' : 'eye'"
+                :label="showPw ? tg('common.hide') : tg('common.show')"
+                @click="showPw = !showPw"
+              />
+              <IconButton
+                icon="dice"
+                :label="t('generate')"
+                data-testid="send-generate"
+                @click="showGen = !showGen"
+              />
+            </span>
           </span>
         </label>
         <label class="block">
@@ -395,7 +484,8 @@ onMounted(async () => {
           {{ t('notes') }}
           <textarea
             v-model="form.notes"
-            class="input min-h-24"
+            rows="2"
+            class="input"
             :placeholder="t('notesPh')"
             data-testid="send-notes"
           />
@@ -407,17 +497,15 @@ onMounted(async () => {
           </label>
           <label class="block">
             {{ t('fieldValue') }}
-            <span class="flex items-center gap-2">
-              <input
-                v-model="f.value"
-                class="input min-w-0 flex-1"
-                :data-testid="`send-field-value-${i}`"
-              />
-              <IconButton
-                icon="trash"
-                :label="`${t('removeField')}: ${f.name || i + 1}`"
-                @click="form.fields.splice(i, 1)"
-              />
+            <span class="relative mt-1 block">
+              <input v-model="f.value" class="input pr-12" :data-testid="`send-field-value-${i}`" />
+              <span class="absolute inset-y-0 right-0 flex items-center">
+                <IconButton
+                  icon="trash"
+                  :label="`${t('removeField')}: ${f.name || i + 1}`"
+                  @click="form.fields.splice(i, 1)"
+                />
+              </span>
             </span>
           </label>
         </template>
@@ -457,37 +545,51 @@ onMounted(async () => {
             data-testid="send-code"
           />
         </label>
-      </div>
-      <p v-if="error" class="field-error" role="alert" data-testid="send-error">{{ error }}</p>
-      <div class="btn-row">
-        <button type="submit" class="btn-primary" :disabled="busy" data-testid="send-submit">
-          <Icon name="share" /> {{ t('submit') }}
-        </button>
+        <label v-if="mailOn" class="block">
+          <span class="inline-flex items-center gap-1"
+            >{{ t('mailTo') }}<InfoHint :text="t('mailHint')"
+          /></span>
+          <input
+            v-model="form.mailTo"
+            type="email"
+            class="input"
+            :placeholder="t('mailPh')"
+            data-testid="send-email"
+          />
+        </label>
+        <p v-if="error" class="field-error" role="alert" data-testid="send-error">{{ error }}</p>
+        <div class="btn-row">
+          <button type="submit" class="btn-primary" :disabled="busy" data-testid="send-submit">
+            <Icon :name="mailOn && form.mailTo.trim() ? 'mail' : 'share'" /> {{ t('submit') }}
+          </button>
+        </div>
       </div>
     </form>
 
     <!-- список -->
     <div class="space-y-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 class="flex items-center gap-1 font-medium">
-          {{ t('list') }}<InfoHint :text="t('listHint')" />
-        </h2>
-        <button type="button" class="btn" @click="load">{{ t('refresh') }}</button>
-      </div>
-      <div class="flex flex-wrap gap-2" role="tablist">
-        <button
-          v-for="s in tabs"
-          :key="s"
-          type="button"
-          role="tab"
-          class="btn"
-          :class="tab === s ? 'btn-primary' : ''"
-          :aria-selected="tab === s"
-          :data-testid="`send-tab-${s}`"
-          @click="tab = s"
-        >
-          {{ t(`tabs.${s}`) }} · {{ count(s) }}
-        </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="mr-auto flex items-center gap-1">
+          <h2 class="flex items-center gap-1 font-medium">
+            {{ t('list') }}<InfoHint :text="t('listHint')" />
+          </h2>
+          <IconButton icon="sync" :label="t('refresh')" data-testid="send-refresh" @click="load" />
+        </div>
+        <div class="flex flex-wrap gap-2" role="tablist">
+          <button
+            v-for="s in tabs"
+            :key="s"
+            type="button"
+            role="tab"
+            class="btn"
+            :class="tab === s ? 'btn-primary' : ''"
+            :aria-selected="tab === s"
+            :data-testid="`send-tab-${s}`"
+            @click="tab = s"
+          >
+            {{ t(`tabs.${s}`) }} · {{ count(s) }}
+          </button>
+        </div>
       </div>
       <p v-if="listError" class="field-error" role="alert">{{ listError }}</p>
       <ul
@@ -497,16 +599,16 @@ onMounted(async () => {
         <li
           v-for="r in shown"
           :key="r.id"
-          class="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+          class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3"
           data-testid="send-row"
         >
-          <div class="min-w-0 space-y-1">
+          <div class="min-w-0 flex-1 space-y-1">
             <div class="break-words font-medium">
               {{ r.label || t('noPurpose') }}
               <span v-if="r.kind === 'entry'" class="badge ml-1">{{ t('fromEntry') }}</span>
               <span v-if="r.hasPassphrase" class="badge ml-1">{{ t('protect') }}</span>
             </div>
-            <div class="text-xs text-slate-500">
+            <div class="break-words text-xs text-slate-500">
               {{ t('created', { at: when(r.createdAt) }) }} ·
               {{
                 r.status === 'active'
@@ -519,6 +621,7 @@ onMounted(async () => {
                   ? t('left', { n: r.maxViews - r.views, max: r.maxViews })
                   : t('opened', { n: r.views, max: r.maxViews })
               }}
+              <template v-if="r.mailedTo"> · {{ t('mailedTo', { to: r.mailedTo }) }}</template>
               <template v-if="r.status !== 'active' && r.destroyed">
                 · {{ t('destroyed') }}</template
               >
